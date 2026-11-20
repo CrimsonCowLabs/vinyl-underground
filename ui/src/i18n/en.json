@@ -641,6 +641,13 @@
         "theme": "Theme",
         "language": "Language",
         "defaultView": "Default View",
+        "streamingQuality": {
+          "name": "Streaming Quality",
+          "help": "Opus at 160 kbps saves data. Automatic uses it on phones only.",
+          "auto": "Automatic (Opus on phones, original on desktop)",
+          "original": "Always original",
+          "dataSaver": "Always Opus 160 kbps (data saver)"
+        },
         "desktop_notifications": "Desktop Notifications",
         "lastfmNotConfigured": "Last.fm API-Key is not configured",
         "lastfmScrobbling": "Scrobble to Last.fm",

@@ -16,9 +16,10 @@ It is a public, GPL-3.0, hard fork of Navidrome **v0.64.2**, renamed and never r
 - Streaming and transcoding (ffmpeg).
 - Playlists: owned by one Listener, private by default, and read-only when shared. A Listener can copy a shared Playlist to make their own.
 
-### Streaming quality
+### Streaming quality ([ADR-0007](./adr/0007-phone-streams-opus-by-default.md))
 - Phone: always Opus at ~160 kbps. Desktop: the original File.
 - A per-Listener override in settings.
+- Applies to the web app only. A phone is an Android or iOS User-Agent. Safari on an iPhone gets MP3 at ~160 kbps, as it cannot stream transcoded Opus.
 
 ### Downloads ([ADR-0006](./adr/0006-offline-downloads-in-the-pwa.md))
 - Playlists and albums can be downloaded to the device as Opus at ~160 kbps.
