@@ -59,15 +59,15 @@ export default defineConfig({
 // PWA manifest
 function manifest() {
   return {
-    name: 'Navidrome',
-    short_name: 'Navidrome',
+    name: 'Vinyl Underground',
+    short_name: 'Vinyl Underground',
     description:
-      'Navidrome, an open source web-based music collection server and streamer',
+      'Vinyl Underground, a self-hosted music server and streamer',
     categories: ['music', 'entertainment'],
     display: 'standalone',
     start_url: './',
     background_color: 'white',
-    theme_color: 'blue',
+    theme_color: '#c8102e',
     icons: [
       {
         src: './android-chrome-192x192.png',
