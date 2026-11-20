@@ -52,7 +52,8 @@ It is a public, GPL-3.0, hard fork of Navidrome **v0.64.2**, renamed and never r
 - **UI.** Navidrome's existing React 17 / react-admin 3 / MUI v4 UI is extended, not replaced ([ADR-0003](./adr/0003-extend-legacy-navidrome-ui.md)). The service worker gains audio caching.
 - **LLM.** Any OpenAI-compatible endpoint, set by a URL and model name. With no LLM configured or reachable, AI features are hidden and Stations run with rule-based selection and no Blurbs.
   - **Model:** a ~4B instruct model (e.g. Qwen3.5 4B or Gemma 4 E4B), chosen by timing a real Prompt on the actual Library.
-  - **Output:** always constrained by a JSON schema (Ollama's `format` option). Prompting for JSON alone is not enough at this model size.
+  - **Output:** always constrained by a JSON schema (Ollama's `format` option). Prompting for JSON alone is not enough at this model size. Use a GGUF build of the model (e.g. `qwen3.5:4b-q4_K_M`); Ollama's MLX builds return "structured output is unavailable" when given a schema (seen on Ollama 0.40.16).
+  - **Measured** (Qwen3.5 4B q4_K_M on an 8 GB A18 Pro Mac): ranking 150 candidates takes ~33 s, at ~145 words/s prompt reading and ~16 words/s output.
   - **Thinking:** turn off any "thinking" mode.
   - **Prompt size:** keep candidate lists to ~100–150 Tracks, one compact line each (artist, title, year, genre), so prompts stay short.
   - **Timeouts:** allow for slow LLM calls.
