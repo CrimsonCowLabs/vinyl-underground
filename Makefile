@@ -7,7 +7,7 @@ GO_BUILD_TAGS=netgo,sqlite_fts5$(if $(EXTRA_BUILD_TAGS),$(comma)$(EXTRA_BUILD_TA
 # Set global environment variables, required for most targets
 export ND_ENABLEINSIGHTSCOLLECTOR=false
 
-ifneq ("$(wildcard .git/HEAD)","")
+ifneq ("$(shell git rev-parse --git-dir 2>/dev/null)","")
 GIT_SHA=$(shell git rev-parse --short HEAD)
 GIT_TAG=$(shell git describe --tags --abbrev=0 2>/dev/null || echo v0.0.0)-SNAPSHOT
 else
