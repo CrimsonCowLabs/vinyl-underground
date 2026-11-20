@@ -422,7 +422,7 @@
   },
   "ra": {
     "auth": {
-      "welcome1": "Obrigado por instalar Navidrome!",
+      "welcome1": "Obrigado por instalar Vinyl Underground!",
       "welcome2": "Para iniciar, crie um usuário admin",
       "confirmPassword": "Confirme a senha",
       "buttonCreateAdmin": "Criar Admin",
@@ -568,7 +568,7 @@
   "message": {
     "note": "ATENÇÃO",
     "transcodingDisabled": "Por questão de segurança, esta tela de configuração está desabilitada. Se você quiser alterar estas configurações, reinicie o servidor com a opção %{config}",
-    "transcodingEnabled": "Navidrome está sendo executado com a opção %{config}. Isto permite que potencialmente se execute comandos do sistema pela interface Web. É recomendado que vc mantenha esta opção desabilitada, e só a habilite quando precisar configurar opções de Conversão",
+    "transcodingEnabled": "Vinyl Underground está sendo executado com a opção %{config}. Isto permite que potencialmente se execute comandos do sistema pela interface Web. É recomendado que vc mantenha esta opção desabilitada, e só a habilite quando precisar configurar opções de Conversão",
     "songsAddedToPlaylist": "Música adicionada à playlist |||| %{smart_count} músicas adicionadas à playlist",
     "noPlaylistsAvailable": "Nenhuma playlist",
     "delete_user_title": "Excluir usuário '%{name}'",

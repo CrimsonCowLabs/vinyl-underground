@@ -22,7 +22,7 @@ import Notification from './Notification'
 import useCurrentTheme from '../themes/useCurrentTheme'
 import config from '../config'
 import { clearQueue } from '../actions'
-import { INSIGHTS_DOC_URL } from '../consts.js'
+import { APP_NAME, INSIGHTS_DOC_URL, SOURCE_REPO } from '../consts.js'
 
 const useStyles = makeStyles(
   (theme) => ({
@@ -127,12 +127,12 @@ const FormLogin = ({ loading, handleSubmit, validate }) => {
               </div>
               <div className={classes.systemName}>
                 <a
-                  href="https://www.navidrome.org"
+                  href={`https://${SOURCE_REPO}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className={classes.systemNameLink}
                 >
-                  Navidrome
+                  {APP_NAME}
                 </a>
               </div>
               {config.welcomeMessage && (

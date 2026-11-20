@@ -1,5 +1,8 @@
 export const REST_URL = '/api'
 
+export const APP_NAME = 'Vinyl Underground'
+export const SOURCE_REPO = 'github.com/CrimsonCowLabs/vinyl-underground'
+
 export const INSIGHTS_DOC_URL =
   'https://navidrome.org/docs/getting-started/insights'
 

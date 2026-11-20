@@ -413,7 +413,7 @@
   },
   "ra": {
     "auth": {
-      "welcome1": "Aitäh, et paigaldasid Navidrome'i!",
+      "welcome1": "Aitäh, et paigaldasid Vinyl Undergroundi!",
       "welcome2": "Alustamiseks lisa peakasutaja",
       "confirmPassword": "Korda salasõna",
       "buttonCreateAdmin": "Lisa peakasutaja",
@@ -559,13 +559,13 @@
   "message": {
     "note": "MÄRGE",
     "transcodingDisabled": "Teisendusseadistuste muutmine läbi veebiliidese ei ole turvariskide tõttu saadaval. Kui soovid muuta või lisada teisendamisega seotud seadistusi, taaskäivita server %{config} valikuga.",
-    "transcodingEnabled": "Navidrome käivitati %{config} valikuga, mis lubab läbi veebiliidese teisendusseadistuste käivitada süsteemikäsklusi. Turvakaalutlustel on soovitatav kasutada seda valikut ainult teisendusvalikute muutmiseks.",
+    "transcodingEnabled": "Vinyl Underground käivitati %{config} valikuga, mis lubab läbi veebiliidese teisendusseadistuste käivitada süsteemikäsklusi. Turvakaalutlustel on soovitatav kasutada seda valikut ainult teisendusvalikute muutmiseks.",
     "songsAddedToPlaylist": "Lisasin ühe loo esitusloendisse |||| Lisasin %{smart_count} lugu esitusloendisse",
     "noPlaylistsAvailable": "Pole saadaval",
     "delete_user_title": "Kustuta kasutaja „%{name}“",
     "delete_user_content": "Kas oled kindel, et soovid selle kasutaja ja kõik tema andmed (sh esitusloendid ja eelistused) kustutada?",
     "notifications_blocked": "Sa oled selle saidi teavitused veebibrauseri seadistusest keelanud",
-    "notifications_not_available": "See veebibrauser kas ei toeta töölauateavitusi või sa ei kasuta Navidrome'i üle https-protokolli",
+    "notifications_not_available": "See veebibrauser kas ei toeta töölauateavitusi või sa ei kasuta Vinyl Undergroundi üle https-protokolli",
     "lastfmLinkSuccess": "Last.fm-i seos on lisatud ja kraasimine on lülitatud sisse",
     "lastfmLinkFailure": "Last.fm-i seose lisamine ei õnnestunud",
     "lastfmUnlinkSuccess": "Last.fm-i seos on eemaldatud ja kraasimine on lülitatud välja",
@@ -702,7 +702,7 @@
     "selectiveScan": "Valikuline"
   },
   "help": {
-    "title": "Navidrome'i kiirklahvid",
+    "title": "Vinyl Undergroundi kiirklahvid",
     "hotkeys": {
       "show_help": "Näita seda abiteavet",
       "toggle_menu": "Lülita menüü külgriba sisse/välja",

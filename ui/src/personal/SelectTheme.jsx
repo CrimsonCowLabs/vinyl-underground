@@ -25,7 +25,7 @@ export const SelectTheme = (props) => {
   )
   themeChoices.push({
     id: helpKey,
-    name: <HelpMsg caption={'Create your own'} />,
+    name: <HelpMsg caption={'Create your own (Navidrome docs)'} />,
   })
   return (
     <SelectInput

@@ -422,7 +422,7 @@
   },
   "ra": {
     "auth": {
-      "welcome1": "Dziękujemy za zainstalowanie Navidrome!",
+      "welcome1": "Dziękujemy za zainstalowanie Vinyl Underground!",
       "welcome2": "Stwórz konto administratora, aby rozpocząć",
       "confirmPassword": "Potwierdź Hasło",
       "buttonCreateAdmin": "Stwórz Administratora",
@@ -568,7 +568,7 @@
   "message": {
     "note": "UWAGA",
     "transcodingDisabled": "Zmiana ustawień transkodowania przez interfejs sieciowy jest zablokowana z powodów bezpieczeństwa. Jeśli chcesz zmienić (edytować lub dodawać) opcje transkodowania, uruchom ponownie serwer z %{config} opcją konfiguracji.",
-    "transcodingEnabled": "Navidrome aktualnie działa z %{config}, co umożliwia korzystanie z komend systemowych ustawień transkodowania poprzez interfejs sieciowy. Rekomendujemy wyłączenie tego ustawienia w celu zwiększenia bezpieczeństwa i aktywowanie go wyłącznie podczas konfiguracji transkodowania.",
+    "transcodingEnabled": "Vinyl Underground aktualnie działa z %{config}, co umożliwia korzystanie z komend systemowych ustawień transkodowania poprzez interfejs sieciowy. Rekomendujemy wyłączenie tego ustawienia w celu zwiększenia bezpieczeństwa i aktywowanie go wyłącznie podczas konfiguracji transkodowania.",
     "songsAddedToPlaylist": "Dodano 1 utwór do playlisty |||| Dodano %{smart_count} utworów do playlisty",
     "noPlaylistsAvailable": "Niedostępne",
     "delete_user_title": "Usuń użytkownika '%{name}'",
@@ -713,7 +713,7 @@
     "selectiveScan": "Selektywne"
   },
   "help": {
-    "title": "Skróty Klawiszowe Navidrome",
+    "title": "Skróty Klawiszowe Vinyl Underground",
     "hotkeys": {
       "show_help": "Wyświetl Pomoc",
       "toggle_menu": "Pokaż Pasek Boczny",
