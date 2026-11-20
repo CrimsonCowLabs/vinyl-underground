@@ -1,10 +1,31 @@
 # Vinyl Underground, served over HTTPS on a tailnet by `tailscale serve`.
-# Setup and first-run steps: deploy/README.md. Personal values go in deploy/.env
-# (copy .env.example); this file holds none.
+# Setup and first-run steps: deploy/README.md.
+#
+# Every setting has a default, so `docker compose up -d` works with no .env at
+# all. To change one, copy .env.example to .env (gitignored) and uncomment it.
+# This file holds no personal values.
 
 name: vinyl-underground
 
+x-run-as: &run-as "${VU_UID:-1000}:${VU_GID:-1000}"
+x-data-volume: &data-volume "${VU_DATA_DIR:-./data}:/data"
+
 services:
+  # One-shot: Docker creates a missing bind-mount folder as root, which the app
+  # (not root) can't write to. Hand the data folder to the app's user first.
+  data-permissions:
+    image: busybox:1.37
+    user: "0:0"
+    network_mode: none
+    environment:
+      OWNER: *run-as
+    command:
+      - sh
+      - -c
+      - '[ "$$(stat -c %u:%g /data)" = "$$OWNER" ] || chown -R "$$OWNER" /data'
+    volumes:
+      - *data-volume
+
   vinyl-underground:
     # No published image yet, so the image is built from this checkout.
     image: vinyl-underground:local
@@ -12,24 +33,30 @@ services:
       context: ..
     container_name: vinyl-underground
     restart: unless-stopped
+    depends_on:
+      data-permissions:
+        condition: service_completed_successfully
     read_only: true
     tmpfs:
       - /tmp
-    user: "${VU_UID:?set VU_UID in .env}:${VU_GID:?set VU_GID in .env}"
+    user: *run-as
     # Bound to loopback only: `tailscale serve` on the host is the sole way in,
     # and it adds the HTTPS the PWA's service worker needs.
     ports:
       - "127.0.0.1:${VU_PORT:-4533}:4533"
+    # Any ND_* setting in .env reaches the app (see .env.example).
+    env_file:
+      - path: .env
+        required: false
     environment:
-      ND_LOGLEVEL: ${ND_LOGLEVEL:-info}
-      # Rescan the Library on a schedule too: the file watcher can miss changes on network mounts.
+      # Defaults that differ from upstream Navidrome; .env can still override them.
+      # Rescan on a schedule too: the file watcher can miss changes on network mounts.
       ND_SCANNER_SCHEDULE: ${ND_SCANNER_SCHEDULE:-@every 24h}
-      ND_LASTFM_APIKEY: ${ND_LASTFM_APIKEY:-}
-      ND_LASTFM_SECRET: ${ND_LASTFM_SECRET:-}
+      ND_BACKUP_PATH: ${ND_BACKUP_PATH:-/data/backup}
     volumes:
-      - "${VU_DATA_DIR:?set VU_DATA_DIR in .env}:/data"
+      - *data-volume
       # The Library is always read-only for the app (ADR-0002).
-      - "${VU_LIBRARY_DIR:?set VU_LIBRARY_DIR in .env}:/music:ro"
+      - "${VU_LIBRARY_DIR:-/mnt/music}:/music:ro"
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:4533/ping"]
       interval: 30s
