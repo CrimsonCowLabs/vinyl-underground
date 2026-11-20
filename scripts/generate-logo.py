@@ -4,8 +4,9 @@
 The logo is a stylised vinyl record: a black disc with grooves, two light
 reflections, a crimson label with a cream ring and a spindle hole.
 
-The geometry lives in one place (SHAPES) and is written both as SVG and,
-through pycairo, as PNGs, so the vector and raster icons never drift apart.
+The geometry constants are shared by two renderers: svg() writes the vector
+logo and draw_logo() paints the same shapes through pycairo for the PNGs.
+Change both when changing the design, so the vector and raster icons match.
 
 Requires: python3 with pycairo and Pillow (Pillow is only used for the .ico).
 Run from the repository root:

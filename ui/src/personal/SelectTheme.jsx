@@ -1,6 +1,6 @@
 import { SelectInput, useTranslate } from 'react-admin'
 import { useDispatch, useSelector } from 'react-redux'
-import { AUTO_THEME_ID } from '../consts'
+import { AUTO_THEME_ID, UPSTREAM_NAME } from '../consts'
 import themes from '../themes'
 import { HelpMsg } from './HelpMsg'
 import { docsUrl, openInNewTab } from '../utils'
@@ -25,7 +25,7 @@ export const SelectTheme = (props) => {
   )
   themeChoices.push({
     id: helpKey,
-    name: <HelpMsg caption={'Create your own (Navidrome docs)'} />,
+    name: <HelpMsg caption={`Create your own (${UPSTREAM_NAME} docs)`} />,
   })
   return (
     <SelectInput
