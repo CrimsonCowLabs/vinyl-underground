@@ -3,6 +3,12 @@ export const REST_URL = '/api'
 export const APP_NAME = 'Vinyl Underground'
 export const SOURCE_REPO = 'github.com/CrimsonCowLabs/vinyl-underground'
 
+// Vinyl Underground is a fork of Navidrome. Credit it without implying endorsement.
+export const UPSTREAM_NAME = 'Navidrome'
+export const UPSTREAM_VERSION = '0.64.2'
+export const UPSTREAM_LICENSE = 'GPL-3.0'
+export const UPSTREAM_REPO = 'github.com/navidrome/navidrome'
+
 export const INSIGHTS_DOC_URL =
   'https://navidrome.org/docs/getting-started/insights'
 

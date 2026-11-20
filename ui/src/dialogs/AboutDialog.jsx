@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react'
 import PropTypes from 'prop-types'
 import Link from '@material-ui/core/Link'
 import Dialog from '@material-ui/core/Dialog'
-import IconButton from '@material-ui/core/IconButton'
 import TableContainer from '@material-ui/core/TableContainer'
 import Table from '@material-ui/core/Table'
 import TableBody from '@material-ui/core/TableBody'
@@ -10,7 +9,6 @@ import TableRow from '@material-ui/core/TableRow'
 import TableCell from '@material-ui/core/TableCell'
 import Paper from '@material-ui/core/Paper'
 import CloudDownloadIcon from '@material-ui/icons/CloudDownload'
-import FavoriteBorderIcon from '@material-ui/icons/FavoriteBorder'
 import FileCopyIcon from '@material-ui/icons/FileCopy'
 import Button from '@material-ui/core/Button'
 import { humanize, underscore } from 'inflection'
@@ -20,7 +18,15 @@ import { makeStyles } from '@material-ui/core/styles'
 import config from '../config'
 import { DialogTitle } from './DialogTitle'
 import { DialogContent } from './DialogContent'
-import { INSIGHTS_DOC_URL } from '../consts.js'
+import {
+  APP_NAME,
+  INSIGHTS_DOC_URL,
+  SOURCE_REPO,
+  UPSTREAM_LICENSE,
+  UPSTREAM_NAME,
+  UPSTREAM_REPO,
+  UPSTREAM_VERSION,
+} from '../consts.js'
 import subsonic from '../subsonic/index.js'
 import { Typography } from '@material-ui/core'
 import TableHead from '@material-ui/core/TableHead'
@@ -70,13 +76,8 @@ const useStyles = makeStyles((theme) => ({
 }))
 
 const links = {
-  homepage: 'navidrome.org',
-  reddit: 'reddit.com/r/Navidrome',
-  twitter: 'twitter.com/navidrome',
-  discord: 'discord.gg/xh7j7yF',
-  source: 'github.com/navidrome/navidrome',
-  bugReports: 'github.com/navidrome/navidrome/issues/new/choose',
-  featureRequests: 'github.com/navidrome/navidrome/discussions/new',
+  source: SOURCE_REPO,
+  bugReports: `${SOURCE_REPO}/issues/new`,
 }
 
 const LinkToVersion = ({ version }) => {
@@ -88,10 +89,8 @@ const LinkToVersion = ({ version }) => {
   const commitID = parts[1].replace(/[()]/g, '')
   const isSnapshot = version.includes('SNAPSHOT')
   const url = isSnapshot
-    ? `https://github.com/navidrome/navidrome/compare/v${
-        parts[0].split('-')[0]
-      }...${commitID}`
-    : `https://github.com/navidrome/navidrome/releases/tag/v${parts[0]}`
+    ? `https://${SOURCE_REPO}/compare/v${parts[0].split('-')[0]}...${commitID}`
+    : `https://${SOURCE_REPO}/releases/tag/v${parts[0]}`
   return (
     <>
       <Link href={url} target="_blank" rel="noopener noreferrer">
@@ -195,24 +194,17 @@ const AboutTabContent = ({
         ) : null}
         <TableRow>
           <TableCell align="right" component="th" scope="row">
-            <Link
-              href={'https://github.com/sponsors/deluan'}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              <IconButton size={'small'}>
-                <FavoriteBorderIcon fontSize={'small'} />
-              </IconButton>
-            </Link>
+            {translate('about.links.basedOn', { _: 'Based on' })}:
           </TableCell>
           <TableCell align="left">
             <Link
-              href={'https://ko-fi.com/deluan'}
+              href={`https://${UPSTREAM_REPO}`}
               target="_blank"
               rel="noopener noreferrer"
             >
-              ko-fi.com/deluan
+              {`${UPSTREAM_NAME} v${UPSTREAM_VERSION}`}
             </Link>
+            {` (${UPSTREAM_LICENSE})`}
           </TableCell>
         </TableRow>
       </TableBody>
@@ -472,7 +464,7 @@ const AboutDialog = ({ open, onClose }) => {
       className={classes.expandableDialog}
     >
       <DialogTitle id="about-dialog-title" onClose={onClose}>
-        Navidrome Music Server
+        {APP_NAME}
       </DialogTitle>
       <DialogContent dividers>
         <TabContent

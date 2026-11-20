@@ -689,6 +689,7 @@
     "links": {
       "homepage": "Home page",
       "source": "Source code",
+      "basedOn": "Based on",
       "featureRequests": "Feature requests",
       "lastInsightsCollection": "Last insights collection",
       "insights": {
