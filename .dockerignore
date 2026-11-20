@@ -17,6 +17,5 @@ cache
 music
 music.old
 !Dockerfile
-.env
 **/.env
 deploy/data

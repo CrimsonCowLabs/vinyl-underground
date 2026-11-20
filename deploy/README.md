@@ -43,7 +43,13 @@ A Quarantine folder inside the Library must contain a `.ndignore` file, which ma
 find "$VU_LIBRARY_DIR" -name .ndignore
 ```
 
-Then re-run the `jdupes` dry run from the Quarantine recipe. It must report no Duplicates left in the Library.
+Then check that no Duplicates are left in the Library. `jdupes` without an action flag only lists duplicate sets and changes nothing. This runs it over every top-level folder except Quarantine (replace `Quarantine` with your folder's name) and must print `No duplicates found.`:
+
+```bash
+find "$VU_LIBRARY_DIR" -mindepth 1 -maxdepth 1 -type d ! -name Quarantine -exec jdupes -r -q {} +
+```
+
+If it lists anything, finish the Duplicate pass first (issue #2) and check again.
 
 ## 4. Start the app and run the first scan
 
@@ -61,7 +67,7 @@ Check that the scan picked up no Quarantine Files and no Duplicates. Both counts
 docker compose exec vinyl-underground sqlite3 /data/navidrome.db \
   "select count(*) from media_file where missing = 0 and path like '%Quarantine/%';"
 
-# Likely Duplicates: Tracks with the same title, size and duration as another Track
+# Likely Duplicates: Files with the same title, size and duration as another Track's File
 docker compose exec vinyl-underground sqlite3 /data/navidrome.db \
   "select count(*) from (select 1 from media_file where missing = 0 group by title, size, duration having count(*) > 1);"
 ```
@@ -93,7 +99,7 @@ To stop serving: `sudo tailscale serve --https=443 off`.
 1. Open `https://$VU_TS_HOSTNAME` in a browser on the tailnet. On the first visit the app says "To start, create an admin user". This first Listener is the **admin**.
 2. Log in as the admin, open the menu at the top right, then **Users**, then **+ Create**. Enter the second Listener's username, name and password, and leave **Is Admin** off.
 
-The same can be done from the host, which prompts for each password (choose your own usernames):
+The same can be done from the host, which prompts for each password (choose your own usernames). Passwords are only ever typed in, never stored in `.env`:
 
 ```bash
 docker compose exec vinyl-underground navidrome user create -u <admin-username> --admin
@@ -104,7 +110,7 @@ docker compose exec vinyl-underground navidrome user list
 Each Listener has their own favorites, ratings, play counts, history and Playlists. To check they are kept apart:
 
 1. As the first Listener, star a Track and play another to the end.
-2. Log in as the second Listener (another device, or a private window). **Favourites** and **Recently played** must not show those Tracks.
+2. Log in as the second Listener (another device, or a private window). **Favourites** must not show the starred Track, and **Albums > Recently Played** must not show the played Track's album.
 3. Star a Track and play one as the second Listener, then check the first Listener's lists don't show them either.
 
 ## 7. Install the app on an Android phone
@@ -113,7 +119,7 @@ On each Listener's phone:
 
 1. Install the Tailscale app, log in to the tailnet and connect. In the app's settings, make sure **Use Tailscale DNS** is on, so the tailnet name resolves.
 2. In Chrome, open `https://$VU_TS_HOSTNAME`. The address bar must show a padlock with no certificate warning.
-3. Log in with that Listener's account.
+3. Log in as that Listener.
 4. Open Chrome's menu and tap **Install app** (or **Add to Home screen**, then **Install**). The Vinyl Underground icon appears on the home screen and in the app drawer.
 5. Open it from the icon. It should open in its own window, with no browser address bar.
 

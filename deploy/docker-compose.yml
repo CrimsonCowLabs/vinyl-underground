@@ -7,8 +7,7 @@ name: vinyl-underground
 services:
   vinyl-underground:
     # No published image yet, so the image is built from this checkout.
-    # Set VU_IMAGE to use a prebuilt one instead (then run `docker compose pull`).
-    image: ${VU_IMAGE:-vinyl-underground:local}
+    image: vinyl-underground:local
     build:
       context: ..
     container_name: vinyl-underground
@@ -23,7 +22,7 @@ services:
       - "127.0.0.1:${VU_PORT:-4533}:4533"
     environment:
       ND_LOGLEVEL: ${ND_LOGLEVEL:-info}
-      # Rescan the Library on a schedule. File watching doesn't work on network mounts.
+      # Rescan the Library on a schedule too: the file watcher can miss changes on network mounts.
       ND_SCANNER_SCHEDULE: ${ND_SCANNER_SCHEDULE:-@every 24h}
       ND_LASTFM_APIKEY: ${ND_LASTFM_APIKEY:-}
       ND_LASTFM_SECRET: ${ND_LASTFM_SECRET:-}
