@@ -227,6 +227,15 @@ const wrapperDataProvider = {
       method: 'POST',
       body: JSON.stringify({ code }),
     }).then(({ json }) => ({ data: json })),
+  getStreamingQuality: () =>
+    httpClient(`${REST_URL}/streamingQuality`).then(({ json }) => ({
+      data: json,
+    })),
+  setStreamingQuality: (preference) =>
+    httpClient(`${REST_URL}/streamingQuality`, {
+      method: 'PUT',
+      body: JSON.stringify({ preference }),
+    }).then(({ json }) => ({ data: json })),
   inspect: (songId) => {
     return httpClient(`${REST_URL}/inspect?id=${songId}`).then(({ json }) => ({
       data: json,

@@ -10,6 +10,7 @@ import { ListenBrainzScrobbleToggle } from './ListenBrainzScrobbleToggle'
 import config from '../config'
 import { APP_NAME } from '../consts'
 import { ReplayGainToggle } from './ReplayGainToggle'
+import { SelectStreamingQuality } from './SelectStreamingQuality'
 
 const useStyles = makeStyles({
   root: { marginTop: '1em' },
@@ -26,6 +27,7 @@ const Personal = () => {
         <SelectTheme />
         <SelectLanguage />
         <SelectDefaultView />
+        <SelectStreamingQuality />
         {config.enableReplayGain && <ReplayGainToggle />}
         <NotificationsToggle />
         {config.lastFMEnabled && <LastfmScrobbleToggle />}
