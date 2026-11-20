@@ -4,7 +4,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 
+	"github.com/go-chi/jwtauth/v5"
 	"github.com/navidrome/navidrome/core"
+	"github.com/navidrome/navidrome/core/auth"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/tests"
 	. "github.com/onsi/ginkgo/v2"
@@ -17,6 +19,9 @@ var _ = Describe("handleM3U", func() {
 	var pub *Router
 
 	BeforeEach(func() {
+		// handleM3U mints public stream tokens, so it needs PublicTokenAuth set up here
+		// rather than relying on another spec in this package having run first.
+		auth.PublicTokenAuth = jwtauth.New("HS256", []byte("test-secret"), nil)
 		ds = &tests.MockDataStore{}
 		shareRepo = &tests.MockShareRepo{}
 		ds.MockedShare = shareRepo
