@@ -13,6 +13,20 @@ import (
 const (
 	phoneUserAgent   = "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36"
 	desktopUserAgent = "Mozilla/5.0 (X11; Linux x86_64; rv:133.0) Gecko/20100101 Firefox/133.0"
+	iPhoneUserAgent  = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1"
+
+	// safariProfile is what browserProfile.js sends from Safari, which only transcodes to MP3.
+	safariProfile = `{
+		"name": "NavidromeUI",
+		"directPlayProfiles": [
+			{"containers": ["mp3"], "audioCodecs": ["mp3"], "protocols": ["http"]},
+			{"containers": ["flac"], "audioCodecs": ["flac"], "protocols": ["http"]},
+			{"containers": ["mp4"], "audioCodecs": ["aac"], "protocols": ["http"]}
+		],
+		"transcodingProfiles": [
+			{"container": "mp3", "audioCodec": "mp3", "protocol": "http"}
+		]
+	}`
 
 	// webAppProfile is what the web app's browserProfile.js sends from Chrome.
 	webAppProfile = `{
@@ -58,8 +72,8 @@ var _ = Describe("Streaming quality", Ordered, func() {
 		return r
 	}
 
-	decide := func(userAgent string) *responses.TranscodeDecision {
-		r := buildPostReq(adminUser, "getTranscodeDecision", webAppProfile, "mediaId", flacTrackID, "mediaType", "song")
+	decideWith := func(profile, userAgent string) *responses.TranscodeDecision {
+		r := buildPostReq(adminUser, "getTranscodeDecision", profile, "mediaId", flacTrackID, "mediaType", "song")
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, webAppRequest(r, userAgent))
 		resp := parseJSONResponse(w)
@@ -67,12 +81,23 @@ var _ = Describe("Streaming quality", Ordered, func() {
 		Expect(resp.TranscodeDecision).ToNot(BeNil())
 		return resp.TranscodeDecision
 	}
+	decide := func(userAgent string) *responses.TranscodeDecision {
+		return decideWith(webAppProfile, userAgent)
+	}
 
 	It("gives a phone Opus at 160 kbps with no setup", func() {
 		decision := decide(phoneUserAgent)
 		Expect(decision.CanDirectPlay).To(BeFalse())
 		Expect(decision.CanTranscode).To(BeTrue())
 		Expect(decision.TranscodeStream.Codec).To(Equal("opus"))
+		Expect(decision.TranscodeStream.AudioBitrate).To(Equal(int32(160_000)))
+	})
+
+	It("gives an iPhone 160 kbps MP3, because Safari cannot stream transcoded Ogg Opus", func() {
+		decision := decideWith(safariProfile, iPhoneUserAgent)
+		Expect(decision.CanDirectPlay).To(BeFalse())
+		Expect(decision.CanTranscode).To(BeTrue())
+		Expect(decision.TranscodeStream.Codec).To(Equal("mp3"))
 		Expect(decision.TranscodeStream.AudioBitrate).To(Equal(int32(160_000)))
 	})
 

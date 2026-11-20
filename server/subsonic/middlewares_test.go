@@ -601,6 +601,23 @@ var _ = Describe("Middlewares", func() {
 				Expect(transcoding.DefaultBitRate).To(Equal(160))
 			})
 
+			It("caps the player at 160 kbps, even where the browser cannot play Opus", func() {
+				r.Header.Set("User-Agent", phoneUA)
+				getPlayer(mockedPlayers, quality)(next).ServeHTTP(w, r)
+
+				player, _ := request.PlayerFrom(next.req.Context())
+				Expect(player.MaxBitRate).To(Equal(160))
+			})
+
+			It("keeps a lower MaxBitRate configured on the player", func() {
+				r.Header.Set("User-Agent", phoneUA)
+				mockedPlayers.maxBitRate = 96
+				getPlayer(mockedPlayers, quality)(next).ServeHTTP(w, r)
+
+				player, _ := request.PlayerFrom(next.req.Context())
+				Expect(player.MaxBitRate).To(Equal(96))
+			})
+
 			It("keeps the transcoding configured on the player", func() {
 				r.Header.Set("User-Agent", phoneUA)
 				mockedPlayers.transcoding = &model.Transcoding{ID: "12", TargetFormat: "mp3"}
@@ -751,6 +768,7 @@ func (mh *mockHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 type mockPlayers struct {
 	core.Players
 	transcoding *model.Transcoding
+	maxBitRate  int
 }
 
 func (mp *mockPlayers) Get(ctx context.Context, playerId string) (*model.Player, error) {
@@ -761,7 +779,7 @@ func (mp *mockPlayers) Register(ctx context.Context, id, client, typ, ip string)
 	if client == "error" {
 		return nil, nil, errors.New(client)
 	}
-	return &model.Player{ID: id}, mp.transcoding, nil
+	return &model.Player{ID: id, MaxBitRate: mp.maxBitRate}, mp.transcoding, nil
 }
 
 type gatedDataStore struct {

@@ -228,14 +228,21 @@ func getPlayer(players core.Players, quality streamquality.Service) func(next ht
 			if err != nil {
 				log.Error(ctx, "Could not register player", "username", userName, "client", client, err)
 			} else {
-				ctx = request.WithPlayer(ctx, *player)
+				ctxPlayer := *player
 				if trc == nil {
 					user, _ := request.UserFrom(ctx)
 					trc, err = quality.Transcoding(ctx, user.ID, client, r.UserAgent())
 					if err != nil {
 						log.Error(ctx, "Could not resolve default streaming quality", "username", userName, "client", client, err)
 					}
+					// Unlike a Transcoding set on the player, the default also caps the bitrate when
+					// the browser can't play its format (Safari can't stream Ogg Opus, so an iPhone
+					// gets MP3 at the same bitrate). Only the in-context copy changes; nothing is saved.
+					if trc != nil && ctxPlayer.MaxBitRate == 0 {
+						ctxPlayer.MaxBitRate = trc.DefaultBitRate
+					}
 				}
+				ctx = request.WithPlayer(ctx, ctxPlayer)
 				if trc != nil {
 					ctx = request.WithTranscoding(ctx, *trc)
 				}
