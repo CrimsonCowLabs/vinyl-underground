@@ -49,7 +49,7 @@ python3 scan.py /mnt/music-rw > $PLANS/scan.tsv
 python3 casemerge.py merge $PLANS/scan.tsv > $PLANS/merge.tsv
 ```
 
-`casemerge.py merge` refuses to plan while any names still clash. Review `merge.tsv` before applying it, and decide each `decide` line by hand. Then run `apply.py` on it as in step 2. If `apply.py` stops on a step that won't verify, or a pair can't be addressed reliably over SMB at all, merge that pair on the NAS directly instead (e.g. through its web file manager), rescan, and continue.
+`casemerge.py merge` refuses to plan while any names still clash. Review `merge.tsv` before applying it, and decide each `decide` line by hand. To keep one copy and drop the other, change the line to `set-aside<TAB>SRC<TAB>_Quarantine/KEEP<TAB>KEEP`: `apply.py` then moves SRC into Quarantine without the byte check, provided KEEP exists. Use the same change when `apply.py` stops because a planned quarantine isn't byte-identical (e.g. `.DS_Store` files, or copies whose tags differ). Changing a line that hasn't run yet keeps the step numbers, so the run can resume. Then run `apply.py` on it as in step 2. If `apply.py` stops on a step that won't verify, or a pair can't be addressed reliably over SMB at all, merge that pair on the NAS directly instead (e.g. through its web file manager), rescan, and continue.
 
 **4. Check.** Two consecutive scans must finish without errors and return identical lists, with no clashes and no `[case-merge]` names left:
 
@@ -60,5 +60,7 @@ cmp $PLANS/check-1.tsv $PLANS/check-2.tsv && echo "scans identical"
 python3 casemerge.py rename $PLANS/check-1.tsv > /dev/null   # must report "0 clashing groups"
 grep -c 'case-merge' $PLANS/check-1.tsv                       # must print 0
 ```
+
+Some NAS devices keep a recycle bin on the share (`trashbox/` on Buffalo LinkStations), and removing a folder over SMB moves it there instead of deleting it. The emptied `[case-merge]` folders end up there, so ignore that folder in step 4 and empty it from the NAS's own admin page.
 
 **5. Unmount the writable mount:** `sudo umount /mnt/music-rw`. The app's read-only mount was never changed.

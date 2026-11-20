@@ -9,7 +9,10 @@ case-insensitive server may apply a name to the wrong sibling. The first step
 that fails or doesn't verify stops the run. Completed steps are recorded in
 PLAN.tsv.done, so re-running the same plan resumes after the last one.
 "decide" steps are only reported. A "quarantine" step first checks that the File
-is byte-identical to the one it duplicates, and stops if not. _Quarantine/ gets
+is byte-identical to the one it duplicates, and stops if not. A "set-aside" step
+is the owner's answer to a "decide": it moves a File that is NOT byte-identical
+(e.g. a lower-bitrate copy of the same recording) into Quarantine, provided the
+File it gives way to still exists. _Quarantine/ gets
 a .ndignore file so the app's scanner skips it.
 """
 import filecmp
@@ -94,6 +97,12 @@ def main(argv: list[str]) -> int:
                 keep = rest[1] if len(rest) > 1 else ""
                 if not keep or not filecmp.cmp(os.path.join(root, src), os.path.join(root, keep), shallow=False):
                     raise RuntimeError(f"not byte-identical to {keep!r}, so not a Duplicate; decide by hand")
+                ensure_quarantine(root)
+                result = relocate(root, src, dst)
+            elif op == "set-aside":
+                keep = rest[1] if len(rest) > 1 else ""
+                if not keep or not os.path.isfile(os.path.join(root, keep)):
+                    raise RuntimeError(f"the File to keep is missing: {keep!r}")
                 ensure_quarantine(root)
                 result = relocate(root, src, dst)
             elif op == "rmdir":
