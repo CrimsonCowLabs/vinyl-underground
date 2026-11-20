@@ -17,6 +17,7 @@ import (
 	"github.com/navidrome/navidrome/consts"
 	"github.com/navidrome/navidrome/core"
 	"github.com/navidrome/navidrome/core/auth"
+	"github.com/navidrome/navidrome/core/streamquality"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/model/request"
@@ -502,9 +503,11 @@ var _ = Describe("Middlewares", func() {
 
 	Describe("GetPlayer", func() {
 		var mockedPlayers *mockPlayers
+		var quality streamquality.Service
 		var r *http.Request
 		BeforeEach(func() {
 			mockedPlayers = &mockPlayers{}
+			quality = streamquality.New(&tests.MockDataStore{MockedTranscoding: &tests.MockTranscodingRepo{}})
 			r = newGetRequest()
 			ctx := request.WithUsername(r.Context(), "someone")
 			ctx = request.WithClient(ctx, "client")
@@ -512,7 +515,7 @@ var _ = Describe("Middlewares", func() {
 		})
 
 		It("returns a new player in the cookies when none is specified", func() {
-			gp := getPlayer(mockedPlayers)(next)
+			gp := getPlayer(mockedPlayers, quality)(next)
 			gp.ServeHTTP(w, r)
 
 			cookieStr := w.Header().Get("Set-Cookie")
@@ -523,7 +526,7 @@ var _ = Describe("Middlewares", func() {
 			ctx := request.WithClient(r.Context(), "error")
 			r = r.WithContext(ctx)
 
-			gp := getPlayer(mockedPlayers)(next)
+			gp := getPlayer(mockedPlayers, quality)(next)
 			gp.ServeHTTP(w, r)
 
 			cookieStr := w.Header().Get("Set-Cookie")
@@ -539,7 +542,7 @@ var _ = Describe("Middlewares", func() {
 				}
 				r.AddCookie(cookie)
 
-				gp := getPlayer(mockedPlayers)(next)
+				gp := getPlayer(mockedPlayers, quality)(next)
 				gp.ServeHTTP(w, r)
 			})
 
@@ -566,7 +569,7 @@ var _ = Describe("Middlewares", func() {
 				}
 				r.AddCookie(cookie)
 				mockedPlayers.transcoding = &model.Transcoding{ID: "12"}
-				gp := getPlayer(mockedPlayers)(next)
+				gp := getPlayer(mockedPlayers, quality)(next)
 				gp.ServeHTTP(w, r)
 			})
 
@@ -575,6 +578,61 @@ var _ = Describe("Middlewares", func() {
 				Expect(player.ID).To(Equal("123"))
 				transcoding, _ := request.TranscodingFrom(next.req.Context())
 				Expect(transcoding.ID).To(Equal("12"))
+			})
+		})
+
+		Context("Web app on a phone", func() {
+			const phoneUA = "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36"
+			const desktopUA = "Mozilla/5.0 (X11; Linux x86_64; rv:133.0) Gecko/20100101 Firefox/133.0"
+
+			BeforeEach(func() {
+				ctx := request.WithUser(r.Context(), model.User{ID: "listener1", UserName: "someone"})
+				ctx = request.WithClient(ctx, streamquality.WebAppClient)
+				r = r.WithContext(ctx)
+			})
+
+			It("streams Opus at 160 kbps when the player has no transcoding", func() {
+				r.Header.Set("User-Agent", phoneUA)
+				getPlayer(mockedPlayers, quality)(next).ServeHTTP(w, r)
+
+				transcoding, ok := request.TranscodingFrom(next.req.Context())
+				Expect(ok).To(BeTrue())
+				Expect(transcoding.TargetFormat).To(Equal("opus"))
+				Expect(transcoding.DefaultBitRate).To(Equal(160))
+			})
+
+			It("caps the player at 160 kbps, even where the browser cannot play Opus", func() {
+				r.Header.Set("User-Agent", phoneUA)
+				getPlayer(mockedPlayers, quality)(next).ServeHTTP(w, r)
+
+				player, _ := request.PlayerFrom(next.req.Context())
+				Expect(player.MaxBitRate).To(Equal(160))
+			})
+
+			It("keeps the MaxBitRate configured on the player", func() {
+				r.Header.Set("User-Agent", phoneUA)
+				mockedPlayers.maxBitRate = 96
+				getPlayer(mockedPlayers, quality)(next).ServeHTTP(w, r)
+
+				player, _ := request.PlayerFrom(next.req.Context())
+				Expect(player.MaxBitRate).To(Equal(96))
+			})
+
+			It("keeps the transcoding configured on the player", func() {
+				r.Header.Set("User-Agent", phoneUA)
+				mockedPlayers.transcoding = &model.Transcoding{ID: "12", TargetFormat: "mp3"}
+				getPlayer(mockedPlayers, quality)(next).ServeHTTP(w, r)
+
+				transcoding, _ := request.TranscodingFrom(next.req.Context())
+				Expect(transcoding.ID).To(Equal("12"))
+			})
+
+			It("streams the original File on a desktop", func() {
+				r.Header.Set("User-Agent", desktopUA)
+				getPlayer(mockedPlayers, quality)(next).ServeHTTP(w, r)
+
+				_, ok := request.TranscodingFrom(next.req.Context())
+				Expect(ok).To(BeFalse())
 			})
 		})
 	})
@@ -710,6 +768,7 @@ func (mh *mockHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 type mockPlayers struct {
 	core.Players
 	transcoding *model.Transcoding
+	maxBitRate  int
 }
 
 func (mp *mockPlayers) Get(ctx context.Context, playerId string) (*model.Player, error) {
@@ -720,7 +779,7 @@ func (mp *mockPlayers) Register(ctx context.Context, id, client, typ, ip string)
 	if client == "error" {
 		return nil, nil, errors.New(client)
 	}
-	return &model.Player{ID: id}, mp.transcoding, nil
+	return &model.Player{ID: id, MaxBitRate: mp.maxBitRate}, mp.transcoding, nil
 }
 
 type gatedDataStore struct {
