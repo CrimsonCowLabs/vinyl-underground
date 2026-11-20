@@ -100,6 +100,7 @@ var _ = Describe("serveIndex", func() {
 		Entry("enableQuickConnect", func() { conf.Server.Jellyfin.Enabled = true; conf.Server.Jellyfin.QuickConnect = true }, "enableQuickConnect", true),
 		Entry("enableQuickConnect without the Jellyfin API", func() { conf.Server.Jellyfin.Enabled = false; conf.Server.Jellyfin.QuickConnect = true }, "enableQuickConnect", false),
 		Entry("enableExternalServices", func() { conf.Server.EnableExternalServices = true }, "enableExternalServices", true),
+		Entry("enableInsightsCollector", func() { conf.Server.EnableInsightsCollector = true }, "enableInsightsCollector", true),
 		Entry("devActivityPanel", func() { conf.Server.DevActivityPanel = true }, "devActivityPanel", true),
 		Entry("shareURL", func() { conf.Server.ShareURL = "https://share.example.com" }, "shareURL", "https://share.example.com"),
 		Entry("enableInspect", func() { conf.Server.Inspect.Enabled = true }, "enableInspect", true),

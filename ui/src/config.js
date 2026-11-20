@@ -31,6 +31,7 @@ const defaultConfig = {
   lastFMEnabled: true,
   listenBrainzEnabled: true,
   enableExternalServices: true,
+  enableInsightsCollector: false,
   enableCoverAnimation: true,
   enableNowPlaying: true,
   playbackReportIntervalMs: 60000,

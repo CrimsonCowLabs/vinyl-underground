@@ -186,9 +186,13 @@ const FormLogin = ({ loading, handleSubmit, validate }) => {
   )
 }
 
-const InsightsNotice = ({ url }) => {
+export const InsightsNotice = ({ url }) => {
   const translate = useTranslate()
   const classes = useStyles()
+
+  if (!config.enableInsightsCollector) {
+    return null
+  }
 
   const anchorRegex = /\[(.+?)]/g
   const originalMsg = translate('ra.auth.insightsCollectionNote')

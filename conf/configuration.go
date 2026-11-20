@@ -1037,7 +1037,7 @@ func setViperDefaults() {
 	viper.SetDefault("defaultshareexpiration", consts.DefaultShareExpiration)
 	viper.SetDefault("defaultdownloadableshare", false)
 	viper.SetDefault("gatrackingid", "")
-	viper.SetDefault("enableinsightscollector", true)
+	viper.SetDefault("enableinsightscollector", false) // Vinyl Underground: off, so forks never report to upstream unasked
 	viper.SetDefault("enablescheduleddbanalyze", true)
 	viper.SetDefault("enablelogredacting", true)
 	viper.SetDefault("authrequestlimit", 5)

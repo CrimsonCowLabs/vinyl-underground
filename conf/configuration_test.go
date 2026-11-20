@@ -38,6 +38,12 @@ var _ = Describe("Configuration", func() {
 		}))
 	})
 
+	Describe("defaults", func() {
+		It("does not send usage data to upstream's insights collector unless enabled", func() {
+			Expect(viper.GetBool("enableinsightscollector")).To(BeFalse())
+		})
+	})
+
 	Describe("ParseLanguages", func() {
 		It("parses single language", func() {
 			Expect(conf.ParseLanguages("en")).To(Equal([]string{"en"}))

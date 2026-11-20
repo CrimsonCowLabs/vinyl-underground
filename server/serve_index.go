@@ -75,6 +75,7 @@ func serveIndex(ds model.DataStore, fs fs.FS, shareInfo *model.Share) http.Handl
 			"devNewEventStream":         conf.Server.DevNewEventStream,
 			"listenBrainzEnabled":       conf.Server.ListenBrainz.Enabled,
 			"enableExternalServices":    conf.Server.EnableExternalServices,
+			"enableInsightsCollector":   conf.Server.EnableInsightsCollector,
 			"enableReplayGain":          conf.Server.EnableReplayGain,
 			"enableQuickConnect":        quickconnect.Enabled(),
 			"defaultDownsamplingFormat": conf.Server.DefaultDownsamplingFormat,
