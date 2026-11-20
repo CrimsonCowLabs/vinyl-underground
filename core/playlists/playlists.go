@@ -27,6 +27,7 @@ type Playlists interface {
 
 	// Mutations
 	Create(ctx context.Context, playlistId string, name string, ids []string) (string, error)
+	Copy(ctx context.Context, playlistID string) (string, error)
 	Delete(ctx context.Context, id string) error
 	Update(ctx context.Context, playlistID string, name *string, comment *string, public *bool, idsToAdd []string, idxToRemove []int) error
 
@@ -132,7 +133,7 @@ func (s *playlists) Create(ctx context.Context, playlistId string, name string, 
 				return err
 			}
 			// Ownership first: a non-owner must get ErrNotAuthorized, not a read-only conflict.
-			if !usr.IsAdmin && pls.OwnerID != usr.ID {
+			if !isOwner(usr, pls) {
 				return model.ErrNotAuthorized
 			}
 			if !pls.TracksEditable() {
@@ -150,6 +151,37 @@ func (s *playlists) Create(ctx context.Context, playlistId string, name string, 
 		return err
 	})
 	return playlistId, err
+}
+
+// Copy creates a new private Playlist owned by the current Listener, holding the Tracks of the
+// Playlist playlistID in order. The source must be shared (public) or the Listener's own. The copy
+// is independent: a smart playlist is copied as an ordinary Playlist holding its Tracks as last
+// evaluated (only the owner's reads re-evaluate it), and later changes to either Playlist do not
+// affect the other.
+func (s *playlists) Copy(ctx context.Context, playlistID string) (string, error) {
+	usr, ok := request.UserFrom(ctx)
+	if !ok || usr.ID == "" {
+		return "", model.ErrNotAuthorized
+	}
+	src, err := s.ds.Playlist(ctx).GetWithTracks(playlistID, true, false)
+	if err != nil {
+		return "", err
+	}
+	// Admins can see every Playlist, but only shared ones (or your own) may be copied.
+	if !src.Public && !isOwner(usr, src) {
+		return "", model.ErrNotAuthorized
+	}
+	cp := &model.Playlist{
+		Name:    src.Name,
+		Comment: src.Comment,
+		OwnerID: usr.ID,
+		Public:  false,
+	}
+	cp.AddMediaFiles(src.MediaFiles())
+	if err := s.ds.Playlist(ctx).Put(cp); err != nil {
+		return "", err
+	}
+	return cp.ID, nil
 }
 
 func (s *playlists) Delete(ctx context.Context, id string) error {
@@ -219,14 +251,21 @@ func (s *playlists) Update(ctx context.Context, playlistID string,
 
 // --- Permission helpers ---
 
-// checkWritable fetches the playlist and verifies the current user can modify it.
+// isOwner reports whether usr owns pls. Only the owner may change a Playlist: a shared Playlist
+// is read-only to every other Listener, admins included (unlike upstream Navidrome, where admins
+// could edit any playlist).
+func isOwner(usr model.User, pls *model.Playlist) bool {
+	return usr.ID != "" && pls.OwnerID == usr.ID
+}
+
+// checkWritable fetches the playlist and verifies the current Listener owns it.
 func (s *playlists) checkWritable(ctx context.Context, id string) (*model.Playlist, error) {
 	pls, err := s.ds.Playlist(ctx).Get(id)
 	if err != nil {
 		return nil, err
 	}
 	usr, _ := request.UserFrom(ctx)
-	if !usr.IsAdmin && pls.OwnerID != usr.ID {
+	if !isOwner(usr, pls) {
 		return nil, model.ErrNotAuthorized
 	}
 	return pls, nil

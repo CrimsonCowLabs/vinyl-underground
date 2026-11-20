@@ -30,6 +30,7 @@ import PropTypes from 'prop-types'
 import { formatBytes } from '../utils'
 import config from '../config'
 import { ToggleFieldsMenu } from '../common'
+import { CopyPlaylistButton } from './CopyPlaylistButton'
 
 const useStyles = makeStyles({
   toolbar: { display: 'flex', justifyContent: 'space-between', width: '100%' },
@@ -161,6 +162,7 @@ const PlaylistActions = ({ className, ids, data, record, ...rest }) => {
           >
             <QueueMusicIcon />
           </Button>
+          <CopyPlaylistButton record={record} />
         </div>
         <div>{isNotSmall && <ToggleFieldsMenu resource="playlistTrack" />}</div>
       </div>

@@ -236,6 +236,24 @@ func getSongPlaylists(svc playlists.Playlists) http.HandlerFunc {
 	}
 }
 
+// copyPlaylist creates a private copy of a visible Playlist, owned by the logged-in Listener
+// ("Copy to my Playlists"), and responds with the new Playlist's id.
+func copyPlaylist(pls playlists.Playlists) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		playlistId := chi.URLParamFromCtx(ctx, "id")
+		newId, err := pls.Copy(ctx, playlistId)
+		if err != nil {
+			log.Error(ctx, "Error copying playlist", "playlistId", playlistId, err)
+			writePlaylistError(w, err, http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(map[string]string{"id": newId})
+	}
+}
+
 func uploadPlaylistImage(pls playlists.Playlists) http.HandlerFunc {
 	return handleImageUpload(func(ctx context.Context, reader io.Reader, ext string) error {
 		playlistId := chi.URLParamFromCtx(ctx, "id")

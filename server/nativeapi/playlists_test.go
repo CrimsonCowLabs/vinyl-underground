@@ -144,6 +144,34 @@ var _ = Describe("Playlist Tracks Endpoint", func() {
 		})
 	})
 
+	Describe("POST /playlist/{id}/copy", func() {
+		It("copies the playlist for the logged-in Listener and returns the new id", func() {
+			plsSvc.copyFn = func(ctx context.Context, id string) (string, error) {
+				usr, _ := request.UserFrom(ctx)
+				Expect(usr.ID).To(Equal("user-1"))
+				Expect(id).To(Equal("pls-shared"))
+				return "pls-copy", nil
+			}
+
+			req := createAuthenticatedRequest("POST", "/playlist/pls-shared/copy")
+			router.ServeHTTP(w, req)
+
+			Expect(w.Code).To(Equal(http.StatusCreated))
+			var response map[string]string
+			Expect(json.Unmarshal(w.Body.Bytes(), &response)).To(Succeed())
+			Expect(response).To(Equal(map[string]string{"id": "pls-copy"}))
+		})
+
+		It("returns 404 when the playlist is not visible to the Listener", func() {
+			plsSvc.copyFn = func(context.Context, string) (string, error) { return "", model.ErrNotFound }
+
+			req := createAuthenticatedRequest("POST", "/playlist/pls-private/copy")
+			router.ServeHTTP(w, req)
+
+			Expect(w.Code).To(Equal(http.StatusNotFound))
+		})
+	})
+
 	Describe("GET /playlist/{playlistId}/tracks/{id}", func() {
 		It("returns 404 when playlist does not exist", func() {
 			req := createAuthenticatedRequest("GET", "/playlist/non-existent/tracks/1")
@@ -266,6 +294,11 @@ type mockPlaylistsService struct {
 	playlist      *model.Playlist
 	removeImageFn func(ctx context.Context, id string) error
 	setImageFn    func(ctx context.Context, id string, reader io.Reader, ext string) error
+	copyFn        func(ctx context.Context, id string) (string, error)
+}
+
+func (m *mockPlaylistsService) Copy(ctx context.Context, id string) (string, error) {
+	return m.copyFn(ctx, id)
 }
 
 func (m *mockPlaylistsService) RemoveImage(ctx context.Context, id string) error {

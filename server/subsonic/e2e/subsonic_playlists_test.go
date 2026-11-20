@@ -4,8 +4,11 @@ import (
 	"time"
 
 	"github.com/navidrome/navidrome/conf"
+	"github.com/navidrome/navidrome/core/artwork"
+	"github.com/navidrome/navidrome/core/playlists"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/model/criteria"
+	"github.com/navidrome/navidrome/model/request"
 	"github.com/navidrome/navidrome/server/subsonic/responses"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -382,33 +385,63 @@ var _ = Describe("Playlist Endpoints", Ordered, func() {
 			Expect(resp.Status).To(Equal(responses.StatusOK))
 		})
 
-		// --- Admin can manage any user's playlists ---
+		// --- A shared Playlist is read-only to every other Listener, admins included ---
 
-		It("admin can update any user's playlist", func() {
-			resp := doReqWithUser(regularUser, "createPlaylist", "name", "To Be Admin-Edited",
+		It("admin cannot change another Listener's shared playlist", func() {
+			resp := doReqWithUser(regularUser, "createPlaylist", "name", "Shared By Regular",
 				"songId", songIDs[0])
 			Expect(resp.Status).To(Equal(responses.StatusOK))
 			plsID := resp.Playlist.Id
-
-			resp = doReqWithUser(adminUser, "updatePlaylist",
-				"playlistId", plsID, "name", "Admin Edited")
+			resp = doReqWithUser(regularUser, "updatePlaylist", "playlistId", plsID, "public", "true")
 			Expect(resp.Status).To(Equal(responses.StatusOK))
 
-			resp = doReqWithUser(adminUser, "getPlaylist", "id", plsID)
-			Expect(resp.Playlist.Name).To(Equal("Admin Edited"))
+			for _, params := range [][]string{
+				{"updatePlaylist", "playlistId", plsID, "name", "Admin Edited"},
+				{"updatePlaylist", "playlistId", plsID, "songIdToAdd", songIDs[1]},
+				{"updatePlaylist", "playlistId", plsID, "songIndexToRemove", "0"},
+				{"createPlaylist", "playlistId", plsID, "songId", songIDs[2]},
+				{"deletePlaylist", "id", plsID},
+			} {
+				resp = doReqWithUser(adminUser, params[0], params[1:]...)
+				Expect(resp.Status).To(Equal(responses.StatusFailed), "%v", params)
+				Expect(resp.Error.Code).To(Equal(int32(50)), "%v", params)
+			}
+
+			resp = doReqWithUser(regularUser, "getPlaylist", "id", plsID)
+			Expect(resp.Status).To(Equal(responses.StatusOK))
+			Expect(resp.Playlist.Name).To(Equal("Shared By Regular"))
+			Expect(resp.Playlist.SongCount).To(Equal(int32(1)))
+			Expect(resp.Playlist.Entry[0].Id).To(Equal(songIDs[0]))
 		})
 
-		It("admin can delete any user's playlist", func() {
-			resp := doReqWithUser(regularUser, "createPlaylist", "name", "To Be Admin-Deleted",
-				"songId", songIDs[0])
+		It("a new playlist is private by default", func() {
+			resp := doReqWithUser(regularUser, "createPlaylist", "name", "Default Visibility")
 			Expect(resp.Status).To(Equal(responses.StatusOK))
-			plsID := resp.Playlist.Id
+			Expect(resp.Playlist.Public).To(BeFalse())
+		})
 
-			resp = doReqWithUser(adminUser, "deletePlaylist", "id", plsID)
+		It("regular user copies admin's shared playlist into an independent playlist of their own", func() {
+			userCtx := request.WithUser(ctx, regularUser)
+			copyID, err := playlists.NewPlaylists(ds, artwork.NewUploader(ds)).Copy(userCtx, adminPublicID)
+			Expect(err).ToNot(HaveOccurred())
+
+			orig := doReqWithUser(adminUser, "getPlaylist", "id", adminPublicID)
+			resp := doReqWithUser(regularUser, "getPlaylist", "id", copyID)
 			Expect(resp.Status).To(Equal(responses.StatusOK))
+			Expect(resp.Playlist.Owner).To(Equal(regularUser.UserName))
+			Expect(resp.Playlist.Public).To(BeFalse())
+			Expect(resp.Playlist.OpenSubsonicPlaylist.Readonly).To(BeFalse())
+			Expect(resp.Playlist.Name).To(Equal(orig.Playlist.Name))
+			Expect(resp.Playlist.Entry).To(HaveLen(len(orig.Playlist.Entry)))
+			for i := range orig.Playlist.Entry {
+				Expect(resp.Playlist.Entry[i].Id).To(Equal(orig.Playlist.Entry[i].Id))
+			}
 
-			resp = doReqWithUser(adminUser, "getPlaylist", "id", plsID)
-			Expect(resp.Status).To(Equal(responses.StatusFailed))
+			// The copy is editable by its new owner, and editing it leaves the original alone.
+			resp = doReqWithUser(regularUser, "updatePlaylist", "playlistId", copyID, "songIdToAdd", songIDs[2])
+			Expect(resp.Status).To(Equal(responses.StatusOK))
+			resp = doReqWithUser(regularUser, "getPlaylist", "id", copyID)
+			Expect(resp.Playlist.SongCount).To(Equal(orig.Playlist.SongCount + 1))
 		})
 
 		// --- Verify admin's playlists are unchanged ---
