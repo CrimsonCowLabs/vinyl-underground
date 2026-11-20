@@ -1,0 +1,38 @@
+# Vinyl Underground, served over HTTPS on a tailnet by `tailscale serve`.
+# Setup and first-run steps: deploy/README.md. Personal values go in deploy/.env
+# (copy .env.example); this file holds none.
+
+name: vinyl-underground
+
+services:
+  vinyl-underground:
+    # No published image yet, so the image is built from this checkout.
+    image: vinyl-underground:local
+    build:
+      context: ..
+    container_name: vinyl-underground
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    user: "${VU_UID:?set VU_UID in .env}:${VU_GID:?set VU_GID in .env}"
+    # Bound to loopback only: `tailscale serve` on the host is the sole way in,
+    # and it adds the HTTPS the PWA's service worker needs.
+    ports:
+      - "127.0.0.1:${VU_PORT:-4533}:4533"
+    environment:
+      ND_LOGLEVEL: ${ND_LOGLEVEL:-info}
+      # Rescan the Library on a schedule too: the file watcher can miss changes on network mounts.
+      ND_SCANNER_SCHEDULE: ${ND_SCANNER_SCHEDULE:-@every 24h}
+      ND_LASTFM_APIKEY: ${ND_LASTFM_APIKEY:-}
+      ND_LASTFM_SECRET: ${ND_LASTFM_SECRET:-}
+    volumes:
+      - "${VU_DATA_DIR:?set VU_DATA_DIR in .env}:/data"
+      # The Library is always read-only for the app (ADR-0002).
+      - "${VU_LIBRARY_DIR:?set VU_LIBRARY_DIR in .env}:/music:ro"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:4533/ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
