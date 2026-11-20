@@ -51,6 +51,21 @@ describe('SelectStreamingQuality', () => {
     ).toBeInTheDocument()
   })
 
+  it('hides the setting when it cannot be loaded, rather than showing a wrong value', async () => {
+    const dataProvider = {
+      getStreamingQuality: vi.fn().mockRejectedValue(new Error('offline')),
+      setStreamingQuality: vi.fn(),
+    }
+    renderSelect(dataProvider)
+
+    await waitFor(() =>
+      expect(dataProvider.getStreamingQuality).toHaveBeenCalled(),
+    )
+    expect(
+      screen.queryByText('menu.personal.options.streamingQuality.name'),
+    ).toBeNull()
+  })
+
   it('saves a new choice and drops cached stream decisions', async () => {
     const invalidateAll = vi.spyOn(decisionService, 'invalidateAll')
     const dataProvider = {

@@ -10,7 +10,6 @@ package streamquality
 import (
 	"context"
 	"errors"
-	"slices"
 
 	ua "github.com/mileusna/useragent"
 	"github.com/navidrome/navidrome/log"
@@ -32,15 +31,18 @@ const (
 	DataSaver Preference = "dataSaver"
 )
 
-// Preferences lists every valid Preference.
-var Preferences = []Preference{Auto, Original, DataSaver}
+// Valid reports whether p is one of the known Preferences.
+func (p Preference) Valid() bool {
+	return p == Auto || p == Original || p == DataSaver
+}
 
+// ErrInvalidPreference is returned by SetPreference for an unknown Preference.
 var ErrInvalidPreference = errors.New("invalid streaming quality preference")
 
 const (
 	userPropKey = "streamingQuality"
-	dataFormat  = "opus"
-	dataBitRate = 160 // kbps
+	opusFormat  = "opus"
+	opusBitRate = 160 // kbps
 )
 
 type Service interface {
@@ -74,7 +76,7 @@ func (s *service) Transcoding(ctx context.Context, listenerID, client, userAgent
 	if pref == Original || (pref == Auto && !isPhone(userAgent)) {
 		return nil, nil
 	}
-	trc, err := s.ds.Transcoding(ctx).FindByFormat(dataFormat)
+	trc, err := s.ds.Transcoding(ctx).FindByFormat(opusFormat)
 	if errors.Is(err, model.ErrNotFound) {
 		log.Warn(ctx, "No Opus transcoding configured, streaming the original File instead", "listenerID", listenerID)
 		return nil, nil
@@ -82,9 +84,9 @@ func (s *service) Transcoding(ctx context.Context, listenerID, client, userAgent
 	if err != nil {
 		return nil, err
 	}
-	dataSaver := *trc
-	dataSaver.DefaultBitRate = dataBitRate
-	return &dataSaver, nil
+	opus := *trc
+	opus.DefaultBitRate = opusBitRate
+	return &opus, nil
 }
 
 func (s *service) Preference(ctx context.Context, listenerID string) (Preference, error) {
@@ -93,20 +95,21 @@ func (s *service) Preference(ctx context.Context, listenerID string) (Preference
 		return Auto, err
 	}
 	pref := Preference(v)
-	if !slices.Contains(Preferences, pref) {
+	if !pref.Valid() {
 		return Auto, nil
 	}
 	return pref, nil
 }
 
 func (s *service) SetPreference(ctx context.Context, listenerID string, pref Preference) error {
-	if !slices.Contains(Preferences, pref) {
+	if !pref.Valid() {
 		return ErrInvalidPreference
 	}
 	return s.ds.UserProps(ctx).Put(listenerID, userPropKey, string(pref))
 }
 
-// isPhone reports whether the User-Agent comes from a phone (or tablet) operating system.
+// isPhone reports whether the User-Agent comes from a phone operating system. Android
+// tablets count too, as Android does not tell them apart reliably.
 // iPadOS Safari reports itself as macOS by default, so iPads count as desktops.
 func isPhone(userAgent string) bool {
 	u := ua.Parse(userAgent)

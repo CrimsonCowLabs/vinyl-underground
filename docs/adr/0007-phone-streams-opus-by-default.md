@@ -6,8 +6,8 @@ We considered detecting phones from screen size or a flag sent by the UI, but th
 
 ## Consequences
 
-- Precedence, highest first: a Transcoding set on the player, the Listener's setting, the device default.
+- Precedence, highest first: a Transcoding or MaxBitRate set on the player, the Listener's setting, the device default. So "Always original" has no effect on a web player an admin has given a Transcoding.
 - Native Subsonic and Jellyfin clients keep Navidrome's behaviour. A Listener's setting does not affect them.
-- iPadOS Safari reports itself as macOS, so iPads count as desktops.
+- iPadOS Safari reports itself as macOS, so iPads count as desktops. Android tablets count as phones.
 - Safari cannot stream transcoded Ogg Opus, so an iPhone gets MP3 at 160 kbps instead. The default caps the in-context player's bitrate to make that happen; a Transcoding set on the player does not, as upstream.
 - If an admin deletes the Opus Transcoding, phones fall back to the original File.

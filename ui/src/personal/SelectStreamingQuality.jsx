@@ -20,8 +20,8 @@ export const SelectStreamingQuality = (props) => {
     dataProvider
       .getStreamingQuality()
       .then(({ data }) => setCurrent(data.preference))
-      .catch(() => setCurrent('auto'))
-  }, [dataProvider])
+      .catch(() => notify('ra.page.error', 'warning'))
+  }, [dataProvider, notify])
 
   if (current === null) return null
 

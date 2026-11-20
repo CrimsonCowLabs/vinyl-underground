@@ -609,7 +609,7 @@ var _ = Describe("Middlewares", func() {
 				Expect(player.MaxBitRate).To(Equal(160))
 			})
 
-			It("keeps a lower MaxBitRate configured on the player", func() {
+			It("keeps the MaxBitRate configured on the player", func() {
 				r.Header.Set("User-Agent", phoneUA)
 				mockedPlayers.maxBitRate = 96
 				getPlayer(mockedPlayers, quality)(next).ServeHTTP(w, r)
