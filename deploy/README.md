@@ -7,8 +7,8 @@ The app is meant for private networks only ([ADR-0001](../docs/adr/0001-hard-for
 | File | What it is |
 |---|---|
 | `docker-compose.yml` | The stack. It holds no personal values. |
-| `.env.example` | Every setting, with placeholder values. Copy it to `.env`. |
-| `.env` | Your hostnames, paths, IDs and keys. Gitignored, never commit it. |
+| `.env.example` | Every setting, commented out at its default. |
+| `.env` | Optional. Only the settings you change. Gitignored, never commit it. |
 
 All commands below run from this `deploy/` folder unless they say otherwise.
 
@@ -21,16 +21,28 @@ All commands below run from this `deploy/` folder unless they say otherwise.
 
 ## 2. Configure
 
+Nothing is required. With no `.env`, the stack uses these defaults:
+
+| Setting | Default |
+|---|---|
+| `VU_LIBRARY_DIR` | `/mnt/music` (mounted read-only) |
+| `VU_DATA_DIR` | `./data` (created and handed to `VU_UID` on first start) |
+| `VU_UID` / `VU_GID` | `1000` / `1000` |
+| `VU_PORT` | `4533`, on `127.0.0.1` only |
+
+If any of those is wrong for your host, or you want another app setting (`ND_*`), make a `.env` and uncomment just those lines:
+
 ```bash
 cp .env.example .env
 $EDITOR .env
 ```
 
-Set at least `VU_LIBRARY_DIR`, `VU_DATA_DIR`, `VU_UID`/`VU_GID` (from `id -u` and `id -g`) and `VU_TS_HOSTNAME`. Create the data folder so it's owned by that user, not by root:
+The commands in this guide use these shell variables. Load them once per shell; this reads `.env` if there is one and fills in the defaults:
 
 ```bash
-set -a; . ./.env; set +a      # load .env into this shell for the commands below
-mkdir -p "$VU_DATA_DIR"
+set -a; [ -f .env ] && . ./.env; set +a
+: "${VU_LIBRARY_DIR:=/mnt/music}" "${VU_DATA_DIR:=./data}" "${VU_PORT:=4533}"
+: "${VU_TS_HOSTNAME:=$(tailscale status --json | jq -r '.Self.DNSName | rtrimstr(".")')}"
 ```
 
 ## 3. Check the Library before the first scan
@@ -138,4 +150,4 @@ git pull
 docker compose up -d --build
 ```
 
-The database and settings live in `$VU_DATA_DIR`, so they survive rebuilds. Back it up with the app stopped, or while it runs with `docker compose exec vinyl-underground navidrome backup create -d /data/backup`, which writes into `$VU_DATA_DIR/backup`.
+The database and settings live in `$VU_DATA_DIR`, so they survive rebuilds. Back it up with the app stopped, or while it runs with `docker compose exec vinyl-underground navidrome backup create`, which writes into `$VU_DATA_DIR/backup`.
