@@ -3,6 +3,7 @@ package subsonic
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"time"
 
 	"github.com/navidrome/navidrome/conf"
@@ -10,6 +11,7 @@ import (
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/model/criteria"
 	"github.com/navidrome/navidrome/model/request"
+	"github.com/navidrome/navidrome/server/subsonic/responses"
 	"github.com/navidrome/navidrome/tests"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -397,3 +399,46 @@ func (f *fakePlaylists) Update(ctx context.Context, playlistID string, name *str
 	f.lastRemove = idxToRemove
 	return nil
 }
+
+var _ = Describe("a Playlist shared by another Listener", func() {
+	var router *Router
+	var plsRepo *tests.MockPlaylistRepo
+	var tracks *tests.MockPlaylistTrackRepo
+
+	BeforeEach(func() {
+		plsRepo = tests.CreateMockPlaylistRepo()
+		tracks = &tests.MockPlaylistTrackRepo{}
+		plsRepo.TracksRepo = tracks
+		shared := &model.Playlist{ID: "pls-shared", Name: "Road Trip", OwnerID: "owner-1", Public: true}
+		shared.AddMediaFilesByID([]string{"song-1", "song-2"})
+		plsRepo.Data["pls-shared"] = shared
+		ds := &tests.MockDataStore{MockedPlaylist: plsRepo}
+		router = New(ds, nil, nil, nil, nil, nil, nil, nil, playlists.NewPlaylists(ds, nil), nil, nil, nil, nil, nil, nil, nil)
+	})
+
+	// The other Listener is an admin here: being an admin must not make someone else's Playlist editable.
+	asOtherListener := func(r *http.Request) *http.Request {
+		return r.WithContext(request.WithUser(r.Context(), model.User{ID: "listener-2", IsAdmin: true}))
+	}
+
+	It("is readable, and reported read-only", func() {
+		resp, err := router.GetPlaylist(asOtherListener(newGetRequest("id=pls-shared")))
+		Expect(err).ToNot(HaveOccurred())
+		Expect(resp.Playlist.Entry).To(HaveLen(2))
+		Expect(resp.Playlist.OpenSubsonicPlaylist.Readonly).To(BeTrue())
+	})
+
+	DescribeTable("refuses changes to its Tracks",
+		func(call func(*Router, *http.Request) (*responses.Subsonic, error), params ...string) {
+			_, err := call(router, asOtherListener(newGetRequest(params...)))
+			Expect(mapToSubsonicError(err).code).To(Equal(responses.ErrorAuthorizationFail))
+			Expect(tracks.AddedIds).To(BeEmpty())
+			Expect(tracks.DeletedIds).To(BeEmpty())
+			Expect(plsRepo.Last).To(BeNil())
+		},
+		Entry("updatePlaylist adding songs", (*Router).UpdatePlaylist, "playlistId=pls-shared", "songIdToAdd=song-9"),
+		Entry("updatePlaylist removing songs", (*Router).UpdatePlaylist, "playlistId=pls-shared", "songIndexToRemove=0"),
+		Entry("updatePlaylist renaming it", (*Router).UpdatePlaylist, "playlistId=pls-shared", "name=Mine"),
+		Entry("createPlaylist replacing its songs", (*Router).CreatePlaylist, "playlistId=pls-shared", "songId=song-9"),
+	)
+})

@@ -101,12 +101,12 @@ var _ = Describe("REST Adapter", func() {
 				Expect(err).ToNot(HaveOccurred())
 			})
 
-			It("allows admin to update any playlist", func() {
+			It("denies an admin who does not own the playlist", func() {
 				ctx = request.WithUser(ctx, model.User{ID: "admin-1", IsAdmin: true})
 				repo = ps.NewRepository(ctx).(rest.Persistable)
 				pls := &model.Playlist{Name: "Updated"}
 				err := repo.Update("pls-1", pls)
-				Expect(err).ToNot(HaveOccurred())
+				Expect(err).To(MatchError(model.ErrNotAuthorized))
 			})
 
 			It("denies non-owner, non-admin", func() {

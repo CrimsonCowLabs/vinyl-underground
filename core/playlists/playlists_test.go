@@ -18,6 +18,14 @@ import (
 	. "github.com/onsi/gomega"
 )
 
+func mediaFileIDs(pls *model.Playlist) []string {
+	var ids []string
+	for _, mf := range pls.MediaFiles() {
+		ids = append(ids, mf.ID)
+	}
+	return ids
+}
+
 var _ = Describe("Playlists", func() {
 	var ds *tests.MockDataStore
 	var ps playlists.Playlists
@@ -52,11 +60,11 @@ var _ = Describe("Playlists", func() {
 			Expect(mockPlsRepo.Deleted).To(ContainElement("pls-1"))
 		})
 
-		It("allows admin to delete any playlist", func() {
+		It("denies an admin who does not own the playlist", func() {
 			ctx = request.WithUser(ctx, model.User{ID: "admin-1", IsAdmin: true})
 			err := ps.Delete(ctx, "pls-1")
-			Expect(err).ToNot(HaveOccurred())
-			Expect(mockPlsRepo.Deleted).To(ContainElement("pls-1"))
+			Expect(err).To(MatchError(model.ErrNotAuthorized))
+			Expect(mockPlsRepo.Deleted).To(BeEmpty())
 		})
 
 		It("denies non-owner, non-admin from deleting", func() {
@@ -125,11 +133,10 @@ var _ = Describe("Playlists", func() {
 			Expect(mockPlsRepo.Last.Tracks).To(HaveLen(1))
 		})
 
-		It("allows admin to replace tracks on any playlist", func() {
+		It("denies an admin replacing tracks on a playlist they do not own", func() {
 			ctx = request.WithUser(ctx, model.User{ID: "admin-1", IsAdmin: true})
-			id, err := ps.Create(ctx, "pls-2", "", []string{"song-3"})
-			Expect(err).ToNot(HaveOccurred())
-			Expect(id).To(Equal("pls-2"))
+			_, err := ps.Create(ctx, "pls-2", "", []string{"song-3"})
+			Expect(err).To(MatchError(model.ErrNotAuthorized))
 		})
 
 		It("denies non-owner, non-admin from replacing tracks on existing playlist", func() {
@@ -163,6 +170,60 @@ var _ = Describe("Playlists", func() {
 		})
 	})
 
+	Describe("Copy", func() {
+		BeforeEach(func() {
+			shared := &model.Playlist{ID: "pls-shared", Name: "Road Trip", Comment: "summer",
+				OwnerID: "owner-1", Public: true}
+			shared.AddMediaFilesByID([]string{"song-3", "song-1", "song-2"})
+			mockPlsRepo.Data = map[string]*model.Playlist{"pls-shared": shared}
+			ps = playlists.NewPlaylists(ds, artwork.NewUploader(ds))
+			ctx = request.WithUser(ctx, model.User{ID: "listener-2"})
+		})
+
+		It("creates a private Playlist owned by the copying Listener with the same Tracks in order", func() {
+			id, err := ps.Copy(ctx, "pls-shared")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(id).ToNot(BeEmpty())
+			Expect(id).ToNot(Equal("pls-shared"))
+
+			cp := mockPlsRepo.Data[id]
+			Expect(cp.OwnerID).To(Equal("listener-2"))
+			Expect(cp.Public).To(BeFalse())
+			Expect(cp.Name).To(Equal("Road Trip"))
+			Expect(cp.Comment).To(Equal("summer"))
+			Expect(mediaFileIDs(cp)).To(Equal([]string{"song-3", "song-1", "song-2"}))
+		})
+
+		It("leaves the original Playlist untouched", func() {
+			id, err := ps.Copy(ctx, "pls-shared")
+			Expect(err).ToNot(HaveOccurred())
+			mockPlsRepo.Data[id].AddMediaFilesByID([]string{"song-9"})
+
+			orig := mockPlsRepo.Data["pls-shared"]
+			Expect(orig.OwnerID).To(Equal("owner-1"))
+			Expect(mediaFileIDs(orig)).To(Equal([]string{"song-3", "song-1", "song-2"}))
+		})
+
+		It("copies a smart playlist as an ordinary Playlist with its current Tracks", func() {
+			smart := &model.Playlist{ID: "pls-smart", Name: "Smart", OwnerID: "owner-1", Public: true,
+				Rules: &criteria.Criteria{Expression: criteria.Contains{"title": "test"}}}
+			smart.AddMediaFilesByID([]string{"song-1"})
+			mockPlsRepo.Data["pls-smart"] = smart
+
+			id, err := ps.Copy(ctx, "pls-smart")
+			Expect(err).ToNot(HaveOccurred())
+			cp := mockPlsRepo.Data[id]
+			Expect(cp.IsSmartPlaylist()).To(BeFalse())
+			Expect(cp.TracksEditable()).To(BeTrue())
+			Expect(mediaFileIDs(cp)).To(Equal([]string{"song-1"}))
+		})
+
+		It("returns ErrNotFound for a playlist the Listener cannot see", func() {
+			_, err := ps.Copy(ctx, "nonexistent")
+			Expect(err).To(MatchError(model.ErrNotFound))
+		})
+	})
+
 	Describe("Update", func() {
 		var mockTracks *tests.MockPlaylistTrackRepo
 
@@ -185,10 +246,18 @@ var _ = Describe("Playlists", func() {
 			Expect(err).ToNot(HaveOccurred())
 		})
 
-		It("allows admin to update any playlist", func() {
+		It("denies an admin who does not own the playlist", func() {
 			ctx = request.WithUser(ctx, model.User{ID: "admin-1", IsAdmin: true})
 			err := ps.Update(ctx, "pls-other", new("Updated Name"), nil, nil, nil, nil)
-			Expect(err).ToNot(HaveOccurred())
+			Expect(err).To(MatchError(model.ErrNotAuthorized))
+		})
+
+		It("denies a non-owner adding or removing tracks on a shared playlist", func() {
+			mockPlsRepo.Data["pls-shared"] = &model.Playlist{ID: "pls-shared", OwnerID: "other-user", Public: true}
+			ctx = request.WithUser(ctx, model.User{ID: "user-1", IsAdmin: false})
+			err := ps.Update(ctx, "pls-shared", nil, nil, nil, []string{"song-1"}, []int{0})
+			Expect(err).To(MatchError(model.ErrNotAuthorized))
+			Expect(mockTracks.AddedIds).To(BeEmpty())
 		})
 
 		It("denies non-owner, non-admin from updating", func() {
@@ -258,11 +327,11 @@ var _ = Describe("Playlists", func() {
 			Expect(mockTracks.AddedIds).To(ConsistOf("song-1", "song-2"))
 		})
 
-		It("allows admin to add tracks to any playlist", func() {
+		It("denies an admin who does not own the playlist", func() {
 			ctx = request.WithUser(ctx, model.User{ID: "admin-1", IsAdmin: true})
-			count, err := ps.AddTracks(ctx, "pls-other", []string{"song-1"})
-			Expect(err).ToNot(HaveOccurred())
-			Expect(count).To(Equal(2))
+			_, err := ps.AddTracks(ctx, "pls-other", []string{"song-1"})
+			Expect(err).To(MatchError(model.ErrNotAuthorized))
+			Expect(mockTracks.AddedIds).To(BeEmpty())
 		})
 
 		It("denies non-owner, non-admin", func() {
@@ -387,6 +456,14 @@ var _ = Describe("Playlists", func() {
 			err := ps.ReorderTrack(ctx, "pls-smart", 1, 3)
 			Expect(err).To(MatchError(model.ErrPlaylistNotEditable))
 		})
+
+		It("denies another Listener reordering a shared playlist", func() {
+			mockPlsRepo.Data["pls-shared"] = &model.Playlist{ID: "pls-shared", OwnerID: "user-1", Public: true}
+			ctx = request.WithUser(ctx, model.User{ID: "other-user", IsAdmin: true})
+			err := ps.ReorderTrack(ctx, "pls-shared", 1, 3)
+			Expect(err).To(MatchError(model.ErrNotAuthorized))
+			Expect(mockTracks.Reordered).To(BeFalse())
+		})
 	})
 
 	Describe("SetImage", func() {
@@ -434,10 +511,10 @@ var _ = Describe("Playlists", func() {
 			Expect(newPath).To(BeAnExistingFile())
 		})
 
-		It("allows admin to set image on any playlist", func() {
+		It("denies an admin who does not own the playlist", func() {
 			ctx = request.WithUser(ctx, model.User{ID: "admin-1", IsAdmin: true})
 			err := ps.SetImage(ctx, "pls-other", strings.NewReader("data"), ".jpg")
-			Expect(err).ToNot(HaveOccurred())
+			Expect(err).To(MatchError(model.ErrNotAuthorized))
 		})
 
 		It("denies non-owner", func() {
