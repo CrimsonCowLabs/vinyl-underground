@@ -34,7 +34,7 @@ const PlaylistCreate = (props) => {
       <SimpleForm redirect="list" variant={'outlined'}>
         <TextInput source="name" validate={required()} />
         <TextInput multiline source="comment" />
-        <BooleanInput source="public" initialValue={true} />
+        <BooleanInput source="public" initialValue={false} />
       </SimpleForm>
     </Create>
   )

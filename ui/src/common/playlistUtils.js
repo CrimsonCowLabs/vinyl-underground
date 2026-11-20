@@ -1,8 +1,7 @@
+// Only the owner can change a Playlist: a shared Playlist is read-only to every
+// other Listener, admins included. The server enforces the same rule.
 export const isWritable = (ownerId) => {
-  return (
-    localStorage.getItem('userId') === ownerId ||
-    localStorage.getItem('role') === 'admin'
-  )
+  return !!ownerId && localStorage.getItem('userId') === ownerId
 }
 
 export const isReadOnly = (ownerId) => {

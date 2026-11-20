@@ -16,9 +16,10 @@ describe('playlistUtils', () => {
       expect(isWritable('user1')).toBe(true)
     })
 
-    it('returns true if user is an admin', () => {
+    it('returns false for an admin who is not the owner', () => {
+      localStorage.setItem('userId', 'admin1')
       localStorage.setItem('role', 'admin')
-      expect(isWritable('user1')).toBe(true)
+      expect(isWritable('user1')).toBe(false)
     })
 
     it('returns false if user is not the owner and not an admin', () => {
@@ -38,9 +39,10 @@ describe('playlistUtils', () => {
       expect(isReadOnly('user1')).toBe(false)
     })
 
-    it('returns false if user is an admin', () => {
+    it('returns true for an admin who is not the owner', () => {
+      localStorage.setItem('userId', 'admin1')
       localStorage.setItem('role', 'admin')
-      expect(isReadOnly('user1')).toBe(false)
+      expect(isReadOnly('user1')).toBe(true)
     })
   })
 
@@ -66,6 +68,13 @@ describe('playlistUtils', () => {
     it('returns false if user is not the owner', () => {
       localStorage.setItem('userId', 'user2')
       const playlist = { ownerId: 'user1' }
+      expect(canChangeTracks(playlist)).toBe(false)
+    })
+
+    it('returns false for an admin on a playlist shared by someone else', () => {
+      localStorage.setItem('userId', 'admin1')
+      localStorage.setItem('role', 'admin')
+      const playlist = { ownerId: 'user1', public: true }
       expect(canChangeTracks(playlist)).toBe(false)
     })
 

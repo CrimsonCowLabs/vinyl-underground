@@ -11,6 +11,7 @@ import {
   ReferenceInput,
   SelectInput,
 } from 'react-admin'
+import { Redirect } from 'react-router-dom'
 import { isWritable, Title } from '../common'
 
 const SyncFragment = ({ formData, variant, ...rest }) => {
@@ -28,9 +29,13 @@ const PlaylistTitle = ({ record }) => {
   return <Title subTitle={`${resourceName} "${record ? record.name : ''}"`} />
 }
 
-const PlaylistEditForm = (props) => {
+export const PlaylistEditForm = (props) => {
   const { record } = props
   const { permissions } = usePermissions()
+  // A Playlist shared by another Listener is read-only, even for admins.
+  if (record?.id && !isWritable(record.ownerId)) {
+    return <Redirect to={`/playlist/${record.id}/show`} />
+  }
   return (
     <SimpleForm redirect="list" variant={'outlined'} {...props}>
       <TextInput source="name" validate={required()} />
