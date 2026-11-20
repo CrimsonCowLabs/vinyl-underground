@@ -50,13 +50,19 @@ It is a public, GPL-3.0, hard fork of Navidrome **v0.64.2**, renamed and never r
 
 - **One codebase.** All new backend features (Generated Playlists, Stations, DJs, Blurbs) live in the Go server: new tables through Navidrome's migrations, and new endpoints next to its native `/api`, reusing its auth.
 - **UI.** Navidrome's existing React 17 / react-admin 3 / MUI v4 UI is extended, not replaced ([ADR-0003](./adr/0003-extend-legacy-navidrome-ui.md)). The service worker gains audio caching.
-- **LLM.** Any OpenAI-compatible endpoint, set by a URL and model name. The reference deployment uses Ollama. With no LLM configured, AI features are hidden and Stations run with rule-based selection and no Blurbs.
+- **LLM.** Any OpenAI-compatible endpoint, set by a URL and model name. With no LLM configured or reachable, AI features are hidden and Stations run with rule-based selection and no Blurbs.
+  - **Model:** a ~4B instruct model (e.g. Qwen3.5 4B or Gemma 4 E4B), chosen by timing a real Prompt on the actual Library.
+  - **Output:** always constrained by a JSON schema (Ollama's `format` option). Prompting for JSON alone is not enough at this model size.
+  - **Thinking:** turn off any "thinking" mode.
+  - **Prompt size:** keep candidate lists to ~100–150 Tracks, one compact line each (artist, title, year, genre), so prompts stay short.
+  - **Timeouts:** allow for slow LLM calls.
 - **External metadata.** Last.fm lookups are enabled (`EnableExternalServices`). Scrobbling stays off.
 - **Duplicates.** A one-time `jdupes` recipe moves Duplicates to a Quarantine folder that carries a `.ndignore` file. The app has no dedupe code ([ADR-0002](./adr/0002-quarantine-duplicates-instead-of-in-app-dedupe.md)).
 
 ## Deployment
 
-- A `docker compose` stack: the Vinyl Underground image plus an `ollama` container.
+- A `docker compose` stack running the Vinyl Underground image. An `ollama` service is optional (a compose profile) for self-hosters who run the LLM on the same machine.
+- The reference deployment runs Ollama on a separate, always-on Apple Silicon Mac on the tailnet, which reads long prompts much faster than a CPU-only host. Ollama must listen on the tailnet interface, not just localhost.
 - The music share is mounted on the host and bind-mounted **read-only** into the container.
 - HTTPS through `tailscale serve`, which the PWA needs for its service worker.
 - Personal details (hostnames, IPs, credentials) live in a gitignored `.env`. The repo ships `.env.example` and an example `docker-compose.yml`.
