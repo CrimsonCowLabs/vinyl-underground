@@ -21,6 +21,7 @@ import (
 	"github.com/navidrome/navidrome/core/scrobbler"
 	sonicsvc "github.com/navidrome/navidrome/core/sonic"
 	"github.com/navidrome/navidrome/core/stream"
+	"github.com/navidrome/navidrome/core/streamquality"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/server"
@@ -54,6 +55,7 @@ type Router struct {
 	lyrics            lyricssvc.Lyrics
 	transcodeDecision stream.TranscodeDecider
 	sonic             *sonicsvc.Sonic
+	streamQuality     streamquality.Service
 }
 
 func New(ds model.DataStore, artwork artwork.Artwork, streamer stream.MediaStreamer, archiver core.Archiver,
@@ -79,6 +81,7 @@ func New(ds model.DataStore, artwork artwork.Artwork, streamer stream.MediaStrea
 		lyrics:            lyrics,
 		transcodeDecision: transcodeDecision,
 		sonic:             sonic,
+		streamQuality:     streamquality.New(ds),
 	}
 	r.Handler = r.routes()
 	return r
@@ -104,12 +107,12 @@ func (api *Router) routes() http.Handler {
 
 		// Subsonic endpoints, grouped by controller
 		r.Group(func(r chi.Router) {
-			r.Use(getPlayer(api.players))
+			r.Use(getPlayer(api.players, api.streamQuality))
 			h(r, "ping", api.Ping)
 			h(r, "getLicense", api.GetLicense)
 		})
 		r.Group(func(r chi.Router) {
-			r.Use(getPlayer(api.players))
+			r.Use(getPlayer(api.players, api.streamQuality))
 			h(r, "getMusicFolders", api.GetMusicFolders)
 			h(r, "getIndexes", api.GetIndexes)
 			h(r, "getArtists", api.GetArtists)
@@ -129,7 +132,7 @@ func (api *Router) routes() http.Handler {
 			hr(r, "findSonicPath", api.FindSonicPath)
 		})
 		r.Group(func(r chi.Router) {
-			r.Use(getPlayer(api.players))
+			r.Use(getPlayer(api.players, api.streamQuality))
 			hr(r, "getAlbumList", api.GetAlbumList)
 			hr(r, "getAlbumList2", api.GetAlbumList2)
 			h(r, "getStarred", api.GetStarred)
@@ -139,7 +142,7 @@ func (api *Router) routes() http.Handler {
 			h(r, "getSongsByGenre", api.GetSongsByGenre)
 		})
 		r.Group(func(r chi.Router) {
-			r.Use(getPlayer(api.players))
+			r.Use(getPlayer(api.players, api.streamQuality))
 			h(r, "setRating", api.SetRating)
 			h(r, "star", api.Star)
 			h(r, "unstar", api.Unstar)
@@ -147,7 +150,7 @@ func (api *Router) routes() http.Handler {
 			h(r, "reportPlayback", api.ReportPlayback)
 		})
 		r.Group(func(r chi.Router) {
-			r.Use(getPlayer(api.players))
+			r.Use(getPlayer(api.players, api.streamQuality))
 			h(r, "getPlaylists", api.GetPlaylists)
 			h(r, "getPlaylist", api.GetPlaylist)
 			h(r, "createPlaylist", api.CreatePlaylist)
@@ -155,7 +158,7 @@ func (api *Router) routes() http.Handler {
 			h(r, "updatePlaylist", api.UpdatePlaylist)
 		})
 		r.Group(func(r chi.Router) {
-			r.Use(getPlayer(api.players))
+			r.Use(getPlayer(api.players, api.streamQuality))
 			h(r, "getBookmarks", api.GetBookmarks)
 			h(r, "createBookmark", api.CreateBookmark)
 			h(r, "deleteBookmark", api.DeleteBookmark)
@@ -165,22 +168,22 @@ func (api *Router) routes() http.Handler {
 			h(r, "savePlayQueueByIndex", api.SavePlayQueueByIndex)
 		})
 		r.Group(func(r chi.Router) {
-			r.Use(getPlayer(api.players))
+			r.Use(getPlayer(api.players, api.streamQuality))
 			h(r, "search2", api.Search2)
 			h(r, "search3", api.Search3)
 		})
 		r.Group(func(r chi.Router) {
-			r.Use(getPlayer(api.players))
+			r.Use(getPlayer(api.players, api.streamQuality))
 			h(r, "getUser", api.GetUser)
 			h(r.With(adminOnly), "getUsers", api.GetUsers)
 		})
 		r.Group(func(r chi.Router) {
-			r.Use(getPlayer(api.players))
+			r.Use(getPlayer(api.players, api.streamQuality))
 			h(r, "getScanStatus", api.GetScanStatus)
 			h(r.With(adminOnly), "startScan", api.StartScan)
 		})
 		r.Group(func(r chi.Router) {
-			r.Use(getPlayer(api.players))
+			r.Use(getPlayer(api.players, api.streamQuality))
 			hr(r, "getAvatar", api.GetAvatar)
 			h(r, "getLyrics", api.GetLyrics)
 			h(r, "getLyricsBySongId", api.GetLyricsBySongId)
@@ -195,7 +198,7 @@ func (api *Router) routes() http.Handler {
 			hr(r, "getCoverArt", api.GetCoverArt)
 		})
 		r.Group(func(r chi.Router) {
-			r.Use(getPlayer(api.players))
+			r.Use(getPlayer(api.players, api.streamQuality))
 			h(r, "getInternetRadioStations", api.GetInternetRadios)
 			r.Group(func(r chi.Router) {
 				r.Use(adminOnly)
@@ -206,7 +209,7 @@ func (api *Router) routes() http.Handler {
 		})
 		if conf.Server.EnableSharing {
 			r.Group(func(r chi.Router) {
-				r.Use(getPlayer(api.players))
+				r.Use(getPlayer(api.players, api.streamQuality))
 				h(r, "getShares", api.GetShares)
 				h(r, "createShare", api.CreateShare)
 				h(r, "updateShare", api.UpdateShare)
@@ -218,7 +221,7 @@ func (api *Router) routes() http.Handler {
 
 		if conf.Server.Jukebox.Enabled {
 			r.Group(func(r chi.Router) {
-				r.Use(getPlayer(api.players))
+				r.Use(getPlayer(api.players, api.streamQuality))
 				h(r, "jukeboxControl", api.JukeboxControl)
 			})
 		} else {

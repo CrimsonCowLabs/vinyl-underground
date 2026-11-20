@@ -20,6 +20,7 @@ import (
 	"github.com/navidrome/navidrome/core"
 	"github.com/navidrome/navidrome/core/auth"
 	"github.com/navidrome/navidrome/core/metrics"
+	"github.com/navidrome/navidrome/core/streamquality"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/model/request"
@@ -211,7 +212,10 @@ func validateCredentials(user *model.User, pass, token, salt, jwt string) error 
 	return nil
 }
 
-func getPlayer(players core.Players) func(next http.Handler) http.Handler {
+// getPlayer registers the requesting player and puts it in the context, along with the
+// Transcoding to force on its streams: the one configured on the player, or else the
+// Listener's default streaming quality (see core/streamquality).
+func getPlayer(players core.Players, quality streamquality.Service) func(next http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
@@ -225,6 +229,13 @@ func getPlayer(players core.Players) func(next http.Handler) http.Handler {
 				log.Error(ctx, "Could not register player", "username", userName, "client", client, err)
 			} else {
 				ctx = request.WithPlayer(ctx, *player)
+				if trc == nil {
+					user, _ := request.UserFrom(ctx)
+					trc, err = quality.Transcoding(ctx, user.ID, client, r.UserAgent())
+					if err != nil {
+						log.Error(ctx, "Could not resolve default streaming quality", "username", userName, "client", client, err)
+					}
+				}
 				if trc != nil {
 					ctx = request.WithTranscoding(ctx, *trc)
 				}
