@@ -60,7 +60,7 @@ export default defineConfig({
 function manifest() {
   return {
     name: 'Vinyl Underground',
-    short_name: 'Vinyl Underground',
+    short_name: 'Vinyl',
     description:
       'Vinyl Underground, a self-hosted music server and streamer',
     categories: ['music', 'entertainment'],
