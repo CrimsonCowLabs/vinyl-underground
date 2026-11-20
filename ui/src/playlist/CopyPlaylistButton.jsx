@@ -33,7 +33,7 @@ export const CopyPlaylistButton = ({ record }) => {
       .finally(() => setCopying(false))
   }, [record, notify, redirect, refresh])
 
-  if (!record?.id || isWritable(record.ownerId)) {
+  if (!record?.id || !record.public || isWritable(record.ownerId)) {
     return null
   }
 

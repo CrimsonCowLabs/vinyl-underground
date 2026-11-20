@@ -222,6 +222,28 @@ var _ = Describe("Playlists", func() {
 			_, err := ps.Copy(ctx, "nonexistent")
 			Expect(err).To(MatchError(model.ErrNotFound))
 		})
+
+		It("refuses to copy another Listener's private Playlist, even for an admin who can see it", func() {
+			mockPlsRepo.Data["pls-private"] = &model.Playlist{ID: "pls-private", Name: "Mine", OwnerID: "owner-1"}
+			ctx = request.WithUser(ctx, model.User{ID: "listener-2", IsAdmin: true})
+			_, err := ps.Copy(ctx, "pls-private")
+			Expect(err).To(MatchError(model.ErrNotAuthorized))
+			Expect(mockPlsRepo.Last).To(BeNil())
+		})
+
+		It("lets the owner copy their own private Playlist", func() {
+			mockPlsRepo.Data["pls-private"] = &model.Playlist{ID: "pls-private", Name: "Mine", OwnerID: "owner-1"}
+			ctx = request.WithUser(ctx, model.User{ID: "owner-1"})
+			id, err := ps.Copy(ctx, "pls-private")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(mockPlsRepo.Data[id].OwnerID).To(Equal("owner-1"))
+		})
+
+		It("refuses to create an ownerless copy when no Listener is logged in", func() {
+			_, err := ps.Copy(context.Background(), "pls-shared")
+			Expect(err).To(MatchError(model.ErrNotAuthorized))
+			Expect(mockPlsRepo.Last).To(BeNil())
+		})
 	})
 
 	Describe("Update", func() {

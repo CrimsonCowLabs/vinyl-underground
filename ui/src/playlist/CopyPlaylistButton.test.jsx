@@ -47,6 +47,14 @@ describe('<CopyPlaylistButton />', () => {
     expect(container.textContent).toBe('')
   })
 
+  it("is not offered on another Listener's private Playlist (visible to admins)", () => {
+    localStorage.setItem('role', 'admin')
+    const { container } = render(
+      <CopyPlaylistButton record={{ ...sharedPlaylist, public: false }} />,
+    )
+    expect(container.textContent).toBe('')
+  })
+
   it('copies the Playlist and opens the new copy', async () => {
     httpClient.mockResolvedValue({ json: { id: 'pls-copy' } })
     render(<CopyPlaylistButton record={sharedPlaylist} />)

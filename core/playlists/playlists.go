@@ -27,7 +27,7 @@ type Playlists interface {
 
 	// Mutations
 	Create(ctx context.Context, playlistId string, name string, ids []string) (string, error)
-	Copy(ctx context.Context, id string) (string, error)
+	Copy(ctx context.Context, playlistID string) (string, error)
 	Delete(ctx context.Context, id string) error
 	Update(ctx context.Context, playlistID string, name *string, comment *string, public *bool, idsToAdd []string, idxToRemove []int) error
 
@@ -154,15 +154,23 @@ func (s *playlists) Create(ctx context.Context, playlistId string, name string, 
 }
 
 // Copy creates a new private Playlist owned by the current Listener, holding the Tracks of the
-// Playlist id in order. Any Playlist the Listener can see can be copied (typically one shared by
-// another Listener). The copy is independent: a smart playlist is copied as an ordinary Playlist
-// with its current Tracks, and later changes to either Playlist do not affect the other.
-func (s *playlists) Copy(ctx context.Context, id string) (string, error) {
-	src, err := s.ds.Playlist(ctx).GetWithTracks(id, true, false)
+// Playlist playlistID in order. The source must be shared (public) or the Listener's own. The copy
+// is independent: a smart playlist is copied as an ordinary Playlist holding its Tracks as last
+// evaluated (only the owner's reads re-evaluate it), and later changes to either Playlist do not
+// affect the other.
+func (s *playlists) Copy(ctx context.Context, playlistID string) (string, error) {
+	usr, ok := request.UserFrom(ctx)
+	if !ok || usr.ID == "" {
+		return "", model.ErrNotAuthorized
+	}
+	src, err := s.ds.Playlist(ctx).GetWithTracks(playlistID, true, false)
 	if err != nil {
 		return "", err
 	}
-	usr, _ := request.UserFrom(ctx)
+	// Admins can see every Playlist, but only shared ones (or your own) may be copied.
+	if !src.Public && !isOwner(usr, src) {
+		return "", model.ErrNotAuthorized
+	}
 	cp := &model.Playlist{
 		Name:    src.Name,
 		Comment: src.Comment,
@@ -250,7 +258,7 @@ func isOwner(usr model.User, pls *model.Playlist) bool {
 	return usr.ID != "" && pls.OwnerID == usr.ID
 }
 
-// checkWritable fetches the playlist and verifies the current user owns it.
+// checkWritable fetches the playlist and verifies the current Listener owns it.
 func (s *playlists) checkWritable(ctx context.Context, id string) (*model.Playlist, error) {
 	pls, err := s.ds.Playlist(ctx).Get(id)
 	if err != nil {
