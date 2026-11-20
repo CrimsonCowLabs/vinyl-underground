@@ -54,4 +54,15 @@ describe('<LinkToVersion />', () => {
     const cell = screen.queryByRole('cell')
     expect(cell.textContent).toBe('0.40.0-SNAPSHOT (300a0292)')
   })
+
+  it('should render link to the commit for snapshots built before any release tag exists', () => {
+    const version = '0.0.0-SNAPSHOT (05bdd2e6)'
+    render(<Wrapper version={version} />)
+
+    const link = screen.queryByRole('link')
+    expect(link.href).toBe(
+      'https://github.com/CrimsonCowLabs/vinyl-underground/commit/05bdd2e6',
+    )
+    expect(link.textContent).toBe('0.0.0-SNAPSHOT')
+  })
 })

@@ -88,9 +88,14 @@ const LinkToVersion = ({ version }) => {
   const parts = version.split(' ')
   const commitID = parts[1].replace(/[()]/g, '')
   const isSnapshot = version.includes('SNAPSHOT')
-  const url = isSnapshot
-    ? `https://${SOURCE_REPO}/compare/v${parts[0].split('-')[0]}...${commitID}`
-    : `https://${SOURCE_REPO}/releases/tag/v${parts[0]}`
+  const baseTag = parts[0].split('-')[0]
+  // Snapshots built before the fork's first release tag fall back to 0.0.0,
+  // which doesn't exist on GitHub, so link to the commit instead.
+  const url = !isSnapshot
+    ? `https://${SOURCE_REPO}/releases/tag/v${parts[0]}`
+    : baseTag === '0.0.0'
+      ? `https://${SOURCE_REPO}/commit/${commitID}`
+      : `https://${SOURCE_REPO}/compare/v${baseTag}...${commitID}`
   return (
     <>
       <Link href={url} target="_blank" rel="noopener noreferrer">
