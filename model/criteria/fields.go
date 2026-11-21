@@ -38,6 +38,8 @@ var fieldMap = map[string]FieldInfo{
 	"compilation":          {Boolean: true},
 	"missing":              {Boolean: true},
 	"explicitstatus":       {Nullable: true},
+	"source":               {Nullable: true},
+	"sourceurl":            {Nullable: true},
 	"dateadded":            {},
 	"datemodified":         {},
 	"discsubtitle":         {Nullable: true},

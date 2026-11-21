@@ -72,6 +72,8 @@ var smartPlaylistFields = map[string]smartPlaylistField{
 	"compilation":          {expr: "media_file.compilation"},
 	"missing":              {expr: "media_file.missing"},
 	"explicitstatus":       {expr: "media_file.explicit_status"},
+	"source":               {expr: "media_file.source"},
+	"sourceurl":            {expr: "media_file.source_url"},
 	"dateadded":            {expr: "media_file.created_at"},
 	"datemodified":         {expr: "media_file.updated_at"},
 	"discsubtitle":         {expr: "media_file.disc_subtitle"},
