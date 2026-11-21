@@ -10,6 +10,10 @@
 // themes.go); rule-based selection fills in until those picks are ready. What each
 // Listener's Station served is kept in the station_track table, so Stations are independent
 // and survive a restart.
+//
+// A Station is a Listener's with one DJ. Skipping a Track on it is a mild "less like this":
+// Skip records it in the station_skip table, and that Station alone then plays the Track and
+// its artist a little less, fading over SkipFade. Skips never touch ratings or favorites.
 package stations
 
 import (
@@ -41,6 +45,7 @@ var (
 	ErrUnknownDJ    = errors.New("no such DJ")
 	ErrInvalidCount = fmt.Errorf("the count must be from 1 to %d Tracks", MaxCount)
 	ErrNoTracks     = errors.New("no Tracks in the Library to play")
+	ErrNotServed    = errors.New("the Station didn't serve that Track lately")
 	ErrInvalidTheme = fmt.Errorf("the Theme must be at most %d characters", MaxThemeLength)
 )
 
@@ -51,6 +56,9 @@ type Service interface {
 	// Station with the DJ and the optional Theme, and remembers them so later refills don't
 	// repeat them. The Theme only counts with an LLM.
 	Next(ctx context.Context, djID, theme string, count int) (model.MediaFiles, error)
+	// Skip records that the logged-in Listener skipped a Track their Station served lately, so
+	// their Station with the DJ plays it, and its artist, a little less for a while.
+	Skip(ctx context.Context, djID, trackID string) error
 }
 
 // New returns the Service. A nil selector means no LLM is configured: selection is rule-based
@@ -93,9 +101,7 @@ func (s *service) Next(ctx context.Context, djID, theme string, count int) (mode
 	if !ok {
 		return nil, errors.New("a Station needs a logged-in Listener")
 	}
-	lock, _ := s.locks.LoadOrStore(usr.ID, &sync.Mutex{})
-	lock.(*sync.Mutex).Lock()
-	defer lock.(*sync.Mutex).Unlock()
+	defer s.lock(usr.ID)()
 
 	now := time.Now()
 	repo := s.ds.StationTrack(ctx)
@@ -111,9 +117,16 @@ func (s *service) Next(ctx context.Context, djID, theme string, count int) (mode
 		history[i] = Served{TrackID: t.MediaFileID, Artist: t.Artist, At: t.ServedAt}
 	}
 
+	skips, err := s.skips(ctx, dj, now)
+	if err != nil {
+		return nil, err
+	}
+	skipWeight := SkipWeight(skips, now)
+	rnd := rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64()))
+
 	var picked model.MediaFiles
 	if s.selector != nil {
-		picked = s.plans.take(usr.ID, dj, theme, history, now, count)
+		picked = s.plans.take(usr.ID, dj, theme, history, now, count, rnd, skipWeight)
 		history = append(servedAt(picked, now), history...)
 	}
 	if len(picked) < count {
@@ -121,7 +134,7 @@ func (s *service) Next(ctx context.Context, djID, theme string, count int) (mode
 		if err != nil {
 			return nil, err
 		}
-		picked = append(picked, Pick(dj, candidates, history, now, count-len(picked), rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64())))...)
+		picked = append(picked, Pick(dj, candidates, history, now, count-len(picked), rnd, skipWeight)...)
 	}
 	if len(picked) == 0 {
 		return nil, ErrNoTracks
@@ -146,6 +159,58 @@ func (s *service) Next(ctx context.Context, djID, theme string, count int) (mode
 		s.plans.selectAhead(ctx, s.selector, usr.ID, dj, theme, exclude)
 	}
 	return picked, nil
+}
+
+func (s *service) Skip(ctx context.Context, djID, trackID string) error {
+	if _, ok := FindDJ(djID); !ok {
+		return ErrUnknownDJ
+	}
+	usr, ok := request.UserFrom(ctx)
+	if !ok {
+		return errors.New("a Station needs a logged-in Listener")
+	}
+	defer s.lock(usr.ID)()
+
+	now := time.Now()
+	served, err := s.ds.StationTrack(ctx).Since(now.Add(-RepeatWindow))
+	if err != nil {
+		return fmt.Errorf("loading the Station's Tracks: %w", err)
+	}
+	for _, t := range served {
+		if t.MediaFileID == trackID {
+			skip := model.StationSkip{DJID: djID, MediaFileID: trackID, Artist: t.Artist, SkippedAt: now}
+			if err := s.ds.StationSkip(ctx).Add(skip); err != nil {
+				return fmt.Errorf("remembering the skip: %w", err)
+			}
+			return nil
+		}
+	}
+	return ErrNotServed
+}
+
+// lock keeps one Listener's refills and skips from racing, and returns the unlock.
+func (s *service) lock(userID string) func() {
+	lock, _ := s.locks.LoadOrStore(userID, &sync.Mutex{})
+	lock.(*sync.Mutex).Lock()
+	return lock.(*sync.Mutex).Unlock
+}
+
+// skips forgets the Listener's skips older than SkipFade, and returns the rest on their Station
+// with the DJ.
+func (s *service) skips(ctx context.Context, dj DJ, now time.Time) ([]Skip, error) {
+	repo := s.ds.StationSkip(ctx)
+	if err := repo.DeleteBefore(now.Add(-SkipFade)); err != nil {
+		return nil, fmt.Errorf("forgetting old skips: %w", err)
+	}
+	skipped, err := repo.Since(dj.ID, now.Add(-SkipFade))
+	if err != nil {
+		return nil, fmt.Errorf("loading the Station's skips: %w", err)
+	}
+	res := make([]Skip, len(skipped))
+	for i, sk := range skipped {
+		res[i] = Skip{TrackID: sk.MediaFileID, Artist: sk.Artist, At: sk.SkippedAt}
+	}
+	return res, nil
 }
 
 // servedAt returns the Tracks as served at now, in order, newest first like a Station's history.

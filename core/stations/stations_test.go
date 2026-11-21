@@ -39,7 +39,7 @@ var _ = Describe("Stations", Ordered, func() {
 	})
 
 	BeforeEach(func() {
-		for _, table := range []string{"station_track", "annotation", "media_file"} {
+		for _, table := range []string{"station_track", "station_skip", "annotation", "media_file"} {
 			_, err := db.Db().Exec("delete from " + table)
 			Expect(err).ToNot(HaveOccurred())
 		}
@@ -145,5 +145,70 @@ var _ = Describe("Stations", Ordered, func() {
 		bobTracks, err := svc.Next(bobCtx, "sunny", "", 10)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(ids(bobTracks)).To(ContainElement(BeElementOf(ids(aliceTracks))))
+	})
+
+	Describe("skips", func() {
+		// firstPicks counts how often each Track is the first one a Station serves over many
+		// fresh starts. Forgetting what the Station served stands in for 48h passing.
+		firstPicks := func(ctx context.Context, djID string) map[string]int {
+			res := map[string]int{}
+			for range 150 {
+				_, err := db.Db().Exec("delete from station_track")
+				Expect(err).ToNot(HaveOccurred())
+				tracks, err := svc.Next(ctx, djID, "", 1)
+				Expect(err).ToNot(HaveOccurred())
+				res[tracks[0].ID]++
+			}
+			return res
+		}
+
+		// skipHard serves both Tracks on Alice's Sunny Station and has her skip the first one
+		// again and again, so it plays at its least: a sixth of the first picks against half.
+		skipHard := func(tracks []string) {
+			_, err := svc.Next(aliceCtx, "sunny", "", 2)
+			Expect(err).ToNot(HaveOccurred())
+			for range 10 {
+				Expect(svc.Skip(aliceCtx, "sunny", tracks[0])).To(Succeed())
+			}
+		}
+
+		It("make that Station less likely to play the Track", func() {
+			tracks := addTracks(2)
+			skipHard(tracks)
+			n := firstPicks(aliceCtx, "sunny")
+			Expect(n[tracks[0]]).To(BeNumerically("<", 50))
+		})
+
+		It("leave the Listener's other Stations and the other Listener alone", func() {
+			tracks := addTracks(2)
+			skipHard(tracks)
+			Expect(firstPicks(aliceCtx, "night-owl")[tracks[0]]).To(BeNumerically(">", 50))
+			Expect(firstPicks(bobCtx, "sunny")[tracks[0]]).To(BeNumerically(">", 50))
+		})
+
+		It("leave ratings, favorites and play counts alone", func() {
+			tracks := addTracks(2)
+			repo := ds.MediaFile(aliceCtx)
+			Expect(repo.SetStar(true, tracks[0])).To(Succeed())
+			Expect(repo.SetRating(5, tracks[0])).To(Succeed())
+			Expect(repo.IncPlayCount(tracks[0], time.Now().Add(-72*time.Hour))).To(Succeed())
+
+			skipHard(tracks)
+
+			mf, err := repo.Get(tracks[0])
+			Expect(err).ToNot(HaveOccurred())
+			Expect(mf.Starred).To(BeTrue())
+			Expect(mf.Rating).To(Equal(5))
+			Expect(mf.PlayCount).To(Equal(int64(1)))
+		})
+
+		It("only count for Tracks the Station served, on a known DJ", func() {
+			tracks := addTracks(2)
+			Expect(svc.Skip(aliceCtx, "sunny", tracks[0])).To(MatchError(stations.ErrNotServed))
+			_, err := svc.Next(aliceCtx, "sunny", "", 2)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(svc.Skip(bobCtx, "sunny", tracks[0])).To(MatchError(stations.ErrNotServed))
+			Expect(svc.Skip(aliceCtx, "nobody", tracks[0])).To(MatchError(stations.ErrUnknownDJ))
+		})
 	})
 })

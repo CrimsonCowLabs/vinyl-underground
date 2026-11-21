@@ -3,6 +3,7 @@ package stations
 import (
 	"context"
 	"fmt"
+	"math/rand/v2"
 	"strings"
 	"sync"
 	"time"
@@ -81,7 +82,7 @@ type plans struct {
 
 // take serves up to n planned Tracks for the Listener's Station with the DJ and Theme, keeping
 // Pick's rules against history. A different Station from last time starts a new, empty plan.
-func (ps *plans) take(userID string, dj DJ, theme string, history []Served, now time.Time, n int) model.MediaFiles {
+func (ps *plans) take(userID string, dj DJ, theme string, history []Served, now time.Time, n int, rnd *rand.Rand, weights ...Weight) model.MediaFiles {
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
 	if ps.byListener == nil {
@@ -93,7 +94,7 @@ func (ps *plans) take(userID string, dj DJ, theme string, history []Served, now 
 		p = &plan{djID: dj.ID, theme: theme}
 		ps.byListener[userID] = p
 	}
-	picked, rest := pickRanked(p.tracks, history, now, n)
+	picked, rest := pickRanked(p.tracks, history, now, n, rnd, weights...)
 	p.tracks = rest
 	return picked
 }
