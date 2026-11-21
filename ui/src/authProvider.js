@@ -1,6 +1,7 @@
 import { jwtDecode } from 'jwt-decode'
 import { baseUrl } from './utils'
 import config from './config'
+import { APP_SHELL_CACHE } from './swNavigation'
 
 // config sent from server may contain authentication info, for example when the user is authenticated
 // by a reverse proxy request header
@@ -64,6 +65,9 @@ const authProvider = {
 
   logout: () => {
     removeItems()
+    // The stored app shell can carry this Listener's config (see sw.js)
+    typeof caches !== 'undefined' &&
+      caches.delete(APP_SHELL_CACHE).catch(() => {})
     // Only proxy-authenticated sessions go to the IdP; others (e.g. direct LAN access) get the login form
     if (config.extAuthLogoutURL && config.auth) {
       window.location.href = config.extAuthLogoutURL

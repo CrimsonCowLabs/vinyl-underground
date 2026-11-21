@@ -1,6 +1,8 @@
 /* eslint-disable */
 
-import { createNavigationHandler } from './swNavigation'
+import { APP_SHELL_CACHE, createNavigationHandler } from './swNavigation'
+import { createDownloadRoutes } from './download/swRoutes'
+import { DOWNLOADS_CACHE } from './download/keys'
 
 // documentation: https://developers.google.com/web/tools/workbox/modules/workbox-sw
 importScripts('3rdparty/workbox/workbox-sw.js')
@@ -41,9 +43,31 @@ const networkOnly = new workbox.strategies.NetworkOnly()
 const fallbackToCachedHtml = () =>
   caches.match(FALLBACK_HTML_URL, { cacheName: CACHE_NAME })
 
+// One copy of the app shell per device, whatever URL in scope loaded it
+const appShell = {
+  put: (response) =>
+    caches
+      .open(APP_SHELL_CACHE)
+      .then((cache) => cache.put(self.registration.scope, response)),
+  match: () =>
+    caches.match(self.registration.scope, { cacheName: APP_SHELL_CACHE }),
+}
+
 const navigationHandler = createNavigationHandler(
   networkOnly,
   fallbackToCachedHtml,
+  appShell,
+)
+
+// Downloads: Tracks and their cover art stored on the device for offline play
+const downloadRoutes = createDownloadRoutes({
+  match: (key) => caches.match(key, { cacheName: DOWNLOADS_CACHE }),
+  fetch: (request) => fetch(request),
+})
+workbox.routing.registerRoute(downloadRoutes.isAudio, downloadRoutes.serveAudio)
+workbox.routing.registerRoute(
+  downloadRoutes.isCoverArt,
+  downloadRoutes.serveCoverArt,
 )
 
 // self.__WB_MANIFEST is default injection point
