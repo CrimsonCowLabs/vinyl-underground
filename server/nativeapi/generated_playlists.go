@@ -18,17 +18,21 @@ import (
 // and PUT /generatedPlaylist/{id}/tracks replaces its Tracks with a preview's.
 // All answer 404 when no LLM is configured.
 func (api *Router) addGeneratedPlaylistRoute(r chi.Router) {
-	var client llm.Client
-	if opts := llm.FromConfig(); llm.Configured(opts) {
-		client = llm.New(opts)
-	}
-	gen := generatedplaylist.New(api.ds, client, api.provider)
+	gen := generatedplaylist.New(api.ds, newLLMClient(), api.provider)
 	r.Route("/generatedPlaylist", func(r chi.Router) {
 		r.Post("/", saveGeneratedPlaylist(gen))
 		r.Post("/preview", previewGeneratedPlaylist(gen))
 		r.Post("/{id}/preview", regenerateGeneratedPlaylist(gen))
 		r.Put("/{id}/tracks", replaceGeneratedPlaylist(gen))
 	})
+}
+
+// newLLMClient returns the configured LLM, or nil when there is none.
+func newLLMClient() llm.Client {
+	if opts := llm.FromConfig(); llm.Configured(opts) {
+		return llm.New(opts)
+	}
+	return nil
 }
 
 type previewRequest struct {
