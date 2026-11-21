@@ -61,6 +61,9 @@ services:
       # Rescan on a schedule too: the file watcher can miss changes on network mounts.
       ND_SCANNER_SCHEDULE: ${ND_SCANNER_SCHEDULE:-@every 24h}
       ND_BACKUP_PATH: ${ND_BACKUP_PATH:-/data/backup}
+      # Ask Last.fm first for artist info and similar artists (it is skipped while
+      # ND_LASTFM_APIKEY is empty). Lookups only: nothing is scrobbled.
+      ND_AGENTS: ${ND_AGENTS:-lastfm,deezer,listenbrainz}
     volumes:
       - *data-volume
       # Scanned as a second library that only the admin sees (ND_INBOX_PATH,

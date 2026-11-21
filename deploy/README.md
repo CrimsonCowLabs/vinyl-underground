@@ -218,6 +218,20 @@ and in `.env`: `ND_LLM_BASEURL=http://ollama:11434`, `ND_LLM_MODEL=qwen3.5:4b-q4
 
 Both gave fitting Playlists of real Tracks (Cyndi Lauper, The B-52's, Thompson Twins; Radiohead, Smashing Pumpkins, Blur, Nirvana). The first request after the model was unloaded also pays its load time, so `ND_LLM_TIMEOUT` allows minutes.
 
+### Similar artists from Last.fm
+
+When the Library's genre tags are sparse, the genres alone find few Tracks. So the app also asks Last.fm for artists similar to the LLM's seed artists, and offers Tracks by those that are in the Library, after the seed artists' own Tracks. Set a Last.fm API key (free, from <https://www.last.fm/api/account/create>) in `.env`:
+
+```bash
+ND_LASTFM_APIKEY=<your-api-key>
+```
+
+Without one, Deezer answers instead (`ND_AGENTS`, default `lastfm,deezer,listenbrainz`, sets the order). For a seed artist in the Library, the answer is cached with its artist info. **This sends the seed artists' names to Last.fm (and Deezer)**, like the artist and album pages already do.
+
+If Last.fm is slow or can't be reached, a preview waits at most 4 seconds for it, then carries on from the Library's tags alone. `ND_ENABLEEXTERNALSERVICES=false` turns off every outside lookup.
+
+Nothing is ever scrobbled to Last.fm: the app doesn't offer to link a Last.fm account, so `ND_LASTFM_SECRET` isn't needed.
+
 ## Updating
 
 ```bash
