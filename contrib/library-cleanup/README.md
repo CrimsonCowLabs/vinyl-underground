@@ -13,7 +13,7 @@ Tools for cleaning up a music share before the app scans it. The app itself has 
 | `apply.py` | Carries out a plan, checking each step by re-listing both folders |
 | `health.py` | Reports how healthy the Library is, from the app's database, read-only (pure, unit-tested) |
 | `retag.py` | Lists the folders beets should retag, leaving out Quarantine, the recycle bin and `.ndignore` folders (pure, unit-tested) |
-| `beets/` | beets in Docker, set up to retag Files in place from MusicBrainz (`retag.sh`, config, three small plugins) |
+| `beets/` | beets in Docker, set up to retag Files in place from MusicBrainz and give every album a cover (`retag.sh`, config, four small plugins) |
 
 Python 3.10+ only, no dependencies. Run the tests with `python3 -m unittest` in this folder. beets runs in Docker, and the tests of its plugins (in `beets/`) run in its image, with `beets/retag.sh test`.
 
@@ -254,6 +254,50 @@ diff $PLANS/health-before.txt $PLANS/health-after.txt
 **Re-running for new music.** Repeat steps 3 and 4 with the same `RETAG_STATE`: only folders beets hasn't seen are asked about. beets remembers folders, not Files, so a File added to a folder already done isn't retagged; fix that one by hand. Deleting `$RETAG_STATE` starts over and asks about every album again.
 
 **Testing on a scratch copy.** `RETAG_QUIET=1 beets/retag.sh import LIST` applies strong matches (at least 96% similar) and skips the rest without asking. Use it only on a copy of a few albums, with `MUSIC_RW` set to the copy and `RETAG_STATE` to a throwaway folder, never on the Library: nothing is approved. `retag.sh` refuses it when `MUSIC_RW` is a mount.
+
+## Recipe: a cover for every album
+
+Many albums have no cover: no art embedded in their Files and no image in their folder. `retag.sh covers` gives every album beets has retagged a `cover.jpg` in its folder and embeds the cover in its Files, so it shows in the app, in other Subsonic clients and in offline Downloads, without an online lookup each time. Run it after the retag (steps 3 and 4 above), with the same `RETAG_STATE`: it works on the albums in beets' library, using the MusicBrainz IDs the retag wrote.
+
+What it does and doesn't do, for each album (the `covers` plugin, with beets' `fetchart` plugin finding the images):
+
+- **Keeps a cover the album already has**: a `cover.jpg` in its folder is kept exactly as it is (and listed if it is under 500 pixels wide, for you to replace by hand). Else a good image named like a cover in its folder (`front`, `folder`, `album`, `art`, e.g. `Folder.png`), or else the art embedded in its Files, becomes its `cover.jpg`; the original image stays where it is. A good cover is at least 500 pixels wide and roughly square.
+- **Else looks online**: first the Cover Art Archive, by the MusicBrainz release, then by its release group; then fanart.tv by release group, the iTunes Store by artist and album, and Wikipedia by artist and album. A downloaded cover is shrunk to 1200 pixels.
+- **Else keeps a small cover** the album already has (below 500 pixels, or not square), as its `cover.jpg`; such albums are listed for you.
+- **Writes `cover.jpg`** (JPEG) into each folder holding the album's Files, e.g. both `CD1/` and `CD2/`, and never replaces an image already there.
+- **Embeds the cover** in each File with no embedded art of its own, shrunk to 600 pixels (a 600-pixel JPEG is about 50–150 KB per File). Files that already have art keep it. Only the image is written, not beets' other tags, so anything you have fixed by hand since the retag stays.
+- **Leaves out** Quarantine, the recycle bin and `.ndignore` folders: beets never retagged them, and the plugin also refuses any album in a folder beets' `ignore` setting names or under a `.ndignore`. Albums beets hasn't retagged (still skipped in the review) aren't covered: give them a `cover.jpg` by hand.
+- **Lists the albums left without a good cover** in `$RETAG_STATE/no-cover.tsv` (status `none` for nothing found, `small` for a small cover kept, `error` for an album whose folder or Files it couldn't write to), with their folders. It is written as the run goes, so a stopped run still has its list. Add a `cover.jpg` to those by hand (any square image of 500 pixels or more), then re-run it to embed it. It prints `/state/no-cover.tsv`, which is that file as the container sees it.
+
+**1. Trial on a few albums.** With the writable mount up at `/mnt/music-rw` and `RETAG_STATE` set as for the retag, give a beets query, e.g. one artist's folder (paths as beets sees them, under `/music`):
+
+```bash
+python3 health.py /path/to/navidrome.db --list no-cover > $PLANS/no-cover-before.tsv
+beets/retag.sh build && beets/retag.sh test     # the image now has Pillow, for the covers
+beets/retag.sh covers 'path:/music/iTunes_Library/Music/Radiohead'
+```
+
+It prints each album with what it did (`kept`, `found` and the source, `small`, `none`, `left out` or `error`) and the totals. Unmount (`sudo umount /mnt/music-rw`), run a Full Scan, and check the covers of those albums in the app.
+
+**2. Every album.** Mount the writable mount again, then:
+
+```bash
+beets/retag.sh covers
+```
+
+It asks nothing, so it can run unattended. Expect several hours: for each album without a cover it makes a few web requests, and each File it embeds into is rewritten over SMB1. Stop it with Ctrl-C whenever you like and run it again: an album with a `cover.jpg` is kept as it is, and a File that has art is left alone, so it carries on where it stopped.
+
+**3. Check.** Unmount the writable mount, run a Full Scan in the app, and compare the health report's `no-cover` with the one before: it should be near 0. The albums still listed should be those in `$RETAG_STATE/no-cover.tsv` and the albums beets never retagged:
+
+```bash
+python3 health.py /path/to/navidrome.db > $PLANS/health-after.txt
+python3 health.py /path/to/navidrome.db --list no-cover
+cat $RETAG_STATE/no-cover.tsv
+```
+
+An album downloaded for offline play before this keeps the placeholder it stored when downloaded: remove its Download and download it again to store its new cover.
+
+**Re-running for new music.** After retagging new albums (steps 3 and 4 of the retag), run `beets/retag.sh covers` again: albums that already have a `cover.jpg` are kept as they are, and the others are looked up again, so an album listed as `none` may be found later. `no-cover.tsv` is rewritten each run with the albums of that run only, so after a trial on a query it lists only those.
 
 ## Library health report
 

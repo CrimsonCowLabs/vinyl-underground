@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import { httpClient } from '../dataProvider'
 import { REST_URL } from '../consts'
-import { addStationTracks, upcomingTracks } from './stationState'
+import { addStationTracks, stopStation, upcomingTracks } from './stationState'
+import { stationErrorCode } from './stationErrors'
 
 // The Station refills when fewer than REFILL_BELOW Tracks are queued after the
 // one playing, REFILL_COUNT at a time, so a skip always has a Track to go to.
@@ -49,6 +50,12 @@ export const useStationRefill = () => {
         }
       })
       .catch((e) => {
+        // The DJ is gone (deleted, maybe on another device): the Station
+        // can't refill any more, so it ends and what's queued plays out.
+        if (stationErrorCode(e) === 'unknownDJ') {
+          if (onAir.current === session) dispatch(stopStation())
+          return
+        }
         // eslint-disable-next-line no-console
         console.warn('Station refill failed:', e)
         retry = setTimeout(() => setRetries((n) => n + 1), RETRY_MS)

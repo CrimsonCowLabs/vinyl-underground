@@ -2,11 +2,14 @@
 
 Runs Vinyl Underground with `docker compose` on a host in your tailnet, with the Library mounted read-only, a writable Inbox for new music, and the app served over HTTPS by `tailscale serve`. HTTPS is required: without it the browser won't register the PWA's service worker, so the app can't be installed and Downloads can't work ([ADR-0006](../docs/adr/0006-offline-downloads-in-the-pwa.md)).
 
-The app is meant for private networks only ([ADR-0001](../docs/adr/0001-hard-fork-navidrome.md)). Use `tailscale serve`, never `tailscale funnel`, which would put it on the public internet.
+The app is meant for private networks only: it gets no upstream security fixes ([ADR-0001](../docs/adr/0001-hard-fork-navidrome.md)). Use `tailscale serve`, never `tailscale funnel`, which would put it on the public internet.
+
+Start with the [top-level README](../README.md#self-hosting), which sets up the host once: the read-only Library mount, the Duplicate cleanup, the image and Tailscale HTTPS. This runbook covers the stack in detail.
 
 | File | What it is |
 |---|---|
 | `docker-compose.yml` | The stack. It holds no personal values. |
+| `docker-compose.promote.yml` | Optional override that turns on Promote (section 12). |
 | `.env.example` | Every setting, commented out at its default. |
 | `.env` | Optional. Only the settings you change. Gitignored, never commit it. |
 
@@ -15,9 +18,9 @@ All commands below run from this `deploy/` folder unless they say otherwise.
 ## 1. Before you start
 
 - **Docker** with the Compose plugin, and **Tailscale** on the host, logged in to your tailnet.
-- **The Library mounted read-only on the host**, e.g. at `/mnt/music` (for an older NAS over SMB1, mount with `vers=1.0`).
-- **The Library already cleaned**: names that differ only by case merged ([`contrib/library-cleanup`](../contrib/library-cleanup/README.md)), and Duplicates moved to Quarantine. The app has no dedupe code ([ADR-0002](../docs/adr/0002-quarantine-duplicates-instead-of-in-app-dedupe.md)), so whatever is in the Library on the first scan becomes a Track.
-- **HTTPS certificates turned on for the tailnet**: in the Tailscale admin console, under DNS, enable MagicDNS and HTTPS Certificates. The machine's name is published in public Certificate Transparency logs when its certificate is issued, so pick a machine name you don't mind being public.
+- **The Library mounted read-only on the host**, e.g. at `/mnt/music` (for an older NAS over SMB1, mount with `vers=1.0`): see [Mount the music share read-only](../README.md#1-mount-the-music-share-read-only).
+- **The Library already cleaned**: names that differ only by case merged ([`contrib/library-cleanup`](../contrib/library-cleanup/README.md)), and Duplicates moved to Quarantine ([Move Duplicates into Quarantine](../README.md#2-move-duplicates-into-quarantine)). The app has no dedupe code ([ADR-0002](../docs/adr/0002-quarantine-duplicates-instead-of-in-app-dedupe.md)), so whatever is in the Library on the first scan becomes a Track.
+- **HTTPS certificates turned on for the tailnet**: MagicDNS and HTTPS Certificates, as in [README, step 5](../README.md#5-serve-it-over-https-with-tailscale).
 
 ## 2. Configure
 
@@ -31,6 +34,7 @@ Nothing is required. With no `.env`, the stack uses these defaults:
 | `VU_UID` / `VU_GID` | `1000` / `1000` |
 | `VU_PORT` | `4533`, on `127.0.0.1` only |
 | `VU_PROMOTE_DIR` | unset: Promote is off (see section 12) |
+| `VU_IMAGE` | unset: built from this checkout as `vinyl-underground:local` |
 
 If any of those is wrong for your host, or you want another app setting (`ND_*`), make a `.env` and uncomment just those lines:
 
@@ -63,8 +67,11 @@ If it plans any, finish the Duplicate pass first and check again.
 
 ## 4. Start the app and run the first scan
 
+With `VU_IMAGE` set to a published image (`ghcr.io/crimsoncowlabs/vinyl-underground:<version>`), pull it first; without it, build from this checkout:
+
 ```bash
-docker compose up -d --build
+docker compose pull vinyl-underground   # published image only
+docker compose up -d                    # or, to build: docker compose up -d --build
 docker compose logs -f vinyl-underground
 ```
 
@@ -264,7 +271,7 @@ Once a Rip is reviewed, **Promote all** on its card moves its Files out of the I
 
 How it fits together:
 
-- On the host, the whole share stays mounted read-only (e.g. at `/mnt/music`), and **just the `Vinyl Underground` folder** gets a second, read-write CIFS mount of its own (e.g. at `/mnt/vinyl-underground`). CIFS can mount a folder of a share: `//nas-host/share/Vinyl Underground`.
+- On the host, the whole share stays mounted read-only (e.g. at `/mnt/music`), and **just the `Vinyl Underground` folder** gets a second, read-write CIFS mount of its own (e.g. at `/mnt/vinyl-underground`). CIFS can mount a folder of a share: `//nas-host/music/Vinyl Underground`.
 - In the container, the read-only Library is at `/music`, and `docker-compose.promote.yml` binds the read-write mount over `/music/Vinyl Underground`. So promoted Files sit inside the Library at their final path, and the scanner sees them there. Docker allows a read-write bind inside a read-only one, but it can't create the mountpoint folder inside a read-only bind, so the folder must exist on the share first.
 
 ### On the NAS: create the folder
@@ -272,26 +279,13 @@ How it fits together:
 The folder must exist before anything is mounted, and the read-only mount can't create it. Make it once from any machine that can write to the share (a desktop file manager, the NAS's web admin, or `smbclient`). For an SMB1-only NAS, `smbclient` needs `-m NT1`:
 
 ```bash
-smbclient //nas-host/share -A ~/nas-credentials -m NT1 -c 'mkdir "Vinyl Underground"'
+smbclient //nas-host/music -A ~/nas-credentials -m NT1 -c 'mkdir "Vinyl Underground"'
 ls "$VU_LIBRARY_DIR/Vinyl Underground"   # now visible through the read-only mount
 ```
 
 ### On the host: mount just that folder read-write
 
-1. A credentials file, readable only by root, so the password isn't in `/etc/fstab` (the read-only mount can share it):
-
-   ```bash
-   sudo install -d -m 700 /etc/samba-creds
-   sudo install -m 600 /dev/null /etc/samba-creds/nas
-   sudoedit /etc/samba-creds/nas
-   ```
-
-   with:
-
-   ```
-   username=<nas-user>
-   password=<nas-password>
-   ```
+1. The root-only credentials file `/etc/samba-creds/nas`, shared with the read-only mount ([README, step 1](../README.md#1-mount-the-music-share-read-only)). The NAS user must be allowed to write to the share.
 
 2. The mountpoint, owned by root and **not writable**: if the mount ever fails (`nofail` lets the host boot without it), the app finds a folder it can't write to and turns Promote off, instead of filling a folder on the local disk:
 
@@ -302,13 +296,12 @@ ls "$VU_LIBRARY_DIR/Vinyl Underground"   # now visible through the read-only mou
 3. One line in `/etc/fstab`. The space in the folder name is written `\040`:
 
    ```
-   //nas-host/share/Vinyl\040Underground  /mnt/vinyl-underground  cifs  rw,vers=1.0,credentials=/etc/samba-creds/nas,uid=1000,gid=1000,file_mode=0664,dir_mode=0775,iocharset=utf8,noserverino,_netdev,nofail  0  0
+   //nas-host/music/Vinyl\040Underground  /mnt/vinyl-underground  cifs  rw,vers=1.0,credentials=/etc/samba-creds/nas,uid=1000,gid=1000,file_mode=0664,dir_mode=0775,iocharset=utf8,noserverino,_netdev,nofail  0  0
    ```
 
    - `vers=1.0` is for an older NAS that speaks only SMB1; leave it out (or use `vers=3.0`) on anything newer. The kernel must allow SMB1 (`CONFIG_CIFS_ALLOW_INSECURE_LEGACY`), as for the read-only mount. Use the same `vers` as that mount.
    - `uid`/`gid` must be `VU_UID`/`VU_GID`, the user the app runs as: CIFS has no Unix owners of its own, so these and `file_mode`/`dir_mode` decide who may write. `0664`/`0775` let that user write and everyone read.
-   - `iocharset=utf8` keeps accented names intact; `noserverino` avoids the inode-number problems of older SMB servers.
-   - `_netdev` waits for the network at boot; `nofail` lets the host boot when the NAS is away.
+   - The other options are as for the [read-only mount](../README.md#1-mount-the-music-share-read-only).
 
 4. Mount it and check it, and that the rest of the share is still read-only:
 
@@ -342,6 +335,15 @@ Docker binds the host mount as it is when the container starts. Start the contai
 - **Who:** only the admin can promote. With Promote off, or no Inbox, there is nothing to see.
 
 ## Updating
+
+For a published image, set the new version in `VU_IMAGE`, then:
+
+```bash
+docker compose pull vinyl-underground
+docker compose up -d
+```
+
+When building from source:
 
 ```bash
 git pull

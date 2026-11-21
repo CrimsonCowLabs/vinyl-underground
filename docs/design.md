@@ -61,6 +61,9 @@ It is a public, GPL-3.0, hard fork of Navidrome **v0.64.2**, renamed and never r
 ### DJs
 - Built-in DJs: **Night Owl** (low-key, late-night, short Blurbs), **The Crate Digger** (deep cuts and trivia), **Sunny** (upbeat, morning-show).
 - Listeners can create their own DJs, which are private to them, from a name plus a personality description.
+  - How Listener DJs work (#17): the Stations page lists the built-in DJs, then the Listener's own by name. "New DJ" opens an editor for a name (up to 60 characters) and a personality (up to 1000); their own DJs also get Edit and Delete there. Built-in DJs are read-only. The `dj` table keeps them per Listener, and every endpoint (`GET`/`POST /api/station/dj`, `PUT`/`DELETE /api/station/dj/{id}`) only reaches the logged-in Listener's own, so another Listener's DJ is `unknownDJ` (404), even to an admin; editing or deleting a built-in DJ is `builtInDJ` (403).
+  - **Selection:** with an LLM, a Listener DJ's name and personality are the request, as for the built-in ones, and editing them starts a new plan. Without one, the personality is free text the rules can't read, so their DJ leans on the Listener's favorites, most played and best-loved artists, with some room for unplayed Tracks.
+  - **Deleting:** Station history only holds a DJ's id, never a reference to its row, so deleting a DJ leaves play counts, served Tracks (still kept out for ~48h) and other Stations as they are. Its skips are left to fade and be pruned. If its Station is on air, it stops refilling and what's queued plays out.
 - DJs never speak aloud. Their character comes through Track selection and on-screen Blurbs.
 
 ### Inbox and Rips (designed 2026-11-20)
@@ -174,6 +177,7 @@ The Library keeps growing, and all new music reaches it through one path: the **
 - The Inbox (`VU_INBOX_DIR`) is a separate read-write bind mount at `/inbox`.
 - HTTPS through `tailscale serve`, which the PWA needs for its service worker.
 - Personal details (hostnames, IPs, credentials) live in a gitignored `.env`. The repo ships `.env.example` and an example `docker-compose.yml`.
+- Each version tag publishes a multi-arch (amd64 + arm64) image to `ghcr.io/crimsoncowlabs/vinyl-underground` ([releasing](./releasing.md)).
 - Development needs Go 1.27 (cgo enabled, for sqlite), Node 24 and ffmpeg.
 
 ## Open source obligations

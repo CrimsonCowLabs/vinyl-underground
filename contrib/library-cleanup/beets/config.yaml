@@ -8,7 +8,7 @@ create_backup_before_migrations: no
 # Only a placeholder: Files are never moved, so beets' path formats are never used.
 directory: /music
 
-plugins: [musicbrainz, chroma, fingerprints, lastgenre, keepgenre, lowconfidence]
+plugins: [musicbrainz, chroma, fingerprints, lastgenre, keepgenre, lowconfidence, covers, fetchart]
 # fingerprints makes chroma's fingerprints count when pairing Files with Tracks (see beetsplug/fingerprints.py).
 pluginpath: [/etc/beets/beetsplug]
 
@@ -77,3 +77,33 @@ lastgenre:
 
 lowconfidence:
   skip: yes
+
+# Covers, for `retag.sh covers` (beetsplug/covers.py), after the retag: never during an import.
+fetchart:
+  auto: no
+  # A cover is good from 500 pixels wide and near square; one downloaded is shrunk to 1200.
+  # quality is that of every JPEG written, by fetchart and by the covers plugin.
+  minwidth: 500
+  maxwidth: 1200
+  quality: 90
+  enforce_ratio: 10%
+  # Only images named like a cover (cover, front, folder, album, art), never back.jpg or a booklet scan.
+  cautious: yes
+  # The album's own cover first (an image in its folder, then its embedded art), then the Cover Art
+  # Archive by the MusicBrainz release, then its release group, then other sources: fanart.tv by
+  # release group, the iTunes Store by artist and album, and Wikipedia by artist and album.
+  # (Amazon's old image links, fetchart's other source by ID, mostly no longer work.)
+  sources:
+    - filesystem
+    - embedded
+    - coverart: release
+    - coverart: releasegroup
+    - fanarttv
+    - itunes
+    - wikipedia
+
+covers:
+  # Each File gets a 600-pixel copy of cover.jpg, if it has no art of its own.
+  embed_maxwidth: 600
+  # The albums left without a good cover.
+  report: /state/no-cover.tsv

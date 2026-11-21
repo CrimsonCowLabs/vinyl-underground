@@ -25,6 +25,12 @@ export const startStation = (djId, tracks, theme = '') => {
   }
 }
 
+export const STATION_STOP = 'STATION_STOP'
+
+// stopStation takes the DJ off air, as when the Listener deletes it, leaving
+// the queued Tracks to play out without refills.
+export const stopStation = () => ({ type: STATION_STOP })
+
 // addStationTracks appends a refill to the end of the queue.
 export const addStationTracks = (tracks) => addTracks(toQueueData(tracks))
 
@@ -46,6 +52,7 @@ export const stationReducer = (
         : { ...state, djId: null }
     case PLAYER_SET_TRACK:
     case PLAYER_CLEAR_QUEUE:
+    case STATION_STOP:
       return { ...state, djId: null }
     default:
       return state
