@@ -37,6 +37,8 @@ var UploadFormats = []string{".mp3", ".m4a", ".opus", ".ogg", ".flac", ".aiff", 
 type UploadRefusedError struct {
 	Name   string
 	Reason string
+	// TooBig is true for a File over the size limit, which was read only up to the limit.
+	TooBig bool
 }
 
 func (e *UploadRefusedError) Error() string { return e.Name + ": " + e.Reason }
@@ -167,7 +169,7 @@ func (r *Ripper) receive(inboxPath, name, ext string, body io.Reader) (string, e
 	case err != nil:
 		err = fmt.Errorf("receiving %s: %w", name, err)
 	case n > limit:
-		err = &UploadRefusedError{Name: name, Reason: fmt.Sprintf("it is bigger than %d MB, the most one File can be", limit>>20)}
+		err = &UploadRefusedError{Name: name, TooBig: true, Reason: fmt.Sprintf("it is bigger than %d MB, the most one File can be", limit>>20)}
 	default:
 		props, perr := taglib.ReadProperties(f.Name())
 		if perr != nil || (props.SampleRate == 0 && props.Length == 0) {

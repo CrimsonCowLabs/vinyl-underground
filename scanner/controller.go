@@ -206,6 +206,7 @@ func (s *controller) ScanFolders(requestCtx context.Context, fullScan bool, targ
 	if err != nil {
 		return nil, err
 	}
+	defer notifyAfterScan() // deferred first, so it runs once the lock is released
 	defer release()
 
 	// Prepare the context for the scan

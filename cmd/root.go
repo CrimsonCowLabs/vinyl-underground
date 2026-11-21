@@ -89,6 +89,7 @@ func runNavidrome(ctx context.Context) {
 	if err != nil {
 		log.Error(ctx, "Could not set up the Inbox library", err)
 	}
+	checkInbox(ctx)
 	checkPromoteFolder(ctx)
 
 	g, ctx := errgroup.WithContext(ctx)
@@ -162,16 +163,34 @@ func startServer(ctx context.Context, ripper *rip.Ripper) func() error {
 	}
 }
 
-// startRipper starts the background worker that runs Rips one at a time, if ripping is on. It
-// returns nil when ripping is off, and then no ripping endpoint is mounted.
+// startRipper starts the Inbox's background workers: the tag proposals and the dropped Files
+// (#35) whenever there is an Inbox, and the one that runs Rips one at a time if ripping is on.
+// It returns nil when there is neither, and then no Rip API is mounted.
 func startRipper(ctx context.Context, g *errgroup.Group) *rip.Ripper {
-	if !conf.Server.Ripping.Enabled {
+	if !conf.Server.Ripping.Enabled && conf.Server.Inbox.Path == "" {
 		return nil
 	}
 	ripper := rip.NewFromConfig(CreateDataStore(), CreateScanner(ctx))
+	// Each scan may have found Files dropped into the Inbox.
+	scanner.AfterScan(ripper.InboxScanned)
+	resumed := make(chan struct{})
 	g.Go(func() error {
 		// Before any new Rip or Promote: finish or undo the moves the last stop interrupted.
 		ripper.ResumePromotes(ctx)
+		close(resumed)
+		ripper.RunInbox(ctx)
+		return nil
+	})
+	if !conf.Server.Ripping.Enabled {
+		log.Info(ctx, "Ripping is disabled; uploads and Files dropped into the Inbox still get review cards")
+		return ripper
+	}
+	g.Go(func() error {
+		select {
+		case <-resumed:
+		case <-ctx.Done():
+			return nil
+		}
 		ripper.Run(ctx)
 		return nil
 	})
@@ -195,9 +214,20 @@ func checkPromoteFolder(ctx context.Context) {
 		log.Debug(ctx, "Promote is off (no Inbox.PromotePath set)")
 	default:
 		conf.Server.Inbox.PromotePath = path
-		if conf.Server.Ripping.Enabled {
-			log.Info(ctx, "Promote is enabled", "path", path)
-		}
+		log.Info(ctx, "Promote is enabled", "path", path)
+	}
+}
+
+// checkInbox turns the Inbox off for this run (Inbox.Path cleared) when no Inbox library could be
+// set up, so neither uploads nor the Inbox's review show.
+func checkInbox(ctx context.Context) {
+	if conf.Server.Inbox.Path == "" {
+		return
+	}
+	inbox, err := core.FindInboxLibrary(ctx, CreateDataStore())
+	if err != nil || inbox == nil {
+		log.Warn(ctx, "The Inbox is off: no Inbox library could be set up", "path", conf.Server.Inbox.Path, err)
+		conf.Server.Inbox.Path = ""
 	}
 }
 

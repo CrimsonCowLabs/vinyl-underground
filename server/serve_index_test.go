@@ -105,9 +105,16 @@ var _ = Describe("serveIndex", func() {
 		Entry("shareURL", func() { conf.Server.ShareURL = "https://share.example.com" }, "shareURL", "https://share.example.com"),
 		Entry("enableInspect", func() { conf.Server.Inspect.Enabled = true }, "enableInspect", true),
 		Entry("enableRipping", func() { conf.Server.Ripping.Enabled = true }, "enableRipping", true),
-		Entry("enablePromote", func() { conf.Server.Ripping.Enabled = true; conf.Server.Inbox.PromotePath = "/music/Vinyl Underground" }, "enablePromote", true),
-		Entry("enablePromote with ripping off", func() { conf.Server.Inbox.PromotePath = "/music/Vinyl Underground" }, "enablePromote", false),
-		Entry("enablePromote with no promote folder", func() { conf.Server.Ripping.Enabled = true }, "enablePromote", false),
+		Entry("enableInbox", func() { conf.Server.Inbox.Path = "/inbox" }, "enableInbox", true),
+		Entry("enableInbox with no Inbox", func() { conf.Server.Ripping.Enabled = true }, "enableInbox", false),
+		Entry("enablePromote", func() { conf.Server.Inbox.Path = "/inbox"; conf.Server.Inbox.PromotePath = "/music/Vinyl Underground" }, "enablePromote", true),
+		Entry("enablePromote with ripping off too (#35)", func() {
+			conf.Server.Ripping.Enabled = false
+			conf.Server.Inbox.Path = "/inbox"
+			conf.Server.Inbox.PromotePath = "/music/Vinyl Underground"
+		}, "enablePromote", true),
+		Entry("enablePromote with no Inbox", func() { conf.Server.Ripping.Enabled = true; conf.Server.Inbox.PromotePath = "/music/Vinyl Underground" }, "enablePromote", false),
+		Entry("enablePromote with no promote folder", func() { conf.Server.Inbox.Path = "/inbox" }, "enablePromote", false),
 		Entry("enableGeneratedPlaylists", func() { conf.Server.LLM.BaseURL = "http://llm-host:11434"; conf.Server.LLM.Model = "qwen3.5:4b-q4_K_M" }, "enableGeneratedPlaylists", true),
 		Entry("enableGeneratedPlaylists without a model", func() { conf.Server.LLM.BaseURL = "http://llm-host:11434"; conf.Server.LLM.Model = "" }, "enableGeneratedPlaylists", false),
 		Entry("defaultDownsamplingFormat", func() { conf.Server.DefaultDownsamplingFormat = "mp3" }, "defaultDownsamplingFormat", "mp3"),

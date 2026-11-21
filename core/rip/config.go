@@ -41,7 +41,7 @@ func NewFromConfig(ds model.DataStore, scanner FolderScanner) *Ripper {
 	}
 	if deno, err := exec.LookPath("deno"); err == nil {
 		yt.DenoPath = deno
-	} else {
+	} else if conf.Server.Ripping.Enabled {
 		log.Warn("Ripping: deno is not installed, so yt-dlp may miss formats or fail on YouTube")
 	}
 	return New(ds, yt, scanner, opts)

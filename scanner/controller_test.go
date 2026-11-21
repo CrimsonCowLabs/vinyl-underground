@@ -52,6 +52,13 @@ var _ = Describe("Controller", func() {
 			Expect(status.LastError).To(Equal("test error"))
 			Expect(status.ScanType).To(Equal("full"))
 		})
+
+		It("tells AfterScan's listeners once a scan is done and the lock released", func() {
+			called := make(chan bool, 10)
+			scanner.AfterScan(func() { called <- scanner.IsScanning() })
+			_, _ = ctrl.ScanAll(ctx, false) // a failed scan is a scan done all the same
+			Eventually(called).Should(Receive(BeFalse()))
+		})
 	})
 })
 
