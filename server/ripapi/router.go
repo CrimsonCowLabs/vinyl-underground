@@ -1,13 +1,17 @@
 // Package ripapi is the admin's HTTP API for Rips: start one from a URL, list the jobs, and see
 // and update the yt-dlp that runs them.
 //
-//	GET  /api/rip                       every job, newest first, each with its items
+//	GET  /api/rip                       every job, newest first, each with its items (and each
+//	                                    item's alreadyHave Tracks)
 //	POST /api/rip {url}                 201: the queued job, with its items
 //	                                    409: {error, needsConfirmation: true, url, title, count,
-//	                                         titles} for a playlist of more than 50 items; nothing
-//	                                         is queued
+//	                                         titles, confirmCount, alreadyHave: [{position, title,
+//	                                         tracks}]} for a playlist of more than 50 items
+//	                                         (confirmCount), or videos the Library already seems
+//	                                         to have (alreadyHave); nothing is queued
 //	                                    422: {error} for a playlist of more than 300 items
-//	POST /api/rip {url, confirm: true}  queues a playlist of 51 to 300 items
+//	POST /api/rip {url, confirm: true}  queues it anyway: a playlist of 51 to 300 items, or videos
+//	                                    the Library already seems to have
 //	GET  /api/rip/ytdlp                 the installed yt-dlp's version
 //	POST /api/rip/ytdlp/update          updates yt-dlp
 package ripapi

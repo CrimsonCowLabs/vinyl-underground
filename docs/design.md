@@ -82,6 +82,9 @@ The Library keeps growing, and all new music reaches it through one path: the **
   - The schedule is `ND_RIPPING_YTDLPUPDATESCHEDULE` (default `@daily`). An update resolves the latest release to its tag once, fetches the binary and `SHA2-256SUMS` from that tag, and downloads nothing when `yt-dlp --version` is already that tag. A failed update keeps the old binary, and no update replaces it while a Rip runs.
   - A failed Rip is retried only when yt-dlp itself failed and an update might help. Not retried: unsupported URLs, private, removed, age-restricted, members-only or blocked videos, playlists, the Rip's own timeout, and the app's own errors.
 - Before ripping, the app matches artist and title against the Library and warns "already have: …". It never blocks the Rip.
+  - Matching (#32) runs at queuing, on each item, in the libraries the admin can see (the Library and the Inbox). It uses the Track search to find candidates, then compares artist and title with case, accents, punctuation and featuring credits taken out, along with YouTube noise such as "(Official Video)", "[HD]", "(Lyrics)" and a channel's " - Topic" or "VEVO". An "Artist - Title" video title is split. "Live", "Remastered" and the like are kept, as they make another recording. A likely match is not a Duplicate: Duplicates are identical Files.
+  - Matches fold into the same confirmation as a big playlist: `POST /api/rip` answers 409 with `alreadyHave` (the matching items, each with its Tracks), and one click ("Rip anyway", or "Rip all N" for a big playlist) sends it again with `confirm: true`.
+  - Each item keeps its matches (`rip_item.already_have`, a JSON snapshot of the Tracks), so the job list, and review, still say "already have".
 
 **Tagging and review**
 - Tag proposals start from YouTube Music's own metadata (from auto-generated "Topic" uploads) when it exists. Otherwise they come from a cleaned-up video title.

@@ -1,6 +1,11 @@
 package model
 
-import "time"
+import (
+	"database/sql/driver"
+	"encoding/json"
+	"fmt"
+	"time"
+)
 
 // RipStatus is where a Rip job, or one of its items, is in its life.
 type RipStatus string
@@ -61,12 +66,66 @@ type RipItem struct {
 	Error string `structs:"error" json:"error"`
 	// Path is where the File landed, relative to the Inbox (inside the job's Folder, if any). It is
 	// set as soon as the File is there, and is how a restart knows not to rip the item again.
-	Path      string    `structs:"path" json:"path"`
-	CreatedAt time.Time `structs:"created_at" json:"createdAt"`
-	UpdatedAt time.Time `structs:"updated_at" json:"updatedAt"`
+	Path string `structs:"path" json:"path"`
+	// AlreadyHave are the Tracks the Library or the Inbox already seemed to have for this item
+	// when it was queued ("already have: …"). They are only a warning: the item is ripped anyway.
+	AlreadyHave RipMatches `structs:"already_have,omitnested" json:"alreadyHave"`
+	CreatedAt   time.Time  `structs:"created_at" json:"createdAt"`
+	UpdatedAt   time.Time  `structs:"updated_at" json:"updatedAt"`
 }
 
 type RipItems []RipItem
+
+// RipMatch is a Track that seems to be the same recording as a video about to be ripped: a
+// likely match on artist and title, not a Duplicate (that is about identical Files). It is a
+// snapshot of the Track when the Rip was queued.
+type RipMatch struct {
+	ID      string `json:"id"`
+	Title   string `json:"title"`
+	Artist  string `json:"artist"`
+	Album   string `json:"album"`
+	Library string `json:"libraryName"`
+	// Source and SourceURL are the Track's, so the UI can show the "Ripped" badge.
+	Source    string `json:"source,omitempty"`
+	SourceURL string `json:"sourceUrl,omitempty"`
+}
+
+// RipMatches are stored as a JSON array.
+type RipMatches []RipMatch
+
+// MarshalJSON writes no matches as [], not null.
+func (m RipMatches) MarshalJSON() ([]byte, error) {
+	if m == nil {
+		return []byte("[]"), nil
+	}
+	return json.Marshal([]RipMatch(m))
+}
+
+func (m RipMatches) Value() (driver.Value, error) {
+	if len(m) == 0 {
+		return "[]", nil
+	}
+	b, err := json.Marshal(m)
+	return string(b), err
+}
+
+func (m *RipMatches) Scan(src any) error {
+	var b []byte
+	switch v := src.(type) {
+	case nil:
+	case string:
+		b = []byte(v)
+	case []byte:
+		b = v
+	default:
+		return fmt.Errorf("can't read Rip matches from %T", src)
+	}
+	*m = RipMatches{}
+	if len(b) == 0 {
+		return nil
+	}
+	return json.Unmarshal(b, m)
+}
 
 type RipJobRepository interface {
 	// Put inserts the job (giving it an ID if it has none) or updates it. It doesn't save Items.

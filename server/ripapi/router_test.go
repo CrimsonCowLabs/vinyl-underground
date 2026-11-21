@@ -48,6 +48,13 @@ func (f *fakeFetcher) Download(context.Context, string, string) (string, error) 
 	return "", fmt.Errorf("not in this test")
 }
 
+// fakeMatcher stands in for the Library search: it knows the Tracks for some "<artist>|<title>".
+type fakeMatcher struct{ have map[string]model.RipMatches }
+
+func (m *fakeMatcher) AlreadyHave(_ context.Context, artist, title string) (model.RipMatches, error) {
+	return m.have[artist+"|"+title], nil
+}
+
 func TestRipAPI(t *testing.T) {
 	tests.Init(t, false)
 	log.SetLevel(log.LevelFatal)
@@ -63,6 +70,7 @@ var _ = Describe("Rip API", func() {
 		listener model.User
 		fetcher  *fakeFetcher
 		updater  *fakeUpdater
+		matcher  *fakeMatcher
 	)
 
 	BeforeEach(func() {
@@ -92,7 +100,8 @@ var _ = Describe("Rip API", func() {
 
 		fetcher = &fakeFetcher{n: 3}
 		updater = &fakeUpdater{}
-		ripper := rip.New(ds, fetcher, nil, rip.Options{})
+		matcher = &fakeMatcher{have: map[string]model.RipMatches{}}
+		ripper := rip.New(ds, fetcher, nil, rip.Options{Matcher: matcher})
 		router = server.JWTVerifier(New(ds, ripper))
 	})
 
@@ -175,6 +184,35 @@ var _ = Describe("Rip API", func() {
 		var job model.RipJob
 		Expect(json.Unmarshal(w.Body.Bytes(), &job)).To(Succeed())
 		Expect(job.Items).To(HaveLen(51))
+	})
+
+	It("warns about the items the Library already seems to have, and queues them all once told to rip anyway", func() {
+		matcher.have["Band|Song 2"] = model.RipMatches{{ID: "mf-1", Title: "Song 2", Artist: "Band", Album: "Debut",
+			Library: "Inbox", Source: "YouTube", SourceURL: "https://www.youtube.com/watch?v=old"}}
+		w := do(&admin, http.MethodPost, `{"url":"https://www.youtube.com/playlist?list=PL"}`)
+		Expect(w.Code).To(Equal(http.StatusConflict))
+		Expect(w.Body.String()).To(MatchJSON(`{
+			"error": "the Library already seems to have 1 of these 3 items; rip them anyway?",
+			"needsConfirmation": true,
+			"url": "https://www.youtube.com/playlist?list=PL",
+			"title": "Big Playlist",
+			"count": 3,
+			"titles": ["Band - Song 1", "Band - Song 2", "Band - Song 3"],
+			"confirmCount": false,
+			"alreadyHave": [{"position": 2, "title": "Band - Song 2", "tracks": [{"id": "mf-1", "title": "Song 2",
+				"artist": "Band", "album": "Debut", "libraryName": "Inbox", "source": "YouTube",
+				"sourceUrl": "https://www.youtube.com/watch?v=old"}]}]
+		}`))
+		Expect(do(&admin, http.MethodGet, "").Body.String()).To(MatchJSON(`[]`), "nothing is queued yet")
+
+		w = do(&admin, http.MethodPost, `{"url":"https://www.youtube.com/playlist?list=PL","confirm":true}`)
+		Expect(w.Code).To(Equal(http.StatusCreated))
+
+		var jobs []map[string]any
+		Expect(json.Unmarshal(do(&admin, http.MethodGet, "").Body.Bytes(), &jobs)).To(Succeed())
+		items := jobs[0]["items"].([]any)
+		Expect(items[0].(map[string]any)["alreadyHave"]).To(BeEmpty(), "an empty list, not null")
+		Expect(items[1].(map[string]any)["alreadyHave"]).To(ConsistOf(HaveKeyWithValue("libraryName", "Inbox")))
 	})
 
 	It("refuses more than 300 items with a clear message", func() {

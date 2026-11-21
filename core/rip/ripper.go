@@ -36,23 +36,39 @@ var (
 	ErrNoInbox = errors.New("the Inbox is not set up, so there is nowhere to put a Rip")
 )
 
-// Preview is what a playlist holds, for the admin to confirm before it is ripped.
+// Preview is what a page holds, for the admin to confirm before it is ripped: a playlist of
+// more than ConfirmAbove items, or videos the Library already seems to have.
 type Preview struct {
 	URL   string `json:"url"`
 	Title string `json:"title"`
 	Count int    `json:"count"`
 	// Titles are the items' "<Artist> - <Title>", as listed by the site.
 	Titles []string `json:"titles"`
+	// ConfirmCount is true when the playlist has more than ConfirmAbove items.
+	ConfirmCount bool `json:"confirmCount"`
+	// AlreadyHave are the items the Library or the Inbox already seems to have, in order. It is
+	// only a warning: confirming rips them too.
+	AlreadyHave []PreviewItem `json:"alreadyHave"`
 }
 
-// NeedsConfirmationError is returned by Enqueue for a playlist of more than ConfirmAbove items
-// that the admin hasn't confirmed yet. Nothing is queued.
+// NeedsConfirmationError is returned by Enqueue, and nothing is queued, until the admin confirms
+// a playlist of more than ConfirmAbove items, or videos the Library already seems to have.
 type NeedsConfirmationError struct {
 	Preview *Preview
 }
 
 func (e *NeedsConfirmationError) Error() string {
-	return fmt.Sprintf("this playlist has %d items; confirm to rip them all", e.Preview.Count)
+	p, have := e.Preview, len(e.Preview.AlreadyHave)
+	switch {
+	case p.ConfirmCount && have > 0:
+		return fmt.Sprintf("this playlist has %d items, and the Library already seems to have %d of them; confirm to rip them all", p.Count, have)
+	case p.ConfirmCount:
+		return fmt.Sprintf("this playlist has %d items; confirm to rip them all", p.Count)
+	case p.Count <= 1:
+		return "the Library already seems to have this; rip it anyway?"
+	default:
+		return fmt.Sprintf("the Library already seems to have %d of these %d items; rip them anyway?", have, p.Count)
+	}
 }
 
 // TooManyItemsError is returned by Enqueue for a playlist of more than MaxItems items.
@@ -107,6 +123,9 @@ type Options struct {
 	// Updater updates yt-dlp, after a failed Rip and on demand. *Binary implements it. Nil turns
 	// updates off.
 	Updater Updater
+	// Matcher finds the Tracks the Library already seems to have for a video, to warn the admin
+	// before it is ripped. Nil warns of nothing.
+	Matcher Matcher
 }
 
 // Updater keeps yt-dlp up to date. *Binary implements it.
@@ -161,9 +180,10 @@ func New(ds model.DataStore, fetcher Fetcher, scanner FolderScanner, opts Option
 }
 
 // Enqueue queues a Rip of the page at rawURL for the user in ctx: one job, with one item for a
-// video, or one per video for a playlist or album. It looks at the page first, so a playlist of
-// more than ConfirmAbove items returns a *NeedsConfirmationError unless confirmed, and one of more
-// than MaxItems a *TooManyItemsError. If the page can't be read, the job is saved as failed with
+// video, or one per video for a playlist or album. It looks at the page first, and matches each
+// video against the Library: unless confirmed, a playlist of more than ConfirmAbove items, or
+// videos the Library already seems to have, return a *NeedsConfirmationError. A playlist of more
+// than MaxItems returns a *TooManyItemsError. Queued items keep their matches. If the page can't be read, the job is saved as failed with
 // yt-dlp's error, as it would be if the worker had found it.
 func (r *Ripper) Enqueue(ctx context.Context, rawURL string, confirmed bool) (*model.RipJob, error) {
 	rawURL = strings.TrimSpace(rawURL)
@@ -193,8 +213,6 @@ func (r *Ripper) Enqueue(ctx context.Context, rawURL string, confirmed bool) (*m
 		job.Status, job.Error = model.RipFailed, err.Error()
 	case info.IsPlaylist && info.Count > MaxItems:
 		return nil, &TooManyItemsError{Count: info.Count}
-	case info.IsPlaylist && info.Count > ConfirmAbove && !confirmed:
-		return nil, &NeedsConfirmationError{Preview: preview(rawURL, info)}
 	case info.IsPlaylist && len(info.Entries) == 0:
 		job.Title, job.Source = info.Title, info.Source
 		job.Status, job.Error = model.RipFailed, errEmptyPlaylist
@@ -208,6 +226,13 @@ func (r *Ripper) Enqueue(ctx context.Context, rawURL string, confirmed bool) (*m
 		// The pasted URL, not the page's canonical one: it is what was asked for, and yt-dlp
 		// rips just that video from a watch?v=…&list=… link.
 		job.Items = model.RipItems{newItem(1, rawURL, info.Title, info.Artist, now)}
+	}
+	if job.Status != model.RipFailed {
+		big := info != nil && info.IsPlaylist && info.Count > ConfirmAbove
+		have := r.alreadyHave(ctx, job.Items)
+		if !confirmed && (big || len(have) > 0) {
+			return nil, &NeedsConfirmationError{Preview: preview(rawURL, info, job.Items, big, have)}
+		}
 	}
 
 	err = r.ds.WithTx(func(tx model.DataStore) error {
@@ -246,14 +271,13 @@ func newItem(pos int, itemURL, title, artist string, now time.Time) model.RipIte
 	return it
 }
 
-func preview(rawURL string, info *Info) *Preview {
-	p := &Preview{URL: rawURL, Title: info.Title, Count: info.Count, Titles: []string{}}
-	for _, e := range info.Entries {
-		t := e.Title
-		if e.Artist != "" {
-			t = e.Artist + " - " + t
-		}
-		p.Titles = append(p.Titles, t)
+func preview(rawURL string, info *Info, items model.RipItems, big bool, have []PreviewItem) *Preview {
+	p := &Preview{URL: rawURL, Count: len(items), Titles: []string{}, ConfirmCount: big, AlreadyHave: have}
+	if info != nil {
+		p.Title, p.Count = info.Title, info.Count
+	}
+	for _, it := range items {
+		p.Titles = append(p.Titles, itemTitle(it))
 	}
 	return p
 }

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/navidrome/navidrome/conf"
+	"github.com/navidrome/navidrome/core/rip/match"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
 )
@@ -31,7 +32,7 @@ func NewFromConfig(ds model.DataStore, scanner FolderScanner) *Ripper {
 		TempDir:    filepath.Join(bin.Dir, "tmp"),
 		DenoDir:    filepath.Join(conf.Server.CacheFolder.String(), "deno"),
 	}
-	opts := Options{Timeout: conf.Server.Ripping.Timeout}
+	opts := Options{Timeout: conf.Server.Ripping.Timeout, Matcher: match.New(ds)}
 	if asset != "" {
 		opts.Updater = bin // no standalone build to update to otherwise
 	}
