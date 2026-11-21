@@ -49,19 +49,15 @@ set -a; [ -f .env ] && . ./.env; set +a
 
 The first scan runs as soon as the container starts, so check first that no Duplicates or Quarantine Files will be picked up.
 
-A Quarantine folder inside the Library must contain a `.ndignore` file, which makes the scanner skip it. This lists each `.ndignore` and must include your Quarantine folder (a Quarantine folder outside `VU_LIBRARY_DIR` needs nothing):
+`_Quarantine/` inside the Library must contain a `.ndignore` file, which makes the scanner skip it. So must the NAS's recycle bin if it lives on the share (`trashbox/` on Buffalo LinkStations), or be emptied: Files removed over SMB land there, and the scanner would turn them into Tracks. This lists each `.ndignore`:
 
 ```bash
-find "$VU_LIBRARY_DIR" -name .ndignore
+find "$VU_LIBRARY_DIR" -maxdepth 2 -name .ndignore
 ```
 
-Then check that no Duplicates are left in the Library. `jdupes` without an action flag only lists duplicate sets and changes nothing. This runs it over every top-level folder except Quarantine (replace `Quarantine` with your folder's name) and must print `No duplicates found.`:
+Then check that no Duplicates are left, with the first and fourth steps of the [Duplicate recipe](../contrib/library-cleanup/README.md#recipe-quarantine-duplicates): `jdupes` lists the sets of matching Files and changes nothing, and `dupes.py` must report `0 Duplicates to quarantine`. Non-audio matches, such as a DVD's `.IFO` and `.BUP`, are expected and ignored.
 
-```bash
-find "$VU_LIBRARY_DIR" -mindepth 1 -maxdepth 1 -type d ! -name Quarantine -exec jdupes -r -q {} +
-```
-
-If it lists anything, finish the Duplicate pass first (issue #2) and check again.
+If it plans any, finish the Duplicate pass first and check again.
 
 ## 4. Start the app and run the first scan
 
@@ -72,7 +68,7 @@ docker compose logs -f vinyl-underground
 
 The first build takes several minutes. The scan starts on its own. Wait for the log line `Scan completed`; the `Completed processing folder` lines before it show how many Tracks each folder added. After that the Library is rescanned every 24 hours (`ND_SCANNER_SCHEDULE`); an admin can also start a Quick or Full Scan from the activity menu in the app's top bar.
 
-Check that the scan picked up no Quarantine Files and no Duplicates. Both counts must be `0`. Replace `Quarantine` with your Quarantine folder's name:
+Check that the scan picked up no Quarantine Files and no Duplicates. Both counts must be `0`:
 
 ```bash
 # Tracks whose File lies under the Quarantine folder
