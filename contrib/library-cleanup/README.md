@@ -8,6 +8,7 @@ Tools for cleaning up a music share before the app scans it. The app itself has 
 | `casemerge.py` | Plans merges of sibling names that differ only by letter case (pure, unit-tested) |
 | `dupes.py` | Plans moving Duplicates into Quarantine from a `jdupes` report (pure, unit-tested) |
 | `audiodupes.py` | Plans moving Duplicates whose tags differ (`Song 1.mp3` beside `Song.mp3`) into Quarantine, by comparing their audio (pure planner, unit-tested) |
+| `heldtwice.py` | Plans moving the weaker copy of each album held twice (two copies in different folders) into Quarantine, from the app's database and a scan (pure planner, unit-tested) |
 | `audio.py` | Finds the audio in an MP3, M4A, AIFF or WAV File, leaving out its tags and embedded art (unit-tested) |
 | `apply.py` | Carries out a plan, checking each step by re-listing both folders |
 | `health.py` | Reports how healthy the Library is, from the app's database, read-only (pure, unit-tested) |
@@ -137,7 +138,44 @@ python3 apply.py /mnt/music-rw $PLANS/audiodupes.tsv
 
 Before each move, `apply.py` checks again that SRC's audio is identical to KEEP's, and stops if not (or if either can't be read or compared). Like the byte check, this reads both Files in full. It is resumable: re-run the same command after a stop.
 
-**3. Check.** Scan and plan again: `audiodupes.py` must report `0 Duplicates to quarantine`. Then unmount the writable mount (`sudo umount /mnt/music-rw`) and run a Full Scan in the app.
+**3. Check.** Scan and plan again: `audiodupes.py` must report `0 Duplicates to quarantine`. Then unmount the writable mount (`sudo umount /mnt/music-rw`), unless the next recipe follows, and run a Full Scan in the app.
+
+## Recipe: quarantine the weaker copy of albums held twice
+
+Some albums are on the share twice, as two separate copies in different folders (The Bends in both `Radiohead/Albums/` and `iTunes_Library/Music/Radiohead/`), and the app lists every Track twice. Their audio differs, so they aren't Duplicates. `heldtwice.py` lists each such album once, suggests the copy to keep, and `apply.py` moves the other copy's songs into Quarantine. Run it after the audio-identical Duplicate pass above, and after a Full Scan, because it reads the app's database: a leftover `Song 1.mp3` would otherwise be left out of the plan and hold the album in two folders still.
+
+**1. Scan and plan, then review.** Planning reads the database (read-only) and a scan, never the Files, so it is quick:
+
+```bash
+python3 scan.py /mnt/music > $PLANS/scan.tsv
+python3 heldtwice.py /path/to/navidrome.db $PLANS/scan.tsv > $PLANS/heldtwice.tsv
+```
+
+What counts as an album held twice, and what is left to you:
+
+- The same album and album artist with Tracks in more than one folder, as `health.py`'s `albums-twice` counts it (an album whose folders each hold a different disc doesn't count).
+- A folder holds a **copy** only if it holds two or more of the album's Tracks and the album is most of the folder. A lone Track, or a few in a mix or a folder of loose Tracks, is a stray: stderr lists it as `stray, left to you`, and nothing in that folder is planned. Copies that share most Tracks form a group, so two copies of a two-disc album held as `CD1/` and `CD2/` folders are planned disc by disc.
+- Tracks match by artist and title, ignoring case, spaces and punctuation, never by File name; failing that, by title without a bracketed subtitle (`2 + 2 = 5 (The Lukewarm.)` and `2+2=5`), if both are the same length to within 3 seconds, so a remix never matches the original. Two copies sharing no more than half the smaller copy's Tracks (iTunes splitting one copy by Track artist, say) are listed as `not planned` instead.
+- Only Files the scan lists at the size the app recorded count, so run a Full Scan first; Files changed since are listed and left out. Copy-named Files are left to the Duplicate passes.
+
+The copy kept is judged on the Tracks both copies hold: more lossless Files (FLAC, WAV, AIFF, ALAC), then the higher average bitrate, then the more complete tags (artist, album artist, year, track number, genre, MusicBrainz ID), then a cover (embedded, or an image in the folder); then the copy with more Tracks, then the first folder. Each line says why, and the summary on stderr shows, per album, the folder kept, the folder quarantined, how many Files move and how many stay. A line looks like:
+
+```
+held-twice  keep  FOLDER  quarantine  FOLDER  ALBUM  WHY  TRACK  TRACK ...
+```
+
+Each TRACK is `NAME/SIZE/NAME/SIZE`, the Track's File in the first folder and in the second. To keep the other copy, swap the words `keep` and `quarantine`. Delete a line to keep both copies. A disc held three times gets two lines keeping the same copy; to keep another, change both lines, or apply one and plan again. Only the TRACK Files of the folder marked `quarantine` move, so a Track only that copy has stays in the Library, as do its non-audio Files (cover art, playlists).
+
+**2. Apply.**
+
+```bash
+python3 apply.py /mnt/music-rw $PLANS/heldtwice.tsv --dry-run
+python3 apply.py /mnt/music-rw $PLANS/heldtwice.tsv
+```
+
+Each File moves to the same path under `_Quarantine/`. Before moving any File of an album, `apply.py` checks that every File it will move, and the File kept in its place, is still listed at the size it had when planned, and moves nothing if not, so a stale plan can't move a File that was retagged or replaced, or one whose Track the copy kept no longer holds. The audio can't be compared, because it differs by definition, and the size check reads no audio, so the run is quick. Each move is checked by re-listing both folders. It is resumable: re-run the same command after a stop, and Files already in Quarantine at their planned size count as moved.
+
+**3. Check.** Unmount the writable mount (`sudo umount /mnt/music-rw`), run a Full Scan in the app, then scan and plan again: `heldtwice.py` must report `0 copies of albums held twice to quarantine`. `health.py`'s `albums-twice` still counts the strays and the albums listed as `not planned`; move or retag those by hand.
 
 ## Library health report
 

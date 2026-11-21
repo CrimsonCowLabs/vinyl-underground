@@ -22,8 +22,12 @@ _Avoid_: Song (ambiguous between Track and File), item
 A File whose audio is identical to another File's, even if its tags or embedded art differ, usually left behind by a music app copying it (e.g. `Song 1.mp3`, `Song 2.mp3`). A Duplicate is moved to Quarantine; it is never a Track. Identical audio means identical audio data (e.g. the same MP3 frames), never just the same name, title or duration.
 _Avoid_: Copy, version (a live or remastered recording is a different Track, not a Duplicate)
 
+**Album held twice**:
+An album (with its album artist) kept on the drive as two separate copies in different folders, so the app lists every Track twice. Their audio differs, so they are not Duplicates; the songs the weaker copy shares with the other are moved to Quarantine. One stray Track of an album in another folder (e.g. a mix) doesn't make it held twice, and neither does a multi-disc album with one folder per disc.
+_Avoid_: Duplicate album (its Files are not Duplicates), double album (an album of two discs)
+
 **Quarantine**:
-The folder on the drive holding Duplicates that have been removed from the Library, kept until they are permanently deleted.
+The folder on the drive holding Files removed from the Library (Duplicates, and the weaker copy of each album held twice), kept until they are permanently deleted.
 _Avoid_: Trash, recycle bin
 
 ### People

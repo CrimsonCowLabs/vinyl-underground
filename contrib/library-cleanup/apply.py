@@ -14,8 +14,12 @@ step (from audiodupes.py) instead checks that the two Files' audio is identical,
 whatever their tags (see audio.py), and stops if not. A "set-aside" step
 is the owner's answer to a "decide": it moves a File that is NOT byte-identical
 (e.g. a lower-bitrate copy of the same recording) into Quarantine, provided the
-File it gives way to still exists. _Quarantine/ gets
-a .ndignore file so the app's scanner skips it.
+File it gives way to still exists. A "held-twice" step (from heldtwice.py) moves
+the Tracks both copies of an album hold out of the copy marked quarantine; it first
+checks that every one of those Files, and the File kept for each, is still listed at
+the size it had when planned, and moves nothing if not. A step stopped part-way
+resumes: a File already in Quarantine at its planned size counts as moved.
+_Quarantine/ gets a .ndignore file so the app's scanner skips it.
 """
 import filecmp
 import os
@@ -24,6 +28,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from audio import same_audio  # noqa: E402
 from casemerge import QUARANTINE  # noqa: E402
+from heldtwice import OP as HELD_TWICE, describe, parse_line  # noqa: E402
 
 
 # How each quarantine step checks that SRC is a Duplicate of KEEP, and what it says if not.
@@ -77,6 +82,41 @@ def ensure_quarantine(root: str) -> None:
         open(marker, "w").close()
 
 
+def _size(root: str, rel: str) -> int | None:
+    """The File's size, if a listing of its folder shows it."""
+    return os.path.getsize(os.path.join(root, rel)) if present(root, rel) else None
+
+
+def quarantine_copy(root: str, fields: list[str]) -> str:
+    """A "held-twice" step (heldtwice.py): move the Tracks both copies of an album hold out of
+    the copy marked quarantine. Every File is checked before any moves: the File kept and the
+    File moved must both still be listed, at the size they had when planned. A File already
+    in Quarantine at that size was moved by an earlier, interrupted run."""
+    try:
+        kept, away, moves = parse_line(fields)
+    except ValueError as e:
+        raise RuntimeError(f"not a valid held-twice line: {e}") from e
+    todo = []
+    for m in moves:
+        if _size(root, m.keep) != m.keep_size:
+            raise RuntimeError(f"the File to keep is missing or changed since planning: {m.keep!r}; plan again")
+        dst = f"{QUARANTINE}/{m.src}"
+        size = _size(root, m.src)
+        if size is None and _size(root, dst) == m.size:
+            continue
+        if size != m.size:
+            raise RuntimeError(f"missing or changed since planning: {m.src!r}; plan again")
+        if present_any_case(root, dst):
+            raise RuntimeError(f"destination already exists (in some letter case): {dst}")
+        todo.append((m.src, dst))
+    if todo:
+        ensure_quarantine(root)
+    for src, dst in todo:
+        relocate(root, src, dst)
+    earlier = len(moves) - len(todo)
+    return f"ok: {len(todo)} Files moved out of {away!r}, keeping {kept!r}" + (f" ({earlier} moved earlier)" if earlier else "")
+
+
 def main(argv: list[str]) -> int:
     if len(argv) < 2:
         print(__doc__, file=sys.stderr)
@@ -95,7 +135,10 @@ def main(argv: list[str]) -> int:
         dst = rest[0] if rest else ""
         if i in finished:
             continue
-        print(f"[{i}/{len(plan)}] {op}\t{src}" + (f"\t-> {dst}" if dst else ""), flush=True)
+        if op == HELD_TWICE:
+            print(f"[{i}/{len(plan)}] {op}\t{describe([op, src, *rest])}", flush=True)
+        else:
+            print(f"[{i}/{len(plan)}] {op}\t{src}" + (f"\t-> {dst}" if dst else ""), flush=True)
         if dry or op == "decide":
             continue
         try:
@@ -118,6 +161,8 @@ def main(argv: list[str]) -> int:
                     raise RuntimeError(f"the File to keep is missing: {keep!r}")
                 ensure_quarantine(root)
                 result = relocate(root, src, dst)
+            elif op == HELD_TWICE:
+                result = quarantine_copy(root, [op, src, *rest])
             elif op == "rmdir":
                 os.rmdir(os.path.join(root, src))  # fails unless empty
                 if present(root, src):
