@@ -109,6 +109,59 @@ export const useDownload = (id, kind = PLAYLIST) =>
 export const useDownloadList = () =>
   useDownloadsState(() => downloads.list(), [])
 
+// What the browser reports for the whole app (Downloads, app shell and
+// anything else it stores), or undefined if it can't tell
+const estimateStorage = async () => {
+  try {
+    const { usage, quota } = (await navigator.storage?.estimate?.()) || {}
+    return quota ? { used: usage || 0, quota } : undefined
+  } catch {
+    return undefined
+  }
+}
+
+// The space the current Listener's Downloads use, for the storage meter:
+// { total, downloads: [{ id, kind, name, size }], device: { used, quota } }.
+// Undefined until first measured; measured again as Downloads change.
+export const useDownloadUsage = () => {
+  const [usage, setUsage] = useState()
+  useEffect(() => {
+    if (!supported()) return undefined
+    let active = true
+    let measuring = false
+    let again = false
+    const measure = async () => {
+      // While a Download is storing Tracks, measure at most once at a time
+      if (measuring) {
+        again = true
+        return
+      }
+      measuring = true
+      try {
+        const [mine, device] = await Promise.all([
+          downloads.usage(),
+          estimateStorage(),
+        ])
+        if (active) setUsage({ ...mine, device })
+      } catch {
+        // keep the last measurement
+      }
+      measuring = false
+      if (again && active) {
+        again = false
+        measure()
+      }
+    }
+    loadOnce().then(measure, () => {})
+    const unsubscribe = downloads.subscribe(measure)
+    return () => {
+      active = false
+      unsubscribe()
+    }
+  }, [])
+  return usage
+}
+
 // Whether the device has lost its network connection, kept up to date.
 // Anything that needs the server (e.g. Stations, Generated Playlists) can use
 // it to show itself as unavailable offline rather than fail.
