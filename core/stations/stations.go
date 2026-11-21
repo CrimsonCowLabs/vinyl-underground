@@ -165,7 +165,7 @@ func (s *service) Next(ctx context.Context, djID, theme string, count int) (mode
 		}
 		s.plans.selectAhead(ctx, s.selector, usr.ID, dj, theme, exclude)
 	}
-	s.blurbs.ahead(ctx, usr.ID, dj, theme, picked)
+	s.blurbs.queueAhead(ctx, usr.ID, dj, theme, picked)
 	return picked, nil
 }
 

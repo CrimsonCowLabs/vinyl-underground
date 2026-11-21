@@ -30,7 +30,7 @@ const blurbAsks = () =>
     .map(([url]) => url)
     .filter((url) => url.includes('/station/blurb'))
 
-const blurb = (text) => ({ json: { dj: 'Night Owl', text } })
+const blurb = (text) => ({ json: { djName: 'Night Owl', text } })
 const notWritten = () => ({ json: undefined }) // 204 No Content
 
 describe('StationBlurb', () => {

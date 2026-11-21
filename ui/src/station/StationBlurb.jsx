@@ -77,7 +77,7 @@ const StationBlurb = () => {
         role="status"
         message={
           <span>
-            <span className={classes.dj}>{blurb.dj}</span>
+            <span className={classes.dj}>{blurb.djName}</span>
             {blurb.text}
           </span>
         }

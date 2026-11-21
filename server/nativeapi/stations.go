@@ -95,7 +95,7 @@ func skipStationTrack(svc stations.Service) http.HandlerFunc {
 	}
 }
 
-// stationBlurb answers GET /station/blurb?dj=…&track=…&after=… with the Blurb ({dj, text}) the
+// stationBlurb answers GET /station/blurb?dj=…&track=…&after=… with the Blurb ({djName, text}) the
 // DJ shows as the Station changes from the Track after into track, or 204 No Content when there
 // is none (not written yet, or no LLM): the Track then plays without one.
 func stationBlurb(svc stations.Service) http.HandlerFunc {

@@ -13,8 +13,8 @@ import (
 // what just played and what's next. It is never spoken.
 //
 // Blurbs come from the LLM, which is slow, so they are written ahead, in the background: each
-// refill queues a Blurb for every Track change among the Tracks it served (the queue on the
-// Listener's device is 2–5 Tracks ahead of what is playing). Nothing ever waits for one. A Blurb
+// refill queues a Blurb for every Track change among the Tracks it served, which the web app
+// asks for at least 2–3 Tracks ahead of what is playing. Nothing ever waits for one. A Blurb
 // not written by the time its Track starts is simply not shown. Blurbs are only kept in memory,
 // for each Listener's Station they last listened to, so a restart or a new Station forgets them.
 
@@ -29,8 +29,8 @@ const (
 
 // Blurb is the short text a DJ shows between two Tracks.
 type Blurb struct {
-	DJ   string `json:"dj"`
-	Text string `json:"text"`
+	DJName string `json:"djName"`
+	Text   string `json:"text"`
 }
 
 // BlurbWriter writes the Blurb a DJ shows between prev, which just played, and next.
@@ -49,39 +49,42 @@ type writtenBlurb struct {
 	text           string
 }
 
-// blurbStation is the Blurbs of one Listener's Station.
-type blurbStation struct {
+// stationBlurbs is the Blurbs of one Listener's Station.
+type stationBlurbs struct {
 	dj      DJ
 	theme   string
 	last    *model.MediaFile // the last Track served, which the next refill's first one follows
 	pending []trackChange    // in the order they will play
 	written []writtenBlurb   // newest first
-	writing bool
 }
 
 // blurbs holds each Listener's Blurbs, for the Station they last listened to.
 type blurbs struct {
 	writer     BlurbWriter
 	mu         sync.Mutex
-	byListener map[string]*blurbStation
-	wg         sync.WaitGroup // background writing, for tests
+	byListener map[string]*stationBlurbs
+	// writing holds the Listeners whose Blurbs are being written. It is per Listener, not per
+	// Station, so switching Station never has two slow LLM calls running for one Listener.
+	writing map[string]bool
+	wg      sync.WaitGroup // background writing, for tests
 }
 
-// ahead queues Blurbs for the Track changes into the Tracks just served on the Listener's
+// queueAhead queues Blurbs for the Track changes into the Tracks just served on the Listener's
 // Station with the DJ and Theme, and starts writing them in the background. A different Station
-// from last time drops the old one's Blurbs. It returns at once.
-func (b *blurbs) ahead(ctx context.Context, userID string, dj DJ, theme string, served model.MediaFiles) {
+// from last time drops the old one's Blurbs, written or not. It returns at once.
+func (b *blurbs) queueAhead(ctx context.Context, userID string, dj DJ, theme string, served model.MediaFiles) {
 	if b.writer == nil || len(served) == 0 {
 		return
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.byListener == nil {
-		b.byListener = map[string]*blurbStation{}
+		b.byListener = map[string]*stationBlurbs{}
+		b.writing = map[string]bool{}
 	}
 	st := b.byListener[userID]
 	if st == nil || st.dj.ID != dj.ID || st.theme != theme {
-		st = &blurbStation{dj: dj, theme: theme}
+		st = &stationBlurbs{dj: dj, theme: theme}
 		b.byListener[userID] = st
 	}
 	for _, mf := range served {
@@ -90,22 +93,24 @@ func (b *blurbs) ahead(ctx context.Context, userID string, dj DJ, theme string, 
 		}
 		st.last = &mf
 	}
-	if st.writing || len(st.pending) == 0 {
+	if b.writing[userID] || len(st.pending) == 0 {
 		return
 	}
-	st.writing = true
+	b.writing[userID] = true
 	b.wg.Add(1)
 	// Writing outlives the refill's request.
-	go b.write(context.WithoutCancel(ctx), st)
+	go b.write(context.WithoutCancel(ctx), userID)
 }
 
-// write writes the Station's pending Blurbs, in order, until none is left.
-func (b *blurbs) write(ctx context.Context, st *blurbStation) {
+// write writes the pending Blurbs of the Listener's Station, in order, until none is left. It
+// always takes the next one from the Station they listen to now.
+func (b *blurbs) write(ctx context.Context, userID string) {
 	defer b.wg.Done()
 	for {
 		b.mu.Lock()
+		st := b.byListener[userID]
 		if len(st.pending) == 0 {
-			st.writing = false
+			delete(b.writing, userID)
 			b.mu.Unlock()
 			return
 		}
@@ -121,6 +126,7 @@ func (b *blurbs) write(ctx context.Context, st *blurbStation) {
 			continue
 		}
 		b.mu.Lock()
+		// A Blurb for a Station the Listener has left meanwhile goes with it.
 		st.written = append([]writtenBlurb{{prevID: change.prev.ID, nextID: change.next.ID, text: text}}, st.written...)
 		if len(st.written) > keptBlurbs {
 			st.written = st.written[:keptBlurbs]
@@ -148,7 +154,7 @@ func (b *blurbs) get(userID, djID, trackID, afterID string) (Blurb, bool) {
 	}
 	for _, w := range st.written {
 		if w.nextID == trackID && w.prevID == afterID {
-			return Blurb{DJ: st.dj.Name, Text: w.text}, true
+			return Blurb{DJName: st.dj.Name, Text: w.text}, true
 		}
 	}
 	return Blurb{}, false

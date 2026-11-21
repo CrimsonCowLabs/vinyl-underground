@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/navidrome/navidrome/core/llm"
@@ -61,6 +62,8 @@ func (w *llmBlurbWriter) Write(ctx context.Context, dj DJ, theme string, prev, n
 		return "", fmt.Errorf("%w: it is empty", errBadBlurb)
 	case utf8.RuneCountInString(text) > maxBlurbLength:
 		return "", fmt.Errorf("%w: it is too long", errBadBlurb)
+	case !mentions(text, prev):
+		return "", fmt.Errorf("%w: it doesn't mention the Track that just played", errBadBlurb)
 	case !mentions(text, next):
 		return "", fmt.Errorf("%w: it doesn't mention the next Track", errBadBlurb)
 	}
@@ -83,7 +86,8 @@ func trackLine(mf model.MediaFile) string {
 }
 
 // mentions reports whether the text names the Track, by its artist or its title (without a
-// note such as "(Remastered 2020)" or "- Live"), in any case.
+// note such as "(Remastered 2020)" or "- Live"), in any case and as whole words, so the artist
+// Air isn't found in "fair".
 func mentions(text string, mf model.MediaFile) bool {
 	text = strings.ToLower(text)
 	title := mf.Title
@@ -93,9 +97,30 @@ func mentions(text string, mf model.MediaFile) bool {
 		}
 	}
 	for _, name := range []string{mf.Artist, title} {
-		if name = strings.ToLower(strings.TrimSpace(name)); name != "" && strings.Contains(text, name) {
+		if name = strings.ToLower(strings.TrimSpace(name)); name != "" && containsWords(text, name) {
 			return true
 		}
 	}
 	return false
+}
+
+// containsWords reports whether words is in text with no letter or digit right before or after.
+func containsWords(text, words string) bool {
+	for from := 0; ; {
+		i := strings.Index(text[from:], words)
+		if i < 0 {
+			return false
+		}
+		start, end := from+i, from+i+len(words)
+		before, _ := utf8.DecodeLastRuneInString(text[:start])
+		after, _ := utf8.DecodeRuneInString(text[end:])
+		if !isWordRune(before) && !isWordRune(after) {
+			return true
+		}
+		from = start + 1
+	}
+}
+
+func isWordRune(r rune) bool {
+	return r != utf8.RuneError && (unicode.IsLetter(r) || unicode.IsDigit(r))
 }

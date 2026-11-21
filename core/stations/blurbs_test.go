@@ -101,7 +101,7 @@ var _ = Describe("Blurbs", Ordered, func() {
 		Expect(writer.asked()).To(Equal(changes(tracks)))
 		blurb, ok := svc.Blurb(ctx, "night-owl", tracks[1].ID, tracks[0].ID)
 		Expect(ok).To(BeTrue())
-		Expect(blurb.DJ).To(Equal("Night Owl"))
+		Expect(blurb.DJName).To(Equal("Night Owl"))
 		Expect(blurb.Text).To(Equal(fmt.Sprintf("Night Owl: that was %s, here's %s", tracks[0].Title, tracks[1].Title)))
 	})
 
@@ -162,6 +162,21 @@ var _ = Describe("Blurbs", Ordered, func() {
 		Expect(writer.asked()).To(Equal(append(changes(owl), changes(sunny)...)))
 		_, ok := svc.Blurb(ctx, "night-owl", owl[1].ID, owl[0].ID)
 		Expect(ok).To(BeFalse())
+	})
+
+	It("stops writing the old Station's Blurbs once the Listener starts another", func() {
+		writer.release = make(chan struct{})
+		owl := next("night-owl", 5)
+		Eventually(writer.asked).Should(HaveLen(1)) // writing the first, slowly
+
+		sunny := next("sunny", 3)
+		Consistently(writer.asked, 100*time.Millisecond).Should(HaveLen(1)) // one at a time
+		close(writer.release)
+		stations.WaitForBlurbs(svc)
+
+		Expect(writer.asked()).To(Equal(append([][2]string{{owl[0].ID, owl[1].ID}}, changes(sunny)...)))
+		_, ok := svc.Blurb(ctx, "sunny", sunny[1].ID, sunny[0].ID)
+		Expect(ok).To(BeTrue())
 	})
 
 	It("doesn't write Blurbs for Track changes the Listener has already passed", func() {

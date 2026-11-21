@@ -144,14 +144,14 @@ var _ = Describe("Station endpoints", func() {
 	)
 
 	It("gives the Blurb for the Listener's Track change, once it is written", func() {
-		svc.blurb = &stations.Blurb{DJ: "Night Owl", Text: "That was Miles. Here's Coltrane."}
+		svc.blurb = &stations.Blurb{DJName: "Night Owl", Text: "That was Miles. Here's Coltrane."}
 		code, res := call(stationBlurb(svc), http.MethodGet, "", "?dj=night-owl&track=mf-2&after=mf-1")
 		Expect(code).To(Equal(http.StatusOK))
 		Expect(svc.gotDJ).To(Equal("night-owl"))
 		Expect(svc.gotTrack).To(Equal("mf-2"))
 		Expect(svc.gotAfter).To(Equal("mf-1"))
 		Expect(svc.gotUser).To(Equal("u1"))
-		Expect(res).To(HaveKeyWithValue("dj", "Night Owl"))
+		Expect(res).To(HaveKeyWithValue("djName", "Night Owl"))
 		Expect(res).To(HaveKeyWithValue("text", "That was Miles. Here's Coltrane."))
 	})
 

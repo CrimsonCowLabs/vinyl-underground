@@ -63,26 +63,43 @@ var _ = Describe("BlurbWriter", func() {
 	})
 
 	It("leaves out the Theme when there is none", func() {
-		client.reply = reply("Here's John Coltrane.")
+		client.reply = reply("After Miles Davis, here's John Coltrane.")
 		_, err := writer.Write(context.Background(), owl, "", prev, next)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(client.requests[0].User).ToNot(ContainSubstring("Theme"))
 	})
 
 	It("tidies the text: one line, trimmed", func() {
-		client.reply = reply("  Up next:\n\n  Naima.  ")
+		client.reply = reply("  Blue in Green, and up next:\n\n  Naima.  ")
 		text, err := writer.Write(context.Background(), owl, "", prev, next)
 		Expect(err).ToNot(HaveOccurred())
-		Expect(text).To(Equal("Up next: Naima."))
+		Expect(text).To(Equal("Blue in Green, and up next: Naima."))
 	})
 
-	It("refuses a Blurb that doesn't mention the next Track, by title or artist", func() {
-		client.reply = reply("What a night for some music, friends.")
+	It("refuses a Blurb that doesn't mention both Tracks, by title or artist", func() {
+		for _, text := range []string{
+			"What a night for some music, friends.",
+			"Coming up, Naima by John Coltrane.",  // nothing about what just played
+			"That was Miles Davis. Stay with me.", // nothing about what's next
+		} {
+			client.reply = reply(text)
+			_, err := writer.Write(context.Background(), owl, "", prev, next)
+			Expect(err).To(HaveOccurred(), text)
+		}
+
+		client.reply = reply("After miles davis, coming up, NAIMA.") // the title without its remaster note, any case
 		_, err := writer.Write(context.Background(), owl, "", prev, next)
+		Expect(err).ToNot(HaveOccurred())
+	})
+
+	It("only counts a short name as mentioned when it is a whole word", func() {
+		air := model.MediaFile{ID: "3", Title: "La Femme d'Argent", Artist: "Air"}
+		client.reply = reply("Blue in Green was fair and fine; and now, something airy.")
+		_, err := writer.Write(context.Background(), owl, "", prev, air)
 		Expect(err).To(HaveOccurred())
 
-		client.reply = reply("Coming up, NAIMA.") // the title without its remaster note, any case
-		_, err = writer.Write(context.Background(), owl, "", prev, next)
+		client.reply = reply("Blue in Green, then Air.")
+		_, err = writer.Write(context.Background(), owl, "", prev, air)
 		Expect(err).ToNot(HaveOccurred())
 	})
 
@@ -91,7 +108,7 @@ var _ = Describe("BlurbWriter", func() {
 		_, err := writer.Write(context.Background(), owl, "", prev, next)
 		Expect(err).To(HaveOccurred())
 
-		client.reply = reply("John Coltrane " + strings.Repeat("and on ", 200))
+		client.reply = reply("Miles Davis, John Coltrane " + strings.Repeat("and on ", 200))
 		_, err = writer.Write(context.Background(), owl, "", prev, next)
 		Expect(err).To(HaveOccurred())
 	})
