@@ -19,6 +19,7 @@ import RipForm from './RipForm'
 import YtDlpControl from './YtDlpControl'
 import { useRipPolling } from './useRipPolling'
 import { ripProgress } from './ripProgress'
+import RipJobPanel from './review/RipJobPanel'
 
 const ACTIVE = ['queued', 'downloading']
 
@@ -103,7 +104,7 @@ const RipList = (props) => {
         actions={false}
         pagination={null}
       >
-        <RipDatagrid expand={<RipItems />}>
+        <RipDatagrid expand={<RipJobPanel fallback={<RipItems />} />}>
           <FunctionField
             source="status"
             render={(record) => <RipStatusField record={record} />}

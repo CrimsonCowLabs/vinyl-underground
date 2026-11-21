@@ -88,4 +88,16 @@ func (m *MockRipJobRepo) RequeueInterrupted() (int64, error) {
 	return n, nil
 }
 
+func (m *MockRipJobRepo) Delete(id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.jobs {
+		if m.jobs[i].ID == id {
+			m.jobs = slices.Delete(m.jobs, i, i+1)
+			return nil
+		}
+	}
+	return model.ErrNotFound
+}
+
 var _ model.RipJobRepository = (*MockRipJobRepo)(nil)
