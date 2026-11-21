@@ -40,6 +40,7 @@ vi.mock('../dataProvider', () => ({
 
 const preview = {
   prompt: 'rainy Sunday 90s indie',
+  length: 25,
   name: 'Rainy Sunday',
   tracks: [
     { id: 'mf-2', title: 'Velouria', artist: 'Pixies', year: 1990 },
@@ -167,6 +168,7 @@ describe('<GeneratePlaylistButton />', () => {
         body: JSON.stringify({
           name: 'Sunday rain',
           prompt: 'rainy Sunday 90s indie',
+          length: 25,
           trackIds: ['mf-2', 'mf-1'],
         }),
       }),

@@ -74,6 +74,7 @@ var _ = Describe("REST Adapter", func() {
 					ExternalImageURL: "http://evil.example.com/ssrf",
 					EvaluatedAt:      new(time.Now()),
 					Prompt:           "claims to be a Generated Playlist",
+					GeneratedLength:  40,
 				}
 				_, err := repo.Save(pls)
 				Expect(err).ToNot(HaveOccurred())
@@ -91,6 +92,7 @@ var _ = Describe("REST Adapter", func() {
 				Expect(saved.ExternalImageURL).To(BeEmpty())
 				Expect(saved.EvaluatedAt).To(BeNil())
 				Expect(saved.Prompt).To(BeEmpty())
+				Expect(saved.GeneratedLength).To(BeZero())
 			})
 		})
 

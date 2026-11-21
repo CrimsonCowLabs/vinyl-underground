@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/conf/configtest"
 	"github.com/navidrome/navidrome/core"
@@ -28,6 +29,7 @@ type fakeGenerator struct {
 	gotName     string
 	gotTrackIDs []string
 	gotUser     string
+	gotID       string
 }
 
 func (f *fakeGenerator) Enabled() bool { return f.enabled }
@@ -37,19 +39,36 @@ func (f *fakeGenerator) Preview(ctx context.Context, prompt string, length int) 
 	if f.err != nil {
 		return nil, f.err
 	}
-	return &generatedplaylist.Preview{Prompt: prompt, Name: "Rainy Sunday", Tracks: model.MediaFiles{
+	return &generatedplaylist.Preview{Prompt: prompt, Length: length, Name: "Rainy Sunday", Tracks: model.MediaFiles{
 		{ID: "mf-1", Title: "Cut Your Hair", Artist: "Pavement"},
 	}}, nil
 }
 
-func (f *fakeGenerator) Save(ctx context.Context, name, prompt string, trackIDs []string) (string, error) {
-	f.gotName, f.gotPrompt, f.gotTrackIDs = name, prompt, trackIDs
+func (f *fakeGenerator) Save(ctx context.Context, name, prompt string, length int, trackIDs []string) (string, error) {
+	f.gotName, f.gotPrompt, f.gotLength, f.gotTrackIDs = name, prompt, length, trackIDs
 	usr, _ := request.UserFrom(ctx)
 	f.gotUser = usr.ID
 	if f.err != nil {
 		return "", f.err
 	}
 	return "pls-1", nil
+}
+
+func (f *fakeGenerator) Regenerate(ctx context.Context, playlistID string) (*generatedplaylist.Preview, error) {
+	f.gotID = playlistID
+	if f.err != nil {
+		return nil, f.err
+	}
+	return &generatedplaylist.Preview{Prompt: "rainy Sunday 90s indie", Length: 12, Name: "Rainy Sunday", Tracks: model.MediaFiles{
+		{ID: "mf-3", Title: "Alison", Artist: "Slowdive"},
+	}}, nil
+}
+
+func (f *fakeGenerator) Replace(ctx context.Context, playlistID string, trackIDs []string) error {
+	f.gotID, f.gotTrackIDs = playlistID, trackIDs
+	usr, _ := request.UserFrom(ctx)
+	f.gotUser = usr.ID
+	return f.err
 }
 
 var _ = Describe("Generated Playlist endpoints", func() {
@@ -63,6 +82,19 @@ var _ = Describe("Generated Playlist endpoints", func() {
 	call := func(handler http.HandlerFunc, body string) (int, map[string]any) {
 		r := httptest.NewRequest(http.MethodPost, "/generatedPlaylist", strings.NewReader(body))
 		r = r.WithContext(request.WithUser(r.Context(), alice))
+		w := httptest.NewRecorder()
+		handler(w, r)
+		var res map[string]any
+		_ = json.Unmarshal(w.Body.Bytes(), &res)
+		return w.Code, res
+	}
+
+	// callPlaylist calls handler for the Generated Playlist id, as the router would.
+	callPlaylist := func(handler http.HandlerFunc, id, body string) (int, map[string]any) {
+		r := httptest.NewRequest(http.MethodPost, "/generatedPlaylist/"+id, strings.NewReader(body))
+		rctx := chi.NewRouteContext()
+		rctx.URLParams.Add("id", id)
+		r = r.WithContext(context.WithValue(request.WithUser(r.Context(), alice), chi.RouteCtxKey, rctx))
 		w := httptest.NewRecorder()
 		handler(w, r)
 		var res map[string]any
@@ -133,6 +165,7 @@ var _ = Describe("Generated Playlist endpoints", func() {
 			code, res := call(saveGeneratedPlaylist(gen), `{"name":"Rainy Sunday","prompt":"rainy Sunday 90s indie","trackIds":["mf-2","mf-1"]}`)
 			Expect(code).To(Equal(http.StatusOK))
 			Expect(res).To(HaveKeyWithValue("id", "pls-1"))
+			Expect(gen.gotLength).To(Equal(0))
 			Expect(gen.gotName).To(Equal("Rainy Sunday"))
 			Expect(gen.gotPrompt).To(Equal("rainy Sunday 90s indie"))
 			Expect(gen.gotTrackIDs).To(Equal([]string{"mf-2", "mf-1"}))
@@ -150,6 +183,68 @@ var _ = Describe("Generated Playlist endpoints", func() {
 			code, res := call(saveGeneratedPlaylist(gen), `{"prompt":"indie","trackIds":["made-up"]}`)
 			Expect(code).To(Equal(http.StatusUnprocessableEntity))
 			Expect(res).To(HaveKeyWithValue("error", "noTracks"))
+		})
+	})
+
+	Describe("regenerate", func() {
+		It("returns a fresh preview of the Generated Playlist", func() {
+			code, res := callPlaylist(regenerateGeneratedPlaylist(gen), "pls-1", "")
+			Expect(code).To(Equal(http.StatusOK))
+			Expect(gen.gotID).To(Equal("pls-1"))
+			Expect(res).To(HaveKeyWithValue("prompt", "rainy Sunday 90s indie"))
+			Expect(res).To(HaveKeyWithValue("length", BeNumerically("==", 12)))
+			Expect(res["tracks"]).To(HaveLen(1))
+		})
+
+		It("is not found when no LLM is configured", func() {
+			gen.enabled = false
+			code, _ := callPlaylist(regenerateGeneratedPlaylist(gen), "pls-1", "")
+			Expect(code).To(Equal(http.StatusNotFound))
+			Expect(gen.gotID).To(BeEmpty())
+		})
+
+		It("refuses an ordinary Playlist", func() {
+			gen.err = generatedplaylist.ErrNotGenerated
+			code, res := callPlaylist(regenerateGeneratedPlaylist(gen), "pls-1", "")
+			Expect(code).To(Equal(http.StatusConflict))
+			Expect(res).To(HaveKeyWithValue("error", "notGenerated"))
+		})
+
+		It("is not found for a Playlist the Listener can't see", func() {
+			gen.err = model.ErrNotFound
+			code, res := callPlaylist(regenerateGeneratedPlaylist(gen), "pls-1", "")
+			Expect(code).To(Equal(http.StatusNotFound))
+			Expect(res).To(HaveKeyWithValue("error", "notFound"))
+		})
+	})
+
+	Describe("replace", func() {
+		It("replaces the Generated Playlist's Tracks with the preview's", func() {
+			code, _ := callPlaylist(replaceGeneratedPlaylist(gen), "pls-1", `{"trackIds":["mf-3","mf-1"]}`)
+			Expect(code).To(Equal(http.StatusOK))
+			Expect(gen.gotID).To(Equal("pls-1"))
+			Expect(gen.gotTrackIDs).To(Equal([]string{"mf-3", "mf-1"}))
+			Expect(gen.gotUser).To(Equal("u1"))
+		})
+
+		It("is not found when no LLM is configured", func() {
+			gen.enabled = false
+			code, _ := callPlaylist(replaceGeneratedPlaylist(gen), "pls-1", `{"trackIds":["mf-1"]}`)
+			Expect(code).To(Equal(http.StatusNotFound))
+			Expect(gen.gotID).To(BeEmpty())
+		})
+
+		It("refuses another Listener's Playlist", func() {
+			gen.err = model.ErrNotAuthorized
+			code, res := callPlaylist(replaceGeneratedPlaylist(gen), "pls-1", `{"trackIds":["mf-1"]}`)
+			Expect(code).To(Equal(http.StatusForbidden))
+			Expect(res).To(HaveKeyWithValue("error", "notAuthorized"))
+		})
+
+		It("rejects a body that isn't JSON", func() {
+			code, _ := callPlaylist(replaceGeneratedPlaylist(gen), "pls-1", `not json`)
+			Expect(code).To(Equal(http.StatusBadRequest))
+			Expect(gen.gotID).To(BeEmpty())
 		})
 	})
 
