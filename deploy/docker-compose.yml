@@ -74,3 +74,21 @@ services:
       timeout: 5s
       retries: 3
       start_period: 30s
+
+  # Optional: the LLM for Generated Playlists on this same host, CPU-only.
+  # Off unless started with `--profile ollama`. Then set in .env:
+  #   ND_LLM_BASEURL=http://ollama:11434
+  #   ND_LLM_MODEL=qwen3.5:4b-q4_K_M
+  # and pull the model once (deploy/README.md, "Generated Playlists").
+  # The reference setup runs Ollama on another machine instead.
+  ollama:
+    profiles: ["ollama"]
+    image: ollama/ollama:0.40.16
+    container_name: vinyl-underground-ollama
+    restart: unless-stopped
+    # Not published: only the app reaches it, over the compose network.
+    environment:
+      # Keep the model loaded between requests; loading it takes a while.
+      OLLAMA_KEEP_ALIVE: ${VU_OLLAMA_KEEP_ALIVE:-30m}
+    volumes:
+      - "${VU_OLLAMA_DIR:-./ollama}:/root/.ollama"

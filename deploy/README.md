@@ -169,6 +169,55 @@ As the admin, open **Rips** in the side menu, paste the link to one video (YouTu
 - **Playlists** aren't supported yet: a playlist link fails with a message saying so. A video link that also names a playlist (`watch?v=...&list=...`) rips just that video.
 - **Time limit:** a Rip that takes longer than `ND_RIPPING_TIMEOUT` (default `30m`) is stopped and marked failed.
 
+## 11. Generated Playlists (optional LLM)
+
+A Listener can type a Prompt ("rainy Sunday 90s indie") and a length (25 by default, 10 to 100), and get a Playlist picked by a local LLM from the Library ([ADR-0004](../docs/adr/0004-llm-ranks-library-candidates-never-invents-tracks.md)). The LLM never names Tracks itself: it turns the Prompt into genres, seed artists and years, the app finds up to 150 matching Tracks in the Library, and the LLM picks and orders them. Every Track in the result is a real Track the Listener can play.
+
+With no LLM configured, the **Generate** button is not shown. If the LLM can't be reached (its host is asleep, say), the Listener sees "AI unavailable" after a few seconds rather than a hang.
+
+The app talks to any OpenAI-compatible endpoint (Ollama, llama.cpp, LM Studio), set by two settings in `.env`:
+
+```bash
+ND_LLM_BASEURL=http://<llm-host>:11434   # one with no path gets /v1 added
+ND_LLM_MODEL=qwen3.5:4b-q4_K_M
+```
+
+Then `docker compose up -d` to restart the app with them. Optional: `ND_LLM_APIKEY` for endpoints that need one, `ND_LLM_TIMEOUT` (default `3m`) for one LLM call, and `ND_LLM_CONNECTTIMEOUT` (default `5s`) before reporting it unavailable.
+
+**The model must be a GGUF build.** Every call constrains the reply with a JSON schema (`response_format` of type `json_schema`, which Ollama applies as its `format` option), because a ~4B model can't be trusted to write JSON from instructions alone. Ollama's MLX builds refuse this with "structured output is unavailable" (seen on Ollama 0.40.16). Use a tag that names a quantization, such as `qwen3.5:4b-q4_K_M`; `ollama show <model>` must list `gguf` as its format. Thinking is turned off on every call (`reasoning_effort: "none"`, the switch Ollama honours on its OpenAI-compatible route), as it made each call ten times slower.
+
+### LLM on another machine (reference setup)
+
+The reference setup runs Ollama on an always-on Apple Silicon Mac on the tailnet, which reads long prompts far faster than a CPU-only host:
+
+1. Install Ollama on the Mac and pull the model: `ollama pull qwen3.5:4b-q4_K_M`.
+2. Make Ollama listen on the Mac's tailnet address, not just localhost: set `OLLAMA_HOST=<tailnet-ip>:11434` for the Ollama service.
+3. Keep the Mac awake on power (`sudo pmset -c sleep 0`), and Tailscale running at login.
+4. Ollama has no login of its own, so use a tailnet ACL to allow port 11434 only from the app's host.
+5. Check from the app's host: `curl -fsS http://<llm-host>:11434/api/tags` lists the model.
+
+### LLM on this host (`ollama` profile)
+
+For a self-hoster without a second machine, the stack includes Ollama as an optional service. It runs on the CPU, so expect slower Playlists than the Mac's timings below.
+
+```bash
+docker compose --profile ollama up -d
+docker compose exec ollama ollama pull qwen3.5:4b-q4_K_M
+```
+
+and in `.env`: `ND_LLM_BASEURL=http://ollama:11434`, `ND_LLM_MODEL=qwen3.5:4b-q4_K_M`. Models are kept in `$VU_OLLAMA_DIR` (default `./ollama`). Ollama isn't published on any port: only the app reaches it.
+
+### Measured fit
+
+`qwen3.5:4b-q4_K_M` (3.3 GB) on Ollama 0.40.16 on an 8 GB A18 Pro Mac, with a Library of 15,150 Tracks and 125 genres, from the app's host over the tailnet (2026-11-20):
+
+| Prompt | Length | Candidates | Prompt → filters | Ranking | Total |
+|---|---|---|---|---|---|
+| upbeat 80s pop for a summer road trip | 25 | 75 | 7–12 s | 15–20 s | 22–32 s |
+| rainy Sunday 90s indie | 50 | 150 | 8–13 s | 35–40 s | 46–53 s |
+
+Both gave fitting Playlists of real Tracks (Cyndi Lauper, The B-52's, Thompson Twins; Radiohead, Smashing Pumpkins, Blur, Nirvana). The first request after the model was unloaded also pays its load time, so `ND_LLM_TIMEOUT` allows minutes.
+
 ## Updating
 
 ```bash
