@@ -26,11 +26,14 @@ var _ = Describe("Provider - SimilarArtists", func() {
 		artistRepo *mockArtistRepo
 	)
 
-	// byName matches the lookup of one artist by name.
-	byName := func(name string) any {
+	// byName matches the lookup of one artist by name, given as an escaped LIKE pattern.
+	byName := func(pattern string) any {
 		return mock.MatchedBy(func(opt model.QueryOptions) bool {
-			like, ok := opt.Filters.(squirrel.Like)
-			return ok && like["artist.name"] == name && opt.Max == 1
+			if opt.Filters == nil || opt.Max != 1 {
+				return false
+			}
+			sql, args, err := opt.Filters.ToSql()
+			return err == nil && sql == `artist.name LIKE ? ESCAPE '\'` && len(args) == 1 && args[0] == pattern
 		})
 	}
 	// byNames matches the lookup of Last.fm's similar artists by name.
@@ -89,6 +92,16 @@ var _ = Describe("Provider - SimilarArtists", func() {
 		Expect(err).ToNot(HaveOccurred())
 		Expect(similar).To(Equal(model.Artists{{ID: "ar-breeders", Name: "The Breeders"}}))
 		ag.AssertNotCalled(GinkgoT(), "GetSimilarArtists", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+	})
+
+	It("matches the name literally, so a % or _ in it is no wildcard", func() {
+		artistRepo.On("GetAll", byName(`100\% Pure\_Pop`)).Return(model.Artists{}, nil).Once()
+		ag.On("GetSimilarArtists", ctx, "", "100% Pure_Pop", "", 100).Return(nil, agents.ErrNotFound).Once()
+
+		_, err := p.SimilarArtists(ctx, "100% Pure_Pop", 5)
+
+		Expect(err).To(MatchError(agents.ErrNotFound))
+		artistRepo.AssertExpectations(GinkgoT())
 	})
 
 	It("reports an agent that can't be reached", func() {

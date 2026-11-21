@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/navidrome/navidrome/conf"
@@ -78,11 +79,14 @@ type fakeSimilar struct {
 	similar map[string][]string
 	delay   time.Duration
 	err     error
+	mu      sync.Mutex
 	asked   []string
 }
 
 func (f *fakeSimilar) SimilarArtists(ctx context.Context, name string, count int) (model.Artists, error) {
+	f.mu.Lock()
 	f.asked = append(f.asked, name)
+	f.mu.Unlock()
 	if f.delay > 0 {
 		select {
 		case <-time.After(f.delay):
@@ -273,6 +277,28 @@ var _ = Describe("Generated Playlists", Ordered, func() {
 			lines := candidateLines(fake.request("ranking").User)
 			// The similar artists come first, in Last.fm's order, before the fallback to anything.
 			Expect(lines[:2]).To(Equal([]string{"1. Pixies - Debaser (1989)", "2. Pavement - Cut Your Hair (1994)"}))
+		})
+
+		It("takes the seed artists' similar artists in turn, once each, never a seed itself", func() {
+			for _, artist := range []string{"Pixies", "Pavement", "Blur", "Pulp", "Madonna"} {
+				addTrack(artist, artist+" Song", 1995, "")
+			}
+			fake.filters = map[string]any{"name": "x", "genres": []string{},
+				"seed_artists": []string{"Sonic Youth", "Oasis"}, "year_from": 0, "year_to": 0}
+			similar.similar = map[string][]string{
+				"Sonic Youth": {"Pixies", "Pavement"},
+				"Oasis":       {"Blur", "Pixies", "Sonic Youth", "Pulp"},
+			}
+
+			_, err := svc.Preview(ctx, "90s guitars", 10)
+			Expect(err).ToNot(HaveOccurred())
+
+			Expect(candidateLines(fake.request("ranking").User)[:4]).To(Equal([]string{
+				"1. Pixies - Pixies Song (1995)",
+				"2. Blur - Blur Song (1995)",
+				"3. Pavement - Pavement Song (1995)",
+				"4. Pulp - Pulp Song (1995)",
+			}))
 		})
 
 		Context("when Last.fm is unreachable", func() {

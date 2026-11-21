@@ -19,7 +19,7 @@ import (
 //
 // Within each search the Tracks are random, so the same Prompt can give a different Playlist.
 // The seed artists take at most a third of the candidates, shared between them and at most
-// maxPerSeedArtist each. Their similar artists take at most another third, in the same way. No
+// maxPerArtistSearch each. Their similar artists take at most another third, in the same way. No
 // artist gets more than a tenth (at least 5), so a few prolific artists can't crowd out the rest.
 // Only a Library too small for that ignores the artist limit.
 func (s *service) candidates(ctx context.Context, f filters, target int) (model.MediaFiles, error) {
@@ -73,15 +73,15 @@ func (s *service) candidates(ctx context.Context, f filters, target int) (model.
 	return c.tracks, nil
 }
 
-const maxPerSeedArtist = 6
+const maxPerArtistSearch = 6
 
 // addArtists adds Tracks by the artists, sharing a third of the candidates between them, at most
-// maxPerSeedArtist each.
+// maxPerArtistSearch each.
 func (s *service) addArtists(ctx context.Context, c *collector, artists []string, years Sqlizer) error {
 	if len(artists) == 0 {
 		return nil
 	}
-	perArtist := min(maxPerSeedArtist, max(1, (c.target/3+len(artists)-1)/len(artists)))
+	perArtist := min(maxPerArtistSearch, max(1, (c.target/3+len(artists)-1)/len(artists)))
 	for _, artist := range artists {
 		if c.full() {
 			return nil

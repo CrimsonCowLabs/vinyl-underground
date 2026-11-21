@@ -228,20 +228,28 @@ func (e *provider) UpdateArtistInfo(ctx context.Context, id string, similarCount
 	return &artist.Artist, err
 }
 
+// likeEscaper makes a string match itself in a LIKE pattern with ESCAPE '\'.
+var likeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+
 // SimilarArtists looks a Library artist up through its cached artist info, like
 // UpdateArtistInfo, and asks the agents by name for any other artist.
 func (e *provider) SimilarArtists(ctx context.Context, artistName string, count int) (model.Artists, error) {
-	found, err := e.findArtist(ctx, artistName, "")
-	if err == nil {
-		artist, err := e.refreshArtistInfo(ctx, found.ID)
+	// The name may come from an LLM, so it is matched literally (ignoring case), never as a
+	// LIKE pattern.
+	found, err := e.ds.Artist(ctx).GetAll(model.QueryOptions{
+		Filters: squirrel.Expr(`artist.name LIKE ? ESCAPE '\'`, likeEscaper.Replace(artistName)),
+		Max:     1,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(found) > 0 {
+		artist, err := e.refreshArtistInfo(ctx, found[0].ID)
 		if err != nil {
 			return nil, err
 		}
 		err = e.loadSimilar(ctx, &artist, count, false)
 		return artist.SimilarArtists, err
-	}
-	if !errors.Is(err, model.ErrNotFound) {
-		return nil, err
 	}
 	// Ask for as many as for a Library artist's info: most won't be in the Library.
 	artist := auxArtist{Artist: model.Artist{Name: artistName}}

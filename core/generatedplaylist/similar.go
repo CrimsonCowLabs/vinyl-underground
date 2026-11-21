@@ -21,11 +21,14 @@ type SimilarArtists interface {
 var similarWait = 4 * time.Second
 
 const (
-	// similarLookupTimeout lets a lookup that outlives similarWait finish in the background,
-	// so its result is cached for the next Preview.
+	// similarLookupTimeout lets a lookup that outlives similarWait finish in the background.
+	// For a seed artist in the Library, its answer is then cached with the artist's info for
+	// the next Preview.
 	similarLookupTimeout = 15 * time.Second
-	similarPerSeed       = 5
-	maxSimilarArtists    = 20
+	// similarPerSeed is how many similar artists to take from each seed artist's lookup.
+	similarPerSeed = 5
+	// maxSimilarToSeeds caps the similar artists searched for, across all seed artists.
+	maxSimilarToSeeds = 20
 )
 
 // similarArtists returns the names of Library artists similar to the seed artists, without the
@@ -56,6 +59,8 @@ func (s *service) similarArtists(ctx context.Context, seeds []string) []string {
 			mu.Unlock()
 		})
 	}
+	// Slow lookups outlive this function: they stop at similarLookupTimeout, not when the
+	// Preview's ctx is done, and results is only read under mu.
 	done := make(chan struct{})
 	go func() {
 		wg.Wait()
@@ -79,7 +84,7 @@ func (s *service) similarArtists(ctx context.Context, seeds []string) []string {
 	var res []string
 	for n := 0; n < similarPerSeed; n++ {
 		for _, names := range results {
-			if n >= len(names) || len(res) == maxSimilarArtists {
+			if n >= len(names) || len(res) == maxSimilarToSeeds {
 				continue
 			}
 			name := strings.TrimSpace(names[n])
