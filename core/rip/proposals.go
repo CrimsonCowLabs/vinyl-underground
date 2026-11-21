@@ -3,6 +3,7 @@ package rip
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -181,11 +182,11 @@ func (r *Ripper) proposalInput(ctx context.Context, it model.RipItem) propose.In
 	}
 	var in propose.Input
 	if err == nil {
-		in, err = fileInput(full)
+		in, err = fileInput(full, filepath.Base(full))
 	}
 	if err != nil {
 		log.Warn(ctx, "Could not read a File's tags to propose its tags; using its name", "id", it.JobID, "path", it.Path, err)
-		return propose.Input{Artist: it.Artist, Title: it.Title, Tagged: it.Artist != ""}
+		return propose.Input{Artist: it.Artist, Title: it.Title}
 	}
 	return in
 }

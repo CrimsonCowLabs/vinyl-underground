@@ -3,6 +3,7 @@ package ripapi
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -154,6 +155,19 @@ var _ = Describe("Upload API", func() {
 		Expect(res.Files).To(HaveLen(1))
 		Expect(res.Error).To(ContainSubstring("bigger than"))
 		Expect(w.Header().Get("Connection")).To(Equal("close"))
+	})
+
+	It("says which Files it left out of a request with more than 20", func() {
+		var files []file
+		for i := range 22 {
+			files = append(files, file{fmt.Sprintf("song %d.mp3", i+1), fixture("test.mp3")})
+		}
+		w := post(&admin, "", files...)
+		Expect(w.Code).To(Equal(http.StatusCreated))
+		res := decode(w)
+		Expect(res.Files).To(HaveLen(21))
+		Expect(res.Files[19].Path).ToNot(BeEmpty())
+		Expect(res.Files[20].Error).To(Equal("song 21.mp3: at most 20 Files can be sent at once; send this one and the rest again"))
 	})
 
 	It("answers 404 for an upload that is gone, and 409 for a job that isn't an upload", func() {

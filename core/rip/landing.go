@@ -17,8 +17,9 @@ import (
 
 // fileInput is what an uploaded or dropped File's proposal (#35) is worked out from: its own
 // artist, title, album and year tags and its length. A File with no title tag is read from its
-// name instead ("Artist - Title.mp3", without a leading track number).
-func fileInput(path string) (propose.Input, error) {
+// name instead ("Artist - Title.mp3", without a leading track number): name, as path may be a
+// temp File's.
+func fileInput(path, name string) (propose.Input, error) {
 	tags, err := taglib.ReadTags(path)
 	if err != nil {
 		return propose.Input{}, err
@@ -30,7 +31,7 @@ func fileInput(path string) (propose.Input, error) {
 		in.Duration = props.Length
 	}
 	if strings.TrimSpace(in.Title) == "" {
-		in.Title = titleFromName(path)
+		in.Title = titleFromName(name)
 	} else {
 		in.Tagged = true
 	}

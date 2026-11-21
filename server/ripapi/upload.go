@@ -73,7 +73,7 @@ func (api *Router) upload(w http.ResponseWriter, r *http.Request) {
 	ctx := context.WithoutCancel(r.Context())
 	jobID := r.URL.Query().Get("job")
 	res := uploadResponse{Files: []UploadedFile{}}
-	for len(res.Files) < maxUploadFiles {
+	for {
 		part, err := mr.NextPart()
 		if errors.Is(err, io.EOF) {
 			break
@@ -85,6 +85,14 @@ func (api *Router) upload(w http.ResponseWriter, r *http.Request) {
 		if part.FormName() != "file" || part.FileName() == "" {
 			_ = part.Close()
 			continue
+		}
+		if len(res.Files) == maxUploadFiles {
+			// The rest isn't read: say so, rather than leave them out unnoticed.
+			res.Files = append(res.Files, UploadedFile{Name: part.FileName(),
+				Error: fmt.Sprintf("%s: at most %d Files can be sent at once; send this one and the rest again", part.FileName(), maxUploadFiles)})
+			_ = part.Close()
+			w.Header().Set("Connection", "close")
+			break
 		}
 		f, stop, err := api.uploadPart(ctx, jobID, part)
 		if err != nil {
@@ -155,6 +163,10 @@ func (api *Router) respondUploadError(w http.ResponseWriter, r *http.Request, re
 		log.Error(r.Context(), "Could not upload Files into the Inbox", err)
 	}
 	res.Error = msg
+	if res.Job != nil {
+		// Some Files are on a card already: say which, and why the request stopped.
+		status = http.StatusCreated
+	}
 	_ = rest.RespondWithJSON(w, status, res)
 }
 

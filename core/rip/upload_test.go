@@ -153,7 +153,6 @@ var _ = Describe("Upload", func() {
 		Expect(during).To(HaveLen(1))
 		Expect(during[0]).To(HavePrefix(".uploads/"))
 		Expect(inboxFiles()).To(ConsistOf(item.Path))
-		Expect(filepath.Join(inbox, ".uploads")).ToNot(BeADirectory())
 	})
 
 	It("puts a batch's Files in one job, never over a File already there", func() {
@@ -210,6 +209,20 @@ var _ = Describe("Upload", func() {
 		Expect(in.Album).To(Equal("Album"))
 		Expect(in.Tagged).To(BeTrue())
 		Expect(in.Duration).To(BeNumerically(">", 0))
+	})
+
+	It("names an untagged File's item after the File's own name, not its temp File's", func() {
+		data := fixture("rips/untagged.opus")
+		tmp := filepath.Join(GinkgoT().TempDir(), "x.opus")
+		Expect(os.WriteFile(tmp, data, 0o644)).To(Succeed())
+		Expect(taglib.WriteTags(tmp, map[string][]string{}, taglib.Clear)).To(Succeed())
+		untagged, err := os.ReadFile(tmp)
+		Expect(err).ToNot(HaveOccurred())
+
+		_, item, err := upload("", "03 - Daft Punk - One More Time.opus", untagged)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(item.Artist).To(Equal("Daft Punk"))
+		Expect(item.Title).To(Equal("One More Time"))
 	})
 
 	It("never writes a SOURCE tag", func() {

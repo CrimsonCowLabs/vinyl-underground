@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"os"
 	"os/signal"
@@ -218,15 +219,19 @@ func checkPromoteFolder(ctx context.Context) {
 	}
 }
 
-// checkInbox turns the Inbox off for this run (Inbox.Path cleared) when no Inbox library could be
-// set up, so neither uploads nor the Inbox's review show.
+// checkInbox turns the Inbox off for this run (Inbox.Path cleared) when the Inbox library isn't
+// at Inbox.Path (none could be set up, or the folder wasn't usable and an older one is still
+// recorded), so neither uploads nor the Inbox's review show, and no File is adopted from it.
 func checkInbox(ctx context.Context) {
 	if conf.Server.Inbox.Path == "" {
 		return
 	}
 	inbox, err := core.FindInboxLibrary(ctx, CreateDataStore())
-	if err != nil || inbox == nil {
-		log.Warn(ctx, "The Inbox is off: no Inbox library could be set up", "path", conf.Server.Inbox.Path, err)
+	if err == nil && (inbox == nil || !core.SameFolder(inbox.Path, conf.Server.Inbox.Path)) {
+		err = errors.New("no Inbox library is set up at this path")
+	}
+	if err != nil {
+		log.Warn(ctx, "The Inbox is off", "path", conf.Server.Inbox.Path, err)
 		conf.Server.Inbox.Path = ""
 	}
 }

@@ -85,11 +85,8 @@ func (r *Ripper) Upload(ctx context.Context, jobID, name string, body io.Reader)
 	if err != nil {
 		return nil, nil, err
 	}
-	defer func() {
-		_ = os.Remove(tmp)               // a no-op once it is moved into place
-		_ = os.Remove(filepath.Dir(tmp)) // only once no other upload is streaming
-	}()
-	in, err := fileInput(tmp)
+	defer func() { _ = os.Remove(tmp) }() // a no-op once it is moved into place
+	in, err := fileInput(tmp, name)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -115,7 +112,8 @@ func (r *Ripper) placeUpload(ctx context.Context, inbox *model.Library, job *mod
 	r.reviewMu.Lock()
 	defer r.reviewMu.Unlock()
 	var err error
-	if job == nil {
+	created := job == nil
+	if created {
 		job, err = r.newUploadJob(ctx, inbox.Path)
 	} else {
 		job, err = r.ds.RipJob(ctx).Get(job.ID) // still there?
@@ -123,23 +121,33 @@ func (r *Ripper) placeUpload(ctx context.Context, inbox *model.Library, job *mod
 	if err != nil {
 		return nil, nil, err
 	}
+	fail := func(err error) (*model.RipJob, *model.RipItem, error) {
+		if created {
+			// No card is left without its first File.
+			if derr := r.ds.RipJob(ctx).Delete(job.ID); derr != nil {
+				log.Warn(ctx, "Could not remove an empty upload", "id", job.ID, derr)
+			}
+			_ = os.Remove(filepath.Join(inbox.Path, job.Folder))
+		}
+		return nil, nil, err
+	}
 	items, err := r.ds.RipItem(ctx).ForJobs(job.ID)
 	if err != nil {
-		return nil, nil, err
+		return fail(err)
 	}
 	dir, err := inboxDir(inbox.Path, job.Folder)
 	if err != nil {
-		return nil, nil, err
+		return fail(err)
 	}
 	dest, err := moveIntoInbox(tmp, dir, name)
 	if err != nil {
-		return nil, nil, err
+		return fail(err)
 	}
 	rel := filepath.ToSlash(filepath.Join(job.Folder, filepath.Base(dest)))
 	item := newFileItem(job.ID, nextPosition(items), rel, in, time.Now())
 	if err := r.ds.RipItem(ctx).Put(&item); err != nil {
 		_ = os.Remove(dest)
-		return nil, nil, err
+		return fail(err)
 	}
 	return job, &item, nil
 }
@@ -180,8 +188,8 @@ func (r *Ripper) receive(inboxPath, name, ext string, body io.Reader) (string, e
 		}
 	}
 	if err != nil {
+		// The hidden .uploads folder stays: another upload may be about to stream into it.
 		_ = os.Remove(f.Name())
-		_ = os.Remove(dir) // only if no other upload is streaming
 		return "", err
 	}
 	return f.Name(), nil

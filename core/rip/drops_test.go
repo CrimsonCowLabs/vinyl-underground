@@ -31,6 +31,7 @@ var _ = Describe("Dropped Files", func() {
 		proposer *fakeProposer
 		matcher  *fakeMatcher
 		ripper   *Ripper
+		scans    *scanRecorder
 	)
 
 	BeforeEach(func() {
@@ -54,7 +55,8 @@ var _ = Describe("Dropped Files", func() {
 		Expect(ds.User(ctx).Put(&model.User{ID: "admin", UserName: "admin", IsAdmin: true})).To(Succeed())
 		proposer = &fakeProposer{}
 		matcher = &fakeMatcher{have: map[string]model.RipMatches{}}
-		ripper = New(ds, newFakeFetcher(), &scanRecorder{}, Options{
+		scans = &scanRecorder{}
+		ripper = New(ds, newFakeFetcher(), scans, Options{
 			DropSettle: settle, ScanRetryDelay: time.Millisecond, UploadScanDelay: time.Millisecond,
 			Proposer: proposer, Matcher: matcher,
 		})
@@ -201,6 +203,22 @@ var _ = Describe("Dropped Files", func() {
 		Expect(jobs()[0].Items).To(HaveLen(2))
 	})
 
+	It("rescans a File scanned mid-copy in full once, and adopts it anyway if its Track still differs", func() {
+		drop("test.mp3", "Album/CD1/a.mp3", 1)
+		tracks[0].Size -= 100 // scanned before the copy finished, and the copy kept an old time
+		mfs.SetData(tracks)
+		reconcile()
+		time.Sleep(settle + 10*time.Millisecond)
+		Expect(reconcile()).To(BeTrue())
+		Expect(jobs()).To(BeEmpty())
+		Eventually(scans.scans).Should(ContainElement(
+			[]model.ScanTarget{{LibraryID: inboxID, FolderPath: "Album/CD1"}}))
+
+		time.Sleep(settle + 10*time.Millisecond)
+		reconcile()
+		Expect(jobs()).To(HaveLen(1))
+	})
+
 	It("waits while Files are still being added to the folder", func() {
 		drop("test.mp3", "Album/a.mp3", 1)
 		reconcile()
@@ -255,7 +273,7 @@ var _ = Describe("fileInput", func() {
 		Expect(os.WriteFile(path, data, 0o644)).To(Succeed())
 		Expect(taglib.WriteTags(path, map[string][]string{}, taglib.Clear)).To(Succeed())
 
-		in, err := fileInput(path)
+		in, err := fileInput(path, filepath.Base(path))
 		Expect(err).ToNot(HaveOccurred())
 		Expect(in.Tagged).To(BeFalse())
 		Expect(in.Title).To(Equal("Daft Punk - One More Time"))

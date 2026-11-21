@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"github.com/Masterminds/squirrel"
 	"github.com/navidrome/navidrome/core"
 	"github.com/navidrome/navidrome/core/auth"
+	"github.com/navidrome/navidrome/core/rip/propose"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/model/request"
@@ -28,10 +30,13 @@ type dropState struct {
 }
 
 // fileStamp is a File's size and modification time, and since when it has had them.
+// rescanned is when its folder was rescanned in full because its Track was scanned at another
+// size (zero if it wasn't).
 type fileStamp struct {
-	size  int64
-	mod   time.Time
-	since time.Time
+	size      int64
+	mod       time.Time
+	since     time.Time
+	rescanned time.Time
 }
 
 // dropCheckIdle is how often the reconciler looks at the Inbox with nothing waiting to settle,
@@ -45,7 +50,10 @@ func (r *Ripper) RunInbox(ctx context.Context) {
 	go r.runProposals(ctx)
 	for ctx.Err() == nil {
 		wait := dropCheckIdle
-		pending, err := r.ReconcileDrops(ctx)
+		pending, err := false, error(nil)
+		if !r.opts.IgnoreDrops {
+			pending, err = r.ReconcileDrops(ctx)
+		}
 		if err != nil {
 			log.Error(ctx, "Could not look for Files dropped into the Inbox", err)
 		}
@@ -87,25 +95,48 @@ func (r *Ripper) ReconcileDrops(ctx context.Context) (bool, error) {
 	}
 	ctx = auth.WithAdminUser(ctx, r.ds)
 
-	r.landing.Lock()
 	groups, pending, err := r.settledDrops(ctx, inbox)
+	if err != nil || len(groups) == 0 {
+		return pending, err
+	}
+	// The Files' tags are read before the locks are taken, as a big drop takes a while.
+	prepared := make([]model.RipItems, len(groups))
+	for i, g := range groups {
+		prepared[i] = r.dropItems(ctx, inbox, g)
+	}
+
+	// Under the landing lock no Rip or upload can be between its File landing and its item being
+	// saved, so the Files some job knows are all known; under the review lock no Discard or
+	// Promote of the folder's card can be halfway.
+	r.landing.Lock()
+	r.reviewMu.Lock()
 	var adopted []model.RipItems
-	if err == nil {
-		for _, g := range groups {
-			items, aerr := r.adopt(ctx, inbox, g)
-			if aerr != nil {
-				err = aerr
-				break
-			}
+	known, err := r.knownPaths(ctx)
+	for i := 0; err == nil && i < len(groups); i++ {
+		items := slices.DeleteFunc(prepared[i], func(it model.RipItem) bool { return known[it.Path] })
+		if len(items) == 0 {
+			continue
+		}
+		if items, err = r.adopt(ctx, groups[i].folder, items); err == nil {
 			adopted = append(adopted, items)
 		}
 	}
+	r.reviewMu.Unlock()
 	r.landing.Unlock()
 
 	for _, items := range adopted {
 		r.landed(ctx, inbox, items)
 	}
 	return pending, err
+}
+
+func (r *Ripper) knownPaths(ctx context.Context) (map[string]bool, error) {
+	known, err := r.ds.RipItem(ctx).Paths()
+	res := make(map[string]bool, len(known))
+	for _, p := range known {
+		res[p] = true
+	}
+	return res, err
 }
 
 // dropGroup is the Files of one top-level Inbox folder (or one loose File) to adopt together.
@@ -118,13 +149,9 @@ type dropGroup struct {
 // settledDrops lists the groups of dropped Files that are ready to adopt, and reports whether
 // some other File is still settling.
 func (r *Ripper) settledDrops(ctx context.Context, inbox *model.Library) ([]dropGroup, bool, error) {
-	known, err := r.ds.RipItem(ctx).Paths()
+	isKnown, err := r.knownPaths(ctx)
 	if err != nil {
 		return nil, false, err
-	}
-	isKnown := make(map[string]bool, len(known))
-	for _, p := range known {
-		isKnown[p] = true
 	}
 	mfs, err := r.ds.MediaFile(ctx).GetAll(model.QueryOptions{Filters: squirrel.And{
 		squirrel.Eq{"media_file.library_id": inbox.ID},
@@ -178,9 +205,20 @@ func (r *Ripper) settledDrops(ctx context.Context, inbox *model.Library) ([]drop
 			continue
 		}
 		if mf.Size != st.size {
-			// Scanned while it was still being copied: the next scan reads it whole.
-			busy[key] = true
-			r.scanInboxSoon(ctx, inbox.ID)
+			// Scanned while it was still being copied. A quick scan may never read it again (a
+			// copy that keeps the original's time looks older than its Track), so its folder is
+			// scanned in full, once; if its Track still differs after that, it is adopted anyway.
+			switch {
+			case prev.rescanned.IsZero():
+				prev.rescanned = now
+				d.seen[mf.Path] = prev
+				busy[key] = true
+				r.rescanFolderSoon(ctx, inbox.ID, path.Dir(mf.Path))
+			case now.Sub(prev.rescanned) < settle:
+				busy[key] = true
+			default:
+				log.Warn(ctx, "A dropped File's Track still has another size after a full rescan; adopting it anyway", "path", mf.Path)
+			}
 		}
 	}
 	for p := range d.seen {
@@ -209,23 +247,43 @@ func (r *Ripper) settledDrops(ctx context.Context, inbox *model.Library) ([]drop
 	return ready, pending, nil
 }
 
-// adopt gives the group's Files a drop job: their folder's, if one is there already, else a new
-// one. It returns the new items.
-func (r *Ripper) adopt(ctx context.Context, inbox *model.Library, g dropGroup) (model.RipItems, error) {
+// dropItems are the new items for the group's Files, in track order, named after their tags.
+// They have no job or position yet.
+func (r *Ripper) dropItems(ctx context.Context, inbox *model.Library, g dropGroup) model.RipItems {
 	slices.SortFunc(g.tracks, func(a, b model.MediaFile) int {
 		return cmp.Or(cmp.Compare(a.DiscNumber, b.DiscNumber), cmp.Compare(a.TrackNumber, b.TrackNumber),
 			strings.Compare(a.Path, b.Path))
 	})
 	now := time.Now()
+	var items model.RipItems
+	for _, mf := range g.tracks {
+		full, err := inboxPath(inbox.Path, mf.Path)
+		if err != nil {
+			continue
+		}
+		in, err := fileInput(full, path.Base(mf.Path))
+		if err != nil {
+			log.Warn(ctx, "Could not read the tags of a File dropped into the Inbox; naming it after its Track", "path", mf.Path, err)
+			in = propose.Input{Artist: mf.Artist, Title: mf.Title}
+		}
+		items = append(items, newFileItem("", 0, mf.Path, in, now))
+	}
+	return items
+}
+
+// adopt gives the items a drop job: their folder's, if one is there already, else a new one, and
+// saves them. The caller holds the landing and review locks.
+func (r *Ripper) adopt(ctx context.Context, folder string, items model.RipItems) (model.RipItems, error) {
+	now := time.Now()
 	var job *model.RipJob
 	var existing model.RipItems
-	if g.folder != "" {
+	if folder != "" {
 		jobs, err := r.ds.RipJob(ctx).GetAll()
 		if err != nil {
 			return nil, err
 		}
 		for i := range jobs {
-			if jobs[i].Kind == model.RipKindDrop && jobs[i].Folder == g.folder {
+			if jobs[i].Kind == model.RipKindDrop && jobs[i].Folder == folder {
 				job = &jobs[i]
 				break
 			}
@@ -237,27 +295,15 @@ func (r *Ripper) adopt(ctx context.Context, inbox *model.Library, g dropGroup) (
 		}
 	}
 
-	var items model.RipItems
-	for _, mf := range g.tracks {
-		full, err := inboxPath(inbox.Path, mf.Path)
-		if err != nil {
-			continue
-		}
-		in, err := fileInput(full)
-		if err != nil {
-			log.Warn(ctx, "Could not read the tags of a File dropped into the Inbox; naming it after its Track", "path", mf.Path, err)
-			in.Artist, in.Title, in.Tagged = mf.Artist, mf.Title, true
-		}
-		items = append(items, newFileItem("", nextPosition(existing)+len(items), mf.Path, in, now))
-	}
-	if len(items) == 0 {
-		return nil, nil
+	first := nextPosition(existing)
+	for i := range items {
+		items[i].Position = first + i
 	}
 	if job == nil {
 		user, _ := request.UserFrom(ctx)
 		job = &model.RipJob{Kind: model.RipKindDrop, UserID: user.ID, Status: model.RipReady,
-			Folder: g.folder, Title: g.folder, CreatedAt: now, UpdatedAt: now}
-		if g.folder == "" {
+			Folder: folder, Title: folder, CreatedAt: now, UpdatedAt: now}
+		if folder == "" {
 			job.Title = itemTitle(items[0])
 		}
 	}
@@ -277,7 +323,7 @@ func (r *Ripper) adopt(ctx context.Context, inbox *model.Library, g dropGroup) (
 	if err != nil {
 		return nil, err
 	}
-	log.Info(ctx, "Files dropped into the Inbox are ready for review", "id", job.ID, "folder", g.folder, "files", len(items))
+	log.Info(ctx, "Files dropped into the Inbox are ready for review", "id", job.ID, "folder", folder, "files", len(items))
 	return items, nil
 }
 
@@ -298,6 +344,21 @@ func hiddenPath(rel string) bool {
 		}
 	}
 	return false
+}
+
+// rescanFolderSoon scans the Inbox folder dir (relative to the Inbox) in full, in the background,
+// so its Files are read again whatever their time, waiting for any other scan to finish first.
+func (r *Ripper) rescanFolderSoon(ctx context.Context, libID int, dir string) {
+	if r.scanner == nil {
+		return
+	}
+	ctx = context.WithoutCancel(ctx)
+	go func() {
+		target := model.ScanTarget{LibraryID: libID, FolderPath: dir}
+		if err := r.scanWithRetryFull(ctx, true, target); err != nil {
+			log.Warn(ctx, "Could not rescan a dropped folder", "folder", dir, err)
+		}
+	}()
 }
 
 // scanInboxSoon scans the Inbox in the background a moment from now, once for any number of

@@ -138,6 +138,9 @@ type Options struct {
 	// DropSettle is how long a File dropped into the Inbox must stay the same (size and time)
 	// before it is adopted into a review card (see ReconcileDrops). Defaults to a minute.
 	DropSettle time.Duration
+	// IgnoreDrops turns the drop reconciler's loop off (see RunInbox), as when no Inbox is set up
+	// for this run.
+	IgnoreDrops bool
 	// UploadScanDelay is how long after an upload the Inbox is scanned, so a batch of uploads
 	// is scanned once. Defaults to two seconds.
 	UploadScanDelay time.Duration
@@ -722,9 +725,14 @@ func (r *Ripper) scanInbox(ctx context.Context, libID int) error {
 
 // scanWithRetry scans the targets, waiting for any other scan to finish first.
 func (r *Ripper) scanWithRetry(ctx context.Context, targets ...model.ScanTarget) error {
+	return r.scanWithRetryFull(ctx, false, targets...)
+}
+
+// scanWithRetryFull is scanWithRetry, as a full scan (every File read again) if full is true.
+func (r *Ripper) scanWithRetryFull(ctx context.Context, full bool, targets ...model.ScanTarget) error {
 	var err error
 	for range r.opts.ScanAttempts {
-		_, err = r.scanner.ScanFolders(ctx, false, targets)
+		_, err = r.scanner.ScanFolders(ctx, full, targets)
 		if !errors.Is(err, scanner.ErrAlreadyScanning) {
 			return err
 		}
