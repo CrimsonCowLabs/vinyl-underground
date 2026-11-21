@@ -42,6 +42,17 @@ var _ = Describe("Guesses", func() {
 		Expect(match.Key(first("Nirvana", "Lithium (Live)").Title)).To(Equal("lithium live"))
 	})
 
+	It("keeps what follows a featuring credit: a live version is another recording", func() {
+		g := first("Mark Ronson", "Uptown Funk ft. Bruno Mars (Live at the Grammys)")
+		Expect(match.Key(g.Title)).To(Equal("uptown funk live at the grammys"))
+	})
+
+	It("reads the part of a \"|\" title that names the song, not a channel's prefix", func() {
+		g := first("KEXP", "KEXP | Phoebe Bridgers - Kyoto | Live Session")
+		Expect(match.Key(g.Artist)).To(Equal("phoebe bridgers"))
+		Expect(match.Key(g.Title)).To(Equal("kyoto"))
+	})
+
 	It("also tries the whole title with the given artist when the title has a dash", func() {
 		gs := match.Guesses("Radiohead", "Creep - Acoustic")
 		Expect(gs).To(HaveLen(2))
@@ -66,6 +77,9 @@ var _ = Describe("Key", func() {
 		Entry("feat.", "Get Lucky feat. Pharrell", "get lucky"),
 		Entry("(ft …)", "Get Lucky (ft Pharrell)", "get lucky"),
 		Entry("featuring", "Song featuring Someone Else", "song"),
+		Entry("a credit before a dash", "Song feat. Jay-Z - Remix", "song remix"),
+		Entry("feat as a word", "A Feat of Strength", "a feat of strength"),
+		Entry("ft as a word", "Welcome to Ft Lauderdale", "welcome to ft lauderdale"),
 		Entry("empty", "  ", ""),
 	)
 })

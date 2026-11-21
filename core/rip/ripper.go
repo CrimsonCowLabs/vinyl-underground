@@ -164,6 +164,8 @@ type Ripper struct {
 	ytDlp chan struct{}
 	// updating is true while UpdateYtDlp holds ytDlp.
 	updating atomic.Bool
+	// previews keeps the "already have" matches of the pages waiting for the admin to confirm.
+	previews previewMatches
 }
 
 func New(ds model.DataStore, fetcher Fetcher, scanner FolderScanner, opts Options) *Ripper {
@@ -229,7 +231,7 @@ func (r *Ripper) Enqueue(ctx context.Context, rawURL string, confirmed bool) (*m
 	}
 	if job.Status != model.RipFailed {
 		big := info != nil && info.IsPlaylist && info.Count > ConfirmAbove
-		have := r.alreadyHave(ctx, job.Items)
+		have := r.alreadyHave(ctx, rawURL, job.Items, confirmed, big)
 		if !confirmed && (big || len(have) > 0) {
 			return nil, &NeedsConfirmationError{Preview: preview(rawURL, info, job.Items, big, have)}
 		}

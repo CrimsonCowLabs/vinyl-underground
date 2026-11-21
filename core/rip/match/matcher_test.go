@@ -97,6 +97,16 @@ var _ = Describe("Matcher", Ordered, func() {
 		Expect(m.AlreadyHave(adminCtx, "Queen Official", "Queen - Bohemian Rhapsody (Official Video)")).To(BeEmpty())
 	})
 
+	It("tells an artist from another whose name only starts the same", func() {
+		addTrack(1, "Queens of the Stone Age", "No One Knows", "Songs for the Deaf")
+		Expect(m.AlreadyHave(adminCtx, "Queen", "No One Knows")).To(BeEmpty())
+	})
+
+	It("finds a Track credited to the video's artist among others", func() {
+		want := addTrack(1, "Daft Punk, Julian Casablancas", "Instant Crush", "Random Access Memories")
+		Expect(ids(m.AlreadyHave(adminCtx, "Daft Punk", "Instant Crush"))).To(Equal([]string{want}))
+	})
+
 	It("finds an earlier Rip in the Inbox, with its own YouTube title, and says it is a Rip", func() {
 		rip := addTrack(inboxID, "BeyonceVEVO", "Beyoncé - Halo [HD]", "", "https://www.youtube.com/watch?v=bnVUHWCynig")
 

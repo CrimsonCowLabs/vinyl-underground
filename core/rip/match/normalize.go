@@ -24,8 +24,12 @@ type Guess struct {
 var (
 	// bracketed is a "(…)" or "[…]" group, which noiseWords decides whether to drop.
 	bracketed = regexp.MustCompile(`\s*[(\[]([^()\[\]]*)[)\]]`)
-	// featuring is a featuring credit and everything after it.
-	featuring = regexp.MustCompile(`(?i)(\s|[(\[])(feat\.?|ft\.?|featuring)\s.*$`)
+	// featuringGroup is a bracketed featuring credit: "(feat. X)", "[ft X]".
+	featuringGroup = regexp.MustCompile(`(?i)\s*[(\[]\s*(feat\.?|ft\.?|featuring)\s[^()\[\]]*[)\]]`)
+	// featuring is a featuring credit up to the next bracket, " - " or " | ", which it leaves in
+	// place (group 2). Without brackets, only "feat.", "ft." and "featuring" count, so the words
+	// "Feat" and "Ft" don't.
+	featuring = regexp.MustCompile(`(?i)\s(feat\.|ft\.|featuring)\s.*?(\s[-–—|]\s|[(\[]|$)`)
 	// dash splits "Artist - Title". A hyphen inside a word (JAY-Z) is no split.
 	dash = regexp.MustCompile(`\s+[-–—]\s+`)
 	// channelSuffix is what a channel adds to its artist's name.
@@ -65,24 +69,47 @@ func Guesses(artist, title string) []Guess {
 	return res
 }
 
+// stripFeaturing takes the featuring credits out of s, and nothing after them.
+func stripFeaturing(s string) string {
+	s = featuringGroup.ReplaceAllString(s, "")
+	return featuring.ReplaceAllString(s, " $2")
+}
+
 func cleanArtist(s string) string {
-	s = featuring.ReplaceAllString(strings.TrimSpace(s), "")
+	s = stripFeaturing(strings.TrimSpace(s))
 	return strings.TrimSpace(channelSuffix.ReplaceAllString(s, ""))
 }
 
 func cleanTitle(s string) string {
-	if before, _, ok := strings.Cut(s, " | "); ok {
-		s = before
-	}
+	s = stripFeaturing(s)
 	s = bracketed.ReplaceAllStringFunc(s, func(group string) string {
-		inner := bracketed.FindStringSubmatch(group)[1]
-		if isNoise(inner) || featuring.MatchString(" "+inner) {
+		if isNoise(bracketed.FindStringSubmatch(group)[1]) {
 			return ""
 		}
 		return group
 	})
-	s = featuring.ReplaceAllString(s, "")
-	return strings.TrimSpace(s)
+	return strings.TrimSpace(songPart(s))
+}
+
+// songPart picks, of a title in " | " parts ("KEXP | Artist - Title | Live Session",
+// "Title | Official Video"), the one that names the song: the first "Artist - Title" part, else
+// the first part that isn't noise.
+func songPart(s string) string {
+	var kept []string
+	for part := range strings.SplitSeq(s, " | ") {
+		if !isNoise(part) && strings.TrimSpace(part) != "" {
+			kept = append(kept, part)
+		}
+	}
+	for _, part := range kept {
+		if dash.MatchString(part) {
+			return part
+		}
+	}
+	if len(kept) == 0 {
+		return ""
+	}
+	return kept[0]
 }
 
 func isNoise(s string) bool {
@@ -100,7 +127,7 @@ func isNoise(s string) bool {
 // Key is s for comparing: lower case, without accents, featuring credits or punctuation, "&"
 // read as "and", and single spaces between words.
 func Key(s string) string {
-	s = featuring.ReplaceAllString(s, "")
+	s = stripFeaturing(s)
 	s = strings.ToLower(sanitize.Accents(s))
 	s = strings.ReplaceAll(s, "&", " and ")
 	s = strings.NewReplacer("'", "", "’", "").Replace(s)

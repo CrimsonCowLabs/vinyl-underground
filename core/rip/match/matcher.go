@@ -36,18 +36,18 @@ func (m *Matcher) AlreadyHave(ctx context.Context, artist, title string) (model.
 	res := model.RipMatches{}
 	seen := map[string]bool{}
 	for _, g := range Guesses(artist, title) {
-		// Artist and title first; then the title alone, for an artist the index can't find by
-		// its words (a channel's "TaylorSwiftVEVO").
+		// The title alone finds the artist however the index spells it (a channel's
+		// "TaylorSwiftVEVO"). Only when it lists too many Tracks to be sure (a common title, like
+		// "Intro") is it narrowed down by the artist. One search is the usual cost.
 		queries := []string{g.Title}
 		if g.Artist != "" {
-			queries = []string{g.Artist + " " + g.Title, g.Title}
+			queries = append(queries, g.Artist+" "+g.Title)
 		}
 		for _, q := range queries {
 			found, err := m.ds.MediaFile(ctx).Search(q, model.QueryOptions{Max: searchMax})
 			if err != nil {
 				return nil, err
 			}
-			n := len(res)
 			for _, mf := range found {
 				if seen[mf.ID] || !sameRecording(g, mf) {
 					continue
@@ -61,7 +61,7 @@ func (m *Matcher) AlreadyHave(ctx context.Context, artist, title string) (model.
 					return res, nil
 				}
 			}
-			if len(res) > n {
+			if len(found) < searchMax {
 				break
 			}
 		}
@@ -83,16 +83,19 @@ func sameRecording(g Guess, mf model.MediaFile) bool {
 	return false
 }
 
-// sameArtist compares two artist names without their spaces, so a channel's "TaylorSwift"
-// matches "Taylor Swift", and accepts one inside the other for a list of artists.
+// sameArtist compares two artist names. Without their spaces, so a channel's "TaylorSwift"
+// matches "Taylor Swift"; or word for word, one inside the other, so "Daft Punk" matches
+// "Daft Punk, Julian Casablancas" (but "Queen" doesn't match "Queens of the Stone Age").
 func sameArtist(a, b string) bool {
-	a = strings.ReplaceAll(Key(a), " ", "")
-	b = strings.ReplaceAll(Key(b), " ", "")
+	a, b = Key(a), Key(b)
 	if a == "" || b == "" {
 		return false
+	}
+	if strings.ReplaceAll(a, " ", "") == strings.ReplaceAll(b, " ", "") {
+		return true
 	}
 	if len(a) > len(b) {
 		a, b = b, a
 	}
-	return a == b || (len(a) >= minContained && strings.Contains(b, a))
+	return len(a) >= minContained && strings.Contains(" "+b+" ", " "+a+" ")
 }

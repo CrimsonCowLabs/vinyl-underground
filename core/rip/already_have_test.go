@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/navidrome/navidrome/core"
 	"github.com/navidrome/navidrome/model"
@@ -15,15 +16,26 @@ import (
 
 // fakeMatcher stands in for the Library search: it knows the Tracks for some "<artist>|<title>".
 type fakeMatcher struct {
-	have map[string]model.RipMatches
-	err  error
+	have  map[string]model.RipMatches
+	err   error
+	mu    sync.Mutex
+	calls int
 }
 
 func (m *fakeMatcher) AlreadyHave(_ context.Context, artist, title string) (model.RipMatches, error) {
+	m.mu.Lock()
+	m.calls++
+	m.mu.Unlock()
 	if m.err != nil {
 		return nil, m.err
 	}
 	return m.have[artist+"|"+title], nil
+}
+
+func (m *fakeMatcher) searches() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.calls
 }
 
 // Before a job is queued, its videos are matched against the Library and the Inbox, and the
@@ -168,10 +180,29 @@ var _ = Describe("Ripper's \"already have\" warning", func() {
 		Expect(err.Error()).To(Equal("this playlist has 51 items; confirm to rip them all"))
 	})
 
-	It("never blocks the Rip when the Library can't be searched", func() {
+	It("doesn't search the Library again for each item when the admin confirms", func() {
+		playlist(ConfirmAbove + 1)
+		matcher.have["Band|Track 7"] = halo
+		_, err := ripper.Enqueue(ctx, listURL, false)
+		needsConfirmation(err)
+		Expect(matcher.searches()).To(Equal(ConfirmAbove + 1))
+
+		job, err := ripper.Enqueue(ctx, listURL, true)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(matcher.searches()).To(Equal(ConfirmAbove+1), "the preview's matches are used")
+		Expect(job.Items[6].AlreadyHave).To(Equal(halo))
+
+		_, err = ripper.Enqueue(ctx, listURL, true)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(matcher.searches()).To(Equal(2*(ConfirmAbove+1)), "a later Rip of the same page searches again")
+	})
+
+	It("never blocks the Rip when the Library can't be searched, and stops searching", func() {
+		playlist(20)
 		matcher.err = errors.New("database is locked")
-		job, err := ripper.Enqueue(ctx, videoURL, false)
+		job, err := ripper.Enqueue(ctx, listURL, false)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(job.Status).To(Equal(model.RipQueued))
+		Expect(matcher.searches()).To(BeNumerically("<", 20))
 	})
 })
