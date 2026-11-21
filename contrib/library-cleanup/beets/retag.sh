@@ -41,7 +41,7 @@ case "${1:-}" in
     docker build -t "$IMAGE" "$HERE" ;;
   test)
     docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -e PYTHONPATH=/etc/beets -w /etc/beets \
-      --entrypoint python "$IMAGE" -m unittest -v test_lowconfidence test_fingerprints ;;
+      --entrypoint python "$IMAGE" -m unittest -v test_lowconfidence test_fingerprints test_keepgenre ;;
   import)
     [[ $# -eq 2 ]] || usage
     paths=()

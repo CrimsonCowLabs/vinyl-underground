@@ -8,7 +8,7 @@ create_backup_before_migrations: no
 # Only a placeholder: Files are never moved, so beets' path formats are never used.
 directory: /music
 
-plugins: [musicbrainz, chroma, fingerprints, lastgenre, lowconfidence]
+plugins: [musicbrainz, chroma, fingerprints, lastgenre, keepgenre, lowconfidence]
 # fingerprints makes chroma's fingerprints count when pairing Files with Tracks (see beetsplug/fingerprints.py).
 pluginpath: [/etc/beets/beetsplug]
 
@@ -67,6 +67,7 @@ lastgenre:
   auto: yes
   # One genre per album, from Last.fm's album tags, else the artist's, replacing the File's own.
   # (keep_existing would put the File's own genre first, so iTunes' broad "Rock" would always win.)
+  # When Last.fm has nothing, keepgenre (listed after lastgenre) puts the File's own genre back.
   source: album
   count: 1
   canonical: yes
