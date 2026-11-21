@@ -15,9 +15,11 @@ import (
 )
 
 // fixtureMB answers recording searches from MusicBrainz JSON recorded into testdata/ (pruned to
-// the fields the engine reads). A search it has no fixture for finds nothing.
+// the fields the engine reads), or from made-up recordings for the cases no recording shows. A
+// search it has neither for finds nothing.
 type fixtureMB struct {
 	searches map[string]string
+	madeUp   map[string][]musicbrainz.Recording
 	err      error
 	queries  []string
 }
@@ -26,6 +28,9 @@ func (f *fixtureMB) SearchRecordings(_ context.Context, query string) ([]musicbr
 	f.queries = append(f.queries, query)
 	if f.err != nil {
 		return nil, f.err
+	}
+	if recs, ok := f.madeUp[query]; ok {
+		return recs, nil
 	}
 	var res struct {
 		Recordings []musicbrainz.Recording `json:"recordings"`
@@ -159,6 +164,50 @@ var _ = Describe("Engine", func() {
 		Expect(p.Title).To(Equal("Never Gonna Give You Up (Remastered 2022)"))
 	})
 
+	// album is a made-up recording of title by artist on an official studio album.
+	album := func(artist, title, albumTitle, date string) musicbrainz.Recording {
+		credit := musicbrainz.ArtistCredits{{Name: artist}}
+		return musicbrainz.Recording{ID: "rec", Title: title, Score: 100, ArtistCredit: credit,
+			Releases: []musicbrainz.Release{{ID: "rel", Title: albumTitle, Status: "Official", Date: date,
+				ArtistCredit: credit, ReleaseGroup: musicbrainz.ReleaseGroup{ID: "rg", Title: albumTitle, PrimaryType: "Album"}}}}
+	}
+
+	It("reads a dashed title whole, with the uploader as the artist, when MusicBrainz knows only that", func() {
+		mb := &fixtureMB{madeUp: map[string][]musicbrainz.Recording{
+			propose.SearchQuery("Radiohead", "Creep - Acoustic"): {album("Radiohead", "Creep - Acoustic", "My Iron Lung", "1994")},
+		}}
+		p := propose.New(mb).Propose(ctx, propose.Input{Artist: "Radiohead", Title: "Creep - Acoustic"})
+		Expect(mb.queries).To(HaveLen(2), "the split reading first, then the whole title")
+		Expect(p.Artist).To(Equal("Radiohead"))
+		Expect(p.Title).To(Equal("Creep - Acoustic"))
+		Expect(p.Album).To(Equal("My Iron Lung"))
+	})
+
+	It("keeps the split reading when MusicBrainz knows neither", func() {
+		p := propose.New(&fixtureMB{}).Propose(ctx, propose.Input{Artist: "Some Lyrics Channel", Title: "Band - Song"})
+		Expect(p.Artist).To(Equal("Band"))
+		Expect(p.Title).To(Equal("Song"))
+	})
+
+	It("matches a MusicBrainz recording whose own title has a remaster note", func() {
+		mb := &fixtureMB{madeUp: map[string][]musicbrainz.Recording{
+			propose.SearchQuery("David Bowie", "Heroes"): {album("David Bowie", "Heroes - 2017 Remaster", "Heroes", "1977")},
+		}}
+		p := propose.New(mb).Propose(ctx, propose.Input{Artist: "David Bowie", Title: "Heroes (2017 Remaster)"})
+		Expect(p.Album).To(Equal("Heroes"))
+		Expect(p.Year).To(Equal("1977"))
+	})
+
+	It("searches for a duo by its whole name, and compares it by the first", func() {
+		mb := &fixtureMB{madeUp: map[string][]musicbrainz.Recording{
+			propose.SearchQuery("Simon & Garfunkel", "The Boxer"): {album("Simon & Garfunkel", "The Boxer", "Bridge Over Troubled Water", "1970")},
+		}}
+		p := propose.New(mb).Propose(ctx, propose.Input{Artist: "Simon & Garfunkel", Title: "Simon & Garfunkel - The Boxer (Audio)"})
+		Expect(mb.queries[0]).To(ContainSubstring(`artist:"Simon & Garfunkel"`))
+		Expect(p.Album).To(Equal("Bridge Over Troubled Water"))
+		Expect(p.AlbumArtist).To(Equal("Simon & Garfunkel"))
+	})
+
 	It("still proposes from the title, with a note, when MusicBrainz can't be reached", func() {
 		mb := &fixtureMB{err: musicbrainz.ErrBusy}
 		p := propose.New(mb).Propose(ctx, propose.Input{Artist: "Adele", Title: "Adele - Hello (Official Video)"})
@@ -166,6 +215,7 @@ var _ = Describe("Engine", func() {
 		Expect(p.Title).To(Equal("Hello"))
 		Expect(p.Album).To(Equal("Hello"))
 		Expect(p.Note).To(ContainSubstring("busy"))
+		Expect(p.LookupFailed).To(BeTrue(), "so the next start tries again")
 	})
 
 	It("proposes from the title alone, with no lookups, when MusicBrainz is off", func() {

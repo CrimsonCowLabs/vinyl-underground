@@ -37,30 +37,40 @@ func New(mb MusicBrainz) *Engine {
 	return &Engine{mb: mb}
 }
 
-// Propose works out the tags for one Track: the artist and title from StartFrom, then the album
-// and year from MusicBrainz (see Pick). When MusicBrainz finds nothing, the album is YouTube
-// Music's or the File's own, if any, else the Track's own title, as for a single. It always
-// returns a ready proposal: a failed lookup only adds a Note. One proposal is one MusicBrainz
-// request.
+// Propose works out the tags for one Track: the artist and title from StartsFrom, then the album
+// and year from MusicBrainz (see Pick). Each reading of the title is looked up in turn (one
+// MusicBrainz request each, usually one in all), and the first MusicBrainz knows wins. When
+// MusicBrainz finds nothing, it is the first reading, and the album is YouTube Music's or the
+// File's own, if any, else the Track's own title, as for a single. It always returns a ready
+// proposal: a failed lookup only adds a Note, and sets LookupFailed.
 func (e *Engine) Propose(ctx context.Context, in Input) model.RipProposal {
-	s := StartFrom(in)
+	starts := StartsFrom(in)
+	s := starts[0]
+	var choice *Choice
+	var note string
+	failed := false
+	switch {
+	case e.mb == nil:
+		note = "MusicBrainz lookups are off"
+	case s.Title == "" || s.AlbumArtist == "":
+		note = "no artist and title to look up on MusicBrainz"
+	default:
+		for _, cand := range starts {
+			c, err := e.lookup(ctx, cand.AlbumArtist, cand.Title)
+			if err != nil {
+				log.Warn(ctx, "Could not look up a Track on MusicBrainz", "artist", cand.Artist, "title", cand.Title, err)
+				note, failed = "MusicBrainz couldn't be asked: "+err.Error(), true
+				break
+			}
+			if c != nil {
+				s, choice = cand, c
+				break
+			}
+		}
+	}
 	p := model.RipProposal{
 		Status: model.RipProposalReady, Title: s.Title, Artist: s.Artist, From: string(s.From),
-		AlbumArtist: s.AlbumArtist, UpdatedAt: time.Now(),
-	}
-	var choice *Choice
-	switch artist := MainArtist(s.AlbumArtist); {
-	case e.mb == nil:
-		p.Note = "MusicBrainz lookups are off"
-	case s.Title == "" || artist == "":
-		p.Note = "no artist and title to look up on MusicBrainz"
-	default:
-		var err error
-		choice, err = e.lookup(ctx, artist, s.Title)
-		if err != nil {
-			log.Warn(ctx, "Could not look up a Track on MusicBrainz", "artist", s.Artist, "title", s.Title, err)
-			p.Note = "MusicBrainz couldn't be asked: " + err.Error()
-		}
+		AlbumArtist: s.AlbumArtist, Note: note, LookupFailed: failed, UpdatedAt: time.Now(),
 	}
 	switch {
 	case choice != nil:
@@ -81,10 +91,11 @@ func (e *Engine) Propose(ctx context.Context, in Input) model.RipProposal {
 	return p
 }
 
-// lookup searches MusicBrainz for the song's recordings and picks their album (see Pick). Only
-// recordings of the same title, credited to the main artist, count. The search score decides
-// nothing: an album recording credited with its featured artists ("Daft Punk feat. Pharrell
-// Williams and Nile Rodgers") can score below covers and remixes.
+// lookup searches MusicBrainz for the song's recordings by artist (the lead artist, as credited)
+// and picks their album (see Pick). Only recordings of the same title, credited to the main
+// artist, count, both titles read without featuring credits or a remaster note. The search score
+// decides nothing: an album recording credited with its featured artists ("Daft Punk feat.
+// Pharrell Williams and Nile Rodgers") can score below covers and remixes.
 func (e *Engine) lookup(ctx context.Context, artist, title string) (*Choice, error) {
 	recs, err := e.mb.SearchRecordings(ctx, SearchQuery(artist, title))
 	if err != nil {
@@ -93,7 +104,7 @@ func (e *Engine) lookup(ctx context.Context, artist, title string) (*Choice, err
 	want := normKey(songTitle(title))
 	var releases []musicbrainz.Release
 	for _, r := range recs {
-		if normKey(r.Title) == want && sameArtist(r.ArtistCredit.String(), artist) {
+		if normKey(songTitle(r.Title)) == want && sameArtist(r.ArtistCredit.String(), artist) {
 			releases = append(releases, r.Releases...)
 		}
 	}

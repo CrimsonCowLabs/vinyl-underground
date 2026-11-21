@@ -156,10 +156,13 @@ func albumProposal(tracks []ReviewTrack) (*AlbumProposal, bool) {
 		}
 	}
 	for _, t := range tracks {
+		if t.Proposal != nil && t.Proposal.Status == model.RipProposalPending {
+			pending = true
+		}
 		switch {
 		case t.Proposal == nil:
-		case t.Proposal.Status == model.RipProposalPending:
-			pending = true
+		case t.Proposal.UpdatedAt.IsZero() && t.Proposal.Album == "" && t.Proposal.Title == "":
+			// Pending for the first time: nothing to offer yet. A refreshed one keeps its old values.
 		case res == nil:
 			res = &AlbumProposal{Album: t.Proposal.Album, AlbumArtist: t.Proposal.AlbumArtist, Year: t.Proposal.Year}
 		default:

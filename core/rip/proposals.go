@@ -107,7 +107,16 @@ func (r *Ripper) propose(ctx context.Context, next queuedProposal) {
 		if p.UpdatedAt.IsZero() {
 			p.UpdatedAt = time.Now()
 		}
-		switch err := r.ds.RipItem(ctx).SetProposal(it.ID, p); {
+		// Under the queue's lock, so a refresh can't slip in between: an item asked for again
+		// while this ran stays pending, with these values on show, until its queued run is done.
+		q := &r.proposals
+		q.mu.Lock()
+		if q.queued[it.ID] {
+			p.Status = model.RipProposalPending
+		}
+		err := r.ds.RipItem(ctx).SetProposal(it.ID, p)
+		q.mu.Unlock()
+		switch {
 		case errors.Is(err, model.ErrNotFound):
 			// Discarded meanwhile.
 		case err != nil:
@@ -119,8 +128,8 @@ func (r *Ripper) propose(ctx context.Context, next queuedProposal) {
 	}
 }
 
-// queuePendingProposals queues the proposals of every ready item that has none yet, or whose
-// proposal a stop left pending.
+// queuePendingProposals queues the proposals of every ready item that has none yet, whose
+// proposal a stop left pending, or whose MusicBrainz lookup failed (it was busy or unreachable).
 func (r *Ripper) queuePendingProposals(ctx context.Context) {
 	if r.opts.Proposer == nil {
 		return
@@ -132,7 +141,8 @@ func (r *Ripper) queuePendingProposals(ctx context.Context) {
 	}
 	for _, job := range jobs {
 		for i := range job.Items {
-			if st := job.Items[i].Proposal.Status; st == model.RipProposalNone || st == model.RipProposalPending {
+			p := job.Items[i].Proposal
+			if p.Status == model.RipProposalNone || p.Status == model.RipProposalPending || p.LookupFailed {
 				r.queueProposal(ctx, &job.Items[i])
 			}
 		}

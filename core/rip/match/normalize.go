@@ -117,7 +117,8 @@ func dropNoiseWords(group, inner string) string {
 		switch {
 		case strongNoise[strings.ToLower(w)]:
 			strong = true
-		case isNoise(w):
+		case isNoise(w), !strings.ContainsFunc(w, func(r rune) bool { return unicode.IsLetter(r) || unicode.IsNumber(r) }):
+			// Noise, or punctuation left between noise words ("(Official Video - Remastered)").
 		default:
 			kept = append(kept, w)
 		}
@@ -129,8 +130,9 @@ func dropNoiseWords(group, inner string) string {
 	return group[:start+1] + strings.Join(kept, " ") + group[len(group)-1:]
 }
 
-// trimTrailingNoise drops a run of noise words at the end of s, when it holds a strongNoise word
-// and leaves something before it.
+// trimTrailingNoise drops a run of noise words at the end of s, when it leaves something before
+// it and is either "Lyrics" alone or two words or more holding a strongNoise word ("Official
+// Video", "HD Video"). A single "Official" or "HD" may be the song's own ("Make It Official").
 func trimTrailingNoise(s string) string {
 	words := strings.Fields(s)
 	cut, strong := len(words), false
@@ -138,7 +140,10 @@ func trimTrailingNoise(s string) string {
 		cut--
 		strong = strong || strongNoise[strings.ToLower(strings.Trim(words[cut], ".,!:;-–—"))]
 	}
-	if !strong {
+	switch run := len(words) - cut; {
+	case run == 1 && strings.EqualFold(words[cut], "lyrics"):
+	case run >= 2 && strong:
+	default:
 		return s
 	}
 	return strings.Join(words[:cut], " ")

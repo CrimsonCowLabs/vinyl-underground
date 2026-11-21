@@ -29,6 +29,9 @@ var _ = Describe("StartFrom", func() {
 		Entry("Pop Music keeps its Music", "M", "M - Pop Music", "M", "Pop Music"),
 		Entry("noise beside a remaster in one bracket", "Queen Official", "Queen – Bohemian Rhapsody (Official Video Remastered)", "Queen", "Bohemian Rhapsody (Remastered)"),
 		Entry("noise beside Live in one bracket", "Nirvana", "Nirvana - Lithium (Live Official Video)", "Nirvana", "Lithium (Live)"),
+		Entry("punctuation left in a cleaned bracket", "Band", "Band - Song (Official Video - Remastered)", "Band", "Song (Remastered)"),
+		Entry("a song that ends in Official", "Band", "Band - Make It Official", "Band", "Make It Official"),
+		Entry("a song that ends in HD alone is cut only with a second noise word", "Band", "Band - Song HD Video", "Band", "Song"),
 	)
 
 	It("starts from YouTube Music's own metadata when the upload is a Topic one", func() {

@@ -177,6 +177,19 @@ var _ = Describe("Review and Discard", func() {
 				Expect(rev.Proposal).To(BeNil())
 			})
 
+			It("keeps offering a refreshed proposal's old album-level values while it is worked out again", func() {
+				landed("ripped.opus", "Album/a.opus")
+				job := newJob(model.RipReady, "Album", "Album/a.opus")
+				old := ready("Record", "Band", "1999")
+				old.Status = model.RipProposalPending
+				propose(job.Items[0], old)
+
+				rev, err := ripper.Review(ctx, job.ID)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(rev.ProposalsPending).To(BeTrue())
+				Expect(rev.Proposal).To(Equal(&AlbumProposal{Album: "Record", AlbumArtist: "Band", Year: "1999"}))
+			})
+
 			It("has no proposals for a job that has none", func() {
 				landed("ripped.opus", "Album/a.opus")
 				job := newJob(model.RipReady, "Album", "Album/a.opus")

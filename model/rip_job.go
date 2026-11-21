@@ -185,8 +185,11 @@ type RipProposal struct {
 	ReleaseType    string `json:"releaseType,omitempty"`
 	ReleaseGroupID string `json:"releaseGroupId,omitempty"`
 	// Note says why MusicBrainz didn't set the album, when it was off or couldn't be reached.
-	Note      string    `json:"note,omitempty"`
-	UpdatedAt time.Time `json:"updatedAt,omitzero"`
+	Note string `json:"note,omitempty"`
+	// LookupFailed is true when MusicBrainz couldn't be asked (busy or unreachable), so the
+	// proposal is worked out again on the next start.
+	LookupFailed bool      `json:"lookupFailed,omitempty"`
+	UpdatedAt    time.Time `json:"updatedAt,omitzero"`
 }
 
 func (p RipProposal) Value() (driver.Value, error) { return jsonValue(p) }

@@ -201,6 +201,55 @@ var _ = Describe("Tag proposals", func() {
 		Expect(proposer.asked()).To(HaveLen(2))
 	})
 
+	It("keeps a Track refreshed while its proposal is worked out pending, until the second run is done", func() {
+		fetcher.infos[topicURL] = topicInfo()
+		first := make(chan struct{})
+		proposer.hold = first
+		job, err := ripper.Enqueue(ctx, topicURL, false)
+		Expect(err).ToNot(HaveOccurred())
+		defer start()()
+		Eventually(proposer.asked).Should(HaveLen(1))
+		Eventually(jobStatus(job.ID)).Should(Equal(model.RipReady))
+
+		Expect(ripper.RefreshProposals(ctx, job.ID)).To(Succeed())
+		second := make(chan struct{})
+		proposer.mu.Lock()
+		proposer.hold = second
+		proposer.mu.Unlock()
+		close(first)
+
+		Eventually(proposer.asked).Should(HaveLen(2))
+		Expect(item(job.ID)().Proposal.Status).To(Equal(model.RipProposalPending))
+		Expect(item(job.ID)().Proposal.Album).To(Equal("Song LP"), "the first run's values on show")
+		close(second)
+		Eventually(func() model.RipProposalStatus { return item(job.ID)().Proposal.Status }).Should(Equal(model.RipProposalReady))
+	})
+
+	It("works out again, on the next start, a proposal whose MusicBrainz lookup failed", func() {
+		job := &model.RipJob{URL: topicURL, Status: model.RipReady}
+		Expect(ds.RipJob(ctx).Put(job)).To(Succeed())
+		it := &model.RipItem{JobID: job.ID, Position: 1, URL: topicURL, Status: model.RipReady, Path: "a.opus",
+			Origin: topicInfo().Origin}
+		Expect(ds.RipItem(ctx).Put(it)).To(Succeed())
+		Expect(ds.RipItem(ctx).SetProposal(it.ID, model.RipProposal{Status: model.RipProposalReady, Album: "Song",
+			Note: "MusicBrainz couldn't be asked: busy", LookupFailed: true})).To(Succeed())
+
+		defer start()()
+		Eventually(func() string { return item(job.ID)().Proposal.Album }).Should(Equal("Song LP"))
+		Expect(item(job.ID)().Proposal.LookupFailed).To(BeFalse())
+	})
+
+	It("leaves a proposal that was worked out alone on the next start", func() {
+		job := &model.RipJob{URL: topicURL, Status: model.RipReady}
+		Expect(ds.RipJob(ctx).Put(job)).To(Succeed())
+		it := &model.RipItem{JobID: job.ID, Position: 1, URL: topicURL, Status: model.RipReady, Path: "a.opus"}
+		Expect(ds.RipItem(ctx).Put(it)).To(Succeed())
+		Expect(ds.RipItem(ctx).SetProposal(it.ID, model.RipProposal{Status: model.RipProposalReady, Album: "Kept"})).To(Succeed())
+
+		defer start()()
+		Consistently(proposer.asked, 100*time.Millisecond).Should(BeEmpty())
+	})
+
 	It("refuses to refresh a Rip that is still running", func() {
 		ripper = New(ds, fetcher, &fakeScanner{inbox: inbox}, Options{Proposer: proposer})
 		job := &model.RipJob{URL: topicURL, Status: model.RipDownloading}
