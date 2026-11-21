@@ -35,6 +35,21 @@ type fixedBinary string
 
 func (b fixedBinary) Path(context.Context) (string, error) { return string(b), nil }
 
+// slowBinary takes a while to hand out yt-dlp, like its first download.
+type slowBinary struct {
+	path  string
+	delay time.Duration
+}
+
+func (b slowBinary) Path(ctx context.Context) (string, error) {
+	select {
+	case <-time.After(b.delay):
+		return b.path, nil
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
+}
+
 const hostileURL = "https://example.com/watch?v=1;rm -rf /&x=$(id)"
 
 var _ = Describe("YtDlp", func() {
@@ -55,7 +70,7 @@ EOF`)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(info).To(Equal(&Info{
 				ID: "abc", Title: "Song Title", Artist: "Some Channel",
-				Source: "YouTube", SourceURL: "https://www.youtube.com/watch?v=abc",
+				Source: "YouTube", SourceURL: "https://www.youtube.com/watch?v=abc", Count: 1,
 			}))
 
 			a := args()
@@ -76,6 +91,64 @@ EOF`)
 			info, err := (&YtDlp{Binary: fixedBinary(bin), TempDir: tmp}).Probe(ctx, "https://www.youtube.com/playlist?list=PL1")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(info.IsPlaylist).To(BeTrue())
+		})
+
+		It("lists a playlist's items, without looking at each one, up to one past the limit", func(ctx SpecContext) {
+			bin, args, _ := fakeYtDlp(`cat <<'EOF'
+{"_type":"playlist","id":"OLAK5uy_x","title":"Album - Great Album","playlist_count":3,"extractor_key":"YoutubeTab","webpage_url":"https://music.youtube.com/playlist?list=OLAK5uy_x",
+ "entries":[
+  {"_type":"url","ie_key":"Youtube","id":"a1","url":"https://music.youtube.com/watch?v=a1","title":"First","uploader":"Band - Topic"},
+  {"_type":"url","ie_key":"Youtube","id":"a2","url":"https://music.youtube.com/watch?v=a2","title":"Second","channel":"Band"},
+  {"_type":"url","ie_key":"Youtube","id":"a3","url":"https://music.youtube.com/watch?v=a3","title":"[Private video]"}
+ ]}
+EOF`)
+			info, err := (&YtDlp{Binary: fixedBinary(bin), TempDir: tmp}).Probe(ctx, "https://music.youtube.com/playlist?list=OLAK5uy_x")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(info.IsPlaylist).To(BeTrue())
+			Expect(info.Title).To(Equal("Great Album"), "YouTube Music's \"Album - \" prefix is dropped")
+			Expect(info.Source).To(Equal("YouTube"))
+			Expect(info.Count).To(Equal(3))
+			Expect(info.Entries).To(Equal([]PlaylistEntry{
+				{URL: "https://music.youtube.com/watch?v=a1", Title: "First", Artist: "Band"},
+				{URL: "https://music.youtube.com/watch?v=a2", Title: "Second", Artist: "Band"},
+				{URL: "https://music.youtube.com/watch?v=a3", Title: "[Private video]"},
+			}))
+			Expect(args()).To(ContainElements("--flat-playlist", "--playlist-items", "1:301"))
+		})
+
+		It("keeps an \"Album - \" title as it is on a playlist that isn't a YouTube Music album", func(ctx SpecContext) {
+			bin, _, _ := fakeYtDlp(`echo '{"_type":"playlist","id":"PL1","title":"Album - Demos","extractor_key":"YoutubeTab","entries":[]}'`)
+			info, err := (&YtDlp{Binary: fixedBinary(bin), TempDir: tmp}).Probe(ctx, "https://www.youtube.com/playlist?list=PL1")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(info.Title).To(Equal("Album - Demos"))
+		})
+
+		It("counts a playlist by yt-dlp's total when it lists only the first items", func(ctx SpecContext) {
+			bin, _, _ := fakeYtDlp(`echo '{"_type":"playlist","id":"PL1","title":"Huge","playlist_count":1200,"entries":[{"id":"a","url":"https://www.youtube.com/watch?v=a","title":"A"}]}'`)
+			info, err := (&YtDlp{Binary: fixedBinary(bin), TempDir: tmp}).Probe(ctx, "https://www.youtube.com/playlist?list=PL1")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(info.Count).To(Equal(1200))
+		})
+
+		It("counts a single video as one item", func(ctx SpecContext) {
+			bin, _, _ := fakeYtDlp(`echo '{"_type":"video","id":"abc","title":"Song","webpage_url":"https://www.youtube.com/watch?v=abc"}'`)
+			info, err := (&YtDlp{Binary: fixedBinary(bin), TempDir: tmp}).Probe(ctx, "https://www.youtube.com/watch?v=abc")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(info.IsPlaylist).To(BeFalse())
+			Expect(info.Count).To(Equal(1))
+			Expect(info.Entries).To(BeEmpty())
+		})
+
+		It("stops a probe after ProbeTimeout, not counting the first download of yt-dlp", func(ctx SpecContext) {
+			fast, _, _ := fakeYtDlp(`echo '{"id":"x","title":"T"}'`)
+			y := &YtDlp{Binary: slowBinary{fast, 300 * time.Millisecond}, TempDir: tmp, ProbeTimeout: 100 * time.Millisecond}
+			_, err := y.Probe(ctx, "https://example.com/v")
+			Expect(err).ToNot(HaveOccurred())
+
+			slow, _, _ := fakeYtDlp(`sleep 5`)
+			y = &YtDlp{Binary: fixedBinary(slow), TempDir: tmp, ProbeTimeout: 100 * time.Millisecond}
+			_, err = y.Probe(ctx, "https://example.com/v")
+			Expect(err).To(MatchError(context.DeadlineExceeded))
 		})
 
 		It("returns yt-dlp's error message when it fails", func(ctx SpecContext) {
@@ -118,7 +191,8 @@ echo "$dir/abc.opus"`
 			bin, _, tmpdir := fakeYtDlp(writesFile)
 			_, err := (&YtDlp{Binary: fixedBinary(bin), TempDir: tmp}).Download(ctx, "https://example.com/v", GinkgoT().TempDir())
 			Expect(err).ToNot(HaveOccurred())
-			Expect(tmpdir()).To(Equal(tmp))
+			Expect(tmpdir()).To(HavePrefix(tmp + string(os.PathSeparator)))
+			Expect(os.ReadDir(tmp)).To(BeEmpty(), "the run's own temp folder is removed afterwards")
 		})
 
 		It("points yt-dlp at deno for YouTube's JavaScript, with a writable deno cache", func(ctx SpecContext) {
@@ -165,6 +239,20 @@ printf 'audio' > "$dir/abc.mp3"; echo "$dir/abc.mp3"`)
 			_, err := (&YtDlp{Binary: fixedBinary(bin), TempDir: tmp}).Download(ctx, "https://example.com/v", GinkgoT().TempDir())
 			Expect(err).To(MatchError(ContainSubstring("no Opus or AAC audio")))
 			Expect(err).To(MatchError(ContainSubstring("Requested format is not available")))
+		})
+
+		It("gives each yt-dlp its own temp folder, so a probe never clears a running download's", func(ctx SpecContext) {
+			bin, _, _ := fakeYtDlp(`touch "$TMPDIR/run-$$"; sleep 0.5
+[ -e "$TMPDIR/run-$$" ] || { echo "ERROR: temp folder cleared under me" >&2; exit 1; }
+echo '{"id":"x","title":"T"}'`)
+			y := &YtDlp{Binary: fixedBinary(bin), TempDir: tmp}
+			errs := make(chan error, 2)
+			probe := func() { _, err := y.Probe(ctx, "https://example.com/v"); errs <- err }
+			go probe()
+			Eventually(func() ([]string, error) { return filepath.Glob(filepath.Join(tmp, "*", "run-*")) }).ShouldNot(BeEmpty())
+			go probe()
+			Expect(<-errs).ToNot(HaveOccurred())
+			Expect(<-errs).ToNot(HaveOccurred())
 		})
 
 		It("stops yt-dlp when the context ends", func(ctx SpecContext) {

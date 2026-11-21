@@ -2,9 +2,12 @@ package ripapi
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -24,6 +27,25 @@ import (
 	. "github.com/onsi/gomega"
 )
 
+// fakeFetcher lists a playlist of n items at any URL with "list=" in it, and a single video
+// anywhere else. Nothing is ever downloaded: the API only queues.
+type fakeFetcher struct{ n int }
+
+func (f *fakeFetcher) Probe(_ context.Context, url string) (*rip.Info, error) {
+	if !strings.Contains(url, "list=") {
+		return &rip.Info{ID: "abc", Title: "Song", Artist: "Artist", Source: "YouTube", SourceURL: url, Count: 1}, nil
+	}
+	info := &rip.Info{ID: "PL", Title: "Big Playlist", Source: "YouTube", SourceURL: url, IsPlaylist: true, Count: f.n}
+	for i := 1; i <= min(f.n, rip.MaxItems+1); i++ {
+		info.Entries = append(info.Entries, rip.PlaylistEntry{URL: fmt.Sprintf("https://www.youtube.com/watch?v=v%d", i), Title: fmt.Sprintf("Song %d", i), Artist: "Band"})
+	}
+	return info, nil
+}
+
+func (f *fakeFetcher) Download(context.Context, string, string) (string, error) {
+	return "", fmt.Errorf("not in this test")
+}
+
 func TestRipAPI(t *testing.T) {
 	tests.Init(t, false)
 	log.SetLevel(log.LevelFatal)
@@ -37,6 +59,7 @@ var _ = Describe("Rip API", func() {
 		router   http.Handler
 		admin    model.User
 		listener model.User
+		fetcher  *fakeFetcher
 	)
 
 	BeforeEach(func() {
@@ -64,7 +87,8 @@ var _ = Describe("Rip API", func() {
 		Expect(users.Put(&admin)).To(Succeed())
 		Expect(users.Put(&listener)).To(Succeed())
 
-		ripper := rip.New(ds, nil, nil, rip.Options{})
+		fetcher = &fakeFetcher{n: 3}
+		ripper := rip.New(ds, fetcher, nil, rip.Options{})
 		router = server.JWTVerifier(New(ds, ripper))
 	})
 
@@ -101,6 +125,54 @@ var _ = Describe("Rip API", func() {
 		Expect(json.Unmarshal(w.Body.Bytes(), &jobs)).To(Succeed())
 		Expect(jobs).To(HaveLen(1))
 		Expect(jobs[0].URL).To(Equal("https://www.youtube.com/watch?v=abc"))
+	})
+
+	It("queues a playlist as one job, and lists its items with it", func() {
+		w := do(&admin, http.MethodPost, `{"url":"https://www.youtube.com/playlist?list=PL"}`)
+		Expect(w.Code).To(Equal(http.StatusCreated))
+
+		var jobs []model.RipJob
+		Expect(json.Unmarshal(do(&admin, http.MethodGet, "").Body.Bytes(), &jobs)).To(Succeed())
+		Expect(jobs).To(HaveLen(1))
+		Expect(jobs[0].Title).To(Equal("Big Playlist"))
+		Expect(jobs[0].Items).To(HaveLen(3))
+		Expect(jobs[0].Items[2].Title).To(Equal("Song 3"))
+		Expect(jobs[0].Items[2].Status).To(Equal(model.RipQueued))
+	})
+
+	It("asks for confirmation before queuing more than 50 items", func() {
+		fetcher.n = 51
+		w := do(&admin, http.MethodPost, `{"url":"https://www.youtube.com/playlist?list=PL"}`)
+		Expect(w.Code).To(Equal(http.StatusConflict))
+		var body struct {
+			Error             string   `json:"error"`
+			NeedsConfirmation bool     `json:"needsConfirmation"`
+			Count             int      `json:"count"`
+			Title             string   `json:"title"`
+			Titles            []string `json:"titles"`
+		}
+		Expect(json.Unmarshal(w.Body.Bytes(), &body)).To(Succeed())
+		Expect(body.NeedsConfirmation).To(BeTrue())
+		Expect(body.Count).To(Equal(51))
+		Expect(body.Title).To(Equal("Big Playlist"))
+		Expect(body.Titles).To(HaveLen(51))
+		Expect(body.Titles[0]).To(Equal("Band - Song 1"))
+		Expect(body.Error).To(ContainSubstring("51"))
+		Expect(do(&admin, http.MethodGet, "").Body.String()).To(MatchJSON(`[]`), "nothing is queued yet")
+
+		w = do(&admin, http.MethodPost, `{"url":"https://www.youtube.com/playlist?list=PL","confirm":true}`)
+		Expect(w.Code).To(Equal(http.StatusCreated))
+		var job model.RipJob
+		Expect(json.Unmarshal(w.Body.Bytes(), &job)).To(Succeed())
+		Expect(job.Items).To(HaveLen(51))
+	})
+
+	It("refuses more than 300 items with a clear message", func() {
+		fetcher.n = 301
+		w := do(&admin, http.MethodPost, `{"url":"https://www.youtube.com/playlist?list=PL","confirm":true}`)
+		Expect(w.Code).To(Equal(http.StatusUnprocessableEntity))
+		Expect(w.Body.String()).To(ContainSubstring("at most 300"))
+		Expect(do(&admin, http.MethodGet, "").Body.String()).To(MatchJSON(`[]`))
 	})
 
 	It("returns an empty list, not null, when there are no jobs", func() {

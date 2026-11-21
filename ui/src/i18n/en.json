@@ -464,11 +464,15 @@
         "failed": "Failed"
       },
       "actions": {
-        "rip": "Rip"
+        "rip": "Rip",
+        "ripAll": "Rip all %{smart_count}"
       },
       "messages": {
-        "urlHelp": "Paste the link to one video. Its audio is saved to the Inbox as it is, without re-encoding. Playlists aren't supported yet.",
+        "urlHelp": "Paste the link to a video, a playlist or an album. For the best tags, use an album link from music.youtube.com. The audio is saved to the Inbox as it is, without re-encoding.",
         "queued": "Rip queued",
+        "confirm": "This playlist has %{smart_count} items. Rip them all into the Inbox?",
+        "progress": "%{status} (%{done} of %{total})",
+        "readyWithFailures": "Ready for review (%{smart_count} failed) |||| Ready for review (%{smart_count} failed)",
         "responsibility": "You are responsible for what you download: only rip what you have the right to."
       }
     }
