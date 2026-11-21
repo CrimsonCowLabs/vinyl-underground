@@ -1,11 +1,5 @@
 import React from 'react'
-import {
-  Datagrid,
-  FunctionField,
-  TextField,
-  UrlField,
-  useTranslate,
-} from 'react-admin'
+import { Datagrid, FunctionField, TextField, useTranslate } from 'react-admin'
 import {
   Table,
   TableBody,
@@ -22,6 +16,9 @@ import { useRipPolling } from './useRipPolling'
 import { ripProgress } from './ripProgress'
 import RipJobPanel from './review/RipJobPanel'
 import PromoteButton from './review/PromoteButton'
+import UploadForm from './upload/UploadForm'
+import JobOrigin from './JobOrigin'
+import config from '../config'
 
 const ACTIVE = ['queued', 'downloading']
 
@@ -101,8 +98,9 @@ const RipDatagrid = (props) => {
 const RipList = (props) => {
   return (
     <>
-      <YtDlpControl />
-      <RipForm />
+      {config.enableRipping && <YtDlpControl />}
+      {config.enableRipping && <RipForm />}
+      {config.enableInbox && <UploadForm />}
       <List
         {...props}
         sort={{ field: 'createdAt', order: 'DESC' }}
@@ -127,10 +125,9 @@ const RipList = (props) => {
           />
           <TextField source="title" sortable={false} />
           <TextField source="source" sortable={false} />
-          <UrlField
+          <FunctionField
             source="url"
-            target="_blank"
-            rel="noopener noreferrer"
+            render={(record) => <JobOrigin record={record} />}
             sortable={false}
           />
           <FunctionField source="path" render={filePath} sortable={false} />
