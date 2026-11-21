@@ -85,6 +85,7 @@ func serveIndex(ds model.DataStore, fs fs.FS, shareInfo *model.Share) http.Handl
 			"enableRipping":             conf.Server.Ripping.Enabled,
 			"enablePromote":             conf.Server.Ripping.Enabled && conf.Server.Inbox.PromotePath != "",
 			"enableGeneratedPlaylists":  llm.Configured(llm.FromConfig()),
+			"enableStationThemes":       llm.Configured(llm.FromConfig()),
 			"pluginsEnabled":            conf.Server.Plugins.Enabled,
 			"extAuthLogoutURL":          conf.Server.ExtAuth.LogoutURL,
 		}

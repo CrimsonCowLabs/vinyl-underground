@@ -22,14 +22,15 @@ import (
 type fakeStations struct {
 	err      error
 	gotDJ    string
+	gotTheme string
 	gotCount int
 	gotUser  string
 }
 
 func (f *fakeStations) DJs() []stations.DJ { return stations.DJs() }
 
-func (f *fakeStations) Next(ctx context.Context, djID string, count int) (model.MediaFiles, error) {
-	f.gotDJ, f.gotCount = djID, count
+func (f *fakeStations) Next(ctx context.Context, djID, theme string, count int) (model.MediaFiles, error) {
+	f.gotDJ, f.gotTheme, f.gotCount = djID, theme, count
 	usr, _ := request.UserFrom(ctx)
 	f.gotUser = usr.ID
 	if f.err != nil {
@@ -78,6 +79,12 @@ var _ = Describe("Station endpoints", func() {
 		Expect(tracks.([]any)[0]).To(HaveKeyWithValue("id", "mf-1"))
 	})
 
+	It("passes the Station's Theme on", func() {
+		code, _ := call(nextStationTracks(svc), http.MethodPost, `{"dj":"night-owl","theme":"late-night drive","count":5}`)
+		Expect(code).To(Equal(http.StatusOK))
+		Expect(svc.gotTheme).To(Equal("late-night drive"))
+	})
+
 	DescribeTable("maps errors to a status and a code",
 		func(err error, body string, status int, code string) {
 			svc.err = err
@@ -89,6 +96,7 @@ var _ = Describe("Station endpoints", func() {
 		},
 		Entry("unknown DJ", stations.ErrUnknownDJ, `{"dj":"x"}`, http.StatusNotFound, "unknownDJ"),
 		Entry("bad count", stations.ErrInvalidCount, `{"dj":"sunny","count":99}`, http.StatusBadRequest, "invalidCount"),
+		Entry("Theme too long", stations.ErrInvalidTheme, `{"dj":"sunny","theme":"x"}`, http.StatusBadRequest, "invalidTheme"),
 		Entry("empty Library", stations.ErrNoTracks, `{"dj":"sunny"}`, http.StatusUnprocessableEntity, "noTracks"),
 		Entry("anything else", errors.New("disk on fire"), `{"dj":"sunny"}`, http.StatusInternalServerError, "internal"),
 		Entry("not JSON", nil, `nope`, http.StatusBadRequest, "badRequest"),

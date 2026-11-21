@@ -1,4 +1,4 @@
-// Package llm talks to the local LLM behind Generated Playlists (ADR-0004): any
+// Package llm talks to the local LLM behind Generated Playlists and Stations (ADR-0004): any
 // OpenAI-compatible chat endpoint (Ollama, llama.cpp, LM Studio), set by a URL and model name.
 //
 // Every call constrains the reply with a JSON schema, because prompting a ~4B model for JSON

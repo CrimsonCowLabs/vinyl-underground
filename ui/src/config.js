@@ -48,6 +48,7 @@ const defaultConfig = {
   enablePromote: false,
   pluginsEnabled: true,
   enableGeneratedPlaylists: false,
+  enableStationThemes: false,
 }
 
 let config
