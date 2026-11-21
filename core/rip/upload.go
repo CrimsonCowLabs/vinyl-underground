@@ -85,7 +85,10 @@ func (r *Ripper) Upload(ctx context.Context, jobID, name string, body io.Reader)
 	if err != nil {
 		return nil, nil, err
 	}
-	defer func() { _ = os.Remove(tmp) }() // a no-op once it is moved into place
+	defer func() {
+		_ = os.Remove(tmp)               // a no-op once it is moved into place
+		_ = os.Remove(filepath.Dir(tmp)) // only once no other upload is streaming
+	}()
 	in, err := fileInput(tmp)
 	if err != nil {
 		return nil, nil, err

@@ -153,6 +153,7 @@ var _ = Describe("Upload", func() {
 		Expect(during).To(HaveLen(1))
 		Expect(during[0]).To(HavePrefix(".uploads/"))
 		Expect(inboxFiles()).To(ConsistOf(item.Path))
+		Expect(filepath.Join(inbox, ".uploads")).ToNot(BeADirectory())
 	})
 
 	It("puts a batch's Files in one job, never over a File already there", func() {
