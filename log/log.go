@@ -28,6 +28,7 @@ var redacted = &Hook{
 	RedactionList: []string{
 		// Keys from the config
 		"(ApiKey:\")[\\w]*",
+		"(APIKey:[\\s]*\")[^\"]*",
 		"(Secret:\")[\\w]*",
 		"(PasswordEncryptionKey:[\\s]*\")[^\"]*",
 		"(UserHeader:[\\s]*\")[^\"]*",

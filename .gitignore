@@ -57,4 +57,5 @@ __pycache__/
 # Deployment state (deploy/.env is covered by .env above)
 deploy/data/
 deploy/inbox/
+deploy/ollama/
 !deploy/docker-compose.yml

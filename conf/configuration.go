@@ -120,6 +120,7 @@ type configOptions struct {
 	Backup                          backupOptions       `json:",omitzero"`
 	Inbox                           inboxOptions        `json:",omitzero"`
 	Ripping                         rippingOptions      `json:",omitzero"`
+	LLM                             llmOptions          `json:",omitzero"`
 	PID                             pidOptions          `json:",omitzero"`
 	Inspect                         inspectOptions      `json:",omitzero"`
 	Subsonic                        subsonicOptions     `json:",omitzero"`
@@ -289,6 +290,24 @@ type rippingOptions struct {
 	YtDlpReleaseURL string
 }
 
+// llmOptions configures the local LLM behind Generated Playlists (ADR-0004): any
+// OpenAI-compatible endpoint (Ollama, llama.cpp, LM Studio). With no BaseURL or Model, the
+// AI features are hidden.
+type llmOptions struct {
+	// BaseURL is the endpoint's OpenAI-compatible base, e.g. http://llm-host:11434/v1. A URL
+	// with no path gets /v1 added.
+	BaseURL string
+	// Model is the model name the endpoint serves, e.g. qwen3.5:4b-q4_K_M.
+	Model string
+	// APIKey is sent as a Bearer token, for endpoints that need one. Ollama doesn't.
+	APIKey string //nolint:gosec
+	// Timeout bounds one LLM call. Small hardware can take a minute or more.
+	Timeout time.Duration
+	// ConnectTimeout bounds reaching the endpoint, so a host that is asleep or offline is
+	// reported quickly as unavailable instead of hanging for the whole Timeout.
+	ConnectTimeout time.Duration
+}
+
 type pidOptions struct {
 	Track string
 	Album string
@@ -456,6 +475,8 @@ func Load(noConfigDump bool) {
 	durationNonNegativeOrDefault(&Server.Scanner.WatcherWait, consts.DefaultWatcherWait)
 
 	durationNonNegativeOrDefault(&Server.DevActivityPanelUpdateRate, consts.DefaultActivityPanelUpdateRate)
+	durationNonNegativeOrDefault(&Server.LLM.Timeout, consts.DefaultLLMTimeout)
+	durationNonNegativeOrDefault(&Server.LLM.ConnectTimeout, consts.DefaultLLMConnectTimeout)
 	durationNonNegativeOrDefault(&Server.DevArtworkThrottleBacklogTimeout, consts.RequestThrottleBacklogTimeout)
 	durationNonNegativeOrDefault(&Server.DevArtistInfoTimeToLive, consts.ArtistInfoTimeToLive)
 	durationNonNegativeOrDefault(&Server.DevAlbumInfoTimeToLive, consts.AlbumInfoTimeToLive)
@@ -1121,6 +1142,11 @@ func setViperDefaults() {
 	viper.SetDefault("ripping.enabled", false)
 	viper.SetDefault("ripping.timeout", 30*time.Minute)
 	viper.SetDefault("ripping.ytdlpreleaseurl", "https://github.com/yt-dlp/yt-dlp/releases/latest/download")
+	viper.SetDefault("llm.baseurl", "")
+	viper.SetDefault("llm.model", "")
+	viper.SetDefault("llm.apikey", "")
+	viper.SetDefault("llm.timeout", consts.DefaultLLMTimeout)
+	viper.SetDefault("llm.connecttimeout", consts.DefaultLLMConnectTimeout)
 	viper.SetDefault("pid.track", consts.DefaultTrackPID)
 	viper.SetDefault("pid.album", consts.DefaultAlbumPID)
 	viper.SetDefault("inspect.enabled", true)

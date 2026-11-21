@@ -223,9 +223,14 @@
         "comment": "Comment",
         "sync": "Auto-import",
         "path": "Import from",
-        "starred": "Favourite"
+        "starred": "Favourite",
+        "prompt": "Prompt",
+        "length": "Tracks"
       },
       "actions": {
+        "generate": "Generate",
+        "generatePreview": "Preview",
+        "regenerate": "Try again",
         "selectPlaylist": "Select a playlist:",
         "addNewPlaylist": "Create \"%{name}\"",
         "export": "Export",
@@ -243,7 +248,18 @@
         "duplicate_song": "Add duplicated songs",
         "song_exist": "There are duplicates being added to the playlist. Would you like to add the duplicates or skip them?",
         "noPlaylistsFound": "No playlists found",
-        "noPlaylists": "No playlists available"
+        "noPlaylists": "No playlists available",
+        "promptHint": "e.g. rainy Sunday 90s indie",
+        "lengthRange": "From %{min} to %{max}",
+        "generating": "Picking Tracks from your Library… This can take a minute (%{seconds}s)",
+        "aiUnavailable": "AI unavailable. The AI server can't be reached right now (it may be asleep). Try again later.",
+        "aiInvalidReply": "The AI gave an answer that couldn't be used. Try again.",
+        "noTracks": "There are no Tracks in your Library to choose from.",
+        "invalidPrompt": "The Prompt must be 1 to 500 characters.",
+        "invalidLength": "The length must be from 10 to 100 Tracks.",
+        "generateFailed": "Could not generate a Playlist. Check your connection and try again.",
+        "generatedSaved": "Playlist saved",
+        "generatedFrom": "Generated from: \"%{prompt}\""
       }
     },
     "radio": {

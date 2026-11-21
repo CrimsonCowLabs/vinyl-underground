@@ -14,6 +14,7 @@ import (
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/conf/mime"
 	"github.com/navidrome/navidrome/consts"
+	"github.com/navidrome/navidrome/core/llm"
 	"github.com/navidrome/navidrome/core/quickconnect"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
@@ -82,6 +83,7 @@ func serveIndex(ds model.DataStore, fs fs.FS, shareInfo *model.Share) http.Handl
 			"separator":                 string(os.PathSeparator),
 			"enableInspect":             conf.Server.Inspect.Enabled,
 			"enableRipping":             conf.Server.Ripping.Enabled,
+			"enableGeneratedPlaylists":  llm.Configured(llm.FromConfig()),
 			"pluginsEnabled":            conf.Server.Plugins.Enabled,
 			"extAuthLogoutURL":          conf.Server.ExtAuth.LogoutURL,
 		}

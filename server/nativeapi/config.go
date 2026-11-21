@@ -31,6 +31,7 @@ var sensitiveFieldsFullMask = []string{
 	"DevAutoCreateAdminPassword",
 	"PasswordEncryptionKey",
 	"Prometheus.Password",
+	"LLM.APIKey",
 }
 
 type configResponse struct {

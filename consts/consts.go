@@ -79,6 +79,11 @@ const (
 
 	ServerReadHeaderTimeout = 3 * time.Second
 
+	// LLM calls (Generated Playlists). Ranking 150 candidates takes ~33 s on an 8 GB Apple
+	// Silicon Mac, and a cold model load adds more, so a call gets minutes, not seconds.
+	DefaultLLMTimeout        = 3 * time.Minute
+	DefaultLLMConnectTimeout = 5 * time.Second
+
 	DefaultInfoLanguage = "en"
 
 	ArtistInfoTimeToLive      = 24 * time.Hour
