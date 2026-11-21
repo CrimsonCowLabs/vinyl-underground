@@ -41,6 +41,12 @@ type YtDlp struct {
 	// TempDir is yt-dlp's TMPDIR. The standalone build unpacks itself there on every run, so it
 	// must allow running programs, which the container's /tmp (a noexec tmpfs) does not.
 	TempDir string
+	// DenoPath is the JavaScript runtime yt-dlp needs to read YouTube pages fully (deno is in the
+	// Docker image). Empty leaves yt-dlp to look for one itself.
+	DenoPath string
+	// DenoDir is deno's cache folder (DENO_DIR), as its default under $HOME isn't writable in
+	// the read-only container.
+	DenoDir string
 }
 
 // audioFormat keeps the best Opus stream, else the best AAC one, from audio-only formats first.
@@ -53,6 +59,9 @@ func (y *YtDlp) commonArgs() []string {
 		args = append(args, "--cache-dir", y.CacheDir)
 	} else {
 		args = append(args, "--no-cache-dir")
+	}
+	if y.DenoPath != "" {
+		args = append(args, "--js-runtimes", "deno:"+y.DenoPath)
 	}
 	return args
 }
@@ -141,6 +150,9 @@ func (y *YtDlp) run(ctx context.Context, args []string) ([]byte, error) {
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	cmd.Env = os.Environ()
+	if y.DenoDir != "" {
+		cmd.Env = append(cmd.Env, "DENO_DIR="+y.DenoDir)
+	}
 	if y.TempDir != "" {
 		// A yt-dlp that was killed leaves its unpacked copy behind. Only one runs at a time (the
 		// Ripper has a single worker), so whatever is there is left over.

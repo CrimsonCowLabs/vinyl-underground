@@ -2,11 +2,13 @@ package rip
 
 import (
 	"net/http"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"time"
 
 	"github.com/navidrome/navidrome/conf"
+	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
 )
 
@@ -25,6 +27,12 @@ func NewFromConfig(ds model.DataStore, scanner FolderScanner) *Ripper {
 		FFmpegPath: conf.Server.FFmpegPath,
 		CacheDir:   filepath.Join(conf.Server.CacheFolder.String(), "yt-dlp"),
 		TempDir:    filepath.Join(bin.Dir, "tmp"),
+		DenoDir:    filepath.Join(conf.Server.CacheFolder.String(), "deno"),
+	}
+	if deno, err := exec.LookPath("deno"); err == nil {
+		yt.DenoPath = deno
+	} else {
+		log.Warn("Ripping: deno is not installed, so yt-dlp may miss formats or fail on YouTube")
 	}
 	return New(ds, yt, scanner, Options{Timeout: conf.Server.Ripping.Timeout})
 }
