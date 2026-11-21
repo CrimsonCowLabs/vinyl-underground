@@ -9,7 +9,9 @@ case-insensitive server may apply a name to the wrong sibling. The first step
 that fails or doesn't verify stops the run. Completed steps are recorded in
 PLAN.tsv.done, so re-running the same plan resumes after the last one.
 "decide" steps are only reported. A "quarantine" step first checks that the File
-is byte-identical to the one it duplicates, and stops if not. A "set-aside" step
+is byte-identical to the one it duplicates, and stops if not; a "quarantine-audio"
+step (from audiodupes.py) instead checks that the two Files' audio is identical,
+whatever their tags (see audio.py), and stops if not. A "set-aside" step
 is the owner's answer to a "decide": it moves a File that is NOT byte-identical
 (e.g. a lower-bitrate copy of the same recording) into Quarantine, provided the
 File it gives way to still exists. _Quarantine/ gets
@@ -20,7 +22,15 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from audio import same_audio  # noqa: E402
 from casemerge import QUARANTINE  # noqa: E402
+
+
+# How each quarantine step checks that SRC is a Duplicate of KEEP, and what it says if not.
+DUPLICATE_CHECKS = {
+    "quarantine": (lambda a, b: filecmp.cmp(a, b, shallow=False), "not byte-identical to"),
+    "quarantine-audio": (same_audio, "audio not identical to"),
+}
 
 
 def listing(root: str, rel: str) -> set[str]:
@@ -93,10 +103,13 @@ def main(argv: list[str]) -> int:
                 result = relocate(root, src, dst, twin_ok=True)
             elif op == "move":
                 result = relocate(root, src, dst)
-            elif op == "quarantine":
+            elif op in DUPLICATE_CHECKS:
+                same, differs = DUPLICATE_CHECKS[op]
                 keep = rest[1] if len(rest) > 1 else ""
-                if not keep or not filecmp.cmp(os.path.join(root, src), os.path.join(root, keep), shallow=False):
-                    raise RuntimeError(f"not byte-identical to {keep!r}, so not a Duplicate; decide by hand")
+                if not keep or keep.casefold() == src.casefold() or keep.casefold().startswith(QUARANTINE.casefold() + "/"):
+                    raise RuntimeError(f"the File to keep must be another File in the Library, not {keep!r}")
+                if not same(os.path.join(root, src), os.path.join(root, keep)):
+                    raise RuntimeError(f"{differs} {keep!r}, so not a Duplicate; decide by hand")
                 ensure_quarantine(root)
                 result = relocate(root, src, dst)
             elif op == "set-aside":
