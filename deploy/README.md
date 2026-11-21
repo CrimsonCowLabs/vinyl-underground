@@ -155,6 +155,15 @@ docker compose exec vinyl-underground sqlite3 /data/navidrome.db \
 
 As the admin, the new Tracks can be played, favorited and added to Playlists straight away. The library selector in the side menu shows "Inbox" next to the main Library. Logged in as another Listener, the Tracks must not show up anywhere.
 
+### Review cards for uploaded and dropped Files
+
+Whenever the Inbox is set up, the admin gets the **Rips** page in the side menu, with ripping on or off: uploads and dropped Files aren't Rips. Each batch of new music gets a review card there, with the same review, **Discard** and **Promote all** as a Rip (sections 10 and 12). A card says where its Files came from: **Uploaded**, **Dropped into the Inbox**, or the Rip's URL.
+
+- **Upload:** press **Upload Files** and pick several Files at once: mp3, m4a, opus, ogg, flac, aiff or wav, up to 500 MB each. They are sent one at a time, each with its own progress, and land together in a new Inbox folder named `Upload <date> <time>`, on one card. A File of another type, over 500 MB, or whose content isn't really audio of its type (the app checks its first bytes, then reads it with TagLib) is refused with the reason beside it, and nothing of it is kept. An upload streams into the hidden `.uploads` folder first and is moved into place only once it is complete; a File already there is never replaced (the new one gets ` (2)`). The app answers each upload request with no overall time limit, as long as data keeps coming (it gives up after 2 minutes of silence). `tailscale serve` has no body-size limit; another reverse proxy in front must allow 500 MB requests (e.g. nginx's `client_max_body_size 510m`).
+- **Drop:** Files copied straight into the Inbox (above) get cards after the scan that picks them up. Each top-level folder is one card, its Files in track order, whatever folders are inside it (`New Album/CD1/...`). A File copied loose into the Inbox gets a card of its own, as a single video's Rip does; copy an album as a folder to get one card. A File is adopted only once it has stopped changing: its size and time stay the same for a minute, its Track was scanned at its full size, and nothing has been added to its folder for a minute, so a folder still being copied (even of 68 Files) becomes one card once the copy is done. Hidden Files and folders are never adopted (copies under way by `rsync`, the app's own temp Files), nor are the Files of Rips and uploads. A File copied later into a folder that already has a card joins that card.
+- **Tags:** the Files are kept exactly as they are. They get no `SOURCE` tag and no "Ripped" badge, unless they already carry an http(s) `SOURCEURL` (a File ripped elsewhere). Their proposals (section 10) start from their own artist, title, album and year tags, or, with no title tag, from the File name (`Artist - Title.mp3`, without a leading track number), and their "already have" warnings never point at their own Inbox Track. Proposals come in the background at about one Track a second, so a folder of 68 Files has all its proposals after a minute or two.
+- **Discard** deletes the Files from the Inbox for good, as for a Rip, along with the folders it leaves empty.
+
 Files copied in by hand must be readable by `VU_UID`. The app sets up the Inbox library on start from `ND_INBOX_PATH` (`/inbox` by default), and scans it straight away when it is new. It must not be inside the Library, or contain it. With `ND_INBOX_PATH=` empty, or no folder at that path, no Inbox library is set up; one that already exists stays until an admin deletes it under **Libraries**.
 
 ## 10. Rip a video, a playlist or an album into the Inbox
@@ -317,7 +326,7 @@ COMPOSE_FILE=docker-compose.yml:docker-compose.promote.yml
 VU_PROMOTE_DIR=/mnt/vinyl-underground
 ```
 
-The override sets `ND_INBOX_PROMOTEPATH=/music/Vinyl Underground`. On start the app checks that folder is inside the Library (not the Inbox) and writable, and logs `Promote is enabled`; otherwise it logs why and Promote stays off. Ripping must be on too (section 10), as Promote is part of the Rips page.
+The override sets `ND_INBOX_PROMOTEPATH=/music/Vinyl Underground`. On start the app checks that folder is inside the Library (not the Inbox) and writable, and logs `Promote is enabled`; otherwise it logs why and Promote stays off. Promote works with ripping on or off, on the cards of Rips, uploads and dropped Files alike (section 9).
 
 Docker binds the host mount as it is when the container starts. Start the container after both mounts are up, and if the NAS mount drops and comes back, `docker compose restart vinyl-underground`. While the read-write mount is missing, the scanner sees an empty `Vinyl Underground/` and marks its Tracks missing; they come back, with everything attached, at the next scan once it is mounted again.
 
@@ -328,7 +337,7 @@ Docker binds the host mount as it is when the container starts. Start the contai
 - **Moving safely:** the Inbox is on local disk and the share is CIFS, so a File can't simply be renamed across. Each File is copied to a hidden temp File beside its destination, flushed to disk, read back and compared with the original (size and SHA-256), and only then put in place; the Track is pointed at it, and the Inbox copy is deleted last.
 - **File by File:** a File that fails stays in the Inbox, with the error shown in the card's dialog and kept on its item; the others carry on. Press **Promote all** again once it is fixed. When no File is left, the job goes, as a Discard does, with its emptied Inbox folder. Both libraries are then rescanned.
 - **Restarts:** the destination is recorded before a File is copied, so if the app stops in the middle, the next start finishes the move (when the copy is complete and matches) or undoes it (removing the temp File; the original never left the Inbox). This waits until the read-write folder is mounted and Promote is on again.
-- **Who:** only the admin can promote. With Promote off, or ripping off, there is nothing to see.
+- **Who:** only the admin can promote. With Promote off, or no Inbox, there is nothing to see.
 
 ## Updating
 

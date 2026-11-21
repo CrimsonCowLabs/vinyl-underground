@@ -196,7 +196,8 @@ type RipProposal struct {
 	Album       string            `json:"album,omitempty"`
 	AlbumArtist string            `json:"albumArtist,omitempty"`
 	Year        string            `json:"year,omitempty"`
-	// From is where the title and artist came from: "youtube-music" or "title".
+	// From is where the title and artist came from: "youtube-music", "title" (a video's), or
+	// "tags" (an uploaded or dropped File's own, #35).
 	From string `json:"from,omitempty"`
 	// AlbumFrom is where the album came from: "musicbrainz", "youtube-music", "tags" (the File's
 	// own) or "title" (the Track's own title, when nothing was found).
