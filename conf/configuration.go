@@ -119,6 +119,7 @@ type configOptions struct {
 	Jukebox                         jukeboxOptions      `json:",omitzero"`
 	Backup                          backupOptions       `json:",omitzero"`
 	Inbox                           inboxOptions        `json:",omitzero"`
+	Ripping                         rippingOptions      `json:",omitzero"`
 	PID                             pidOptions          `json:",omitzero"`
 	Inspect                         inspectOptions      `json:",omitzero"`
 	Subsonic                        subsonicOptions     `json:",omitzero"`
@@ -275,6 +276,17 @@ type inboxOptions struct {
 	// Path is the Inbox folder. If it is empty or the folder doesn't exist, no Inbox library is
 	// set up.
 	Path string
+}
+
+// rippingOptions configures Rips: audio the admin fetches from a web page with yt-dlp into the
+// Inbox. Off by default.
+type rippingOptions struct {
+	Enabled bool
+	// Timeout bounds one Rip, from fetching the page to the File landing in the Inbox.
+	Timeout time.Duration
+	// YtDlpReleaseURL is where yt-dlp is downloaded from on first use: a folder holding the
+	// release assets and their SHA2-256SUMS.
+	YtDlpReleaseURL string
 }
 
 type pidOptions struct {
@@ -1106,6 +1118,9 @@ func setViperDefaults() {
 	viper.SetDefault("backup.schedule", "")
 	viper.SetDefault("backup.count", 0)
 	viper.SetDefault("inbox.path", "")
+	viper.SetDefault("ripping.enabled", false)
+	viper.SetDefault("ripping.timeout", 30*time.Minute)
+	viper.SetDefault("ripping.ytdlpreleaseurl", "https://github.com/yt-dlp/yt-dlp/releases/latest/download")
 	viper.SetDefault("pid.track", consts.DefaultTrackPID)
 	viper.SetDefault("pid.album", consts.DefaultAlbumPID)
 	viper.SetDefault("inspect.enabled", true)

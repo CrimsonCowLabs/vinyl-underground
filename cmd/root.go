@@ -14,6 +14,7 @@ import (
 	"github.com/navidrome/navidrome/consts"
 	"github.com/navidrome/navidrome/core"
 	"github.com/navidrome/navidrome/core/artwork"
+	"github.com/navidrome/navidrome/core/rip"
 	"github.com/navidrome/navidrome/db"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
@@ -21,6 +22,7 @@ import (
 	"github.com/navidrome/navidrome/scanner"
 	"github.com/navidrome/navidrome/scheduler"
 	"github.com/navidrome/navidrome/server/backgrounds"
+	"github.com/navidrome/navidrome/server/ripapi"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"golang.org/x/sync/errgroup"
@@ -89,7 +91,8 @@ func runNavidrome(ctx context.Context) {
 	}
 
 	g, ctx := errgroup.WithContext(ctx)
-	g.Go(startServer(ctx))
+	ripper := startRipper(ctx, g)
+	g.Go(startServer(ctx, ripper))
 	g.Go(startSignaller(ctx))
 	g.Go(startScheduler(ctx))
 	g.Go(startPlaybackServer(ctx))
@@ -125,10 +128,13 @@ func mainContext(ctx context.Context) (context.Context, context.CancelFunc) {
 }
 
 // startServer starts the Navidrome web server, adding all the necessary routers.
-func startServer(ctx context.Context) func() error {
+func startServer(ctx context.Context, ripper *rip.Ripper) func() error {
 	return func() error {
 		a := CreateServer()
 		a.MountRouter("Native API", consts.URLPathNativeAPI, CreateNativeAPIRouter(ctx))
+		if ripper != nil {
+			a.MountRouter("Rip API", consts.URLPathNativeAPI+"/rip", ripapi.New(CreateDataStore(), ripper))
+		}
 		a.MountRouter("Subsonic API", consts.URLPathSubsonicAPI, CreateSubsonicAPIRouter(ctx))
 		a.MountRouter("Public Endpoints", consts.URLPathPublic, CreatePublicRouter())
 		if conf.Server.LastFM.Enabled {
@@ -154,6 +160,21 @@ func startServer(ctx context.Context) func() error {
 		}
 		return a.Run(ctx, conf.Server.Address, conf.Server.Port, conf.Server.TLSCert, conf.Server.TLSKey)
 	}
+}
+
+// startRipper starts the background worker that runs Rips one at a time, if ripping is on. It
+// returns nil when ripping is off, and then no ripping endpoint is mounted.
+func startRipper(ctx context.Context, g *errgroup.Group) *rip.Ripper {
+	if !conf.Server.Ripping.Enabled {
+		return nil
+	}
+	ripper := rip.NewFromConfig(CreateDataStore(), CreateScanner(ctx))
+	g.Go(func() error {
+		ripper.Run(ctx)
+		return nil
+	})
+	log.Info(ctx, "Ripping is enabled")
+	return ripper
 }
 
 // profilerHandler returns the pprof handler. net/http/pprof resolves the profile

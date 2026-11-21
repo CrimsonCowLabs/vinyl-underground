@@ -104,6 +104,7 @@ var _ = Describe("serveIndex", func() {
 		Entry("devActivityPanel", func() { conf.Server.DevActivityPanel = true }, "devActivityPanel", true),
 		Entry("shareURL", func() { conf.Server.ShareURL = "https://share.example.com" }, "shareURL", "https://share.example.com"),
 		Entry("enableInspect", func() { conf.Server.Inspect.Enabled = true }, "enableInspect", true),
+		Entry("enableRipping", func() { conf.Server.Ripping.Enabled = true }, "enableRipping", true),
 		Entry("defaultDownsamplingFormat", func() { conf.Server.DefaultDownsamplingFormat = "mp3" }, "defaultDownsamplingFormat", "mp3"),
 		Entry("enableUserEditing", func() { conf.Server.EnableUserEditing = false }, "enableUserEditing", false),
 		Entry("enableSharing", func() { conf.Server.EnableSharing = true }, "enableSharing", true),
