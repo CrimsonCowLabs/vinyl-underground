@@ -27,6 +27,8 @@ var _ = Describe("StartFrom", func() {
 		Entry("a live version keeps its Live", "Nirvana", "Nirvana - Lithium (Live)", "Nirvana", "Lithium (Live)"),
 		Entry("a song called Music is kept", "Madonna", "Madonna - Music", "Madonna", "Music"),
 		Entry("Pop Music keeps its Music", "M", "M - Pop Music", "M", "Pop Music"),
+		Entry("noise beside a remaster in one bracket", "Queen Official", "Queen – Bohemian Rhapsody (Official Video Remastered)", "Queen", "Bohemian Rhapsody (Remastered)"),
+		Entry("noise beside Live in one bracket", "Nirvana", "Nirvana - Lithium (Live Official Video)", "Nirvana", "Lithium (Live)"),
 	)
 
 	It("starts from YouTube Music's own metadata when the upload is a Topic one", func() {

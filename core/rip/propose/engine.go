@@ -14,9 +14,6 @@ import (
 	"github.com/navidrome/navidrome/model"
 )
 
-// minScore is the lowest search score a recording may have to count.
-const minScore = 80
-
 // Where a proposal's album came from (model.RipProposal.AlbumFrom).
 const (
 	AlbumFromMusicBrainz  = "musicbrainz"
@@ -85,16 +82,18 @@ func (e *Engine) Propose(ctx context.Context, in Input) model.RipProposal {
 }
 
 // lookup searches MusicBrainz for the song's recordings and picks their album (see Pick). Only
-// recordings of the same title, scoring minScore or more, count.
+// recordings of the same title, credited to the main artist, count. The search score decides
+// nothing: an album recording credited with its featured artists ("Daft Punk feat. Pharrell
+// Williams and Nile Rodgers") can score below covers and remixes.
 func (e *Engine) lookup(ctx context.Context, artist, title string) (*Choice, error) {
 	recs, err := e.mb.SearchRecordings(ctx, SearchQuery(artist, title))
 	if err != nil {
 		return nil, err
 	}
-	want := normKey(title)
+	want := normKey(songTitle(title))
 	var releases []musicbrainz.Release
 	for _, r := range recs {
-		if r.Score >= minScore && normKey(r.Title) == want {
+		if normKey(r.Title) == want && sameArtist(r.ArtistCredit.String(), artist) {
 			releases = append(releases, r.Releases...)
 		}
 	}
@@ -104,10 +103,26 @@ func (e *Engine) lookup(ctx context.Context, artist, title string) (*Choice, err
 // SearchQuery is the MusicBrainz recording search for a song by an artist. It asks only for
 // recordings on an official album, EP or single: a well-known song has more recordings than one
 // search lists (most of them only on compilations), and the one on the studio album would
-// otherwise be missed. Each recording comes with the releases that match.
+// otherwise be missed. Each recording comes with the releases that match. The title is searched
+// for without its featuring credits or remaster note (see songTitle).
 func SearchQuery(artist, title string) string {
-	return `recording:"` + luceneEscape(title) + `" AND artist:"` + luceneEscape(artist) + `"` +
+	return `recording:"` + luceneEscape(songTitle(title)) + `" AND artist:"` + luceneEscape(artist) + `"` +
 		` AND status:official AND (primarytype:album OR primarytype:ep OR primarytype:single)`
+}
+
+// remasterNote is a remaster note at the end of a title: "(Remastered)", "[2011 Remaster]",
+// " - Remastered 2009", "(Remastered 2011 Version)".
+var remasterNote = regexp.MustCompile(`(?i)\s*(?:[(\[][^()\[\]]*\bremaster(?:ed)?\b[^()\[\]]*[)\]]|\s[-–—]\s[^-–—]*\bremaster(?:ed)?\b[^-–—]*)$`)
+
+// songTitle is the song's own title, as MusicBrainz names its recordings: without featuring
+// credits (MusicBrainz puts them in the artist credit) or a remaster note (a remaster is the same
+// recording, on the same album). "Live", "Remix" and the like are kept: they are other recordings.
+func songTitle(title string) string {
+	t := match.WithoutFeaturing(title)
+	if s := strings.TrimSpace(remasterNote.ReplaceAllString(t, "")); s != "" {
+		t = s
+	}
+	return t
 }
 
 // luceneEscape escapes a phrase for a quoted Lucene term.

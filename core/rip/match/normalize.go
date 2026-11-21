@@ -69,6 +69,12 @@ func Guesses(artist, title string) []Guess {
 	return res
 }
 
+// WithoutFeaturing is s with its featuring credits taken out ("Get Lucky (feat. Pharrell
+// Williams)" is "Get Lucky"), still readable.
+func WithoutFeaturing(s string) string {
+	return strings.TrimSpace(stripFeaturing(s))
+}
+
 // stripFeaturing takes the featuring credits out of s, and nothing after them.
 func stripFeaturing(s string) string {
 	s = featuringGroup.ReplaceAllString(s, "")
@@ -83,10 +89,11 @@ func cleanArtist(s string) string {
 func cleanTitle(s string) string {
 	s = stripFeaturing(s)
 	s = bracketed.ReplaceAllStringFunc(s, func(group string) string {
-		if isNoise(bracketed.FindStringSubmatch(group)[1]) {
+		inner := bracketed.FindStringSubmatch(group)[1]
+		if isNoise(inner) {
 			return ""
 		}
-		return group
+		return dropNoiseWords(group, inner)
 	})
 	return strings.TrimSpace(trimTrailingNoise(songPart(s)))
 }
@@ -97,6 +104,29 @@ func cleanTitle(s string) string {
 var strongNoise = map[string]bool{
 	"official": true, "lyric": true, "lyrics": true, "visualizer": true, "visualiser": true,
 	"hd": true, "hq": true, "4k": true, "1080p": true, "720p": true,
+}
+
+// dropNoiseWords takes the noise words out of a bracketed group that also says something about
+// the recording, when it holds a strongNoise word: "(Official Video Remastered)" becomes
+// "(Remastered)". A group without one ("(Music Box Version)") is left as it is.
+func dropNoiseWords(group, inner string) string {
+	words := strings.Fields(inner)
+	var kept []string
+	strong := false
+	for _, w := range words {
+		switch {
+		case strongNoise[strings.ToLower(w)]:
+			strong = true
+		case isNoise(w):
+		default:
+			kept = append(kept, w)
+		}
+	}
+	if !strong {
+		return group
+	}
+	start := strings.IndexAny(group, "([")
+	return group[:start+1] + strings.Join(kept, " ") + group[len(group)-1:]
 }
 
 // trimTrailingNoise drops a run of noise words at the end of s, when it holds a strongNoise word

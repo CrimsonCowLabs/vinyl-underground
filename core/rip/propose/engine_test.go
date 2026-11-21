@@ -62,6 +62,24 @@ var _ = Describe("Engine", func() {
 		Expect(p.ReleaseGroupID).To(Equal("082c6aff-a7cc-36e0-a960-35a578ecd937"))
 	})
 
+	It("finds the studio album of a Topic upload whose recording is credited with its featured artists", func() {
+		// Recorded: the album recording is credited "Daft Punk feat. Pharrell Williams and Nile
+		// Rodgers" and scores only 71, below the radio edit's single; covers and remixes score higher.
+		mb := &fixtureMB{searches: map[string]string{
+			propose.SearchQuery("Daft Punk", "Get Lucky"): "search-get-lucky.json",
+		}}
+		p := propose.New(mb).Propose(ctx, propose.Input{Artist: "Daft Punk - Topic", Title: "Get Lucky (feat. Pharrell Williams & Nile Rodgers)",
+			YouTubeMusic: &propose.YouTubeMusic{Artist: "Daft Punk, Pharrell Williams, Nile Rodgers",
+				Artists: []string{"Daft Punk", "Pharrell Williams", "Nile Rodgers"},
+				Track:   "Get Lucky (feat. Pharrell Williams & Nile Rodgers)", Album: "Random Access Memories", Year: 2013}})
+		Expect(p.Album).To(Equal("Random Access Memories"))
+		Expect(p.ReleaseType).To(Equal("Album"))
+		Expect(p.Year).To(Equal("2013"))
+		Expect(p.AlbumArtist).To(Equal("Daft Punk"))
+		Expect(p.From).To(Equal(string(propose.FromYouTubeMusic)))
+		Expect(p.Title).To(Equal("Get Lucky (feat. Pharrell Williams & Nile Rodgers)"))
+	})
+
 	It("picks the single for a song that was only ever a single", func() {
 		// Recorded: the single, Various Artists compilations, and other artists' remixes.
 		mb := &fixtureMB{searches: map[string]string{
@@ -118,6 +136,27 @@ var _ = Describe("Engine", func() {
 			YouTubeMusic: &propose.YouTubeMusic{Artist: "Daft Punk, Pharrell Williams", Track: `Get "Lucky"`}})
 		Expect(mb.queries).To(HaveLen(1))
 		Expect(mb.queries[0]).To(HavePrefix(`recording:"Get \"Lucky\"" AND artist:"Daft Punk" AND status:official`))
+	})
+
+	DescribeTable("searches for the song itself, without featured artists or a remaster note",
+		func(title, searched string) {
+			Expect(propose.SearchQuery("Band", title)).To(HavePrefix(`recording:"` + searched + `" AND artist:"Band"`))
+		},
+		Entry("a featuring credit", "Get Lucky (feat. Pharrell Williams & Nile Rodgers)", "Get Lucky"),
+		Entry("a remaster", "Bohemian Rhapsody (Remastered)", "Bohemian Rhapsody"),
+		Entry("a dated remaster", "Heroes - 2017 Remaster", "Heroes"),
+		Entry("a remastered version", "Song (Remastered 2011 Version)", "Song"),
+		Entry("a live version stays live", "Lithium (Live)", "Lithium (Live)"),
+		Entry("a remix stays a remix", "Song (Remix)", "Song (Remix)"),
+	)
+
+	It("matches the recording without its remaster note, and keeps the note in the proposed title", func() {
+		mb := &fixtureMB{searches: map[string]string{
+			propose.SearchQuery("Rick Astley", "Never Gonna Give You Up"): "search-never-gonna-give-you-up.json",
+		}}
+		p := propose.New(mb).Propose(ctx, propose.Input{Artist: "Rick Astley", Title: "Never Gonna Give You Up (Remastered 2022)"})
+		Expect(p.Album).To(Equal("Whenever You Need Somebody"))
+		Expect(p.Title).To(Equal("Never Gonna Give You Up (Remastered 2022)"))
 	})
 
 	It("still proposes from the title, with a note, when MusicBrainz can't be reached", func() {
