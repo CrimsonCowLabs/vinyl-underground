@@ -532,6 +532,14 @@ var _ = Describe("Ripper", func() {
 			Expect(ripper.Jobs(ctx)).To(BeEmpty())
 		})
 
+		It("says \"more than 300\" when the site gives no total, as only 301 items are listed", func() {
+			fetcher.infos[listURL] = &Info{ID: "UC", Title: "Channel", IsPlaylist: true, Count: MaxItems + 1,
+				Entries: make([]PlaylistEntry, MaxItems+1)}
+			ripper = New(ds, fetcher, scanner, opts)
+			_, err := ripper.Enqueue(ctx, listURL, false)
+			Expect(err).To(MatchError("this playlist has more than 300 items, and at most 300 can be ripped at once"))
+		})
+
 		It("fails a playlist with nothing in it", func() {
 			fetcher.infos[listURL] = &Info{ID: "PL", Title: "Empty", IsPlaylist: true}
 			ripper = New(ds, fetcher, scanner, opts)

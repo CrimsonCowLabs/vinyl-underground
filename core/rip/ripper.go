@@ -60,6 +60,10 @@ type TooManyItemsError struct {
 }
 
 func (e *TooManyItemsError) Error() string {
+	if e.Count == MaxItems+1 {
+		// Only the first MaxItems+1 are listed, and the site (e.g. a channel) gave no total.
+		return fmt.Sprintf("this playlist has more than %d items, and at most %d can be ripped at once", MaxItems, MaxItems)
+	}
 	return fmt.Sprintf("this playlist has %d items, and at most %d can be ripped at once", e.Count, MaxItems)
 }
 
