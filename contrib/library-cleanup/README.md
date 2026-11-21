@@ -104,3 +104,24 @@ Before each move, `apply.py` checks again that SRC is byte-identical to KEEP and
 **4. Check.** Repeat step 1 and plan again. `dupes.py` must report `0 Duplicates to quarantine`.
 
 **5. Unmount the writable mount:** `sudo umount /mnt/music-rw`. Then rescan in the app; a Full Scan marks the moved Files as missing. Files only leave Quarantine when you delete them by hand.
+
+## Library health report
+
+`health.py` prints how healthy the Library is, from the app's database, so each cleanup can show its numbers before and after. It opens the database read-only, so it is safe to run on the live database while the app runs, or on a copy; it never touches the share.
+
+```bash
+python3 health.py /path/to/navidrome.db                        # every number, and the key that lists it
+python3 health.py /path/to/navidrome.db --list suspect-discs   # the offenders behind one number, as TSV
+```
+
+| Key | What it counts |
+|---|---|
+| `tracks`, `albums` | Tracks and albums in total |
+| `duplicates` | Likely Duplicates: the extra Tracks sharing artist, title and album (ignoring case), and how many groups they form |
+| `copy-named` | Of those, the copy-named Files: `Song 1`, `Song (1)` or `Copy of Song` beside `Song` |
+| `albums-twice` | The same album and album artist in more than one folder, unless each folder holds a different disc |
+| `suspect-discs` | Albums with a disc of one or two Tracks while the rest have no disc number |
+| `no-cover` | Albums with no embedded art and no image in any of their folders |
+| `no-year`, `no-album`, `no-artist`, `no-track-number`, `no-musicbrainz-id` | Tracks missing that tag; a blank, `Unknown` or `[Unknown …]` album or artist counts as missing |
+
+Only Tracks and albums the app still has count: Files gone from the share since the last scan are left out. Likely Duplicates are a hint, not proof: only byte-identical Files are Duplicates, and those go through the Quarantine recipe above.
