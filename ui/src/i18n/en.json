@@ -907,6 +907,13 @@
       "removeContent": "\"%{name}\" will no longer play offline, and the space it uses on this device will be freed.",
       "nothingToShuffle": "Nothing is downloaded on this device yet"
     },
+    "badge": {
+      "downloaded": "Downloaded: plays offline",
+      "interrupted": {
+        "album": "Download interrupted at %{done}/%{total}. Open the album to resume it.",
+        "playlist": "Download interrupted at %{done}/%{total}. Open the Playlist to resume it."
+      }
+    },
     "kind": {
       "playlist": "Playlist",
       "album": "Album"
