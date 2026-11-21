@@ -6,6 +6,7 @@
 #        retag.sh test               run the plugins' tests in the image
 #        retag.sh import PATHS.txt   retag the paths retag.py listed, asking about each album
 #        retag.sh review             go through the albums skipped so far, asking about every one
+#        retag.sh covers [QUERY]     give each retagged album (or those QUERY matches) a cover.jpg, embedded
 #
 # MUSIC_RW   the share's temporary writable mount (default /mnt/music-rw); beets sees it as /music
 # RETAG_STATE  a folder outside the share for beets' library, resume state and import log (required)
@@ -16,7 +17,7 @@ IMAGE=vinyl-underground-beets
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 MUSIC_RW=${MUSIC_RW:-/mnt/music-rw}
 
-usage() { sed -n '4,12p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2; exit 2; }
+usage() { sed -n '4,13p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2; exit 2; }
 
 beet() {
   : "${RETAG_STATE:?set RETAG_STATE to a folder outside the share}"
@@ -41,7 +42,7 @@ case "${1:-}" in
     docker build -t "$IMAGE" "$HERE" ;;
   test)
     docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -e PYTHONPATH=/etc/beets -w /etc/beets \
-      --entrypoint python "$IMAGE" -m unittest -v test_lowconfidence test_fingerprints test_keepgenre ;;
+      --entrypoint python "$IMAGE" -m unittest -v test_lowconfidence test_fingerprints test_keepgenre test_covers ;;
   import)
     [[ $# -eq 2 ]] || usage
     paths=()
@@ -61,6 +62,9 @@ case "${1:-}" in
     : "${RETAG_STATE:?set RETAG_STATE to a folder outside the share}"
     grep -q '^skip ' "$RETAG_STATE/import.log" 2>/dev/null || { echo "no skipped albums in $RETAG_STATE/import.log" >&2; exit 0; }
     beet -c /etc/beets/review.yaml import --from-logfile /state/import.log ;;
+  covers)
+    shift
+    beet covers "$@" ;;
   *)
     usage ;;
 esac
