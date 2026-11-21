@@ -3,6 +3,7 @@ package persistence
 import (
 	"context"
 	"strconv"
+	"time"
 
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
@@ -128,12 +129,14 @@ var _ = Describe("PlaylistTrackRepository", func() {
 
 	Describe("Reorder", func() {
 		var tracks model.PlaylistTrackRepository
+		var plsRepo model.PlaylistRepository
+		var pls model.Playlist
 
 		BeforeEach(func() {
 			ctx := log.NewContext(GinkgoT().Context())
 			ctx = request.WithUser(ctx, model.User{ID: "userid", UserName: "userid", IsAdmin: true})
-			plsRepo := NewPlaylistRepository(ctx, GetDBXBuilder())
-			pls := model.Playlist{Name: "Reorder", OwnerID: "userid", OwnerName: "userid"}
+			plsRepo = NewPlaylistRepository(ctx, GetDBXBuilder())
+			pls = model.Playlist{Name: "Reorder", OwnerID: "userid", OwnerName: "userid"}
 			Expect(plsRepo.Put(&pls)).To(Succeed())
 			DeferCleanup(func() { Expect(plsRepo.Delete(pls.ID)).To(Succeed()) })
 
@@ -151,6 +154,19 @@ var _ = Describe("PlaylistTrackRepository", func() {
 			}
 			return ids, songs
 		}
+
+		// Offline Downloads compare updatedAt to tell whether a Playlist changed
+		It("marks the playlist as updated", func() {
+			before, err := plsRepo.Get(pls.ID)
+			Expect(err).ToNot(HaveOccurred())
+			time.Sleep(10 * time.Millisecond)
+
+			Expect(tracks.Reorder(1, 3)).To(Succeed())
+
+			after, err := plsRepo.Get(pls.ID)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(after.UpdatedAt).To(BeTemporally(">", before.UpdatedAt))
+		})
 
 		DescribeTable("clamps the destination to the playlist",
 			func(newPos int, want func() []string) {

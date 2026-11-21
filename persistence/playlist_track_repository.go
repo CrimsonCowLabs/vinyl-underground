@@ -326,7 +326,12 @@ func (r *playlistTrackRepository) Reorder(pos int, newPos int) error {
 	// Step 4: Place the source track at its new position
 	_, err = r.executeSQL(Expr(
 		`UPDATE playlist_tracks SET id = ? WHERE playlist_id = ? AND id = -999999`, newPos, pid))
-	return err
+	if err != nil {
+		return err
+	}
+	// Bumps updated_at, like every other change to the track list, so clients (e.g. offline
+	// Downloads) can tell the order changed
+	return r.playlistRepo.refreshCounters(&model.Playlist{ID: pid})
 }
 
 var _ model.PlaylistTrackRepository = (*playlistTrackRepository)(nil)
