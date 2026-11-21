@@ -3,7 +3,12 @@ package ripapi
 // Review and Discard of a job in the Inbox (#33), admin only like the rest of the Rip API:
 //
 //	GET    /api/rip/{jobId}/tags                 the job's review card: album-level tags and
-//	                                             each Track's, read from its Files
+//	                                             each Track's, read from its Files, with the
+//	                                             tags proposed for them (#34): proposal (album,
+//	                                             albumArtist, year), proposalsPending, and each
+//	                                             Track's proposal
+//	POST   /api/rip/{jobId}/proposals            works the proposals out again, in the
+//	                                             background; 200: the card, proposals pending
 //	PUT    /api/rip/{jobId}/tags {album?, albumArtist?, year?, tracks: [{itemId, title?,
 //	                                artist?, trackNumber?}]}
 //	                                             writes the edits into the Files (an absent field
@@ -33,11 +38,13 @@ type Reviewer interface {
 	SaveTags(ctx context.Context, jobID string, edits rip.ReviewEdits) (*rip.Review, error)
 	Discard(ctx context.Context, jobID string) error
 	DiscardItem(ctx context.Context, jobID, itemID string) error
+	RefreshProposals(ctx context.Context, jobID string) error
 }
 
 func (api *Router) reviewRoutes(r chi.Router) {
 	r.Get("/{jobId}/tags", api.review)
 	r.Put("/{jobId}/tags", api.saveTags)
+	r.Post("/{jobId}/proposals", api.refreshProposals)
 	r.Delete("/{jobId}", api.discard)
 	r.Delete("/{jobId}/items/{itemId}", api.discardItem)
 }
@@ -64,6 +71,15 @@ func (api *Router) saveTags(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = rest.RespondWithJSON(w, http.StatusOK, rev)
+}
+
+func (api *Router) refreshProposals(w http.ResponseWriter, r *http.Request) {
+	jobID := chi.URLParam(r, "jobId")
+	if err := api.ripper.RefreshProposals(r.Context(), jobID); err != nil {
+		respondReviewError(w, r, "Could not refresh the proposals", err)
+		return
+	}
+	api.review(w, r)
 }
 
 func (api *Router) discard(w http.ResponseWriter, r *http.Request) {

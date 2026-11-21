@@ -15,6 +15,7 @@ import (
 	"github.com/navidrome/navidrome/core"
 	"github.com/navidrome/navidrome/core/auth"
 	"github.com/navidrome/navidrome/core/rip"
+	"github.com/navidrome/navidrome/core/rip/propose"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/server"
 	"github.com/navidrome/navidrome/tests"
@@ -74,7 +75,8 @@ var _ = Describe("Rip review API", func() {
 			job.Items = append(job.Items, it)
 		}
 
-		router = server.JWTVerifier(New(ds, rip.New(ds, &fakeFetcher{}, nil, rip.Options{})))
+		// Not run: a refreshed proposal stays pending, as the worker would pick it up.
+		router = server.JWTVerifier(New(ds, rip.New(ds, &fakeFetcher{}, nil, rip.Options{Proposer: propose.New(nil)})))
 	})
 
 	send := func(user *model.User, method, path, body string) *httptest.ResponseRecorder {
@@ -117,6 +119,38 @@ var _ = Describe("Rip review API", func() {
 		Expect(rev.Tracks[0].Title).To(Equal("New Title"))
 		Expect(rev.Tracks[1].Title).To(Equal("Ripped MP3"))
 		Expect(rev.Tracks[1].Album).To(Equal("New Album"))
+	})
+
+	It("shows each Track's tag proposal on the card, without writing it", func() {
+		p := model.RipProposal{Status: model.RipProposalReady, Title: "Proposed", Album: "Proposed Album",
+			AlbumArtist: "Band", Year: "1999", AlbumFrom: "musicbrainz"}
+		for _, it := range job.Items {
+			Expect(ds.RipItem(GinkgoT().Context()).SetProposal(it.ID, p)).To(Succeed())
+		}
+		w := send(&admin, http.MethodGet, "/"+job.ID+"/tags", "")
+		Expect(w.Code).To(Equal(http.StatusOK), w.Body.String())
+		var body map[string]any
+		Expect(json.Unmarshal(w.Body.Bytes(), &body)).To(Succeed())
+		Expect(body).To(HaveKeyWithValue("album", "Rip Album"))
+		Expect(body).To(HaveKeyWithValue("proposal", HaveKeyWithValue("album", "Proposed Album")))
+		Expect(body).To(HaveKeyWithValue("proposalsPending", false))
+		Expect(body["tracks"]).To(HaveEach(HaveKeyWithValue("proposal", HaveKeyWithValue("title", "Proposed"))))
+	})
+
+	It("works the proposals out again on demand, answering with the card", func() {
+		w := send(&admin, http.MethodPost, "/"+job.ID+"/proposals", "")
+		Expect(w.Code).To(Equal(http.StatusOK), w.Body.String())
+		var rev rip.Review
+		Expect(json.Unmarshal(w.Body.Bytes(), &rev)).To(Succeed())
+		Expect(rev.ProposalsPending).To(BeTrue())
+		Expect(rev.Tracks[0].Proposal).To(HaveField("Status", model.RipProposalPending))
+	})
+
+	It("refuses to refresh proposals for a Listener, or while the job runs", func() {
+		Expect(send(&listener, http.MethodPost, "/"+job.ID+"/proposals", "").Code).To(Equal(http.StatusForbidden))
+		job.Status = model.RipDownloading
+		Expect(ds.RipJob(GinkgoT().Context()).Put(job)).To(Succeed())
+		Expect(send(&admin, http.MethodPost, "/"+job.ID+"/proposals", "").Code).To(Equal(http.StatusConflict))
 	})
 
 	It("says what is wrong with an edit", func() {

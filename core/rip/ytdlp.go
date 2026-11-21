@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/navidrome/navidrome/model"
 )
 
 // Info is what a Rip needs to know about a web page before fetching it.
@@ -31,6 +33,9 @@ type Info struct {
 	// Entries are a playlist's items, in order, as listed by --flat-playlist: no item has been
 	// looked at on its own yet, so the title and artist are only a first guess.
 	Entries []PlaylistEntry
+	// Origin is what the page said about the video, as it is, kept for its tag proposal (#34):
+	// its own title and channel, and YouTube Music's metadata for a "Topic" upload.
+	Origin model.RipOrigin
 }
 
 // PlaylistEntry is one item of a playlist.
@@ -113,6 +118,9 @@ func (y *YtDlp) Probe(ctx context.Context, url string) (*Info, error) {
 		Artists      []string `json:"artists"`
 		Artist       string   `json:"artist"`
 		Creator      string   `json:"creator"`
+		Album        string   `json:"album"`
+		ReleaseYear  int      `json:"release_year"`
+		Duration     float64  `json:"duration"`
 		Uploader     string   `json:"uploader"`
 		Channel      string   `json:"channel"`
 		ExtractorKey string   `json:"extractor_key"`
@@ -142,6 +150,10 @@ func (y *YtDlp) Probe(ctx context.Context, url string) (*Info, error) {
 		SourceURL:  firstNonEmpty(meta.WebpageURL, url),
 		IsPlaylist: meta.Type == "playlist" || meta.Type == "multi_video",
 		Count:      1,
+		Origin: model.RipOrigin{
+			Title: meta.Title, Uploader: firstNonEmpty(meta.Uploader, meta.Channel), Duration: meta.Duration,
+			Artist: artist, Artists: meta.Artists, Track: meta.Track, Album: meta.Album, ReleaseYear: meta.ReleaseYear,
+		},
 	}
 	if info.IsPlaylist {
 		if info.Source == "YouTube" && strings.HasPrefix(meta.ID, albumIDPrefix) {

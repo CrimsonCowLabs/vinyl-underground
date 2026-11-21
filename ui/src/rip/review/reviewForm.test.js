@@ -6,6 +6,10 @@ import {
   removeTrack,
   setAlbumField,
   setTrackField,
+  applyProposals,
+  fieldHint,
+  proposedValues,
+  withProposalsFrom,
 } from './reviewForm'
 
 const review = {
@@ -88,5 +92,103 @@ describe('reviewForm', () => {
     values = setAlbumField(values, 'year', 'soon')
     values = setTrackField(values, 'c', 'trackNumber', 'x')
     expect(invalidFields(values)).toEqual({ year: true, c: true })
+  })
+
+  describe('proposals (#34)', () => {
+    const proposed = {
+      ...review,
+      proposal: { album: 'Real Album', albumArtist: 'Band', year: '1999' },
+      proposalsPending: false,
+      tracks: [
+        {
+          ...review.tracks[0],
+          proposal: { status: 'ready', title: 'First Song', artist: 'Band' },
+        },
+        review.tracks[1],
+        {
+          ...review.tracks[2],
+          proposal: { status: 'pending', title: 'Old Guess', artist: 'Band' },
+        },
+      ],
+    }
+
+    it('lists the proposed values, for the Tracks with a File', () => {
+      expect(proposedValues(proposed)).toEqual({
+        album: 'Real Album',
+        albumArtist: 'Band',
+        year: '1999',
+        tracks: {
+          a: { title: 'First Song', artist: 'Band' },
+          c: { title: 'Old Guess', artist: 'Band' },
+        },
+      })
+    })
+
+    it('has none for a card without proposals', () => {
+      expect(proposedValues(review)).toEqual({ tracks: {} })
+    })
+
+    it('fills every proposed value into the form, which then saves only those that change a tag', () => {
+      const values = applyProposals(
+        initialValues(proposed),
+        proposedValues(proposed),
+      )
+      expect(values.album).toBe('Real Album')
+      expect(values.tracks.a.title).toBe('First Song')
+      expect(values.tracks.a.trackNumber).toBe('')
+      expect(editsFrom(proposed, values)).toEqual({
+        album: 'Real Album',
+        albumArtist: 'Band',
+        year: '1999',
+        tracks: [
+          { itemId: 'a', title: 'First Song' },
+          { itemId: 'c', title: 'Old Guess' },
+        ],
+      })
+    })
+
+    it('leaves a Track discarded meanwhile out', () => {
+      const values = applyProposals(
+        removeTrack(initialValues(proposed), 'c'),
+        proposedValues(proposed),
+      )
+      expect(values.tracks.c).toBeUndefined()
+    })
+
+    it("offers a proposal that isn't in the field yet, and marks one taken but not saved", () => {
+      expect(fieldHint('Rip Album', 'Rip Album', 'Real Album')).toEqual({
+        offer: 'Real Album',
+      })
+      expect(fieldHint('Rip Album', 'Typed', 'Real Album')).toEqual({
+        offer: 'Real Album',
+      })
+      expect(fieldHint('Rip Album', ' Real Album ', 'Real Album')).toEqual({
+        accepted: true,
+        file: 'Rip Album',
+      })
+      expect(fieldHint('Real Album', 'Real Album', 'Real Album')).toBeNull()
+      expect(fieldHint('Rip Album', 'Rip Album', undefined)).toBeNull()
+    })
+
+    it('takes fresh proposals in without touching the tags the form started from', () => {
+      const fresh = {
+        ...proposed,
+        album: 'Changed On Disk',
+        tracks: proposed.tracks.map((t) =>
+          t.itemId === 'c'
+            ? {
+                ...t,
+                title: 'X',
+                proposal: { status: 'ready', title: 'Third Song' },
+              }
+            : t,
+        ),
+      }
+      const merged = withProposalsFrom(proposed, fresh)
+      expect(merged.album).toBe('Rip Album')
+      expect(merged.proposalsPending).toBe(false)
+      expect(merged.tracks[2].proposal.title).toBe('Third Song')
+      expect(merged.tracks[2].title).toBe('Third')
+    })
   })
 })

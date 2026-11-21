@@ -30,12 +30,28 @@ func (m *MockRipItemRepo) Put(item *model.RipItem) error {
 	}
 	for i := range m.items {
 		if m.items[i].ID == item.ID {
+			// Like the real repository, Put never writes the proposal: only SetProposal does.
+			proposal := m.items[i].Proposal
 			m.items[i] = *item
+			m.items[i].Proposal = proposal
 			return nil
 		}
 	}
 	m.items = append(m.items, *item)
+	m.items[len(m.items)-1].Proposal = model.RipProposal{}
 	return nil
+}
+
+func (m *MockRipItemRepo) SetProposal(id string, p model.RipProposal) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.items {
+		if m.items[i].ID == id {
+			m.items[i].Proposal = p
+			return nil
+		}
+	}
+	return model.ErrNotFound
 }
 
 func (m *MockRipItemRepo) ForJobs(jobIDs ...string) (model.RipItems, error) {

@@ -83,6 +83,25 @@ var _ = Describe("Configuration", func() {
 		})
 	})
 
+	Describe("MusicBrainz lookups for tag proposals", func() {
+		It("are on by default", func() {
+			conf.Load(true)
+			Expect(conf.Server.Ripping.MusicBrainz).To(BeTrue())
+		})
+
+		It("can be turned off on their own", func() {
+			viper.Set("ripping.musicbrainz", false)
+			conf.Load(true)
+			Expect(conf.Server.Ripping.MusicBrainz).To(BeFalse())
+		})
+
+		It("are off with the rest of the external services", func() {
+			viper.Set("enableexternalservices", false)
+			conf.Load(true)
+			Expect(conf.Server.Ripping.MusicBrainz).To(BeFalse())
+		})
+	})
+
 	Describe("scheduled yt-dlp updates", func() {
 		It("run daily when ripping is on", func() {
 			viper.Set("ripping.enabled", true)

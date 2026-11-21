@@ -127,6 +127,9 @@ type Options struct {
 	// Matcher finds the Tracks the Library already seems to have for a video, to warn the admin
 	// before it is ripped. Nil warns of nothing.
 	Matcher Matcher
+	// Proposer works out the tags proposed on the review card (#34), in the background, for each
+	// Track once its File has landed. Nil proposes nothing.
+	Proposer Proposer
 	// PromoteRoot is the promote folder reviewed Files are moved into (see Promote and
 	// CheckPromoteFolder). Empty turns Promote off.
 	PromoteRoot string
@@ -175,6 +178,8 @@ type Ripper struct {
 	// reviewMu runs one tag save or Discard at a time, so two of them never race over the same
 	// Files (e.g. a Discard deleting a File a save is about to rename back into place).
 	reviewMu sync.Mutex
+	// proposals are the items waiting for their tag proposal (see runProposals).
+	proposals proposalQueue
 	// promoteFS is the filesystem Promote works on. Nil is the real one; tests set another.
 	promoteFS promoteFS
 }
@@ -189,6 +194,7 @@ func New(ds model.DataStore, fetcher Fetcher, scanner FolderScanner, opts Option
 	return &Ripper{
 		ds: ds, fetcher: fetcher, scanner: scanner, opts: opts,
 		wake: make(chan struct{}, 1), ytDlp: make(chan struct{}, 1),
+		proposals: proposalQueue{queued: map[string]bool{}, wake: make(chan struct{}, 1)},
 	}
 }
 
@@ -339,6 +345,7 @@ func (r *Ripper) Run(ctx context.Context) {
 	if _, err := r.ds.RipItem(ctx).RequeueInterrupted(); err != nil {
 		log.Error(ctx, "Could not re-queue interrupted Rip items", err)
 	}
+	go r.runProposals(ctx)
 	for ctx.Err() == nil {
 		job, err := r.ds.RipJob(ctx).NextQueued()
 		switch {
@@ -485,6 +492,7 @@ func (r *Ripper) processItem(ctx context.Context, inboxPath string, job *model.R
 		// It landed in a run the app stopped before saving the item as ready.
 		item.Status = model.RipReady
 		r.saveItem(ctx, item)
+		r.queueProposal(ctx, item)
 		return
 	}
 	if err := r.lockYtDlp(ctx, true); err != nil {
@@ -509,6 +517,7 @@ func (r *Ripper) processItem(ctx context.Context, inboxPath string, job *model.R
 		item.Status = model.RipReady
 	}
 	r.saveItem(ctx, item)
+	r.queueProposal(ctx, item)
 }
 
 // inInbox reports whether the item's File already landed in the Inbox.
@@ -651,7 +660,7 @@ func (r *Ripper) rip(ctx context.Context, inboxPath string, job *model.RipJob, i
 		}
 		return errors.New(errNestedPlaylist)
 	}
-	item.Title, item.Artist = info.Title, info.Artist
+	item.Title, item.Artist, item.Origin = info.Title, info.Artist, info.Origin
 	r.saveItem(ctx, item)
 	if job.Folder == "" && (job.Title != info.Title || job.Source != info.Source) {
 		// A single video: the job is named after it.

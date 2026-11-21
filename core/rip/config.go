@@ -8,7 +8,9 @@ import (
 	"time"
 
 	"github.com/navidrome/navidrome/conf"
+	"github.com/navidrome/navidrome/core/musicbrainz"
 	"github.com/navidrome/navidrome/core/rip/match"
+	"github.com/navidrome/navidrome/core/rip/propose"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
 )
@@ -32,7 +34,8 @@ func NewFromConfig(ds model.DataStore, scanner FolderScanner) *Ripper {
 		TempDir:    filepath.Join(bin.Dir, "tmp"),
 		DenoDir:    filepath.Join(conf.Server.CacheFolder.String(), "deno"),
 	}
-	opts := Options{Timeout: conf.Server.Ripping.Timeout, Matcher: match.New(ds), PromoteRoot: conf.Server.Inbox.PromotePath}
+	opts := Options{Timeout: conf.Server.Ripping.Timeout, Matcher: match.New(ds), Proposer: newProposer(),
+		PromoteRoot: conf.Server.Inbox.PromotePath}
 	if asset != "" {
 		opts.Updater = bin // no standalone build to update to otherwise
 	}
@@ -42,4 +45,15 @@ func NewFromConfig(ds model.DataStore, scanner FolderScanner) *Ripper {
 		log.Warn("Ripping: deno is not installed, so yt-dlp may miss formats or fail on YouTube")
 	}
 	return New(ds, yt, scanner, opts)
+}
+
+// newProposer proposes tags with MusicBrainz lookups, unless Ripping.MusicBrainz (or
+// EnableExternalServices) is off, in which case it proposes from YouTube Music's metadata or the
+// video's title alone.
+func newProposer() *propose.Engine {
+	if !conf.Server.Ripping.MusicBrainz {
+		log.Info("Ripping: MusicBrainz lookups for tag proposals are off")
+		return propose.New(nil)
+	}
+	return propose.New(musicbrainz.New(musicbrainz.Options{}))
 }

@@ -2,8 +2,8 @@
 // about to be ripped, from the video's artist and title. It only warns: a likely match may be
 // another recording, and it is never a Duplicate (see GLOSSARY.md), which is about Files.
 //
-// The normaliser here is deliberately small: it strips the usual YouTube noise so a video's
-// title can be compared with a Track's. Proper title cleanup for tag proposals is #34's.
+// The normaliser here strips the usual YouTube noise so a video's title can be compared with a
+// Track's. Tag proposals (#34, core/rip/propose) use the same Guesses as their cleaned-up title.
 package match
 
 import (
@@ -69,6 +69,12 @@ func Guesses(artist, title string) []Guess {
 	return res
 }
 
+// WithoutFeaturing is s with its featuring credits taken out ("Get Lucky (feat. Pharrell
+// Williams)" is "Get Lucky"), still readable.
+func WithoutFeaturing(s string) string {
+	return strings.TrimSpace(stripFeaturing(s))
+}
+
 // stripFeaturing takes the featuring credits out of s, and nothing after them.
 func stripFeaturing(s string) string {
 	s = featuringGroup.ReplaceAllString(s, "")
@@ -83,12 +89,64 @@ func cleanArtist(s string) string {
 func cleanTitle(s string) string {
 	s = stripFeaturing(s)
 	s = bracketed.ReplaceAllStringFunc(s, func(group string) string {
-		if isNoise(bracketed.FindStringSubmatch(group)[1]) {
+		inner := bracketed.FindStringSubmatch(group)[1]
+		if isNoise(inner) {
 			return ""
 		}
-		return group
+		return dropNoiseWords(group, inner)
 	})
-	return strings.TrimSpace(songPart(s))
+	return strings.TrimSpace(trimTrailingNoise(songPart(s)))
+}
+
+// strongNoise are the noise words that, at the end of a title without brackets ("Song Lyrics",
+// "Song Official Music Video"), mark what follows the song's name as noise. "Music", "Video" and
+// "Audio" alone don't, so "Pop Music" stays as it is.
+var strongNoise = map[string]bool{
+	"official": true, "lyric": true, "lyrics": true, "visualizer": true, "visualiser": true,
+	"hd": true, "hq": true, "4k": true, "1080p": true, "720p": true,
+}
+
+// dropNoiseWords takes the noise words out of a bracketed group that also says something about
+// the recording, when it holds a strongNoise word: "(Official Video Remastered)" becomes
+// "(Remastered)". A group without one ("(Music Box Version)") is left as it is.
+func dropNoiseWords(group, inner string) string {
+	words := strings.Fields(inner)
+	var kept []string
+	strong := false
+	for _, w := range words {
+		switch {
+		case strongNoise[strings.ToLower(w)]:
+			strong = true
+		case isNoise(w), !strings.ContainsFunc(w, func(r rune) bool { return unicode.IsLetter(r) || unicode.IsNumber(r) }):
+			// Noise, or punctuation left between noise words ("(Official Video - Remastered)").
+		default:
+			kept = append(kept, w)
+		}
+	}
+	if !strong {
+		return group
+	}
+	start := strings.IndexAny(group, "([")
+	return group[:start+1] + strings.Join(kept, " ") + group[len(group)-1:]
+}
+
+// trimTrailingNoise drops a run of noise words at the end of s, when it leaves something before
+// it and is either "Lyrics" alone or two words or more holding a strongNoise word ("Official
+// Video", "HD Video"). A single "Official" or "HD" may be the song's own ("Make It Official").
+func trimTrailingNoise(s string) string {
+	words := strings.Fields(s)
+	cut, strong := len(words), false
+	for cut > 1 && isNoise(words[cut-1]) {
+		cut--
+		strong = strong || strongNoise[strings.ToLower(strings.Trim(words[cut], ".,!:;-–—"))]
+	}
+	switch run := len(words) - cut; {
+	case run == 1 && strings.EqualFold(words[cut], "lyrics"):
+	case run >= 2 && strong:
+	default:
+		return s
+	}
+	return strings.Join(words[:cut], " ")
 }
 
 // songPart picks, of a title in " | " parts ("KEXP | Artist - Title | Live Session",

@@ -52,6 +52,19 @@ func (r *ripItemRepository) Delete(id string) error {
 	return r.deleteByID(id)
 }
 
+// SetProposal updates the proposal column alone. Put leaves it out (structs:"-"), so the Ripper
+// saving an item it loaded earlier never undoes a proposal saved meanwhile.
+func (r *ripItemRepository) SetProposal(id string, p model.RipProposal) error {
+	n, err := r.executeSQL(Update(r.tableName).Set("proposal", p).Where(Eq{"id": id}))
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return model.ErrNotFound
+	}
+	return nil
+}
+
 func (r *ripItemRepository) PromotesInterrupted() (model.RipItems, error) {
 	res := model.RipItems{}
 	err := r.queryAll(Select("*").From(r.tableName).Where(NotEq{"promote_dest": ""}).

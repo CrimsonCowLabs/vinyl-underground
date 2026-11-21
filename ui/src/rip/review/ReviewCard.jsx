@@ -7,6 +7,7 @@ import {
   CardActions,
   CardContent,
   IconButton,
+  Link,
   Table,
   TableBody,
   TableCell,
@@ -21,13 +22,21 @@ import { httpClient } from '../../dataProvider'
 import { DiscardDialog, DiscardJobButton } from './DiscardDialog'
 import { errorText, jobUrl } from './reviewApi'
 import {
+  applyProposals,
   editsFrom,
+  fieldHint,
   initialValues,
   invalidFields,
+  proposedValues,
   removeTrack,
   setAlbumField,
   setTrackField,
+  withProposalsFrom,
 } from './reviewForm'
+import ProposalsBar from './ProposalsBar'
+
+// PROPOSALS_POLL_MS is how often the card looks again while proposals are being worked out.
+export const PROPOSALS_POLL_MS = 3000
 
 // ReviewCard is a finished job's review card: its album-level tags and its Track list, read from
 // the Files, to edit and save into them, and Discard for the whole job or one Track. Only the
@@ -36,7 +45,11 @@ import {
 // Slots for later work: trackExtra(track) renders next to a Track's title (e.g. #32's "already
 // have" indicator), and actions are more buttons beside Save and Discard: an element, or a
 // function given { jobId, review, dirty (unsaved edits), show(review) } (e.g. #36's "Promote
-// all"). Proposed tags (#34) go into the same form state (see reviewForm.js).
+// all").
+//
+// Proposed tags (#34) are offered under each field ("Proposed: X", click to take it), or all at
+// once with "Use proposals". A field holding a proposal the File doesn't have yet says so. They
+// only go into the form (see reviewForm.js): nothing is written until Save.
 const ReviewCard = ({ record, trackExtra, actions }) => {
   const translate = useTranslate()
   const notify = useNotify()
@@ -66,6 +79,27 @@ const ReviewCard = ({ record, trackExtra, actions }) => {
     }
   }, [jobId, show])
 
+  // While proposals are being worked out, look again now and then, taking in only the proposals
+  // so the admin's edits stay.
+  const pending = !!review?.proposalsPending
+  // pollFailures makes a failed look go round again.
+  const [pollFailures, setPollFailures] = useState(0)
+  useEffect(() => {
+    if (!jobId || !pending) return undefined
+    let active = true
+    const timer = setTimeout(() => {
+      httpClient(`${jobUrl(jobId)}/tags`)
+        .then(
+          ({ json }) => active && setReview((r) => withProposalsFrom(r, json)),
+        )
+        .catch(() => active && setPollFailures((n) => n + 1))
+    }, PROPOSALS_POLL_MS)
+    return () => {
+      active = false
+      clearTimeout(timer)
+    }
+  }, [jobId, pending, review, pollFailures])
+
   if (loadError) {
     // Discard still works on a job whose tags can't be read.
     return (
@@ -85,6 +119,29 @@ const ReviewCard = ({ record, trackExtra, actions }) => {
   const edits = editsFrom(review, values)
   const invalid = invalidFields(values)
   const hasInvalid = Object.keys(invalid).length > 0
+  const proposed = proposedValues(review)
+
+  const handleRefreshProposals = () =>
+    httpClient(`${jobUrl(jobId)}/proposals`, { method: 'POST' })
+      .then(({ json }) => setReview((r) => withProposalsFrom(r, json)))
+      .catch((error) => notify(errorText(error), 'warning'))
+
+  // proposalHint is a field's helper text: the proposal to take, or a note that the field holds
+  // one the File doesn't have yet.
+  const proposalHint = (fileValue, value, proposedValue, take) => {
+    const hint = fieldHint(fileValue, value, proposedValue)
+    if (!hint) return undefined
+    if (hint.offer) {
+      return (
+        <Link component="button" type="button" variant="caption" onClick={take}>
+          {translate('resources.rip.review.proposed', { value: hint.offer })}
+        </Link>
+      )
+    }
+    return hint.file
+      ? translate('resources.rip.review.proposedFile', { file: hint.file })
+      : translate('resources.rip.review.proposedNew')
+  }
 
   const handleSave = () => {
     setSaving(true)
@@ -126,6 +183,12 @@ const ReviewCard = ({ record, trackExtra, actions }) => {
       label={translate(label)}
       value={values[field]}
       onChange={(e) => setValues(setAlbumField(values, field, e.target.value))}
+      helperText={proposalHint(
+        review[field],
+        values[field],
+        proposed[field],
+        () => setValues(setAlbumField(values, field, proposed[field])),
+      )}
       error={!!invalid[field]}
       size="small"
       margin="dense"
@@ -142,6 +205,20 @@ const ReviewCard = ({ record, trackExtra, actions }) => {
       onChange={(e) =>
         setValues(setTrackField(values, track.itemId, field, e.target.value))
       }
+      helperText={proposalHint(
+        track[field],
+        values.tracks[track.itemId]?.[field],
+        proposed.tracks[track.itemId]?.[field],
+        () =>
+          setValues(
+            setTrackField(
+              values,
+              track.itemId,
+              field,
+              proposed.tracks[track.itemId][field],
+            ),
+          ),
+      )}
       error={field === 'trackNumber' && !!invalid[track.itemId]}
       size="small"
       fullWidth={!width}
@@ -164,6 +241,12 @@ const ReviewCard = ({ record, trackExtra, actions }) => {
   return (
     <Card variant="outlined">
       <CardContent>
+        <ProposalsBar
+          review={review}
+          proposed={proposed}
+          onUse={() => setValues(applyProposals(values, proposed))}
+          onRefresh={handleRefreshProposals}
+        />
         <Box display="flex" style={{ gap: 8 }} flexWrap="wrap">
           {albumField('album', 'resources.song.fields.album')}
           {albumField('albumArtist', 'resources.song.fields.albumArtist')}

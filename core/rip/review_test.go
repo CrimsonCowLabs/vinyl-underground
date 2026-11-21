@@ -130,6 +130,76 @@ var _ = Describe("Review and Discard", func() {
 			Expect(rev.Tracks[1].AlreadyHave).To(Equal(have))
 		})
 
+		Describe("tag proposals (#34)", func() {
+			propose := func(it model.RipItem, p model.RipProposal) {
+				Expect(ds.RipItem(ctx).SetProposal(it.ID, p)).To(Succeed())
+			}
+			ready := func(album, albumArtist, year string) model.RipProposal {
+				return model.RipProposal{Status: model.RipProposalReady, Title: "T", Artist: "A",
+					Album: album, AlbumArtist: albumArtist, Year: year, AlbumFrom: "musicbrainz"}
+			}
+
+			It("shows each Track's proposal next to its tags, and the album's when the Tracks agree", func() {
+				landed("ripped.opus", "Album/a.opus")
+				landed("ripped.m4a", "Album/b.m4a")
+				job := newJob(model.RipReady, "Album", "Album/a.opus", "Album/b.m4a")
+				propose(job.Items[0], ready("Record", "Band", "1999"))
+				propose(job.Items[1], ready("Record", "Band", "1999"))
+
+				rev, err := ripper.Review(ctx, job.ID)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(rev.Tracks[0].Proposal).To(HaveField("Album", "Record"))
+				Expect(rev.Tracks[0].Title).To(Equal("Ripped Opus"), "the File's own tag is still shown")
+				Expect(rev.Proposal).To(Equal(&AlbumProposal{Album: "Record", AlbumArtist: "Band", Year: "1999"}))
+				Expect(rev.ProposalsPending).To(BeFalse())
+			})
+
+			It("proposes no album-level value the Tracks disagree on", func() {
+				landed("ripped.opus", "Album/a.opus")
+				landed("ripped.m4a", "Album/b.m4a")
+				job := newJob(model.RipReady, "Album", "Album/a.opus", "Album/b.m4a")
+				propose(job.Items[0], ready("Record", "Band", "1999"))
+				propose(job.Items[1], ready("Other Record", "Band", "1999"))
+
+				rev, err := ripper.Review(ctx, job.ID)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(rev.Proposal).To(Equal(&AlbumProposal{AlbumArtist: "Band", Year: "1999"}))
+			})
+
+			It("says when proposals are still being worked out", func() {
+				landed("ripped.opus", "Album/a.opus")
+				job := newJob(model.RipReady, "Album", "Album/a.opus")
+				propose(job.Items[0], model.RipProposal{Status: model.RipProposalPending})
+
+				rev, err := ripper.Review(ctx, job.ID)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(rev.ProposalsPending).To(BeTrue())
+				Expect(rev.Proposal).To(BeNil())
+			})
+
+			It("keeps offering a refreshed proposal's old album-level values while it is worked out again", func() {
+				landed("ripped.opus", "Album/a.opus")
+				job := newJob(model.RipReady, "Album", "Album/a.opus")
+				old := ready("Record", "Band", "1999")
+				old.Status = model.RipProposalPending
+				propose(job.Items[0], old)
+
+				rev, err := ripper.Review(ctx, job.ID)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(rev.ProposalsPending).To(BeTrue())
+				Expect(rev.Proposal).To(Equal(&AlbumProposal{Album: "Record", AlbumArtist: "Band", Year: "1999"}))
+			})
+
+			It("has no proposals for a job that has none", func() {
+				landed("ripped.opus", "Album/a.opus")
+				job := newJob(model.RipReady, "Album", "Album/a.opus")
+				rev, err := ripper.Review(ctx, job.ID)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(rev.Tracks[0].Proposal).To(BeNil())
+				Expect(rev.Proposal).To(BeNil())
+			})
+		})
+
 		It("still shows the card when a File is gone, with that Track's error, and saves the others", func() {
 			landed("ripped.opus", "Album/a.opus")
 			job := newJob(model.RipReady, "Album", "Album/a.opus", "Album/gone.opus")
