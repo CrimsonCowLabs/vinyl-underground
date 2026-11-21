@@ -205,6 +205,7 @@ COPY --from=build-alpine /out/navidrome /app/
 VOLUME ["/data", "/music"]
 ENV ND_MUSICFOLDER=/music
 ENV ND_DATAFOLDER=/data
+ENV ND_INBOX_PATH=/inbox
 ENV ND_CONFIGFILE=/data/navidrome.toml
 ENV ND_PORT=4533
 RUN touch /.nddockerenv

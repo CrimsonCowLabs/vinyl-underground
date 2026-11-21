@@ -118,6 +118,7 @@ type configOptions struct {
 	Scanner                         scannerOptions      `json:",omitzero"`
 	Jukebox                         jukeboxOptions      `json:",omitzero"`
 	Backup                          backupOptions       `json:",omitzero"`
+	Inbox                           inboxOptions        `json:",omitzero"`
 	PID                             pidOptions          `json:",omitzero"`
 	Inspect                         inspectOptions      `json:",omitzero"`
 	Subsonic                        subsonicOptions     `json:",omitzero"`
@@ -266,6 +267,13 @@ type backupOptions struct {
 	Count    int
 	Path     Dir
 	Schedule string
+}
+
+// inboxOptions configures the Inbox: the writable folder where new music lands before it joins
+// the Library. The app scans it as a second library that only admins can see.
+type inboxOptions struct {
+	// Path is the Inbox folder. Empty, or a folder that doesn't exist, turns the Inbox off.
+	Path string
 }
 
 type pidOptions struct {
@@ -1096,6 +1104,7 @@ func setViperDefaults() {
 	viper.SetDefault("backup.path", "")
 	viper.SetDefault("backup.schedule", "")
 	viper.SetDefault("backup.count", 0)
+	viper.SetDefault("inbox.path", "")
 	viper.SetDefault("pid.track", consts.DefaultTrackPID)
 	viper.SetDefault("pid.album", consts.DefaultAlbumPID)
 	viper.SetDefault("inspect.enabled", true)

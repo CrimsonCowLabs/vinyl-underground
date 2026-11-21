@@ -12,6 +12,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/consts"
+	"github.com/navidrome/navidrome/core"
 	"github.com/navidrome/navidrome/core/artwork"
 	"github.com/navidrome/navidrome/db"
 	"github.com/navidrome/navidrome/log"
@@ -80,6 +81,11 @@ func postRun() {
 // it will cancel the context and exit gracefully.
 func runNavidrome(ctx context.Context) {
 	defer db.Init(ctx)()
+
+	// Before the watcher and the initial scan start, so both pick up the Inbox.
+	if err := core.EnsureInboxLibrary(ctx, CreateDataStore(), conf.Server.Inbox.Path); err != nil {
+		log.Error(ctx, "Could not set up the Inbox library", err)
+	}
 
 	g, ctx := errgroup.WithContext(ctx)
 	g.Go(startServer(ctx))
