@@ -489,6 +489,15 @@
         "urlHelp": "Paste the link to one video. Its audio is saved to the Inbox as it is, without re-encoding. Playlists aren't supported yet.",
         "queued": "Rip queued",
         "responsibility": "You are responsible for what you download: only rip what you have the right to."
+      },
+      "ytdlp": {
+        "version": "yt-dlp %{version}",
+        "notInstalled": "yt-dlp is not installed yet",
+        "unknown": "yt-dlp's version is unknown (%{error})",
+        "update": "Update yt-dlp",
+        "updating": "Updating yt-dlp...",
+        "updated": "yt-dlp updated to %{version}",
+        "upToDate": "yt-dlp %{version} is the latest"
       }
     }
   },

@@ -13,7 +13,8 @@ import (
 )
 
 // NewFromConfig sets up the Ripper from the Ripping.* settings: yt-dlp is kept in
-// <DataFolder>/bin (/data/bin in the Docker image) and downloaded there on first use.
+// <DataFolder>/bin (/data/bin in the Docker image), downloaded there on first use and updated
+// there (see Ripper.UpdateYtDlp and Ripper.ScheduleYtDlpUpdates).
 func NewFromConfig(ds model.DataStore, scanner FolderScanner) *Ripper {
 	asset, _ := AssetFor(runtime.GOOS, runtime.GOARCH, IsMusl()) // empty: Binary.Path reports it
 	bin := &Binary{
@@ -21,6 +22,7 @@ func NewFromConfig(ds model.DataStore, scanner FolderScanner) *Ripper {
 		ReleaseURL: conf.Server.Ripping.YtDlpReleaseURL,
 		Asset:      asset,
 		Client:     &http.Client{Timeout: 10 * time.Minute},
+		TempDir:    filepath.Join(conf.Server.DataFolder.String(), "bin", "tmp-version"),
 	}
 	yt := &YtDlp{
 		Binary:     bin,
@@ -29,10 +31,14 @@ func NewFromConfig(ds model.DataStore, scanner FolderScanner) *Ripper {
 		TempDir:    filepath.Join(bin.Dir, "tmp"),
 		DenoDir:    filepath.Join(conf.Server.CacheFolder.String(), "deno"),
 	}
+	opts := Options{Timeout: conf.Server.Ripping.Timeout}
+	if asset != "" {
+		opts.Updater = bin // no standalone build to update to otherwise
+	}
 	if deno, err := exec.LookPath("deno"); err == nil {
 		yt.DenoPath = deno
 	} else {
 		log.Warn("Ripping: deno is not installed, so yt-dlp may miss formats or fail on YouTube")
 	}
-	return New(ds, yt, scanner, Options{Timeout: conf.Server.Ripping.Timeout})
+	return New(ds, yt, scanner, opts)
 }

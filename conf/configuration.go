@@ -285,9 +285,13 @@ type rippingOptions struct {
 	Enabled bool
 	// Timeout bounds one Rip, from fetching the page to the File landing in the Inbox.
 	Timeout time.Duration
-	// YtDlpReleaseURL is where yt-dlp is downloaded from on first use: a folder holding the
-	// release assets and their SHA2-256SUMS.
+	// YtDlpReleaseURL is where yt-dlp is downloaded from, on first use and for updates: a folder
+	// holding the release assets and their SHA2-256SUMS. When it redirects to one release's
+	// folder (as GitHub's .../releases/latest/download does), that release's tag is its version.
 	YtDlpReleaseURL string
+	// YtDlpUpdateSchedule is when yt-dlp is updated (a crontab or a duration such as "24h").
+	// Empty or "0" turns the scheduled updates off.
+	YtDlpUpdateSchedule string
 }
 
 // llmOptions configures the local LLM behind Generated Playlists (ADR-0004): any
@@ -493,6 +497,7 @@ func Load(noConfigDump bool) {
 	err = run.Sequentially(
 		validateScanSchedule,
 		validateBackupSchedule,
+		validateYtDlpUpdateSchedule,
 		validatePlaylistsPath,
 		validatePurgeMissingOption,
 		validateByteSize("MaxImageUploadSize", Server.MaxImageUploadSize),
@@ -937,6 +942,16 @@ func validateBackupSchedule() error {
 	return err
 }
 
+func validateYtDlpUpdateSchedule() error {
+	if !Server.Ripping.Enabled || Server.Ripping.YtDlpUpdateSchedule == "0" || Server.Ripping.YtDlpUpdateSchedule == "" {
+		Server.Ripping.YtDlpUpdateSchedule = ""
+		return nil
+	}
+	var err error
+	Server.Ripping.YtDlpUpdateSchedule, err = validateSchedule(Server.Ripping.YtDlpUpdateSchedule, "Ripping.YtDlpUpdateSchedule")
+	return err
+}
+
 func validateSchedule(schedule, field string) (string, error) {
 	_, err := scheduler.ParseCrontab(schedule)
 	if err != nil {
@@ -1144,6 +1159,7 @@ func setViperDefaults() {
 	viper.SetDefault("ripping.enabled", false)
 	viper.SetDefault("ripping.timeout", 30*time.Minute)
 	viper.SetDefault("ripping.ytdlpreleaseurl", "https://github.com/yt-dlp/yt-dlp/releases/latest/download")
+	viper.SetDefault("ripping.ytdlpupdateschedule", "@daily")
 	viper.SetDefault("llm.baseurl", "")
 	viper.SetDefault("llm.model", "")
 	viper.SetDefault("llm.apikey", "")

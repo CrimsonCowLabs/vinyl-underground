@@ -73,6 +73,8 @@ The Library keeps growing, and all new music reaches it through one path: the **
 - A playlist of more than 50 items asks for confirmation. More than 300 is refused.
 - Each Rip is a background job, run one at a time. A job's status is queued, downloading, tagging, ready for review, or failed (showing yt-dlp's error). Jobs keep running after the tab is closed.
 - yt-dlp lives in `/data/bin`, because the container is read-only. The app downloads it, updates it on a schedule and from an "Update yt-dlp" button, and after a failed Rip it updates yt-dlp once and retries.
+  - The schedule is `ND_RIPPING_YTDLPUPDATESCHEDULE` (default `@daily`). An update resolves the latest release to its tag once, fetches the binary and `SHA2-256SUMS` from that tag, and downloads nothing when `yt-dlp --version` is already that tag. A failed update keeps the old binary, and no update replaces it while a Rip runs.
+  - A failed Rip is retried only when yt-dlp itself failed and an update might help. Not retried: unsupported URLs, private, removed, age-restricted, members-only or blocked videos, playlists, the Rip's own timeout, and the app's own errors.
 - Before ripping, the app matches artist and title against the Library and warns "already have: …". It never blocks the Rip.
 
 **Tagging and review**

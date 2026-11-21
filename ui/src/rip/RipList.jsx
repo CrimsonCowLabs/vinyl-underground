@@ -8,6 +8,7 @@ import {
 } from 'react-admin'
 import { List, DateField } from '../common'
 import RipForm from './RipForm'
+import YtDlpControl from './YtDlpControl'
 import { useRipPolling } from './useRipPolling'
 
 export const RipStatusField = ({ record }) => {
@@ -26,6 +27,7 @@ const RipDatagrid = (props) => {
 const RipList = (props) => {
   return (
     <>
+      <YtDlpControl />
       <RipForm />
       <List
         {...props}
