@@ -60,14 +60,21 @@ describe('<AudioTitle />', () => {
   it('shows the Ripped badge for a Rip', () => {
     const audioInfo = {
       trackId: 'track-1',
-      song: { ...baseSong, source: 'YouTube' },
+      song: {
+        ...baseSong,
+        source: 'YouTube',
+        sourceUrl: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+      },
     }
     render(<AudioTitle audioInfo={audioInfo} gainInfo={{}} isMobile={false} />)
     expect(screen.getByText('resources.song.ripped.label')).toBeInTheDocument()
   })
 
   it('shows no Ripped badge for a Track that is not a Rip', () => {
-    const audioInfo = { trackId: 'track-1', song: baseSong }
+    const audioInfo = {
+      trackId: 'track-1',
+      song: { ...baseSong, source: 'CD' },
+    }
     render(<AudioTitle audioInfo={audioInfo} gainInfo={{}} isMobile={false} />)
     expect(
       screen.queryByText('resources.song.ripped.label'),

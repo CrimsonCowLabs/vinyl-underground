@@ -75,7 +75,7 @@ The writable folder where all new music arrives (Rips, uploads and Files dropped
 _Avoid_: Staging, downloads (a Download is offline storage on a device), import folder
 
 **Rip**:
-A File the app fetched from a web page with yt-dlp (usually YouTube), keeping the original audio stream. A Rip carries a `SOURCE` tag naming the site and the source URL, and is shown with a "Ripped" badge, because it is lower quality than most of the Library.
+A File the app fetched from a web page with yt-dlp (usually YouTube), keeping the original audio stream. A Rip carries a `SOURCE` tag naming the site and a `SOURCEURL` tag holding the web page it came from. It is shown with a "Ripped" badge, because it is lower quality than most of the Library. Only a File whose `SOURCEURL` is an http(s) URL counts as a Rip: other tools may write `SOURCE` too (e.g. `SOURCE=CD` from a CD ripper), and those Files are not Rips.
 _Avoid_: Download (taken: offline storage on a device), import
 
 **Promote**:

@@ -53,6 +53,48 @@ describe('<RippedBadge />', () => {
     expect(container).toBeEmptyDOMElement()
   })
 
+  // Only the app's ripper (yt-dlp, #28) writes a web SOURCEURL. CD rippers and other
+  // taggers may write SOURCE (e.g. "CD") but are not Rips.
+  it('renders nothing for a File another tool tagged SOURCE=CD, with no URL', () => {
+    const { container } = renderBadge({ title: 'From CD', source: 'CD' })
+
+    expect(container).toBeEmptyDOMElement()
+  })
+
+  it.each([
+    ['a file path', 'file:///music/cd/track01.flac'],
+    ['a disc ID', 'cddb:7a0b4c09'],
+    ['a script URL', 'javascript:alert(1)'],
+    ['plain text', 'my CD collection'],
+    ['an http URL with no host', 'http://'],
+  ])('renders nothing when SOURCEURL is %s', (_, sourceUrl) => {
+    const { container } = renderBadge({
+      title: 'Song',
+      source: 'CD',
+      sourceUrl,
+    })
+
+    expect(container).toBeEmptyDOMElement()
+  })
+
+  it('accepts a plain http URL', () => {
+    renderBadge({
+      title: 'Song',
+      source: 'Bandcamp',
+      sourceUrl: 'http://artist.bandcamp.com/track/song',
+    })
+
+    expect(screen.getByLabelText('Ripped from Bandcamp')).toBeInTheDocument()
+  })
+
+  it('names the URL host when the File has a URL but no SOURCE', () => {
+    renderBadge({ title: 'Song', sourceUrl: url })
+
+    expect(
+      screen.getByLabelText('Ripped from www.youtube.com'),
+    ).toBeInTheDocument()
+  })
+
   it('renders nothing without a record', () => {
     const { container } = renderBadge(undefined)
 
