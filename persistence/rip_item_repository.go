@@ -47,4 +47,8 @@ func (r *ripItemRepository) RequeueInterrupted() (int64, error) {
 		Where(Eq{"status": model.RipDownloading}))
 }
 
+func (r *ripItemRepository) Delete(id string) error {
+	return r.deleteByID(id)
+}
+
 var _ model.RipItemRepository = (*ripItemRepository)(nil)

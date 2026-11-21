@@ -506,6 +506,19 @@
         "updating": "Updating yt-dlp...",
         "updated": "yt-dlp updated to %{version}",
         "upToDate": "yt-dlp %{version} is the latest"
+      },
+      "review": {
+        "discard": "Discard",
+        "discardTrack": "Discard this Track",
+        "discardTitle": "Discard for good?",
+        "confirmJob": "Delete this Rip's File from the Inbox for good? It doesn't go to Quarantine and can't be undone. |||| Delete all %{smart_count} of this Rip's Files from the Inbox for good? They don't go to Quarantine and can't be undone.",
+        "confirmTrack": "Delete \"%{title}\" from the Inbox for good? It doesn't go to Quarantine and can't be undone.",
+        "confirmNoFiles": "Remove this Rip from the list? It has no Files in the Inbox.",
+        "discarded": "Rip discarded",
+        "trackDiscarded": "Track discarded",
+        "saving": "Saving...",
+        "saved": "Tags saved; the Tracks update after the Inbox scan",
+        "loadError": "Could not read the tags: %{error}"
       }
     }
   },

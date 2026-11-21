@@ -101,4 +101,33 @@ var _ = Describe("RipItemRepository", func() {
 		Expect(err).ToNot(HaveOccurred())
 		Expect(items.ForJobs(j.ID)).To(BeEmpty())
 	})
+
+	It("deletes one item, and keeps the job's others", func() {
+		j := newJob("https://example.com/a")
+		gone := newItem(j, 1, model.RipReady)
+		kept := newItem(j, 2, model.RipReady)
+
+		Expect(items.Delete(gone.ID)).To(Succeed())
+
+		got, err := items.ForJobs(j.ID)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(got).To(HaveLen(1))
+		Expect(got[0].ID).To(Equal(kept.ID))
+		Expect(items.Delete(gone.ID)).To(MatchError(model.ErrNotFound))
+	})
+
+	It("deletes a job with its items through the job repository", func() {
+		j := newJob("https://example.com/a")
+		other := newJob("https://example.com/b")
+		newItem(j, 1, model.RipReady)
+		newItem(other, 1, model.RipReady)
+
+		Expect(jobs.Delete(j.ID)).To(Succeed())
+
+		_, err := jobs.Get(j.ID)
+		Expect(err).To(MatchError(model.ErrNotFound))
+		Expect(items.ForJobs(j.ID)).To(BeEmpty())
+		Expect(items.ForJobs(other.ID)).To(HaveLen(1))
+		Expect(jobs.Delete(j.ID)).To(MatchError(model.ErrNotFound))
+	})
 })

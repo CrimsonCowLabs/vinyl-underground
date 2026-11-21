@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 	"unicode"
@@ -166,6 +167,11 @@ type Ripper struct {
 	updating atomic.Bool
 	// previews keeps the "already have" matches of the pages waiting for the admin to confirm.
 	previews previewMatches
+	// writeTags writes the review card's edits into a File (see editTags). Nil uses TagLib.
+	writeTags tagWriter
+	// reviewMu runs one tag save or Discard at a time, so two of them never race over the same
+	// Files (e.g. a Discard deleting a File a save is about to rename back into place).
+	reviewMu sync.Mutex
 }
 
 func New(ds model.DataStore, fetcher Fetcher, scanner FolderScanner, opts Options) *Ripper {

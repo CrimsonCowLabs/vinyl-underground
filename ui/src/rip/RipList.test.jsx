@@ -2,6 +2,8 @@ import React from 'react'
 import { render } from '@testing-library/react'
 import { describe, it, expect, vi } from 'vitest'
 import { RipItems, RipStatusField } from './RipList.jsx'
+import { alreadyHaveExtra } from './alreadyHaveExtra'
+import RipJobPanel from './review/RipJobPanel.jsx'
 
 vi.mock('react-admin', async () => {
   const actual = await vi.importActual('react-admin')
@@ -64,7 +66,7 @@ describe('RipItems', () => {
     expect(rows[2].textContent).toContain('resources.rip.status.downloading')
   })
 
-  it('still says "already have" on an item after it was queued', () => {
+  it('still says "already have" on an item of a job still ripping, through trackExtra', () => {
     const items = album.items.map((it, i) =>
       i === 1
         ? {
@@ -81,7 +83,13 @@ describe('RipItems', () => {
           }
         : { ...it, alreadyHave: [] },
     )
-    const { getAllByRole } = render(<RipItems record={{ ...album, items }} />)
+    const { getAllByRole } = render(
+      <RipJobPanel
+        record={{ ...album, items }}
+        fallback={<RipItems />}
+        trackExtra={alreadyHaveExtra}
+      />,
+    )
     const rows = getAllByRole('row').slice(1)
     expect(rows[1].textContent).toContain('resources.rip.messages.alreadyHave')
     expect(rows[1].textContent).toContain(

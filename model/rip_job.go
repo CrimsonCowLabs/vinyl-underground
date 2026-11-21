@@ -138,6 +138,8 @@ type RipJobRepository interface {
 	// RequeueInterrupted puts jobs that were downloading back in the queue, for when the app
 	// stopped in the middle of a Rip. It returns how many there were.
 	RequeueInterrupted() (int64, error)
+	// Delete deletes the job and its items (a Discard, #33), or returns ErrNotFound.
+	Delete(id string) error
 }
 
 type RipItemRepository interface {
@@ -148,4 +150,6 @@ type RipItemRepository interface {
 	// RequeueInterrupted puts items that were downloading back in the queue. It returns how many
 	// there were.
 	RequeueInterrupted() (int64, error)
+	// Delete deletes one item (a single Track's Discard, #33), or returns ErrNotFound.
+	Delete(id string) error
 }

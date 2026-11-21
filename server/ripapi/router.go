@@ -14,6 +14,8 @@
 //	                                    the Library already seems to have
 //	GET  /api/rip/ytdlp                 the installed yt-dlp's version
 //	POST /api/rip/ytdlp/update          updates yt-dlp
+//
+// Reviewing and discarding a job is in review.go.
 package ripapi
 
 import (
@@ -39,6 +41,7 @@ type Ripper interface {
 	Jobs(ctx context.Context) (model.RipJobs, error)
 	YtDlpVersion(ctx context.Context) (string, error)
 	UpdateYtDlp(ctx context.Context, wait bool) (rip.UpdateResult, error)
+	Reviewer
 }
 
 type Router struct {
@@ -65,6 +68,7 @@ func (api *Router) routes() http.Handler {
 	r.Post("/", api.create)
 	r.Get("/ytdlp", api.ytDlpVersion)
 	r.Post("/ytdlp/update", api.updateYtDlp)
+	api.reviewRoutes(r)
 	return r
 }
 
