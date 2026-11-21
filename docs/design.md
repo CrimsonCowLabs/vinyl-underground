@@ -41,6 +41,12 @@ It is a public, GPL-3.0, hard fork of Navidrome **v0.64.2**, renamed and never r
 - Tracks and Blurbs are pre-generated 2–3 Tracks ahead.
 - A skip is a mild "less like this" signal for that Station only, fading over ~30 days.
 - Station plays count in play history once ~50% of the Track has played.
+- How Themes and DJ taste work with an LLM (#15):
+  - **Request:** the DJ's name and description, plus "Theme: …" when the Listener gave one, are the request to the Generated Playlist candidate approach (`generatedplaylist.Selector`): the LLM turns it into filters and seed artists, the server builds candidates from the Library, leaving out what the Station served in the last ~48h, and the LLM ranks them. So different DJs and Themes get different candidates and picks.
+  - **Running ahead:** a refill never waits on the LLM. Each Listener's Station keeps a plan of the LLM's picks in memory, filled in the background ~15 Tracks at a time and again once fewer than 8 are left. A refill plays the plan in the LLM's order, keeping the ~48h and ~5-Track artist rules (a Track by an artist heard too recently waits for a later refill). Whatever the plan can't cover, as on the first refill of a new Station, comes from rule-based selection.
+  - **Changing Station:** a different DJ or Theme starts a new plan; picks for the old one are dropped.
+  - **Failures:** when a selection fails (e.g. the LLM's host is asleep), the Station plays by rule and asks the LLM again after ~2 minutes. A restart forgets the plans, so a Station plays by rule until its next selection is ready.
+  - **Theme:** up to 200 characters, trimmed. With no LLM configured the Theme field is hidden (`enableStationThemes`), and a Theme sent anyway is ignored.
 - Later (not now): start a Station from a Track, artist or Playlist.
 
 ### DJs
