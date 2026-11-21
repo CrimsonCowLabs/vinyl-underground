@@ -25,6 +25,9 @@ func makeAudio(name string, codecArgs ...string) string {
 
 // probeTags reads the File's tags with ffprobe, independently of the tag writer.
 func probeTags(path string) map[string]string {
+	if _, err := exec.LookPath("ffprobe"); err != nil {
+		Skip("ffprobe is not installed")
+	}
 	out, err := exec.Command("ffprobe", "-v", "error", "-print_format", "json",
 		"-show_entries", "format_tags:stream_tags", path).Output()
 	Expect(err).ToNot(HaveOccurred())
