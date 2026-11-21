@@ -387,13 +387,14 @@ var _ = Describe("Generated Playlists", Ordered, func() {
 			a := addTrack("Pavement", "Cut Your Hair", 1994, "Indie Rock")
 			b := addTrack("Pixies", "Velouria", 1990, "Alternative")
 
-			id, err := svc.Save(ctx, "Rainy Sunday", "rainy Sunday 90s indie", []string{b.ID, a.ID})
+			id, err := svc.Save(ctx, "Rainy Sunday", "rainy Sunday 90s indie", 25, []string{b.ID, a.ID})
 			Expect(err).ToNot(HaveOccurred())
 
 			pls, err := ds.Playlist(ctx).GetWithTracks(id, false, false)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(pls.Name).To(Equal("Rainy Sunday"))
 			Expect(pls.Prompt).To(Equal("rainy Sunday 90s indie"))
+			Expect(pls.GeneratedLength).To(Equal(25))
 			Expect(pls.OwnerID).To(Equal(listener.ID))
 			Expect(pls.Public).To(BeFalse())
 			Expect(pls.IsSmartPlaylist()).To(BeFalse())
@@ -404,7 +405,7 @@ var _ = Describe("Generated Playlists", Ordered, func() {
 			a := addTrack("Pavement", "Cut Your Hair", 1994, "Indie Rock")
 			hidden := addTrack("Pavement", "Hidden", 1994, "Indie Rock", 2)
 
-			id, err := svc.Save(ctx, "x", "indie", []string{"made-up", a.ID, hidden.ID, a.ID})
+			id, err := svc.Save(ctx, "x", "indie", 25, []string{"made-up", a.ID, hidden.ID, a.ID})
 			Expect(err).ToNot(HaveOccurred())
 			pls, err := ds.Playlist(ctx).GetWithTracks(id, false, false)
 			Expect(err).ToNot(HaveOccurred())
@@ -412,7 +413,7 @@ var _ = Describe("Generated Playlists", Ordered, func() {
 		})
 
 		It("refuses a Playlist with no real Tracks", func() {
-			_, err := svc.Save(ctx, "x", "indie", []string{"made-up"})
+			_, err := svc.Save(ctx, "x", "indie", 25, []string{"made-up"})
 			Expect(err).To(MatchError(generatedplaylist.ErrNoTracks))
 		})
 
@@ -422,19 +423,121 @@ var _ = Describe("Generated Playlists", Ordered, func() {
 			for i := range ids {
 				ids[i] = a.ID
 			}
-			_, err := svc.Save(ctx, "x", "indie", ids)
+			_, err := svc.Save(ctx, "x", "indie", 25, ids)
 			Expect(err).To(MatchError(generatedplaylist.ErrInvalidLength))
-			_, err = svc.Save(ctx, "x", " ", []string{a.ID})
+			_, err = svc.Save(ctx, "x", " ", 25, []string{a.ID})
 			Expect(err).To(MatchError(generatedplaylist.ErrInvalidPrompt))
+		})
+
+		It("refuses a length outside 10 to 100, and remembers 25 when none is given", func() {
+			a := addTrack("Pavement", "Cut Your Hair", 1994, "Indie Rock")
+			_, err := svc.Save(ctx, "x", "indie", 9, []string{a.ID})
+			Expect(err).To(MatchError(generatedplaylist.ErrInvalidLength))
+			_, err = svc.Save(ctx, "x", "indie", 101, []string{a.ID})
+			Expect(err).To(MatchError(generatedplaylist.ErrInvalidLength))
+
+			id, err := svc.Save(ctx, "x", "indie", 0, []string{a.ID})
+			Expect(err).ToNot(HaveOccurred())
+			pls, err := ds.Playlist(ctx).Get(id)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(pls.GeneratedLength).To(Equal(25))
 		})
 
 		It("names the Playlist after its Prompt when no name is given", func() {
 			a := addTrack("Pavement", "Cut Your Hair", 1994, "Indie Rock")
-			id, err := svc.Save(ctx, "", "rainy Sunday 90s indie", []string{a.ID})
+			id, err := svc.Save(ctx, "", "rainy Sunday 90s indie", 25, []string{a.ID})
 			Expect(err).ToNot(HaveOccurred())
 			pls, err := ds.Playlist(ctx).Get(id)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(pls.Name).To(Equal("rainy Sunday 90s indie"))
+		})
+	})
+
+	// ordinaryPlaylist saves a Playlist owned by ownerID that wasn't generated.
+	ordinaryPlaylist := func(ownerID string, tracks ...model.MediaFile) string {
+		pls := &model.Playlist{Name: "Ordinary", OwnerID: ownerID}
+		pls.AddMediaFiles(tracks)
+		Expect(ds.Playlist(ctx).Put(pls)).To(Succeed())
+		return pls.ID
+	}
+
+	Describe("Regenerate", func() {
+		It("previews the Playlist's stored Prompt at its stored length", func() {
+			for i := range 40 {
+				addTrack(fmt.Sprintf("Artist %d", i), fmt.Sprintf("Song %d", i), 2000, "Pop")
+			}
+			first := addTrack("Pavement", "Cut Your Hair", 1994, "Indie Rock")
+			id, err := svc.Save(ctx, "Rainy Sunday", "rainy Sunday 90s indie", 12, []string{first.ID})
+			Expect(err).ToNot(HaveOccurred())
+			fake.requests = nil
+
+			p, err := svc.Regenerate(ctx, id)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(fake.request("filters").User).To(ContainSubstring("rainy Sunday 90s indie"))
+			Expect(p.Prompt).To(Equal("rainy Sunday 90s indie"))
+			Expect(p.Length).To(Equal(12))
+			Expect(p.Tracks).To(HaveLen(12))
+		})
+
+		It("refuses an ordinary Playlist", func() {
+			a := addTrack("Pavement", "Cut Your Hair", 1994, "Indie Rock")
+			_, err := svc.Regenerate(ctx, ordinaryPlaylist(listener.ID, a))
+			Expect(err).To(MatchError(generatedplaylist.ErrNotGenerated))
+			Expect(fake.requests).To(BeEmpty())
+		})
+
+		It("reports a Playlist the Listener can't see as not found", func() {
+			_, err := svc.Regenerate(ctx, "no-such-playlist")
+			Expect(err).To(MatchError(model.ErrNotFound))
+		})
+	})
+
+	Describe("Replace", func() {
+		It("replaces the Tracks of the Listener's Generated Playlist, keeping its name and Prompt", func() {
+			a := addTrack("Pavement", "Cut Your Hair", 1994, "Indie Rock")
+			b := addTrack("Pixies", "Velouria", 1990, "Alternative")
+			c := addTrack("Slowdive", "Alison", 1993, "Shoegaze")
+			id, err := svc.Save(ctx, "Rainy Sunday", "rainy Sunday 90s indie", 10, []string{a.ID})
+			Expect(err).ToNot(HaveOccurred())
+
+			Expect(svc.Replace(ctx, id, []string{c.ID, "made-up", b.ID})).To(Succeed())
+
+			pls, err := ds.Playlist(ctx).GetWithTracks(id, false, false)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(titles(pls.MediaFiles())).To(Equal([]string{"Alison", "Velouria"}))
+			Expect(pls.Name).To(Equal("Rainy Sunday"))
+			Expect(pls.Prompt).To(Equal("rainy Sunday 90s indie"))
+			Expect(pls.GeneratedLength).To(Equal(10))
+			Expect(pls.SongCount).To(Equal(2))
+		})
+
+		It("refuses an ordinary Playlist", func() {
+			a := addTrack("Pavement", "Cut Your Hair", 1994, "Indie Rock")
+			id := ordinaryPlaylist(listener.ID, a)
+			Expect(svc.Replace(ctx, id, []string{a.ID})).To(MatchError(generatedplaylist.ErrNotGenerated))
+		})
+
+		It("refuses another Listener's shared Generated Playlist", func() {
+			a := addTrack("Pavement", "Cut Your Hair", 1994, "Indie Rock")
+			other := model.User{ID: "listener-2", UserName: "other", Name: "Other", NewPassword: "pw"}
+			Expect(ds.User(context.Background()).Put(&other)).To(Succeed())
+			pls := &model.Playlist{Name: "Theirs", OwnerID: other.ID, Public: true, Prompt: "indie", GeneratedLength: 10}
+			pls.AddMediaFiles(model.MediaFiles{a})
+			Expect(ds.Playlist(ctx).Put(pls)).To(Succeed())
+
+			Expect(svc.Replace(ctx, pls.ID, []string{a.ID})).To(MatchError(model.ErrNotAuthorized))
+		})
+
+		It("refuses no real Tracks, or more than 100", func() {
+			a := addTrack("Pavement", "Cut Your Hair", 1994, "Indie Rock")
+			id, err := svc.Save(ctx, "x", "indie", 10, []string{a.ID})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(svc.Replace(ctx, id, []string{"made-up"})).To(MatchError(generatedplaylist.ErrNoTracks))
+			ids := make([]string, 101)
+			for i := range ids {
+				ids[i] = a.ID
+			}
+			Expect(svc.Replace(ctx, id, ids)).To(MatchError(generatedplaylist.ErrInvalidLength))
 		})
 	})
 })

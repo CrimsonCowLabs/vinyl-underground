@@ -9,11 +9,14 @@ import (
 	"github.com/navidrome/navidrome/core/generatedplaylist"
 	"github.com/navidrome/navidrome/core/llm"
 	"github.com/navidrome/navidrome/log"
+	"github.com/navidrome/navidrome/model"
 )
 
 // addGeneratedPlaylistRoute exposes Generated Playlists: POST /generatedPlaylist/preview turns a
 // Prompt into a preview of real Tracks, and POST /generatedPlaylist saves one as a Playlist.
-// Both answer 404 when no LLM is configured.
+// POST /generatedPlaylist/{id}/preview regenerates a saved one from its stored Prompt and length,
+// and PUT /generatedPlaylist/{id}/tracks replaces its Tracks with a preview's.
+// All answer 404 when no LLM is configured.
 func (api *Router) addGeneratedPlaylistRoute(r chi.Router) {
 	var client llm.Client
 	if opts := llm.FromConfig(); llm.Configured(opts) {
@@ -23,6 +26,8 @@ func (api *Router) addGeneratedPlaylistRoute(r chi.Router) {
 	r.Route("/generatedPlaylist", func(r chi.Router) {
 		r.Post("/", saveGeneratedPlaylist(gen))
 		r.Post("/preview", previewGeneratedPlaylist(gen))
+		r.Post("/{id}/preview", regenerateGeneratedPlaylist(gen))
+		r.Put("/{id}/tracks", replaceGeneratedPlaylist(gen))
 	})
 }
 
@@ -34,6 +39,11 @@ type previewRequest struct {
 type saveRequest struct {
 	Name     string   `json:"name"`
 	Prompt   string   `json:"prompt"`
+	Length   int      `json:"length"`
+	TrackIDs []string `json:"trackIds"`
+}
+
+type replaceRequest struct {
 	TrackIDs []string `json:"trackIds"`
 }
 
@@ -68,8 +78,43 @@ func saveGeneratedPlaylist(gen generatedplaylist.Service) http.HandlerFunc {
 			writeGeneratedError(w, r, http.StatusBadRequest, "badRequest", err)
 			return
 		}
-		id, err := gen.Save(r.Context(), body.Name, body.Prompt, body.TrackIDs)
+		id, err := gen.Save(r.Context(), body.Name, body.Prompt, body.Length, body.TrackIDs)
 		if err != nil {
+			writeGeneratedFailure(w, r, err)
+			return
+		}
+		writeGeneratedJSON(w, r, map[string]string{"id": id})
+	}
+}
+
+func regenerateGeneratedPlaylist(gen generatedplaylist.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !gen.Enabled() {
+			http.NotFound(w, r)
+			return
+		}
+		preview, err := gen.Regenerate(r.Context(), chi.URLParam(r, "id"))
+		if err != nil {
+			writeGeneratedFailure(w, r, err)
+			return
+		}
+		writeGeneratedJSON(w, r, preview)
+	}
+}
+
+func replaceGeneratedPlaylist(gen generatedplaylist.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !gen.Enabled() {
+			http.NotFound(w, r)
+			return
+		}
+		var body replaceRequest
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeGeneratedError(w, r, http.StatusBadRequest, "badRequest", err)
+			return
+		}
+		id := chi.URLParam(r, "id")
+		if err := gen.Replace(r.Context(), id, body.TrackIDs); err != nil {
 			writeGeneratedFailure(w, r, err)
 			return
 		}
@@ -90,6 +135,12 @@ func writeGeneratedFailure(w http.ResponseWriter, r *http.Request, err error) {
 		writeGeneratedError(w, r, http.StatusBadRequest, "invalidLength", err)
 	case errors.Is(err, generatedplaylist.ErrNoTracks):
 		writeGeneratedError(w, r, http.StatusUnprocessableEntity, "noTracks", err)
+	case errors.Is(err, generatedplaylist.ErrNotGenerated):
+		writeGeneratedError(w, r, http.StatusConflict, "notGenerated", err)
+	case errors.Is(err, model.ErrNotFound):
+		writeGeneratedError(w, r, http.StatusNotFound, "notFound", err)
+	case errors.Is(err, model.ErrNotAuthorized):
+		writeGeneratedError(w, r, http.StatusForbidden, "notAuthorized", err)
 	default:
 		writeGeneratedError(w, r, http.StatusInternalServerError, "internal", err)
 	}
