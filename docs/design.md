@@ -66,6 +66,8 @@ The Library keeps growing, and all new music reaches it through one path: the **
 **Ripping**
 - Rips keep the best original audio stream, remuxed to `.opus` or `.m4a` and never re-encoded.
 - Each Rip gets a `SOURCE` tag naming the site and a tag holding the source URL. The UI shows a "Ripped" badge, driven by those tags, so it survives promotion and a database rebuild.
+  - The tags are `SOURCE` (the site's name, e.g. `YouTube`) and `SOURCEURL`: Vorbis comments in Opus, Ogg and FLAC, `----:com.apple.iTunes:SOURCE` / `SOURCEURL` freeform atoms in M4A, and `TXXX:SOURCE` / `TXXX:SOURCEURL` frames in MP3.
+  - The scanner reads them into the Track's `source` and `source_url`. Adding these columns forced one full rescan, so Files already in a Library were read again.
 - A playlist of more than 50 items asks for confirmation. More than 300 is refused.
 - Each Rip is a background job, run one at a time. A job's status is queued, downloading, tagging, ready for review, or failed (showing yt-dlp's error). Jobs keep running after the tab is closed.
 - yt-dlp lives in `/data/bin`, because the container is read-only. The app downloads it, updates it on a schedule and from an "Update yt-dlp" button, and after a failed Rip it updates yt-dlp once and retries.
