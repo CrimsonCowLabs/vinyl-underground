@@ -24,7 +24,6 @@ import clsx from 'clsx'
 import { AlbumDatesField } from './AlbumDatesField.jsx'
 import { Artwork } from '../common/Artwork'
 import { DownloadBadge } from '../download/DownloadBadge'
-import { ALBUM } from '../download/downloads'
 
 const useStyles = makeStyles(
   (theme) => ({
@@ -155,12 +154,12 @@ const Cover = withContentRect('bounds')(({
           className={classes.cover}
           title={record.name}
         />
+        <DownloadBadge
+          id={record.id}
+          kind="album"
+          className={classes.downloadBadge}
+        />
       </div>
-      <DownloadBadge
-        id={record.id}
-        kind={ALBUM}
-        className={classes.downloadBadge}
-      />
     </div>
   )
 })

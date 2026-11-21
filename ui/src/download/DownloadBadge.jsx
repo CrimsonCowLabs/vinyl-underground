@@ -29,45 +29,40 @@ const useStyles = makeStyles(
   { name: 'VUDownloadBadge' },
 )
 
-const iconFor = (download, classes) => {
-  switch (download.state) {
-    case 'downloading':
-      return (
-        <CircularProgress
-          data-testid="download-badge-downloading"
-          color="inherit"
-          size={16}
-          thickness={6}
-          variant="determinate"
-          value={(100 * download.done) / Math.max(download.total, 1)}
-        />
-      )
-    case 'interrupted':
-      return (
-        <WarningIcon
-          data-testid="download-badge-interrupted"
-          className={classes.icon}
-        />
-      )
-    default:
-      return (
-        <CheckIcon
-          data-testid="download-badge-downloaded"
-          className={classes.icon}
-        />
-      )
-  }
-}
-
-const labelKeyFor = (download) => {
-  switch (download.state) {
-    case 'downloading':
-      return 'download.badge.downloading'
-    case 'interrupted':
-      return `download.badge.interrupted.${download.kind}`
-    default:
-      return 'download.badge.downloaded'
-  }
+// Each state's icon, and its label: both the tooltip and what a screen
+// reader says
+const STATES = {
+  downloaded: {
+    labelKey: () => 'download.badge.downloaded',
+    icon: (download, classes) => (
+      <CheckIcon
+        data-testid="download-badge-downloaded"
+        className={classes.icon}
+      />
+    ),
+  },
+  downloading: {
+    labelKey: () => 'download.message.downloading',
+    icon: (download) => (
+      <CircularProgress
+        data-testid="download-badge-downloading"
+        color="inherit"
+        size={16}
+        thickness={6}
+        variant="determinate"
+        value={(100 * download.done) / Math.max(download.total, 1)}
+      />
+    ),
+  },
+  interrupted: {
+    labelKey: (download) => `download.badge.interrupted.${download.kind}`,
+    icon: (download, classes) => (
+      <WarningIcon
+        data-testid="download-badge-interrupted"
+        className={classes.icon}
+      />
+    ),
+  },
 }
 
 // Shows whether a Playlist or album has a Download on this device for the
@@ -80,9 +75,10 @@ export const DownloadBadge = ({ id, kind, className }) => {
   const classes = useStyles()
   const download = useDownload(id, kind)
 
-  if (!downloadsSupported() || !download) return null
+  const shown = download && STATES[download.state]
+  if (!downloadsSupported() || !shown) return null
 
-  const label = translate(labelKeyFor(download), download)
+  const label = translate(shown.labelKey(download), download)
   return (
     <Tooltip title={label}>
       <span
@@ -90,7 +86,7 @@ export const DownloadBadge = ({ id, kind, className }) => {
         aria-label={label}
         className={clsx(classes.badge, className)}
       >
-        {iconFor(download, classes)}
+        {shown.icon(download, classes)}
       </span>
     </Tooltip>
   )

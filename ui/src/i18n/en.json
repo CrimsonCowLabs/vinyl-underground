@@ -909,7 +909,6 @@
     },
     "badge": {
       "downloaded": "Downloaded: plays offline",
-      "downloading": "Downloading %{done}/%{total}",
       "interrupted": {
         "album": "Download interrupted at %{done}/%{total}. Open the album to resume it.",
         "playlist": "Download interrupted at %{done}/%{total}. Open the Playlist to resume it."
