@@ -9,6 +9,7 @@ import PlayingDark from '../icons/playing-dark.gif'
 import PausedLight from '../icons/paused-light.png'
 import PausedDark from '../icons/paused-dark.png'
 import { RippedBadge } from './RippedBadge'
+import { TrackDownloadedBadge } from '../download/TrackDownloadedBadge'
 
 const useStyles = makeStyles({
   icon: {
@@ -81,6 +82,7 @@ export const SongTitleField = ({ showTrackNumbers, ...props }) => {
         className={classes.text}
       />
       <RippedBadge record={record} />
+      <TrackDownloadedBadge record={record} />
     </>
   )
 }

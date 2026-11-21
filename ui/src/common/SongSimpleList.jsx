@@ -9,6 +9,7 @@ import { makeStyles } from '@material-ui/core/styles'
 import { sanitizeListRestProps } from 'react-admin'
 import { DurationField, SongContextMenu, RatingField } from './index'
 import { RippedBadge } from './RippedBadge'
+import { TrackDownloadedBadge } from '../download/TrackDownloadedBadge'
 import { setTrack } from '../actions'
 import { useDispatch } from 'react-redux'
 import config from '../config'
@@ -79,6 +80,7 @@ export const SongSimpleList = ({
                       <div className={classes.title}>
                         {data[id].title}
                         <RippedBadge record={data[id]} />
+                        <TrackDownloadedBadge record={data[id]} />
                       </div>
                     }
                     secondary={

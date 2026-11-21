@@ -7,6 +7,10 @@
         "label": "Ripped",
         "from": "Ripped from %{source}"
       },
+      "downloaded": {
+        "label": "Downloaded",
+        "tooltip": "Stored on this device for offline play"
+      },
       "fields": {
         "albumArtist": "Album Artist",
         "duration": "Time",
