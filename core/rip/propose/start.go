@@ -2,6 +2,7 @@ package propose
 
 import (
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/navidrome/navidrome/core/rip/match"
@@ -16,6 +17,8 @@ const (
 	FromYouTubeMusic From = "youtube-music"
 	// FromTitle is the video's title (or a File's own tags), cleaned up.
 	FromTitle From = "title"
+	// FromTags is a File's own artist and title tags (an upload or a dropped File), cleaned up.
+	FromTags From = "tags"
 )
 
 // Start is where a proposal starts, before MusicBrainz is asked for the album and year.
@@ -63,7 +66,14 @@ func StartsFrom(in Input) []Start {
 	base := Start{Artist: strings.TrimSpace(in.Artist), Title: strings.TrimSpace(in.Title),
 		Album: strings.TrimSpace(in.Album), Year: in.Year, From: FromTitle}
 	var res []Start
-	for _, g := range match.Guesses(in.Artist, in.Title) {
+	guesses := match.Guesses(in.Artist, in.Title)
+	if in.Tagged && strings.TrimSpace(in.Artist) != "" {
+		// The File's artist tag is its artist: the whole title is the likelier reading. A title
+		// that starts with that artist ("Adele - Hello") has only the split one.
+		base.From = FromTags
+		slices.Reverse(guesses)
+	}
+	for _, g := range guesses {
 		s := base
 		s.Artist, s.Title = g.Artist, g.Title
 		s.AlbumArtist = leadArtist(s.Artist)

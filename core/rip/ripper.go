@@ -133,6 +133,14 @@ type Options struct {
 	// PromoteRoot is the promote folder reviewed Files are moved into (see Promote and
 	// CheckPromoteFolder). Empty turns Promote off.
 	PromoteRoot string
+	// MaxUploadSize is the biggest File the admin can upload. Defaults to MaxUploadSize.
+	MaxUploadSize int64
+	// DropSettle is how long a File dropped into the Inbox must stay the same (size and time)
+	// before it is adopted into a review card (see ReconcileDrops). Defaults to a minute.
+	DropSettle time.Duration
+	// UploadScanDelay is how long after an upload the Inbox is scanned, so a batch of uploads
+	// is scanned once. Defaults to two seconds.
+	UploadScanDelay time.Duration
 }
 
 // Updater keeps yt-dlp up to date. *Binary implements it.
@@ -182,12 +190,22 @@ type Ripper struct {
 	proposals proposalQueue
 	// promoteFS is the filesystem Promote works on. Nil is the real one; tests set another.
 	promoteFS promoteFS
+	// landing is held while a File lands in the Inbox and its item is saved (a Rip's, an
+	// upload's), and while the drop reconciler adopts Files, so it never takes a File some job is
+	// about to claim for a dropped one.
+	landing sync.Mutex
+	// scanPending is true while an Inbox scan after an upload is waiting to run.
+	scanPending atomic.Bool
+	// drops is the drop reconciler's state (see ReconcileDrops).
+	drops dropState
 }
 
 func New(ds model.DataStore, fetcher Fetcher, scanner FolderScanner, opts Options) *Ripper {
 	opts.Timeout = cmp.Or(opts.Timeout, 30*time.Minute)
 	opts.ScanRetryDelay = cmp.Or(opts.ScanRetryDelay, 10*time.Second)
 	opts.ScanAttempts = cmp.Or(opts.ScanAttempts, 180)
+	opts.DropSettle = cmp.Or(opts.DropSettle, time.Minute)
+	opts.UploadScanDelay = cmp.Or(opts.UploadScanDelay, 2*time.Second)
 	if opts.Tagger == nil {
 		opts.Tagger = WriteTags
 	}
@@ -195,6 +213,7 @@ func New(ds model.DataStore, fetcher Fetcher, scanner FolderScanner, opts Option
 		ds: ds, fetcher: fetcher, scanner: scanner, opts: opts,
 		wake: make(chan struct{}, 1), ytDlp: make(chan struct{}, 1),
 		proposals: proposalQueue{queued: map[string]bool{}, wake: make(chan struct{}, 1)},
+		drops:     dropState{seen: map[string]fileStamp{}, wake: make(chan struct{}, 1)},
 	}
 }
 
@@ -218,7 +237,7 @@ func (r *Ripper) Enqueue(ctx context.Context, rawURL string, confirmed bool) (*m
 	}
 	user, _ := request.UserFrom(ctx)
 	now := time.Now()
-	job := &model.RipJob{UserID: user.ID, URL: rawURL, Status: model.RipQueued, CreatedAt: now, UpdatedAt: now,
+	job := &model.RipJob{Kind: model.RipKindRip, UserID: user.ID, URL: rawURL, Status: model.RipQueued, CreatedAt: now, UpdatedAt: now,
 		Items: model.RipItems{}}
 
 	info, err := r.fetcher.Probe(ctx, rawURL)
@@ -334,8 +353,9 @@ func validURL(s string) bool {
 	return err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != ""
 }
 
-// Run works through the queue until ctx ends. Jobs and items that were downloading when the app
-// last stopped go back in the queue first.
+// Run works through the queue of Rips until ctx ends. Jobs and items that were downloading when
+// the app last stopped go back in the queue first. It runs only with ripping on; the tag
+// proposals and dropped Files are RunInbox's, which runs whenever there is an Inbox.
 func (r *Ripper) Run(ctx context.Context) {
 	if n, err := r.ds.RipJob(ctx).RequeueInterrupted(); err != nil {
 		log.Error(ctx, "Could not re-queue interrupted Rips", err)
@@ -345,7 +365,6 @@ func (r *Ripper) Run(ctx context.Context) {
 	if _, err := r.ds.RipItem(ctx).RequeueInterrupted(); err != nil {
 		log.Error(ctx, "Could not re-queue interrupted Rip items", err)
 	}
-	go r.runProposals(ctx)
 	for ctx.Err() == nil {
 		job, err := r.ds.RipJob(ctx).NextQueued()
 		switch {
@@ -369,6 +388,10 @@ func (r *Ripper) Run(ctx context.Context) {
 // many failed), and failed if none did.
 func (r *Ripper) process(ctx context.Context, job *model.RipJob) {
 	if ctx.Err() != nil {
+		return
+	}
+	if job.Kind != model.RipKindRip {
+		// An upload or a drop is never ripped (NextQueued doesn't hand them out anyway).
 		return
 	}
 	// The job stays queued until its first item gets hold of yt-dlp (see processItem), so it
@@ -679,6 +702,9 @@ func (r *Ripper) rip(ctx context.Context, inboxPath string, job *model.RipJob, i
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
+	// The drop reconciler must never see the File before its item knows it.
+	r.landing.Lock()
+	defer r.landing.Unlock()
 	dest, err := moveIntoInbox(file, dir, fileName(info, filepath.Ext(file)))
 	if err != nil {
 		return err

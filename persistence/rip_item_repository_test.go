@@ -197,4 +197,28 @@ var _ = Describe("RipItemRepository", func() {
 		Expect(items.ForJobs(other.ID)).To(HaveLen(1))
 		Expect(jobs.Delete(j.ID)).To(MatchError(model.ErrNotFound))
 	})
+
+	It("lists the path of every item's File, of any job", func() {
+		a, b := newJob("https://example.com/a"), newJob("https://example.com/b")
+		newItem(a, 1, model.RipQueued)
+		landed := newItem(a, 2, model.RipReady)
+		landed.Path = "Album/02.opus"
+		Expect(items.Put(landed)).To(Succeed())
+		other := newItem(b, 1, model.RipReady)
+		other.Path = "Single.m4a"
+		Expect(items.Put(other)).To(Succeed())
+
+		Expect(items.Paths()).To(ConsistOf("Album/02.opus", "Single.m4a"))
+	})
+
+	It("saves an item's matches alone", func() {
+		it := newItem(newJob("https://example.com/a"), 1, model.RipReady)
+		have := model.RipMatches{{ID: "mf-1", Title: "Song", Artist: "Band", Library: "Music"}}
+		Expect(items.SetAlreadyHave(it.ID, have)).To(Succeed())
+
+		got, err := items.ForJobs(it.JobID)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(got[0].AlreadyHave).To(Equal(have))
+		Expect(items.SetAlreadyHave("gone", have)).To(MatchError(model.ErrNotFound))
+	})
 })

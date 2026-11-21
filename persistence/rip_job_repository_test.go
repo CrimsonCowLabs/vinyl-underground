@@ -91,4 +91,34 @@ var _ = Describe("RipJobRepository", func() {
 		Expect(err).ToNot(HaveOccurred())
 		Expect(got.Status).To(Equal(model.RipQueued))
 	})
+
+	It("saves a job's kind, a Rip when none is given", func() {
+		rip := newJob("https://example.com/a", model.RipReady, time.Now())
+		up := &model.RipJob{Kind: model.RipKindUpload, Status: model.RipReady, UserID: adminUser.ID, Folder: "Upload"}
+		Expect(repo.Put(up)).To(Succeed())
+
+		got, err := repo.Get(rip.ID)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(got.Kind).To(Equal(model.RipKindRip))
+		got, err = repo.Get(up.ID)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(got.Kind).To(Equal(model.RipKindUpload))
+	})
+
+	It("never hands out, or re-queues, an upload or a drop", func() {
+		t := time.Now()
+		for _, kind := range []model.RipKind{model.RipKindUpload, model.RipKindDrop} {
+			for _, status := range []model.RipStatus{model.RipQueued, model.RipDownloading} {
+				Expect(repo.Put(&model.RipJob{Kind: kind, Status: status, UserID: adminUser.ID, CreatedAt: t.Add(-time.Hour)})).To(Succeed())
+			}
+		}
+		_, err := repo.NextQueued()
+		Expect(err).To(MatchError(model.ErrNotFound))
+		Expect(repo.RequeueInterrupted()).To(Equal(int64(0)))
+
+		newJob("https://example.com/rip", model.RipQueued, t)
+		next, err := repo.NextQueued()
+		Expect(err).ToNot(HaveOccurred())
+		Expect(next.URL).To(Equal("https://example.com/rip"))
+	})
 })

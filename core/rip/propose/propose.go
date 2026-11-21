@@ -14,6 +14,10 @@ type Input struct {
 	// Album and Year are a File's own tags, if any.
 	Album string
 	Year  int
+	// Tagged is true when Artist and Title are a File's own artist and title tags (an upload or a
+	// dropped File, #35), so the title is read whole first: a dash in it is more likely part of
+	// the song's name ("Creep - Acoustic") than an "Artist - Title".
+	Tagged bool
 	// Duration is the Track's length, if known.
 	Duration time.Duration
 	// YouTubeMusic is YouTube Music's own metadata, when the video is an auto-generated "Topic"

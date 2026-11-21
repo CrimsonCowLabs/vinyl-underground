@@ -95,6 +95,30 @@ func (m *MockRipItemRepo) Delete(id string) error {
 	return model.ErrNotFound
 }
 
+func (m *MockRipItemRepo) SetAlreadyHave(id string, matches model.RipMatches) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.items {
+		if m.items[i].ID == id {
+			m.items[i].AlreadyHave = matches
+			return nil
+		}
+	}
+	return model.ErrNotFound
+}
+
+func (m *MockRipItemRepo) Paths() ([]string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var res []string
+	for _, it := range m.items {
+		if it.Path != "" {
+			res = append(res, it.Path)
+		}
+	}
+	return res, nil
+}
+
 func (m *MockRipItemRepo) PromotesInterrupted() (model.RipItems, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

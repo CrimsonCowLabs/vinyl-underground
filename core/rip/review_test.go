@@ -326,6 +326,20 @@ var _ = Describe("Review and Discard", func() {
 			Eventually(scanner.scans).Should(HaveLen(1))
 		})
 
+		It("deletes a dropped folder's Files from disk, folders inside it included (#35)", func() {
+			landed("ripped.opus", "Album/CD1/a.opus")
+			landed("ripped.m4a", "Album/CD2/b.m4a")
+			job := newJob(model.RipReady, "Album", "Album/CD1/a.opus", "Album/CD2/b.m4a")
+			job.Kind = model.RipKindDrop
+			Expect(ds.RipJob(ctx).Put(job)).To(Succeed())
+
+			Expect(ripper.Discard(ctx, job.ID)).To(Succeed())
+
+			Expect(exists("Album")).To(BeFalse())
+			_, err := ds.RipJob(ctx).Get(job.ID)
+			Expect(err).To(MatchError(model.ErrNotFound))
+		})
+
 		It("keeps the folder when something else is in it", func() {
 			landed("ripped.opus", "Album/a.opus")
 			landed("untagged.opus", "Album/dropped by hand.opus")

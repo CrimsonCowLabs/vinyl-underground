@@ -68,4 +68,26 @@ var _ = Describe("StartFrom", func() {
 		s := propose.StartFrom(propose.Input{Artist: "Someone", Title: "(Official Video)"})
 		Expect(s.Title).To(Equal("(Official Video)"))
 	})
+
+	Describe("a File's own tags (an upload or a dropped File, #35)", func() {
+		It("reads a tagged title with a dash whole first, as the File's artist tag is the artist", func() {
+			starts := propose.StartsFrom(propose.Input{Artist: "Radiohead", Title: "Creep - Acoustic", Tagged: true})
+			Expect(starts[0].From).To(Equal(propose.FromTags))
+			Expect(starts[0].Artist).To(Equal("Radiohead"))
+			Expect(starts[0].Title).To(Equal("Creep - Acoustic"))
+			Expect(starts[0].AlbumArtist).To(Equal("Radiohead"))
+		})
+
+		It("still takes YouTube noise out of a tagged File's title (a File ripped elsewhere)", func() {
+			s := propose.StartFrom(propose.Input{Artist: "Adele", Title: "Hello (Official Video)", Tagged: true})
+			Expect(s.Title).To(Equal("Hello"))
+			Expect(s.From).To(Equal(propose.FromTags))
+		})
+
+		It("keeps a tagged title that already names its artist as it reads best", func() {
+			s := propose.StartFrom(propose.Input{Artist: "AdeleVEVO", Title: "Adele - Hello", Tagged: true})
+			Expect(s.Artist).To(Equal("Adele"))
+			Expect(s.Title).To(Equal("Hello"))
+		})
+	})
 })
