@@ -49,10 +49,24 @@ var _ = Describe("Skips", func() {
 		Expect(weight(track("v", "John Coltrane"))).To(Equal(1.0))
 	})
 
+	It("don't treat Tracks with no artist as one artist", func() {
+		weight := stations.SkipWeight([]stations.Skip{skipped("t", "", day)}, now)
+		Expect(weight(track("t", ""))).To(BeNumerically("<", 1))
+		Expect(weight(track("u", " "))).To(Equal(1.0))
+	})
+
 	It("add up when a Track is skipped again", func() {
 		once := stations.SkipWeight([]stations.Skip{skipped("t", "A", day)}, now)
 		twice := stations.SkipWeight([]stations.Skip{skipped("t", "A", day), skipped("t", "A", 2*day)}, now)
 		Expect(twice(track("t", "A"))).To(BeNumerically("<", once(track("t", "A"))))
 		Expect(twice(track("t", "A"))).To(BeNumerically(">", 0))
+	})
+
+	It("never make a Track rarer than a fifth of its chance, however often it was skipped", func() {
+		var many []stations.Skip
+		for range 20 {
+			many = append(many, skipped("t", "A", time.Hour))
+		}
+		Expect(stations.SkipWeight(many, now)(track("t", "A"))).To(BeNumerically("~", 0.2, 1e-9))
 	})
 })

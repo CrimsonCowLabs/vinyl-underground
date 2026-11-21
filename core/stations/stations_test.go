@@ -159,7 +159,7 @@ var _ = Describe("Stations", Ordered, func() {
 		// fresh starts. Forgetting what the Station served stands in for 48h passing.
 		firstPicks := func(ctx context.Context, djID string) map[string]int {
 			res := map[string]int{}
-			for range 60 {
+			for range 150 {
 				_, err := db.Db().Exec("delete from station_track")
 				Expect(err).ToNot(HaveOccurred())
 				tracks, err := svc.Next(ctx, djID, 1)
@@ -170,7 +170,7 @@ var _ = Describe("Stations", Ordered, func() {
 		}
 
 		// skipHard serves both Tracks on Alice's Sunny Station and has her skip the first one
-		// again and again, so its effect can't be down to chance.
+		// again and again, so it plays at its least: a sixth of the first picks against half.
 		skipHard := func(tracks []string) {
 			_, err := svc.Next(aliceCtx, "sunny", 2)
 			Expect(err).ToNot(HaveOccurred())
@@ -183,14 +183,14 @@ var _ = Describe("Stations", Ordered, func() {
 			tracks := addTracks(2)
 			skipHard(tracks)
 			n := firstPicks(aliceCtx, "sunny")
-			Expect(n[tracks[0]]).To(BeNumerically("<", 5))
+			Expect(n[tracks[0]]).To(BeNumerically("<", 50))
 		})
 
 		It("leave the Listener's other Stations and the other Listener alone", func() {
 			tracks := addTracks(2)
 			skipHard(tracks)
-			Expect(firstPicks(aliceCtx, "night-owl")[tracks[0]]).To(BeNumerically(">", 10))
-			Expect(firstPicks(bobCtx, "sunny")[tracks[0]]).To(BeNumerically(">", 10))
+			Expect(firstPicks(aliceCtx, "night-owl")[tracks[0]]).To(BeNumerically(">", 50))
+			Expect(firstPicks(bobCtx, "sunny")[tracks[0]]).To(BeNumerically(">", 50))
 		})
 
 		It("leave ratings, favorites and play counts alone", func() {

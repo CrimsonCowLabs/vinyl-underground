@@ -40,8 +40,8 @@ It is a public, GPL-3.0, hard fork of Navidrome **v0.64.2**, renamed and never r
 - It avoids Tracks played in the last ~48h and avoids repeating an artist within ~5 Tracks.
 - Tracks and Blurbs are pre-generated 2–3 Tracks ahead.
 - A skip is a mild "less like this" signal for that Station only, fading over ~30 days.
-  - How skips work (#14): a Station is a Listener's with one DJ. Leaving a Station Track before half of it played is a skip; ending the Station or starting another one isn't. The web app sends it to `POST /api/station/skip` (`{dj, track}`), which records it in `station_skip` only for a Track that Listener's Station served in the last ~48h (404 `notServed` otherwise).
-  - On each refill, that Station's skips scale a Track's chance: a fresh skip halves the Track's and takes a quarter off each of its artist's Tracks', fading evenly to nothing over 30 days, after which the skip is pruned. Repeated skips compound, so a Track gets rarer but never impossible.
+  - How skips work (#14): a Station is a Listener's with one DJ. Leaving a Station Track before half of it played is a skip; ending the Station or starting another one isn't. The web app sends it to `POST /api/station/skip` (`{dj, track}`), which records it in `station_skip` against that DJ, only for a Track one of that Listener's Stations served in the last ~48h (404 `notServed` otherwise; served Tracks aren't kept per DJ).
+  - On each refill, that Station's skips scale a Track's chance: a fresh skip takes 40% off the Track's and 20% off each of its artist's Tracks', fading evenly to nothing over 30 days, after which the skip is pruned. Repeated skips compound, but never leave a Track less than a fifth of its chance.
   - Skips never touch annotations, so ratings, favorites and play counts stay as they are.
 - Station plays count in play history once ~50% of the Track has played.
 - Later (not now): start a Station from a Track, artist or Playlist.
