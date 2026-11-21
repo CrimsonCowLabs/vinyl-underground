@@ -58,7 +58,8 @@ func (s *service) askFilters(ctx context.Context, prompt string, libraryGenres [
 }
 
 // cleanFilters keeps only what can be looked up in the Library: genres it has (matched without
-// case, or one name containing the other), a few distinct seed artists, and plausible years.
+// case, including the Library's narrower names, so "indie" finds "Indie Rock"), a few distinct
+// seed artists, and plausible years.
 func cleanFilters(r filtersReply, libraryGenres []string) filters {
 	f := filters{Name: truncate(strings.TrimSpace(r.Name), maxNameLength)}
 
@@ -70,7 +71,7 @@ func cleanFilters(r filtersReply, libraryGenres []string) filters {
 		}
 		for _, g := range libraryGenres {
 			lg := strings.ToLower(g)
-			if !seen[g] && (lg == want || strings.Contains(lg, want) || strings.Contains(want, lg)) {
+			if !seen[g] && strings.Contains(lg, want) {
 				seen[g] = true
 				f.Genres = append(f.Genres, g)
 			}

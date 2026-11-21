@@ -126,7 +126,10 @@ func (s *service) Preview(ctx context.Context, prompt string, length int) (*Prev
 	if name == "" {
 		name = truncate(prompt, maxNameLength)
 	}
-	return &Preview{Prompt: prompt, Name: name, Tracks: pickTracks(candidates, picks, length)}, nil
+	tracks, picked := pickTracks(candidates, picks, length)
+	log.Info(ctx, "Generated Playlist preview", "length", length, "candidates", len(candidates),
+		"llmPicks", len(picks), "validPicks", picked, "tracks", len(tracks))
+	return &Preview{Prompt: prompt, Name: name, Tracks: tracks}, nil
 }
 
 // candidateTarget is how many candidates to offer the LLM for a Playlist of length Tracks.
@@ -134,31 +137,43 @@ func candidateTarget(length int) int {
 	return min(max(length*candidatesFactor, minCandidates), MaxCandidates)
 }
 
+// maxPerArtist is how many Tracks one artist may have in a Playlist of length Tracks. A small
+// model tends to pick a whole album in a row when it is among the candidates.
+func maxPerArtist(length int) int {
+	return max(3, length/8)
+}
+
 // pickTracks returns the candidates the LLM picked (1-based numbers), in its order. Numbers that
-// aren't candidates and repeats are dropped. If it picked fewer than length, the rest come from
-// the remaining candidates, best matches first.
-func pickTracks(candidates model.MediaFiles, picks []int, length int) model.MediaFiles {
+// aren't candidates, repeats, and picks beyond an artist's share (maxPerArtist) are dropped. If
+// that leaves fewer than length, the rest come from the remaining candidates, best matches first,
+// keeping to the artists' shares unless there is nothing else. It also returns how many of the
+// LLM's picks it kept.
+func pickTracks(candidates model.MediaFiles, picks []int, length int) (model.MediaFiles, int) {
 	res := make(model.MediaFiles, 0, min(length, len(candidates)))
 	used := make([]bool, len(candidates))
+	perArtist := map[string]int{}
+	limit := maxPerArtist(length)
+	take := func(i int, capped bool) {
+		artist := strings.ToLower(oneLine(candidates[i].Artist))
+		if len(res) == length || used[i] || (capped && perArtist[artist] >= limit) {
+			return
+		}
+		used[i] = true
+		perArtist[artist]++
+		res = append(res, candidates[i])
+	}
 	for _, n := range picks {
-		if len(res) == length {
-			break
-		}
-		if n < 1 || n > len(candidates) || used[n-1] {
-			continue
-		}
-		used[n-1] = true
-		res = append(res, candidates[n-1])
-	}
-	for i := range candidates {
-		if len(res) >= length {
-			break
-		}
-		if !used[i] {
-			res = append(res, candidates[i])
+		if n >= 1 && n <= len(candidates) {
+			take(n-1, true)
 		}
 	}
-	return res
+	picked := len(res)
+	for _, capped := range []bool{true, false} {
+		for i := range candidates {
+			take(i, capped)
+		}
+	}
+	return res, picked
 }
 
 // libraryGenres returns the names of the Listener's Library's most common genres.

@@ -231,6 +231,27 @@ var _ = Describe("Generated Playlists", Ordered, func() {
 			Expect(candidateLines(fake.request("ranking").User)).To(HaveLen(150))
 		})
 
+		It("spreads the candidates across artists when the Library allows", func() {
+			for i := range 100 {
+				addTrack("The Beatles", fmt.Sprintf("Abbey Road %d", i), 1988, "Pop")
+				addTrack(fmt.Sprintf("Artist %d", i), fmt.Sprintf("Song %d", i), 1988, "Pop")
+			}
+			refreshGenres()
+			fake.filters["genres"] = []string{"Pop"}
+
+			_, err := svc.Preview(ctx, "pop", 25)
+			Expect(err).ToNot(HaveOccurred())
+			lines := candidateLines(fake.request("ranking").User)
+			Expect(lines).To(HaveLen(75))
+			beatles := 0
+			for _, l := range lines {
+				if strings.Contains(l, "The Beatles") {
+					beatles++
+				}
+			}
+			Expect(beatles).To(BeNumerically("<=", 7))
+		})
+
 		It("keeps the LLM's order, and discards Tracks that aren't candidates", func() {
 			addTrack("Pavement", "Cut Your Hair", 1994, "Indie Rock")
 			addTrack("Pavement", "Gold Soundz", 1994, "Indie Rock")
@@ -266,6 +287,48 @@ var _ = Describe("Generated Playlists", Ordered, func() {
 			p, err = svc.Preview(ctx, "pop", 12)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(p.Tracks).To(HaveLen(12))
+		})
+
+		It("gives one artist at most 3 Tracks in 25, even if the LLM picks more", func() {
+			for i := range 20 {
+				addTrack("Guns N' Roses", fmt.Sprintf("Appetite %d", i), 1987, "Rock")
+			}
+			for i := range 30 {
+				addTrack(fmt.Sprintf("Artist %d", i), fmt.Sprintf("Song %d", i), 1987, "Rock")
+			}
+			fake.filters["seed_artists"] = []string{"Guns N' Roses"}
+			fake.rank = func(c []string) []int {
+				// Every Guns N' Roses candidate first, as a small model tends to.
+				var gnr, rest []int
+				for i, l := range c {
+					if strings.Contains(l, "Guns N' Roses") {
+						gnr = append(gnr, i+1)
+					} else {
+						rest = append(rest, i+1)
+					}
+				}
+				return append(gnr, rest...)
+			}
+
+			p, err := svc.Preview(ctx, "80s rock", 25)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(p.Tracks).To(HaveLen(25))
+			gnr := 0
+			for _, t := range p.Tracks {
+				if t.Artist == "Guns N' Roses" {
+					gnr++
+				}
+			}
+			Expect(gnr).To(Equal(3))
+		})
+
+		It("still fills the Playlist from one artist when the Library has nothing else", func() {
+			for i := range 15 {
+				addTrack("Guns N' Roses", fmt.Sprintf("Appetite %d", i), 1987, "Rock")
+			}
+			p, err := svc.Preview(ctx, "80s rock", 10)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(p.Tracks).To(HaveLen(10))
 		})
 
 		It("still finds Tracks when the filters match nothing in the Library", func() {

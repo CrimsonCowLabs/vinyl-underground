@@ -17,10 +17,12 @@ import (
 //  4. anything.
 //
 // Within each search the Tracks are random, so the same Prompt can give a different Playlist.
-// The seed artists take at most half the candidates, shared between them, so one prolific artist
-// can't crowd out the rest.
+// The seed artists take at most a third of the candidates, shared between them and at most
+// maxPerSeedArtist each, and no artist gets more than a tenth (at least 5), so a few prolific
+// artists can't crowd out the rest. Only a Library too small for that ignores the artist limit.
 func (s *service) candidates(ctx context.Context, f filters, target int) (model.MediaFiles, error) {
-	c := &collector{target: target, seen: map[string]bool{}, seenSong: map[string]bool{}}
+	c := &collector{target: target, artistCap: max(5, target/10),
+		seen: map[string]bool{}, seenSong: map[string]bool{}, perArtist: map[string]int{}}
 	type search struct {
 		matching bool // the seed artists and genres, or anything
 		years    Sqlizer
@@ -45,7 +47,7 @@ func (s *service) candidates(ctx context.Context, f filters, target int) (model.
 			continue
 		}
 		if len(f.SeedArtists) > 0 {
-			perArtist := max(1, (target/2+len(f.SeedArtists)-1)/len(f.SeedArtists))
+			perArtist := min(maxPerSeedArtist, max(1, (target/3+len(f.SeedArtists)-1)/len(f.SeedArtists)))
 			for _, artist := range f.SeedArtists {
 				if c.full() {
 					break
@@ -65,16 +67,29 @@ func (s *service) candidates(ctx context.Context, f filters, target int) (model.
 			c.add(mfs)
 		}
 	}
+	if !c.full() {
+		c.artistCap = 0
+		mfs, err := s.search(ctx, nil, nil, c.room())
+		if err != nil {
+			return nil, err
+		}
+		c.add(mfs)
+	}
 	return c.tracks, nil
 }
 
-// collector gathers distinct candidates up to target. Two Tracks with the same artist and
-// title (the same song on an album and a compilation) count as one.
+const maxPerSeedArtist = 6
+
+// collector gathers distinct candidates up to target, at most artistCap per artist (0 for no
+// limit). Two Tracks with the same artist and title (the same song on an album and a
+// compilation) count as one.
 type collector struct {
-	target   int
-	tracks   model.MediaFiles
-	seen     map[string]bool
-	seenSong map[string]bool
+	target    int
+	artistCap int
+	tracks    model.MediaFiles
+	seen      map[string]bool
+	seenSong  map[string]bool
+	perArtist map[string]int
 }
 
 func (c *collector) full() bool { return len(c.tracks) >= c.target }
@@ -85,12 +100,14 @@ func (c *collector) add(mfs model.MediaFiles) {
 		if c.full() {
 			return
 		}
-		song := strings.ToLower(oneLine(mf.Artist)) + "\x00" + strings.ToLower(oneLine(mf.Title))
-		if c.seen[mf.ID] || c.seenSong[song] {
+		artist := strings.ToLower(oneLine(mf.Artist))
+		song := artist + "\x00" + strings.ToLower(oneLine(mf.Title))
+		if c.seen[mf.ID] || c.seenSong[song] || (c.artistCap > 0 && c.perArtist[artist] >= c.artistCap) {
 			continue
 		}
 		c.seen[mf.ID] = true
 		c.seenSong[song] = true
+		c.perArtist[artist]++
 		c.tracks = append(c.tracks, mf)
 	}
 }
@@ -117,8 +134,8 @@ func artistFilter(name string) Sqlizer {
 	}
 }
 
-// searchOptions picks max random, present Tracks matching every filter given. Extra rows are
-// fetched so that repeats of Tracks already collected still leave enough new ones.
+// searchOptions picks random, present Tracks matching every filter given: three times max, so
+// that after dropping repeats and artists over their limit there are still enough new ones.
 func searchOptions(max int, filters ...Sqlizer) model.QueryOptions {
 	and := And{Eq{"media_file.missing": false}}
 	for _, f := range filters {
@@ -126,7 +143,7 @@ func searchOptions(max int, filters ...Sqlizer) model.QueryOptions {
 			and = append(and, f)
 		}
 	}
-	return model.QueryOptions{Filters: and, Sort: "random", Max: max * 2}
+	return model.QueryOptions{Filters: and, Sort: "random", Max: max * 3}
 }
 
 func (s *service) search(ctx context.Context, filter, years Sqlizer, max int) (model.MediaFiles, error) {
