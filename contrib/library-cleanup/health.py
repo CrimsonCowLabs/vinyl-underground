@@ -19,7 +19,7 @@ as well as on a copy. Only Tracks and albums the app still has count (missing = 
   - Tracks with no year, a blank or unknown album or artist, no track number, or no
     MusicBrainz recording ID.
 
-This module is pure apart from main(): it only reads the database it's given.
+Apart from main(), this module only reads the database connection it's given.
 """
 from __future__ import annotations
 
@@ -33,7 +33,11 @@ from typing import NamedTuple
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from dupes import _is_copy_name  # noqa: E402
 
+# Only Tracks and albums the app still has: a File gone from the share is kept as "missing".
 LIVE = "missing = 0"
+# A folder's path on the share: the app stores its parent's path ("." at the top) and its name.
+_FOLDER_PATH = "CASE WHEN f.path IN ('', '.') THEN f.name ELSE f.path || '/' || f.name END"
+SHORT_DISC = 2  # Tracks on a disc short enough to look stray
 # A tag the app shows as "[Unknown Album]" or "[Unknown Artist]" was blank in the File.
 _UNKNOWN = ("", "unknown", "[unknown album]", "[unknown artist]")
 
@@ -61,9 +65,6 @@ def _tracks_where(db: sqlite3.Connection, key: str, label: str, condition: str) 
     return Measure(key, label, len(rows), ("path",), tuple(rows))
 
 
-_FOLDER_PATH = "CASE WHEN f.path IN ('', '.') THEN f.name ELSE f.path || '/' || f.name END"
-
-
 def _no_cover(db: sqlite3.Connection) -> Measure:
     rows = db.execute(
         f"""SELECT a.album_artist, a.name,
@@ -88,8 +89,8 @@ def _likely_duplicates(db: sqlite3.Connection) -> list[Measure]:
         names = {os.path.basename(t[-1]) for t in tracks}
         copies += [(t[-1],) for t in tracks if _is_copy_name(t[-1], names)]
     return [
-        Measure("duplicates", "likely Duplicates: extra Tracks sharing artist, title and album", len(rows) - len(shared),
-                ("artist", "album", "title", "path"), rows, f"in {len(shared)} groups"),
+        Measure("duplicates", "likely Duplicates: extra Files sharing artist, title and album", len(rows) - len(shared),
+                ("artist", "album", "title", "path"), rows, f"in {len(shared)} group{'' if len(shared) == 1 else 's'}"),
         Measure("copy-named", "of them copy-named Files (Song 1, Song (1), Copy of Song)", len(copies),
                 ("path",), tuple(sorted(copies))),
     ]
@@ -118,9 +119,6 @@ def _albums_held_twice(db: sqlite3.Connection) -> Measure:
     rows.sort(key=lambda r: (r[0].casefold(), r[1].casefold()))
     return Measure("albums-twice", "albums held twice: the same album and album artist in more than one folder",
                    len(rows), ("album artist", "album", "folders"), tuple(rows))
-
-
-SHORT_DISC = 2  # Tracks
 
 
 def _suspect_discs(db: sqlite3.Connection) -> Measure:

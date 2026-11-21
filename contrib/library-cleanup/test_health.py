@@ -141,7 +141,7 @@ class LikelyDuplicates(unittest.TestCase):
         dupes = next(m for m in report(self.lib.db) if m.key == "duplicates")
 
         self.assertEqual(dupes.count, 4)
-        self.assertEqual(dupes.note, "in 1 groups")
+        self.assertEqual(dupes.note, "in 1 group")
         self.assertEqual(
             [row[-1] for row in dupes.rows],
             [

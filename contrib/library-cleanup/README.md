@@ -8,6 +8,7 @@ Tools for cleaning up a music share before the app scans it. The app itself has 
 | `casemerge.py` | Plans merges of sibling names that differ only by letter case (pure, unit-tested) |
 | `dupes.py` | Plans moving Duplicates into Quarantine from a `jdupes` report (pure, unit-tested) |
 | `apply.py` | Carries out a plan, checking each step by re-listing both folders |
+| `health.py` | Reports how healthy the Library is, from the app's database, read-only (pure, unit-tested) |
 
 Python 3.10+ only, no dependencies. Run the tests with `python3 -m unittest` in this folder.
 
@@ -116,12 +117,12 @@ python3 health.py /path/to/navidrome.db --list suspect-discs   # the offenders b
 
 | Key | What it counts |
 |---|---|
-| `tracks`, `albums` | Tracks and albums in total |
-| `duplicates` | Likely Duplicates: the extra Tracks sharing artist, title and album (ignoring case), and how many groups they form |
+| `tracks`, `albums` | Tracks and albums in total (totals only, nothing to list) |
+| `duplicates` | Likely Duplicates: the extra Files sharing artist, title and album (ignoring case), and how many groups they form |
 | `copy-named` | Of those, the copy-named Files: `Song 1`, `Song (1)` or `Copy of Song` beside `Song` |
 | `albums-twice` | The same album and album artist in more than one folder, unless each folder holds a different disc |
 | `suspect-discs` | Albums with a disc of one or two Tracks while the rest have no disc number |
 | `no-cover` | Albums with no embedded art and no image in any of their folders |
 | `no-year`, `no-album`, `no-artist`, `no-track-number`, `no-musicbrainz-id` | Tracks missing that tag; a blank, `Unknown` or `[Unknown …]` album or artist counts as missing |
 
-Only Tracks and albums the app still has count: Files gone from the share since the last scan are left out. Likely Duplicates are a hint, not proof: only byte-identical Files are Duplicates, and those go through the Quarantine recipe above.
+Only Tracks and albums the app still has count: Files gone from the share since the last scan are left out. Likely Duplicates are a hint, not proof: only byte-identical Files are Duplicates, and those go through the Quarantine recipe above. They need the same album too, so a live or compilation version of a song isn't counted; grouping by artist and title alone gives a larger number. An album also counts as held twice when one stray Track of it sits in another folder, such as a mix; `--list albums-twice` shows the folders.
