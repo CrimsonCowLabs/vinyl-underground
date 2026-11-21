@@ -6,7 +6,6 @@ import (
 	"context"
 
 	"github.com/google/wire"
-	"github.com/navidrome/navidrome/adapters/lastfm"
 	"github.com/navidrome/navidrome/adapters/listenbrainz"
 	"github.com/navidrome/navidrome/core"
 	"github.com/navidrome/navidrome/core/agents"
@@ -40,7 +39,6 @@ var allProviders = wire.NewSet(
 	nativeapi.New,
 	public.New,
 	persistence.New,
-	lastfm.NewRouter,
 	listenbrainz.NewRouter,
 	events.GetBroker,
 	scanner.GetInstance,
@@ -92,12 +90,6 @@ func CreateJellyfinAPIRouter(ctx context.Context) *jellyfin.Router {
 }
 
 func CreatePublicRouter() *public.Router {
-	panic(wire.Build(
-		allProviders,
-	))
-}
-
-func CreateLastFMRouter() *lastfm.Router {
 	panic(wire.Build(
 		allProviders,
 	))

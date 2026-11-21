@@ -60,10 +60,18 @@ var _ = Describe("lastfmAgent", func() {
 			})
 		})
 		When("Secret is empty", func() {
-			It("returns nil", func() {
+			It("still looks metadata up, as only scrobbling needs the secret", func() {
 				conf.Server.LastFM.Secret = ""
-				Expect(lastFMConstructor(ds)).To(BeNil())
+				Expect(lastFMConstructor(ds)).ToNot(BeNil())
 			})
+		})
+	})
+
+	Describe("register", func() {
+		It("registers Last.fm for metadata lookups only, never as a scrobbler", func() {
+			register()
+			Expect(agents.Map).To(HaveKey(lastFMAgentName))
+			Expect(scrobbler.IsBuiltinScrobbler(lastFMAgentName)).To(BeFalse())
 		})
 	})
 
