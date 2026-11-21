@@ -13,13 +13,13 @@ Pushing a version tag publishes the image to GHCR: [`.github/workflows/publish-i
 
 2. Watch the **Publish image** run under the repo's Actions tab. It takes a while, as arm64's final stage runs under QEMU.
 
-The tag sets the image tags and the version the binary reports (`git describe` style, as `make build` does it):
+The tag sets the image tags and the version the binary reports (`v0.1.0` reports `0.1.0 (<sha>)`). Once both platforms are pushed, the workflow pulls each one and runs `--version`.
 
-| Git tag        | Image tags                               |
-| -------------- | ---------------------------------------- |
-| `v0.1.0`       | `0.1.0`, `0.1`, `latest`                 |
-| `v1.2.3`       | `1.2.3`, `1.2`, `1`, `latest`            |
-| `v1.3.0-rc.1`  | `1.3.0-rc.1` (a prerelease never moves `latest`) |
+| Git tag       | Image tags                                       |
+| ------------- | ------------------------------------------------ |
+| `v0.1.0`      | `0.1.0`, `0.1`, `latest`                         |
+| `v1.2.3`      | `1.2.3`, `1.2`, `1`, `latest`                    |
+| `v1.3.0-rc.1` | `1.3.0-rc.1` (a prerelease never moves `latest`) |
 
 Only tags shaped like `vX.Y.Z` (with an optional suffix) start the workflow.
 

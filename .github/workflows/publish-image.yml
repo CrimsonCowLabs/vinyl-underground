@@ -34,8 +34,9 @@ jobs:
           # Full history and tags, for `git describe` on a dry run.
           fetch-depth: 0
 
-      # The version baked into the binary, as the Makefile does it: the tag
-      # itself on a tag push, otherwise the last tag plus -SNAPSHOT.
+      # The version baked into the binary, through the same GIT_TAG and GIT_SHA
+      # build args as `make docker-image`. A release gets its own tag; a dry run
+      # gets the Makefile's value, the last tag plus -SNAPSHOT.
       - name: Version
         id: version
         run: |
@@ -62,7 +63,6 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}},enable=${{ !startsWith(github.ref, 'refs/tags/v0.') }}
-            type=sha,enable=${{ github.event_name != 'push' }}
           labels: |
             org.opencontainers.image.title=Vinyl Underground
             org.opencontainers.image.description=Self-hosted music server for private networks, a hard fork of Navidrome
@@ -103,3 +103,13 @@ jobs:
             GIT_TAG=${{ steps.version.outputs.git_tag }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # A fresh pull of the release starts on both platforms.
+      - name: Smoke-test the pushed image
+        if: github.event_name == 'push'
+        env:
+          REF: ${{ env.IMAGE }}:${{ steps.meta.outputs.version }}
+        run: |
+          for platform in linux/amd64 linux/arm64; do
+            docker run --rm --pull always --platform "$platform" "$REF" --version
+          done
