@@ -105,7 +105,8 @@ The Library keeps growing, and all new music reaches it through one path: the **
   - **Thinking:** turn off any "thinking" mode.
   - **Prompt size:** keep candidate lists to ~100–150 Tracks, one compact line each (artist, title, year, genre), so prompts stay short.
   - **Timeouts:** allow for slow LLM calls.
-- **External metadata.** Last.fm lookups are enabled (`EnableExternalServices`). Scrobbling stays off.
+- **External metadata.** Last.fm lookups are enabled (`EnableExternalServices`, and Last.fm first in the default `Agents`, unlike upstream). They need only an API key. Scrobbling stays off: the Last.fm scrobbler and account linking are removed.
+  - Generated Playlist candidates add Tracks by the LLM's seed artists' similar artists that are in the Library (a Prompt with no seed artists gets none). A preview waits at most ~4 s for those lookups, then carries on from local tags alone.
 - **Duplicates.** A one-time `jdupes` recipe moves Duplicates to a Quarantine folder that carries a `.ndignore` file. The app has no dedupe code ([ADR-0002](./adr/0002-quarantine-duplicates-instead-of-in-app-dedupe.md)).
 
 ## Deployment

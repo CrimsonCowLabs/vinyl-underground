@@ -6,7 +6,8 @@
 //  1. filters: the Prompt (plus the Library's genres) becomes a title, genres, seed artists and
 //     a year range.
 //  2. ranking: the server builds up to MaxCandidates Tracks from the Library matching those
-//     filters, one compact line each, and the LLM picks and orders them by number.
+//     filters and the seed artists' similar artists (from Last.fm), one compact line each, and
+//     the LLM picks and orders them by number.
 //
 // Every Track returned is one of the candidates, so it exists in the Library and is visible to
 // the Listener.
@@ -75,14 +76,16 @@ type Service interface {
 	Replace(ctx context.Context, playlistID string, trackIDs []string) error
 }
 
-// New returns the Service. A nil client means no LLM is configured.
-func New(ds model.DataStore, client llm.Client) Service {
-	return &service{ds: ds, llm: client}
+// New returns the Service. A nil client means no LLM is configured. A nil similar means
+// candidates come from local tags alone.
+func New(ds model.DataStore, client llm.Client, similar SimilarArtists) Service {
+	return &service{ds: ds, llm: client, similar: similar}
 }
 
 type service struct {
-	ds  model.DataStore
-	llm llm.Client
+	ds      model.DataStore
+	llm     llm.Client
+	similar SimilarArtists
 }
 
 func (s *service) Enabled() bool {

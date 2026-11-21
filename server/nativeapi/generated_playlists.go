@@ -22,7 +22,7 @@ func (api *Router) addGeneratedPlaylistRoute(r chi.Router) {
 	if opts := llm.FromConfig(); llm.Configured(opts) {
 		client = llm.New(opts)
 	}
-	gen := generatedplaylist.New(api.ds, client)
+	gen := generatedplaylist.New(api.ds, client, api.provider)
 	r.Route("/generatedPlaylist", func(r chi.Router) {
 		r.Post("/", saveGeneratedPlaylist(gen))
 		r.Post("/preview", previewGeneratedPlaylist(gen))

@@ -49,8 +49,10 @@ type lastfmAgent struct {
 	getInfoMutex sync.Mutex
 }
 
+// lastFMConstructor needs only the API key: the secret signs account linking and scrobbles,
+// which Vinyl Underground doesn't use (see register).
 func lastFMConstructor(ds model.DataStore) *lastfmAgent {
-	if !conf.Server.LastFM.Enabled || conf.Server.LastFM.ApiKey == "" || conf.Server.LastFM.Secret == "" {
+	if !conf.Server.LastFM.Enabled || conf.Server.LastFM.ApiKey == "" {
 		return nil
 	}
 	l := &lastfmAgent{
@@ -427,25 +429,20 @@ func (l *lastfmAgent) PlaybackReport(context.Context, scrobbler.PlaybackSession)
 	return nil
 }
 
-func init() {
-	conf.AddHook(func() {
-		agents.Register(lastFMAgentName, func(ds model.DataStore) agents.Interface {
-			// This is a workaround for the fact that a (Interface)(nil) is not the same as a (*lastfmAgent)(nil)
-			// See https://go.dev/doc/faq#nil_error
-			a := lastFMConstructor(ds)
-			if a != nil {
-				return a
-			}
-			return nil
-		})
-		scrobbler.Register(lastFMAgentName, func(ds model.DataStore) scrobbler.Scrobbler {
-			// Same as above - this is a workaround for the fact that a (Scrobbler)(nil) is not the same as a (*lastfmAgent)(nil)
-			// See https://go.dev/doc/faq#nil_error
-			a := lastFMConstructor(ds)
-			if a != nil {
-				return a
-			}
-			return nil
-		})
+// register makes Last.fm a metadata agent (artist info, similar artists). Vinyl Underground never
+// registers it as a scrobbler, so no Listener's plays are sent to Last.fm.
+func register() {
+	agents.Register(lastFMAgentName, func(ds model.DataStore) agents.Interface {
+		// This is a workaround for the fact that a (Interface)(nil) is not the same as a (*lastfmAgent)(nil)
+		// See https://go.dev/doc/faq#nil_error
+		a := lastFMConstructor(ds)
+		if a != nil {
+			return a
+		}
+		return nil
 	})
+}
+
+func init() {
+	conf.AddHook(register)
 }

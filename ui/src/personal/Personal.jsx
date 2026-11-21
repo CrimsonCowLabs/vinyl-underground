@@ -5,7 +5,6 @@ import { SelectLanguage } from './SelectLanguage'
 import { SelectTheme } from './SelectTheme'
 import { SelectDefaultView } from './SelectDefaultView'
 import { NotificationsToggle } from './NotificationsToggle'
-import { LastfmScrobbleToggle } from './LastfmScrobbleToggle'
 import { ListenBrainzScrobbleToggle } from './ListenBrainzScrobbleToggle'
 import config from '../config'
 import { APP_NAME } from '../consts'
@@ -31,7 +30,6 @@ const Personal = () => {
         <SelectStreamingQuality />
         {config.enableReplayGain && <ReplayGainToggle />}
         <NotificationsToggle />
-        {config.lastFMEnabled && <LastfmScrobbleToggle />}
         {config.listenBrainzEnabled && <ListenBrainzScrobbleToggle />}
         <DownloadsStorage />
       </SimpleForm>
