@@ -167,10 +167,10 @@ As the admin, open **Rips** in the side menu, paste the link to one video (YouTu
 - **Tags:** the File gets `SOURCE` (the site, e.g. `YouTube`), `SOURCEURL` (the page), and the title and artist the site gives.
 - **File name:** `<Artist> - <Title> [<video id>].<ext>` at the top of the Inbox. A File already there is never replaced; the new one gets ` (2)`. While downloading, the File is in the hidden `.rips` folder, which the scanner skips.
 - **Playlists** aren't supported yet: a playlist link fails with a message saying so. A video link that also names a playlist (`watch?v=...&list=...`) rips just that video.
-- **Time limit:** a Rip that takes longer than `ND_RIPPING_TIMEOUT` (default `30m`) is stopped and marked failed.
+- **Time limit:** a Rip that takes longer than `ND_RIPPING_TIMEOUT` (default `30m`) is stopped and marked failed. When a failed Rip is tried again after a yt-dlp update (below), the second try gets its own time limit.
 - **Keeping yt-dlp working:** sites like YouTube change often, and only a newer yt-dlp keeps up. The app updates yt-dlp in `$VU_DATA_DIR/bin` three ways, without rebuilding the image:
   - **On a schedule:** `ND_RIPPING_YTDLPUPDATESCHEDULE` (default `@daily`; a cron expression or `@every 24h` also works, and `0` turns it off).
-  - **On demand:** the **Update yt-dlp** button on the Rips page, next to the installed version. It refuses while a Rip is running; press it again once that Rip has finished.
+  - **On demand:** the **Update yt-dlp** button on the Rips page, next to the installed version. It refuses while a Rip or another update is running; press it again once that has finished. On a platform with no standalone yt-dlp build (anything but Linux amd64 and arm64), the app can't update a yt-dlp you put in place yourself.
   - **After a failed Rip:** the app updates yt-dlp once and tries that Rip once more before marking it failed. It skips this when no update could help: an unsupported URL, a private, removed, age-restricted, members-only or blocked video, a playlist, the Rip's own time limit, or an error of the app's (such as a full disk).
 
   Each update looks up the latest release's tag first, and downloads nothing when `yt-dlp --version` already shows that tag. Otherwise it fetches both the binary and `SHA2-256SUMS` from that tag, checks the checksum, and checks the new binary runs before it replaces the old one. A failed update leaves the old binary in place. An update never replaces yt-dlp while a Rip is running: it waits for that Rip to finish.

@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 	"unicode"
 
@@ -74,8 +75,11 @@ type Scheduler interface {
 var (
 	// ErrRipRunning is returned by UpdateYtDlp, when it isn't to wait, while a Rip is running.
 	ErrRipRunning = errors.New("a Rip is running; update yt-dlp once it has finished")
-	// ErrNoUpdater is returned when yt-dlp can't be updated (there is no Updater).
-	ErrNoUpdater = errors.New("yt-dlp can't be updated here")
+	// ErrUpdateRunning is returned by UpdateYtDlp, when it isn't to wait, while another update runs.
+	ErrUpdateRunning = errors.New("yt-dlp is already being updated")
+	// ErrNoUpdater is returned when yt-dlp can't be updated (there is no Updater), as on a platform
+	// with no standalone yt-dlp build.
+	ErrNoUpdater = errors.New("yt-dlp can't be updated here: there is no standalone yt-dlp build for this platform")
 )
 
 // Ripper runs Rip jobs in the background, one at a time. Jobs live in the database, so they keep
@@ -90,6 +94,8 @@ type Ripper struct {
 	// ytDlp is held while yt-dlp runs a Rip or is being updated, so an update never swaps the
 	// binary under a running Rip.
 	ytDlp chan struct{}
+	// updating is true while UpdateYtDlp holds ytDlp.
+	updating atomic.Bool
 }
 
 func New(ds model.DataStore, fetcher Fetcher, scanner FolderScanner, opts Options) *Ripper {
@@ -227,7 +233,7 @@ func inInbox(inbox *model.Library, job *model.RipJob) bool {
 // ripWithRetry rips the job, with no yt-dlp update allowed meanwhile. When yt-dlp fails in a way
 // a newer yt-dlp might fix (see UpdateMightFix), it updates yt-dlp and tries the job once more,
 // even if the update fails or finds yt-dlp already current, as the failure may have been
-// passing. Each try gets the full timeout.
+// passing. Each try gets its own Options.Timeout.
 func (r *Ripper) ripWithRetry(ctx context.Context, inboxPath string, job *model.RipJob) error {
 	if err := r.lockYtDlp(ctx, true); err != nil {
 		return err
@@ -275,6 +281,8 @@ func (r *Ripper) UpdateYtDlp(ctx context.Context, wait bool) (UpdateResult, erro
 		return UpdateResult{}, err
 	}
 	defer r.unlockYtDlp()
+	r.updating.Store(true)
+	defer r.updating.Store(false)
 	return r.opts.Updater.Update(ctx)
 }
 
@@ -315,6 +323,9 @@ func (r *Ripper) lockYtDlp(ctx context.Context, wait bool) error {
 		case r.ytDlp <- struct{}{}:
 			return nil
 		default:
+			if r.updating.Load() {
+				return ErrUpdateRunning
+			}
 			return ErrRipRunning
 		}
 	}

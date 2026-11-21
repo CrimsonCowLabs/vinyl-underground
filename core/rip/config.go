@@ -31,10 +31,14 @@ func NewFromConfig(ds model.DataStore, scanner FolderScanner) *Ripper {
 		TempDir:    filepath.Join(bin.Dir, "tmp"),
 		DenoDir:    filepath.Join(conf.Server.CacheFolder.String(), "deno"),
 	}
+	opts := Options{Timeout: conf.Server.Ripping.Timeout}
+	if asset != "" {
+		opts.Updater = bin // no standalone build to update to otherwise
+	}
 	if deno, err := exec.LookPath("deno"); err == nil {
 		yt.DenoPath = deno
 	} else {
 		log.Warn("Ripping: deno is not installed, so yt-dlp may miss formats or fail on YouTube")
 	}
-	return New(ds, yt, scanner, Options{Timeout: conf.Server.Ripping.Timeout, Updater: bin})
+	return New(ds, yt, scanner, opts)
 }

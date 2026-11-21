@@ -13,12 +13,17 @@ const YtDlpControl = () => {
   const notify = useNotify()
   const [version, setVersion] = useState(null)
   const [updating, setUpdating] = useState(false)
+  const [loadError, setLoadError] = useState(null)
 
   useEffect(() => {
     let active = true
     httpClient(url)
       .then(({ json }) => active && setVersion(json?.version ?? ''))
-      .catch(() => active && setVersion(null))
+      .catch(
+        (error) =>
+          active &&
+          setLoadError(error?.body?.error || error?.message || 'unknown'),
+      )
     return () => {
       active = false
     }
@@ -29,6 +34,7 @@ const YtDlpControl = () => {
     httpClient(`${url}/update`, { method: 'POST' })
       .then(({ json }) => {
         setVersion(json.version)
+        setLoadError(null)
         notify(
           translate(
             json.updated
@@ -49,7 +55,9 @@ const YtDlpControl = () => {
   }
 
   let label = ''
-  if (version === '') {
+  if (loadError) {
+    label = translate('resources.rip.ytdlp.unknown', { error: loadError })
+  } else if (version === '') {
     label = translate('resources.rip.ytdlp.notInstalled')
   } else if (version) {
     label = translate('resources.rip.ytdlp.version', { version })

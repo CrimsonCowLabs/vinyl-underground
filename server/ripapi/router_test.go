@@ -194,6 +194,14 @@ var _ = Describe("Rip API", func() {
 			Expect(updater.updates()).To(BeZero())
 		})
 
+		It("says so when yt-dlp can't be updated on this platform", func() {
+			router = server.JWTVerifier(New(ds, rip.New(ds, nil, nil, rip.Options{})))
+			Expect(doPath(&admin, http.MethodGet, "/ytdlp").Code).To(Equal(http.StatusNotImplemented))
+			w := doPath(&admin, http.MethodPost, "/ytdlp/update")
+			Expect(w.Code).To(Equal(http.StatusNotImplemented))
+			Expect(w.Body.String()).To(ContainSubstring("no standalone yt-dlp build"))
+		})
+
 		It("exposes nothing when ripping is off", func() {
 			conf.Server.Ripping.Enabled = false
 			Expect(doPath(&admin, http.MethodGet, "/ytdlp").Code).To(Equal(http.StatusNotFound))

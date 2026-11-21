@@ -265,6 +265,15 @@ var _ = Describe("Binary.Update", func() {
 		Expect(releases.downloads(asset)).To(Equal(1))
 	})
 
+	It("downloads nothing when the release's tag isn't its version but its file is already here", func(ctx SpecContext) {
+		releases.publish("stable", asset, versionScript("2026.11.01"))
+		plant("2026.11.01")
+		res, err := bin.Update(ctx)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(res.Updated).To(BeFalse())
+		Expect(releases.downloads(asset)).To(BeZero())
+	})
+
 	Describe("a failed update", func() {
 		BeforeEach(func() { plant("2026.01.01") })
 

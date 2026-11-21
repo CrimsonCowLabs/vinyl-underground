@@ -114,6 +114,10 @@ func (api *Router) create(w http.ResponseWriter, r *http.Request) {
 
 func (api *Router) ytDlpVersion(w http.ResponseWriter, r *http.Request) {
 	version, err := api.ripper.YtDlpVersion(r.Context())
+	if errors.Is(err, rip.ErrNoUpdater) {
+		_ = rest.RespondWithError(w, http.StatusNotImplemented, err.Error())
+		return
+	}
 	if err != nil {
 		log.Error(r.Context(), "Could not read yt-dlp's version", err)
 		_ = rest.RespondWithError(w, http.StatusInternalServerError, "Could not read yt-dlp's version: "+err.Error())
@@ -127,8 +131,10 @@ func (api *Router) ytDlpVersion(w http.ResponseWriter, r *http.Request) {
 func (api *Router) updateYtDlp(w http.ResponseWriter, r *http.Request) {
 	res, err := api.ripper.UpdateYtDlp(r.Context(), false)
 	switch {
-	case errors.Is(err, rip.ErrRipRunning):
+	case errors.Is(err, rip.ErrRipRunning), errors.Is(err, rip.ErrUpdateRunning):
 		_ = rest.RespondWithError(w, http.StatusConflict, err.Error())
+	case errors.Is(err, rip.ErrNoUpdater):
+		_ = rest.RespondWithError(w, http.StatusNotImplemented, err.Error())
 	case err != nil:
 		log.Warn(r.Context(), "yt-dlp update failed", "kept", res.Version, err)
 		msg := "Updating yt-dlp failed: " + err.Error()

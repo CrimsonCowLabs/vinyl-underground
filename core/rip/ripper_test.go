@@ -651,6 +651,30 @@ var _ = Describe("Ripper and yt-dlp updates", func() {
 			close(hold)
 		})
 
+		It("refuses straight away, when asked not to wait, while another update runs", func() {
+			block := make(chan struct{})
+			updater.onUpdate = func() { <-block }
+			start()
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				_, _ = ripper.UpdateYtDlp(ctx, true)
+			}()
+			Eventually(updater.updates).Should(Equal(1))
+
+			_, err := ripper.UpdateYtDlp(ctx, false)
+			Expect(err).To(MatchError(ErrUpdateRunning))
+			close(block)
+			Eventually(done).Should(BeClosed())
+		})
+
+		It("can't update without an updater", func() {
+			opts.Updater = nil
+			start()
+			_, err := ripper.UpdateYtDlp(ctx, false)
+			Expect(err).To(MatchError(ErrNoUpdater))
+		})
+
 		It("updates straight away when no Rip is running", func() {
 			start()
 			res, err := ripper.UpdateYtDlp(ctx, false)

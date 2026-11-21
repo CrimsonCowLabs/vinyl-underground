@@ -46,6 +46,22 @@ describe('YtDlpControl', () => {
     ).toBeInTheDocument()
   })
 
+  it("says why the version can't be shown", async () => {
+    http.mockImplementationOnce(() =>
+      Promise.reject({
+        message: 'Internal Server Error',
+        body: { error: "yt-dlp doesn't run: exit status 1" },
+      }),
+    )
+    render(<YtDlpControl />)
+
+    expect(
+      await screen.findByText(
+        /resources.rip.ytdlp.unknown.*yt-dlp doesn't run: exit status 1/,
+      ),
+    ).toBeInTheDocument()
+  })
+
   it('updates yt-dlp on demand and shows the new version', async () => {
     http
       .mockReturnValueOnce(reply({ version: '2026.10.01' }))

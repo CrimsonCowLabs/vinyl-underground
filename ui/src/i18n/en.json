@@ -474,6 +474,7 @@
       "ytdlp": {
         "version": "yt-dlp %{version}",
         "notInstalled": "yt-dlp is not installed yet",
+        "unknown": "yt-dlp's version is unknown (%{error})",
         "update": "Update yt-dlp",
         "updating": "Updating yt-dlp...",
         "updated": "yt-dlp updated to %{version}",

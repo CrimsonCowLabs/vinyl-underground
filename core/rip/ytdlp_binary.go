@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/navidrome/navidrome/log"
@@ -75,6 +76,8 @@ type Binary struct {
 	// version is the installed binary's version, as of its modification time modTime.
 	version string
 	modTime time.Time
+	// lastVersion is version, readable without mu.
+	lastVersion atomic.Value
 }
 
 // UpdateResult is what Binary.Update did.
@@ -108,9 +111,13 @@ func (b *Binary) Path(ctx context.Context) (string, error) {
 }
 
 // Version returns the installed binary's version, as `yt-dlp --version` prints it, or "" when
-// yt-dlp isn't installed yet.
+// yt-dlp isn't installed yet. While an update or the first download runs, it returns the version
+// last seen rather than waiting.
 func (b *Binary) Version(ctx context.Context) (string, error) {
-	b.mu.Lock()
+	if !b.mu.TryLock() {
+		v, _ := b.lastVersion.Load().(string)
+		return v, nil
+	}
 	defer b.mu.Unlock()
 	return b.installedVersion(ctx)
 }
@@ -147,8 +154,13 @@ func (b *Binary) installedVersion(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	b.version, b.modTime = v, info.ModTime()
+	b.setVersion(v, info.ModTime())
 	return v, nil
+}
+
+func (b *Binary) setVersion(v string, modTime time.Time) {
+	b.version, b.modTime = v, modTime
+	b.lastVersion.Store(v)
 }
 
 // runVersion runs `yt-dlp --version` on the binary at p.
@@ -159,11 +171,14 @@ func (b *Binary) runVersion(ctx context.Context, p string) (string, error) {
 	cmd := exec.CommandContext(ctx, p, "--version")
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if b.TempDir != "" {
+		// A killed run leaves its unpacked copy behind; runs never overlap (b.mu is held).
+		_ = os.RemoveAll(b.TempDir)
 		if err := os.MkdirAll(b.TempDir, 0o755); err != nil {
 			return "", err
 		}
 		cmd.Env = append(os.Environ(), "TMPDIR="+b.TempDir)
 	}
+	killProcessGroup(cmd)
 	cmd.WaitDelay = 5 * time.Second
 	if err := cmd.Run(); err != nil {
 		return "", fmt.Errorf("yt-dlp doesn't run: %v", ytDlpError(stderr.String(), err))
@@ -200,8 +215,9 @@ func (b *Binary) install(ctx context.Context, current string) (version string, u
 	if err != nil {
 		return "", false, err
 	}
-	if current != "" && rel.tag == "" && fileSum(b.path()) == want {
-		return current, false, nil // a release folder with no tag: the same file is already here
+	if current != "" && fileSum(b.path()) == want {
+		// The release's tag isn't its version (or it has no tag), but its file is already here.
+		return current, false, nil
 	}
 
 	if err := os.MkdirAll(b.Dir, 0o755); err != nil {
@@ -235,7 +251,7 @@ func (b *Binary) install(ctx context.Context, current string) (version string, u
 		return "", false, err
 	}
 	if info, err := os.Stat(b.path()); err == nil {
-		b.version, b.modTime = version, info.ModTime()
+		b.setVersion(version, info.ModTime())
 	}
 	log.Info(ctx, "yt-dlp installed", "version", version, "previous", current)
 	return version, true, nil
