@@ -74,7 +74,7 @@ type RipItem struct {
 	// restart finishes or undoes every move it finds here (#36).
 	PromoteDest string    `structs:"promote_dest" json:"-"`
 	CreatedAt   time.Time `structs:"created_at" json:"createdAt"`
-	UpdatedAt   time.Time  `structs:"updated_at" json:"updatedAt"`
+	UpdatedAt   time.Time `structs:"updated_at" json:"updatedAt"`
 }
 
 type RipItems []RipItem

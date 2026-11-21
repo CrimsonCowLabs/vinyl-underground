@@ -79,6 +79,45 @@ var _ = Describe("MediaRepository", func() {
 		})
 	})
 
+	Describe("Relocate", func() {
+		BeforeEach(func() {
+			DeferCleanup(func() {
+				_, _ = GetDBXBuilder().NewQuery("DELETE FROM media_file WHERE id LIKE 'rel-mf-%'").Execute()
+				_, _ = GetDBXBuilder().NewQuery("DELETE FROM annotation WHERE item_id LIKE 'rel-mf-%'").Execute()
+			})
+		})
+
+		It("points the Track at another library's File, keeping its ID and what is attached to it", func() {
+			Expect(mr.Put(&model.MediaFile{ID: "rel-mf-1", LibraryID: 1, Path: "inbox/song.opus", FolderID: "f-inbox", Title: "Song"})).To(Succeed())
+			Expect(mr.SetStar(true, "rel-mf-1")).To(Succeed())
+
+			Expect(mr.Relocate("rel-mf-1", 1, "Vinyl Underground/A/B/Song.opus", "f-new")).To(Succeed())
+
+			got, err := mr.Get("rel-mf-1")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(got.Path).To(Equal("Vinyl Underground/A/B/Song.opus"))
+			Expect(got.FolderID).To(Equal("f-new"))
+			Expect(got.Starred).To(BeTrue())
+			Expect(got.UpdatedAt.Before(time.Unix(1, 0))).To(BeTrue(), "the next scan re-reads it")
+			Expect(mr.Relocate("rel-mf-nope", 1, "x", "f")).To(MatchError(model.ErrNotFound))
+		})
+
+		It("leaves one Track for the File: a ghost there goes, and a Track scanned from it merges in", func() {
+			dest := "Vinyl Underground/A/B/Song.opus"
+			Expect(mr.Put(&model.MediaFile{ID: "rel-mf-1", LibraryID: 1, Path: "inbox/song.opus", Title: "Song"})).To(Succeed())
+			Expect(mr.Put(&model.MediaFile{ID: "rel-mf-2", LibraryID: 1, Path: dest, Title: "Song"})).To(Succeed())
+			Expect(mr.SetStar(true, "rel-mf-2")).To(Succeed())
+
+			Expect(mr.Relocate("rel-mf-1", 1, dest, "f")).To(Succeed())
+
+			at, err := mr.GetAll(model.QueryOptions{Filters: squirrel.Eq{"media_file.path": dest}})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(at).To(HaveLen(1))
+			Expect(at[0].ID).To(Equal("rel-mf-1"))
+			Expect(at[0].Starred).To(BeTrue())
+		})
+	})
+
 	Describe("GetCursor", func() {
 		It("yields the same media files as GetAll", func() {
 			opts := model.QueryOptions{Sort: "title"}

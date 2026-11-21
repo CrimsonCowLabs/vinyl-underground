@@ -74,6 +74,7 @@ func (r *Ripper) Promote(ctx context.Context, jobID string) (*PromoteResult, err
 	}
 	res := &PromoteResult{Promoted: []PromotedFile{}, Failed: []PromotedFile{}}
 	promoted := map[string]bool{}
+	moved := false // a Track moved, even if its Inbox copy is still there
 	for i := range job.Items {
 		it := &job.Items[i]
 		if it.Path == "" || it.Status != model.RipReady {
@@ -90,7 +91,8 @@ func (r *Ripper) Promote(ctx context.Context, jobID string) (*PromoteResult, err
 			rel, err = r.promoteItem(ctx, inbox, lib, it)
 		}
 		if err != nil {
-			log.Warn(ctx, "Could not promote a File; it stays in the Inbox", "id", job.ID, "path", it.Path, err)
+			moved = moved || errors.Is(err, errInboxCopyLeft)
+			log.Warn(ctx, "Could not promote a File", "id", job.ID, "path", it.Path, err)
 			res.Failed = append(res.Failed, PromotedFile{ItemID: it.ID, Error: err.Error()})
 			it.Error = "Promote failed: " + err.Error()
 			r.saveItem(ctx, it)
@@ -105,7 +107,7 @@ func (r *Ripper) Promote(ctx context.Context, jobID string) (*PromoteResult, err
 	log.Info(ctx, "Promoted a Rip", "id", job.ID, "promoted", len(res.Promoted), "failed", len(res.Failed))
 
 	left := r.afterPromote(ctx, job, inbox, promoted)
-	if len(promoted) > 0 {
+	if len(promoted) > 0 || moved {
 		r.rescanPromoted(ctx, inbox.ID, lib)
 	}
 	if left != nil {
@@ -115,6 +117,11 @@ func (r *Ripper) Promote(ctx context.Context, jobID string) (*PromoteResult, err
 	}
 	return res, nil
 }
+
+// errInboxCopyLeft is a File whose Track points at its promoted copy already, but whose Inbox
+// copy could not be deleted. Its item keeps PromoteDest, so promoting it again (or a restart)
+// deletes it.
+var errInboxCopyLeft = errors.New("the File was promoted, but its Inbox copy could not be deleted; promote it again to retry")
 
 // promoteItem moves one item's File into the promote folder, and returns its path relative to
 // lib. On failure the File is still in the Inbox, and nothing is left at its destination.
@@ -141,29 +148,55 @@ func (r *Ripper) promoteItem(ctx context.Context, inbox, lib *model.Library, it 
 		r.clearPromote(ctx, it)
 		return "", err
 	}
-	return r.finishPromote(ctx, inbox, it, src, dest)
+	return r.finishPromote(ctx, inbox, it, src, dest, true)
 }
 
 // finishPromote points the item's Track at the File now at dest, then deletes the Inbox copy at
-// src and the item. It is safe to run again on a move it already finished part of.
-func (r *Ripper) finishPromote(ctx context.Context, inbox *model.Library, it *model.RipItem, src, dest string) (string, error) {
+// src (unless src is "") and the item. It is safe to run again on a move it already finished
+// part of. fresh is true when this call's own placeCopy just made the copy at dest.
+//
+// Normally only the Inbox has a Track for the File. After an interruption both may: a scan can
+// have read the copy at dest before the Track moved, or the Inbox copy left behind after it
+// moved. The older of the two is the Track the Listeners know; the other is merged into it.
+func (r *Ripper) finishPromote(ctx context.Context, inbox *model.Library, it *model.RipItem, src, dest string, fresh bool) (string, error) {
+	var atDest *model.MediaFile
+	lookedUp := false
 	lib, rel, err := promoteLibrary(ctx, r.ds, dest)
-	if err != nil {
-		return "", err
+	if err == nil {
+		atDest, err = trackAt(r.ds, ctx, lib.ID, rel)
+		lookedUp = err == nil
 	}
-	err = r.ds.WithTx(func(tx model.DataStore) error {
-		mf, err := trackAt(tx, ctx, inbox.ID, it.Path)
-		if err != nil || mf == nil {
-			// Not scanned yet (so there is no identity to keep), or relocated already.
-			return err
-		}
-		if err := tx.MediaFile(ctx).Relocate(mf.ID, lib.ID, rel, model.FolderID(*lib, path.Dir(rel))); err != nil {
-			return fmt.Errorf("moving the Track: %w", err)
-		}
-		return tx.RipItem(ctx).MoveMatches(mf.ID, lib.Name)
-	}, "rip promote")
+	if err == nil {
+		err = r.ds.WithTx(func(tx model.DataStore) error {
+			inInbox, err := trackAt(tx, ctx, inbox.ID, it.Path)
+			if err != nil {
+				return err
+			}
+			keep := olderTrack(inInbox, atDest)
+			if keep == nil {
+				return nil // never scanned, so there is no identity to keep
+			}
+			if inInbox != nil && keep.ID != inInbox.ID {
+				if err := tx.MediaFile(ctx).ReassignReferences(inInbox.ID, keep.ID); err != nil {
+					return err
+				}
+				if err := tx.MediaFile(ctx).Delete(inInbox.ID); err != nil {
+					return err
+				}
+			}
+			// Relocate merges any other Track at dest into keep.
+			if err := tx.MediaFile(ctx).Relocate(keep.ID, lib.ID, rel, model.FolderID(*lib, path.Dir(rel))); err != nil {
+				return fmt.Errorf("moving the Track: %w", err)
+			}
+			return tx.RipItem(ctx).MoveMatches(keep.ID, lib.Name)
+		}, "rip promote")
+	}
 	if err != nil {
-		// The copy at dest is not the Track's File, so it goes, and the Inbox File stays.
+		// Undo, unless the copy at dest may be a Track's File: the move is then finished later.
+		// A copy this call just made is no Track's (yet), so it always goes.
+		if atDest != nil || (!fresh && !lookedUp) {
+			return "", err
+		}
 		if rmErr := r.fs().Remove(dest); rmErr != nil && !errors.Is(rmErr, fs.ErrNotExist) {
 			log.Error(ctx, "Could not remove the copy of a File that failed to promote", "path", dest, rmErr)
 		}
@@ -172,14 +205,25 @@ func (r *Ripper) finishPromote(ctx context.Context, inbox *model.Library, it *mo
 	}
 	if src != "" {
 		if err := r.fs().Remove(src); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			// The item keeps PromoteDest, so the next try (or restart) deletes it.
-			return "", fmt.Errorf("the File was promoted, but its Inbox copy could not be deleted: %w", err)
+			return "", fmt.Errorf("%w: %v", errInboxCopyLeft, err)
 		}
 	}
 	if err := r.ds.RipItem(ctx).Delete(it.ID); err != nil && !errors.Is(err, model.ErrNotFound) {
 		log.Warn(ctx, "Could not delete a promoted Rip item", "item", it.ID, err)
 	}
 	return rel, nil
+}
+
+// olderTrack returns whichever of a and b (either may be nil) was created first.
+func olderTrack(a, b *model.MediaFile) *model.MediaFile {
+	switch {
+	case a == nil:
+		return b
+	case b == nil, !b.CreatedAt.Before(a.CreatedAt):
+		return a
+	default:
+		return b
+	}
 }
 
 // trackAt returns the (non-missing or missing) Track scanned from the File at path in the
@@ -208,9 +252,15 @@ func (r *Ripper) clearPromote(ctx context.Context, it *model.RipItem) {
 
 // resumePromote finishes or undoes a move the app stopped in the middle of, from where the
 // File and its Track are. It returns the promoted File's path relative to its new library, or ""
-// if the move was undone and the File is still in the Inbox.
+// if the move was undone and the File is still in the Inbox. A move it can't settle safely (its
+// library is gone, or its Track moved but its File can't be seen) stays recorded, with an
+// error, to be tried again.
 func (r *Ripper) resumePromote(ctx context.Context, inbox *model.Library, it *model.RipItem) (string, error) {
 	dest := it.PromoteDest
+	lib, rel, err := promoteLibrary(ctx, r.ds, dest)
+	if err != nil {
+		return "", fmt.Errorf("finishing an interrupted Promote: %w", err)
+	}
 	if err := r.fs().Remove(promoteTemp(dest)); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		log.Warn(ctx, "Could not remove an interrupted Promote's temp File", "path", promoteTemp(dest), err)
 	}
@@ -220,34 +270,28 @@ func (r *Ripper) resumePromote(ctx context.Context, inbox *model.Library, it *mo
 	}
 	srcThere := src != "" && exists(r.fs(), src)
 	destThere := exists(r.fs(), dest)
-	lib, rel, libErr := promoteLibrary(ctx, r.ds, dest)
+	atDest, err := trackAt(r.ds, ctx, lib.ID, rel)
+	if err != nil {
+		return "", err
+	}
 
 	switch {
-	case destThere && libErr == nil && r.relocated(ctx, lib.ID, rel, inbox.ID, it.Path):
-		// The Track points at the new File already: only the Inbox copy may be left.
+	case !destThere && atDest != nil:
+		return "", fmt.Errorf("the File was promoted to %q, but it can't be seen there (is the read-write mount there?)", rel)
+	case !destThere:
+		// The copy never got there: the move is undone.
+	case atDest != nil || !srcThere || sameFile(r.fs(), src, dest):
+		// The copy is complete, or a Track points at it already: finish the move.
 		if !srcThere {
 			src = ""
 		}
-		return r.finishPromote(ctx, inbox, it, src, dest)
-	case destThere && srcThere && libErr == nil && sameFile(r.fs(), src, dest):
-		return r.finishPromote(ctx, inbox, it, src, dest)
+		return r.finishPromote(ctx, inbox, it, src, dest, false)
 	default:
-		// The File never got there (or what is there isn't it): the move is undone.
-		log.Info(ctx, "Undid an interrupted Promote; the File stays in the Inbox", "path", it.Path, "dest", dest)
-		r.clearPromote(ctx, it)
-		return "", nil
+		// What is at dest isn't the File: leave it alone.
 	}
-}
-
-// relocated reports whether the Track of the Inbox File at inboxRel already points at rel in
-// the library libID: there is a Track there, and none left in the Inbox.
-func (r *Ripper) relocated(ctx context.Context, libID int, rel string, inboxID int, inboxRel string) bool {
-	moved, err := trackAt(r.ds, ctx, libID, rel)
-	if err != nil || moved == nil {
-		return false
-	}
-	left, err := trackAt(r.ds, ctx, inboxID, inboxRel)
-	return err == nil && left == nil
+	log.Info(ctx, "Undid an interrupted Promote; the File stays in the Inbox", "path", it.Path, "dest", dest)
+	r.clearPromote(ctx, it)
+	return "", nil
 }
 
 // afterPromote deletes the job, its items and its empty Inbox subfolder once no File is left in
@@ -306,6 +350,8 @@ func (r *Ripper) rescanPromoted(ctx context.Context, inboxID int, lib *model.Lib
 // ResumePromotes finishes or undoes every Promote the app stopped in the middle of, before any
 // new one can start. A finished job is then deleted, as Promote does, and the libraries scanned.
 func (r *Ripper) ResumePromotes(ctx context.Context) {
+	r.reviewMu.Lock()
+	defer r.reviewMu.Unlock()
 	items, err := r.ds.RipItem(ctx).PromotesInterrupted()
 	if err != nil {
 		log.Error(ctx, "Could not look for interrupted Promotes", err)
@@ -314,8 +360,11 @@ func (r *Ripper) ResumePromotes(ctx context.Context) {
 	if len(items) == 0 {
 		return
 	}
-	r.reviewMu.Lock()
-	defer r.reviewMu.Unlock()
+	if !r.PromoteEnabled() {
+		// Its folder may just not be mounted: undoing now could orphan a copy there.
+		log.Warn(ctx, "Interrupted Promotes are left as they are until Promote is on again", "count", len(items))
+		return
+	}
 	inbox, err := core.FindInboxLibrary(ctx, r.ds)
 	if err != nil || inbox == nil {
 		log.Error(ctx, "Interrupted Promotes are left as they are: there is no Inbox", err)
@@ -353,7 +402,7 @@ func (r *Ripper) ResumePromotes(ctx context.Context) {
 		// The promoted items are deleted already; the rest decide whether the job stays.
 		r.afterPromote(ctx, job, inbox, promoted)
 	}
-	if lib != nil && r.PromoteEnabled() {
+	if lib != nil {
 		r.rescanPromoted(ctx, inbox.ID, lib)
 	}
 }

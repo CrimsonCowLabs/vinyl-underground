@@ -324,7 +324,7 @@ Docker binds the host mount as it is when the container starts. Start the contai
 - **Letter case:** the NAS is case-insensitive, so a folder whose name differs only by letter case (or Unicode composition) is reused rather than made beside it, and a File name counts as taken in any case. A File is never replaced: the new one gets ` (2)`, ` (3)`...
 - **Moving safely:** the Inbox is on local disk and the share is CIFS, so a File can't simply be renamed across. Each File is copied to a hidden temp File beside its destination, flushed to disk, read back and compared with the original (size and SHA-256), and only then put in place; the Track is pointed at it, and the Inbox copy is deleted last.
 - **File by File:** a File that fails stays in the Inbox, with the error shown in the card's dialog and kept on its item; the others carry on. Press **Promote all** again once it is fixed. When no File is left, the job goes, as a Discard does, with its emptied Inbox folder. Both libraries are then rescanned.
-- **Restarts:** the destination is recorded before a File is copied, so if the app stops in the middle, the next start finishes the move (when the copy is complete and matches) or undoes it (removing the temp File; the original never left the Inbox).
+- **Restarts:** the destination is recorded before a File is copied, so if the app stops in the middle, the next start finishes the move (when the copy is complete and matches) or undoes it (removing the temp File; the original never left the Inbox). This waits until the read-write folder is mounted and Promote is on again.
 - **Who:** only the admin can promote. With Promote off, or ripping off, there is nothing to see.
 
 ## Updating

@@ -162,6 +162,8 @@ describe('PromoteButton', () => {
         'warning',
       ),
     )
+    // The server may have promoted some Files all the same: show what is left.
+    expect(refresh).toHaveBeenCalled()
   })
 
   it('waits for unsaved edits on the card to be saved first', async () => {

@@ -50,7 +50,13 @@ const PromoteButton = ({ jobId, review, dirty, show }) => {
         if (json.review) show(json.review)
         refresh()
       })
-      .catch((error) => notify(errorText(error), 'warning'))
+      .catch((error) => {
+        setConfirming(false)
+        notify(errorText(error), 'warning')
+        // The request may have failed (a proxy timeout, say) while the server carried on
+        // promoting: show what is really left.
+        refresh()
+      })
       .finally(() => setBusy(false))
   }
 

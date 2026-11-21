@@ -201,6 +201,29 @@ var _ = Describe("Promote", func() {
 		Expect(itemsOf(job)[0].PromoteDest).To(BeEmpty())
 	})
 
+	It("says so when the Inbox copy can't be deleted, still rescans, and deletes it on the next try", func() {
+		landed("ripped.opus", "Album/a.opus")
+		scanned("mf-a", "Album/a.opus")
+		job := newJob(model.RipReady, "Album", "Album/a.opus")
+		ripper.promoteFS = &faultyFS{promoteFS: osFS{}, op: "remove", match: filepath.Join(inbox, "Album", "a.opus"), err: errInjected}
+
+		res, err := ripper.Promote(ctx, job.ID)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(res.Failed).To(HaveLen(1))
+		Expect(res.Failed[0].Error).To(ContainSubstring("Inbox copy could not be deleted"))
+		Expect(mfs.Data["mf-a"].Path).To(Equal(destOpusRel))
+		Expect(os.ReadFile(destOpus)).ToNot(BeEmpty())
+		Expect(itemsOf(job)[0].PromoteDest).To(Equal(destOpus))
+		Eventually(scanner.scans).Should(HaveLen(1))
+
+		res, err = ripper.Promote(ctx, job.ID)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(res.Promoted).To(HaveLen(1))
+		Expect(inInbox("Album/a.opus")).To(BeFalse())
+		Expect(destOpus).To(BeAnExistingFile())
+		jobGone(job)
+	})
+
 	It("reuses folders in the promote folder whose names differ only by letter case", func() {
 		Expect(os.MkdirAll(filepath.Join(promote, "RIP ARTIST", "rip album"), 0o755)).To(Succeed())
 		landed("ripped.opus", "a.opus")
@@ -280,6 +303,43 @@ var _ = Describe("Promote", func() {
 			Expect(inInbox("Album/a.opus")).To(BeTrue())
 			Expect(itemsOf(job)[0].PromoteDest).To(BeEmpty())
 			Expect(mfs.Data["mf-a"].LibraryID).To(Equal(inboxID))
+		})
+
+		It("keeps a move whose Track moved but whose File can't be seen (the mount is gone) for later", func() {
+			Expect(mfs.Relocate("mf-a", musicID, destOpusRel, "f")).To(Succeed())
+			ripper.ResumePromotes(ctx)
+			Expect(itemsOf(job)[0].PromoteDest).To(Equal(destOpus))
+			Expect(inInbox("Album/a.opus")).To(BeTrue())
+			Expect(mfs.Data["mf-a"].Path).To(Equal(destOpusRel))
+
+			_, err := ripper.Promote(ctx, job.ID)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(itemsOf(job)[0].PromoteDest).To(Equal(destOpus), "still not undone")
+			Expect(destOpus).ToNot(BeAnExistingFile())
+		})
+
+		It("merges a Track scanned from the Inbox copy left behind into the moved Track, which stays", func() {
+			Expect(os.WriteFile(destOpus, opus, 0o644)).To(Succeed())
+			mfs.Data["mf-a"].CreatedAt = time.Now().Add(-time.Hour)
+			Expect(mfs.Relocate("mf-a", musicID, destOpusRel, "f")).To(Succeed())
+			scanned("mf-new", "Album/a.opus") // after the restart, from the copy still in the Inbox
+			mfs.Data["mf-new"].CreatedAt = time.Now()
+
+			ripper.ResumePromotes(ctx)
+
+			Expect(inInbox("Album/a.opus")).To(BeFalse())
+			Expect(mfs.Data).ToNot(HaveKey("mf-new"))
+			Expect(mfs.ReassignReferencesCalls).To(HaveKeyWithValue("mf-new", "mf-a"))
+			Expect(mfs.Data["mf-a"].Path).To(Equal(destOpusRel))
+			jobGone(job)
+		})
+
+		It("leaves interrupted moves alone while Promote is off (its folder may not be mounted)", func() {
+			Expect(os.WriteFile(promoteTemp(destOpus), opus[:10], 0o644)).To(Succeed())
+			off := New(ds, newFakeFetcher(), scanner, Options{})
+			off.ResumePromotes(ctx)
+			Expect(promoteTemp(destOpus)).To(BeAnExistingFile())
+			Expect(itemsOf(job)[0].PromoteDest).To(Equal(destOpus))
 		})
 
 		It("does the same when the admin promotes the job again before anything else", func() {

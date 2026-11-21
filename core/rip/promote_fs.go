@@ -42,9 +42,9 @@ func (osFS) Stat(name string) (fs.FileInfo, error)      { return os.Stat(name) }
 func (osFS) Create(name string) (promoteFile, error) {
 	return os.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 }
-func (osFS) Open(name string) (fs.File, error)          { return os.Open(name) }
-func (osFS) Link(oldname, newname string) error         { return os.Link(oldname, newname) }
-func (osFS) Rename(oldname, newname string) error       { return os.Rename(oldname, newname) }
-func (osFS) Remove(name string) error                   { return os.Remove(name) }
-func (osFS) Chtimes(name string, t time.Time) error     { return os.Chtimes(name, t, t) }
-func (osFS) EvalSymlinks(name string) (string, error)   { return filepath.EvalSymlinks(name) }
+func (osFS) Open(name string) (fs.File, error)        { return os.Open(name) }
+func (osFS) Link(oldname, newname string) error       { return os.Link(oldname, newname) }
+func (osFS) Rename(oldname, newname string) error     { return os.Rename(oldname, newname) }
+func (osFS) Remove(name string) error                 { return os.Remove(name) }
+func (osFS) Chtimes(name string, t time.Time) error   { return os.Chtimes(name, t, t) }
+func (osFS) EvalSymlinks(name string) (string, error) { return filepath.EvalSymlinks(name) }

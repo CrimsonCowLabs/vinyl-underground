@@ -414,11 +414,27 @@ func (r *mediaFileRepository) Delete(id string) error {
 var relocatedAt = time.Unix(0, 0).UTC()
 
 func (r *mediaFileRepository) Relocate(id string, libraryID int, path, folderID string) error {
-	// A Track whose File was at that path before and is gone (missing) would make two rows for
-	// one File: it is a ghost, so it goes.
-	ghosts := And{Eq{"library_id": libraryID}, Eq{"path": path}, Eq{"missing": true}, NotEq{"id": id}}
-	if err := r.delete(ghosts); err != nil {
-		return fmt.Errorf("removing the missing Track at %q: %w", path, err)
+	// Any other Track at that path would make two rows for one File. A missing one is a ghost of
+	// a File that was there before, and goes. One that isn't was scanned from this very File (a
+	// scan got to it before it was relocated), so what is attached to it moves to id first.
+	var others []struct {
+		ID      string
+		Missing bool
+	}
+	sel := Select("id", "missing").From(r.tableName).
+		Where(And{Eq{"library_id": libraryID}, Eq{"path": path}, NotEq{"id": id}})
+	if err := r.queryAll(sel, &others); err != nil {
+		return err
+	}
+	for _, o := range others {
+		if !o.Missing {
+			if err := r.ReassignReferences(o.ID, id); err != nil {
+				return fmt.Errorf("merging the Track at %q: %w", path, err)
+			}
+		}
+		if err := r.delete(Eq{"id": o.ID}); err != nil {
+			return fmt.Errorf("removing the other Track at %q: %w", path, err)
+		}
 	}
 	upd := Update(r.tableName).
 		Set("library_id", libraryID).
