@@ -156,18 +156,23 @@ As the admin, the new Tracks can be played, favorited and added to Playlists str
 
 Files copied in by hand must be readable by `VU_UID`. The app sets up the Inbox library on start from `ND_INBOX_PATH` (`/inbox` by default), and scans it straight away when it is new. It must not be inside the Library, or contain it. With `ND_INBOX_PATH=` empty, or no folder at that path, no Inbox library is set up; one that already exists stays until an admin deletes it under **Libraries**.
 
-## 10. Rip a video into the Inbox
+## 10. Rip a video, a playlist or an album into the Inbox
 
 Ripping is off by default. To turn it on, add `ND_RIPPING_ENABLED=true` to `.env` and run `docker compose up -d`. **You are responsible for what you download:** only rip what you have the right to copy.
 
-As the admin, open **Rips** in the side menu, paste the link to one video (YouTube and YouTube Music are tested; any site yt-dlp supports is accepted) and press **Rip**. The job shows **Queued**, then **Downloading**, then **Ready for review** once the File is in the Inbox and scanned as a Track, or **Failed** with yt-dlp's error message. Jobs run one at a time in the background, so closing the tab doesn't stop them. If the app stops in the middle of a Rip, that Rip starts again from scratch on the next start (or, if its File was already in the Inbox, is only scanned). The page refreshes the list every few seconds while a Rip is queued or downloading.
+As the admin, open **Rips** in the side menu, paste the link to a video, a playlist or an album (YouTube and YouTube Music are tested; any site yt-dlp supports is accepted) and press **Rip**. For the best tags, use an album link from `music.youtube.com`. The job shows **Queued**, then **Downloading**, then **Ready for review** once its Files are in the Inbox and scanned as Tracks, or **Failed** with yt-dlp's error message. Jobs run one at a time in the background, so closing the tab doesn't stop them. The page refreshes the list every few seconds while a Rip is queued or downloading.
+
+A playlist or album is one job with one item per Track, ripped one at a time, in order. Expand the job to see each Track's status; while it runs, the job shows how many are done (e.g. **Downloading (3 of 12)**). A Track that fails doesn't stop the others: it shows its own error, and the job ends **Ready for review (1 failed)**. Only if no Track could be ripped does the job end **Failed**. A playlist of more than 50 items lists its Tracks and asks before it is queued; one of more than 300 is refused.
+
+If the app stops in the middle of a Rip, the Track it was on starts again from scratch on the next start. Tracks already in the Inbox are not ripped again, and a job whose Files had all landed is only scanned.
 
 - **yt-dlp** is not in the image. The first Rip downloads the standalone build for the host (amd64 or arm64) from yt-dlp's latest GitHub release into `$VU_DATA_DIR/bin`, and checks it against the release's `SHA2-256SUMS`. To update it, delete `$VU_DATA_DIR/bin/yt-dlp`; the next Rip downloads the latest one. It never reads a yt-dlp config file. The image includes [deno](https://deno.com) (Alpine's package), the JavaScript runtime yt-dlp needs to read YouTube pages fully; its cache is `$VU_DATA_DIR/cache/deno`.
 - **Audio** is the page's best Opus stream, else its best AAC stream, saved as `.opus` or `.m4a` as it is, never re-encoded. A page with neither fails.
 - **Tags:** the File gets `SOURCE` (the site, e.g. `YouTube`), `SOURCEURL` (the page), and the title and artist the site gives.
-- **File name:** `<Artist> - <Title> [<video id>].<ext>` at the top of the Inbox. A File already there is never replaced; the new one gets ` (2)`. While downloading, the File is in the hidden `.rips` folder, which the scanner skips.
-- **Playlists** aren't supported yet: a playlist link fails with a message saying so. A video link that also names a playlist (`watch?v=...&list=...`) rips just that video.
-- **Time limit:** a Rip that takes longer than `ND_RIPPING_TIMEOUT` (default `30m`) is stopped and marked failed.
+- **File name:** `<Artist> - <Title> [<video id>].<ext>`, at the top of the Inbox for a video, and in a folder named after the playlist or album for a playlist (`<Album>/<Artist> - <Title> [<video id>].<ext>`). A File already there is never replaced; the new one gets ` (2)`. While downloading, the File is in the hidden `.rips` folder, which the scanner skips.
+- **Scan:** the Inbox is scanned once, when the whole job is done. (The library watcher may pick Files up sooner.)
+- **Playlist links:** a video link that also names a playlist (`watch?v=...&list=...`) rips just that video. Paste the playlist's own link (`playlist?list=...`) to rip all of it.
+- **Time limit:** a Track that takes longer than `ND_RIPPING_TIMEOUT` (default `30m`) is stopped and marked failed. The limit is per Track, not per job.
 
 ## 11. Generated Playlists (optional LLM)
 
