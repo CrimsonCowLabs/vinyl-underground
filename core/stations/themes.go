@@ -30,7 +30,8 @@ const (
 	// planLowWater is how few planned Tracks start the next selection, so a new plan is ready
 	// before this one runs out.
 	planLowWater = 8
-	// selectionTimeout bounds one background selection (two LLM calls).
+	// selectionTimeout is a backstop for one background selection (two LLM calls, each
+	// already bounded by the LLM's own timeout), so a stuck one never blocks the next forever.
 	selectionTimeout = 10 * time.Minute
 	// retryAfter is how long a Station plays by rule after its selection failed (say, the LLM's
 	// host is asleep) before asking the LLM again.
@@ -54,7 +55,7 @@ func cleanTheme(theme string) (string, error) {
 
 // stationRequest is what the LLM is asked for: music suiting the DJ's persona and the Theme.
 func stationRequest(dj DJ, theme string) string {
-	req := fmt.Sprintf("Music for a radio Station hosted by the DJ %s. %s", dj.Name, dj.Description)
+	req := fmt.Sprintf("Music for a Station hosted by the DJ %s. %s", dj.Name, dj.Description)
 	if theme != "" {
 		req += "\nTheme: " + theme
 	}
@@ -65,15 +66,17 @@ func stationRequest(dj DJ, theme string) string {
 type plan struct {
 	djID, theme string
 	tracks      model.MediaFiles
-	selecting   bool
 	failedAt    time.Time
 }
 
 // plans holds each Listener's plan. Only the Station they last listened to has one.
 type plans struct {
-	mu    sync.Mutex
-	byUsr map[string]*plan
-	wg    sync.WaitGroup // background selections, for tests
+	mu         sync.Mutex
+	byListener map[string]*plan
+	// selecting holds the Listeners with a selection under way. It is per Listener, not per
+	// plan, so switching Station never queues a second slow LLM call behind the first.
+	selecting map[string]bool
+	wg        sync.WaitGroup // background selections, for tests
 }
 
 // take serves up to n planned Tracks for the Listener's Station with the DJ and Theme, keeping
@@ -81,13 +84,14 @@ type plans struct {
 func (ps *plans) take(userID string, dj DJ, theme string, history []Served, now time.Time, n int) model.MediaFiles {
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
-	if ps.byUsr == nil {
-		ps.byUsr = map[string]*plan{}
+	if ps.byListener == nil {
+		ps.byListener = map[string]*plan{}
+		ps.selecting = map[string]bool{}
 	}
-	p := ps.byUsr[userID]
+	p := ps.byListener[userID]
 	if p == nil || p.djID != dj.ID || p.theme != theme {
 		p = &plan{djID: dj.ID, theme: theme}
-		ps.byUsr[userID] = p
+		ps.byListener[userID] = p
 	}
 	picked, rest := pickRanked(p.tracks, history, now, n)
 	p.tracks = rest
@@ -100,14 +104,14 @@ func (ps *plans) take(userID string, dj DJ, theme string, history []Served, now 
 func (ps *plans) selectAhead(ctx context.Context, sel Selector, userID string, dj DJ, theme string, exclude []string) {
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
-	p := ps.byUsr[userID]
-	if p == nil || p.selecting || len(p.tracks) >= planLowWater || time.Since(p.failedAt) < retryAfter {
+	p := ps.byListener[userID]
+	if p == nil || ps.selecting[userID] || len(p.tracks) >= planLowWater || time.Since(p.failedAt) < retryAfter {
 		return
 	}
 	for _, mf := range p.tracks {
 		exclude = append(exclude, mf.ID)
 	}
-	p.selecting = true
+	ps.selecting[userID] = true
 	ps.wg.Add(1)
 	// The selection outlives the refill's request, keeping its Listener for the Library.
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), selectionTimeout)
@@ -118,7 +122,7 @@ func (ps *plans) selectAhead(ctx context.Context, sel Selector, userID string, d
 
 		ps.mu.Lock()
 		defer ps.mu.Unlock()
-		p.selecting = false
+		delete(ps.selecting, userID)
 		if err != nil {
 			p.failedAt = time.Now()
 			log.Warn(ctx, "Station selection failed; playing by rule for now", "dj", dj.ID, "theme", theme, err)

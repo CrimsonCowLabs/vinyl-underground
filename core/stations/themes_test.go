@@ -244,9 +244,29 @@ var _ = Describe("Stations with an LLM", Ordered, func() {
 	})
 
 	It("ignores the Theme without an LLM", func() {
-		tracks, err := stations.New(ds, nil).Next(ctx, "sunny", "late-night drive", 3)
+		noLLM := stations.New(ds, nil)
+		tracks, err := noLLM.Next(ctx, "sunny", "late-night drive", 3)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(tracks).To(HaveLen(3))
+		_, err = noLLM.Next(ctx, "sunny", strings.Repeat("x", 201), 3)
+		Expect(err).ToNot(HaveOccurred())
 		Expect(sel.asked()).To(BeEmpty())
+	})
+
+	It("never asks the LLM twice at once for one Listener, even when they switch Station", func() {
+		sel.release = make(chan struct{})
+		_, err := svc.Next(ctx, "night-owl", "rain", 3)
+		Expect(err).ToNot(HaveOccurred())
+		_, err = svc.Next(ctx, "sunny", "", 3)
+		Expect(err).ToNot(HaveOccurred())
+		Consistently(sel.asked, 100*time.Millisecond).Should(HaveLen(1))
+
+		close(sel.release)
+		stations.WaitForSelection(svc)
+		_, err = svc.Next(ctx, "sunny", "", 3)
+		Expect(err).ToNot(HaveOccurred())
+		stations.WaitForSelection(svc)
+		Expect(sel.asked()).To(HaveLen(2))
+		Expect(sel.asked()[1]).To(ContainSubstring("Sunny"))
 	})
 })

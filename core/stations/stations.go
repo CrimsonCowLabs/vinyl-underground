@@ -75,6 +75,10 @@ func (s *service) Next(ctx context.Context, djID, theme string, count int) (mode
 	if !ok {
 		return nil, ErrUnknownDJ
 	}
+	// Without an LLM the Theme has no say, so it is ignored rather than checked.
+	if s.selector == nil {
+		theme = ""
+	}
 	theme, err := cleanTheme(theme)
 	if err != nil {
 		return nil, err
