@@ -26,9 +26,14 @@ export const useSelectedFields = ({
       Object.keys(resourceFields).length !== Object.keys(columns).length ||
       !Object.keys(columns).every((c) => c in resourceFields)
     ) {
+      // A column added or removed since the choices were saved: new columns
+      // take their default, and the saved choices are kept
       const obj = {}
       for (const key of Object.keys(columns)) {
-        obj[key] = !defaultOff.includes(key)
+        obj[key] =
+          resourceFields && key in resourceFields
+            ? resourceFields[key]
+            : !defaultOff.includes(key)
       }
       dispatch(setToggleableFields({ [resource]: obj }))
     }

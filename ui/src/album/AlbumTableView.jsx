@@ -24,6 +24,8 @@ import {
   SizeField,
 } from '../common'
 import config from '../config'
+import { DownloadBadge } from '../download/DownloadBadge'
+import { downloadsSupported } from '../download'
 import { DraggableTypes } from '../consts'
 import clsx from 'clsx'
 
@@ -86,6 +88,14 @@ const AlbumDatagrid = (props) => (
   <Datagrid {...props} body={<AlbumDatagridBody />} />
 )
 
+// The album's Download badge, or an empty cell without one
+const AlbumDownloadField = ({ record }) => (
+  <DownloadBadge id={record.id} kind="album" />
+)
+
+// The Datagrid reads these off the element for the column header
+AlbumDownloadField.defaultProps = { source: 'download', sortable: false }
+
 const AlbumTableView = ({
   hasShow,
   hasEdit,
@@ -127,6 +137,8 @@ const AlbumTableView = ({
         />
       ),
       createdAt: isDesktop && <DateField source="createdAt" showTime />,
+      // Left out where Downloads can't be stored, so it isn't offered either
+      download: downloadsSupported() && <AlbumDownloadField />,
     }
   }, [classes.ratingField, isDesktop])
 
