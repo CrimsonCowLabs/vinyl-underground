@@ -1,0 +1,10 @@
+# Laid over config.yaml by `retag.sh review`, to go through the albums skipped so far.
+# Every album is asked about, including those with no good match, so you can search by hand
+# (E for a search, I for a MusicBrainz release ID) or skip it again.
+lowconfidence:
+  skip: no
+# Its own history: an album applied here isn't asked about again, one skipped again is.
+statefile: /state/review-state.pickle
+import:
+  log: /state/review.log
+  incremental_skip_later: yes

@@ -1,0 +1,5 @@
+# Laid over config.yaml by retag.sh when RETAG_QUIET=1: apply strong matches and skip the rest,
+# without asking. Only for a test on a scratch copy, never for the Library.
+import:
+  timid: no
+  quiet: yes

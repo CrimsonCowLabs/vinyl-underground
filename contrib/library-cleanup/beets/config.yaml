@@ -1,0 +1,78 @@
+# beets settings for retagging the Library in place from MusicBrainz (see ../README.md).
+# The share is mounted at /music, and beets' own state lives in /state, outside the share.
+
+library: /state/library.db
+statefile: /state/state.pickle
+# The pinned beets creates its database fresh, so there is nothing to back up.
+create_backup_before_migrations: no
+# Only a placeholder: Files are never moved, so beets' path formats are never used.
+directory: /music
+
+plugins: [musicbrainz, chroma, fingerprints, lastgenre, lowconfidence]
+# fingerprints makes chroma's fingerprints count when pairing Files with Tracks (see beetsplug/fingerprints.py).
+pluginpath: [/etc/beets/beetsplug]
+
+# Never walk into Quarantine or the NAS's recycle bin, even if given a folder holding them.
+# retag.py also leaves out folders with a .ndignore, which beets has no setting for.
+ignore: [".*", "*~", "System Volume Information", "lost+found", "_Quarantine", "trashbox"]
+
+import:
+  # Tag Files in place: never copy, move, rename or delete them.
+  write: yes
+  copy: no
+  move: no
+  link: no
+  hardlink: no
+  reflink: no
+  delete: no
+  # Keep the Files' other tags (e.g. a Rip's SOURCEURL) and embedded art.
+  from_scratch: no
+  # Show every album match for approval. lowconfidence skips the albums with no good match first.
+  timid: yes
+  default_action: apply
+  # Only used with quiet.yaml, for a test on a scratch copy.
+  quiet_fallback: skip
+  none_rec_action: skip
+  # Skipped albums (by lowconfidence or by the owner) are listed here, for retag.sh review.
+  log: /state/import.log
+  # Resume a stopped run, and never ask again about an album already decided.
+  resume: yes
+  incremental: yes
+  incremental_skip_later: no
+  # An album beets already has from another folder is tagged too; nothing is ever removed.
+  duplicate_action: keep
+  singletons: no
+  group_albums: no
+
+# The year is that of the release matched (The Bends' 1995 CD), and the first release's date
+# goes in the original date tags. MusicBrainz dates The Bends' first release to a 1994 promo, so
+# original_date (or preferring original-year releases) would give it 1994.
+original_date: no
+# Track numbers restart on each disc, as on the discs themselves.
+per_disc_numbering: yes
+artist_credit: no
+# The share is an SMB1 NAS that mangles names under parallel access: one thing at a time.
+threaded: no
+
+musicbrainz:
+  # beets keeps to musicbrainz.org's rate limit (1 request a second) by itself, and its
+  # User-Agent names beets and its website only. Genres come from lastgenre instead (see the README).
+  genres: no
+
+chroma:
+  # Fingerprint every File, so albums whose tags are too poor to search on still find candidates.
+  auto: yes
+
+lastgenre:
+  auto: yes
+  # One genre per album, from Last.fm's album tags, else the artist's, replacing the File's own.
+  # (keep_existing would put the File's own genre first, so iTunes' broad "Rock" would always win.)
+  source: album
+  count: 1
+  canonical: yes
+  whitelist: yes
+  force: yes
+  keep_existing: no
+
+lowconfidence:
+  skip: yes
