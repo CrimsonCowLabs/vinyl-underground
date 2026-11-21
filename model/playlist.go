@@ -36,6 +36,8 @@ type Playlist struct {
 	CreatedAt        time.Time      `structs:"created_at" json:"createdAt"`
 	UpdatedAt        time.Time      `structs:"updated_at" json:"updatedAt"`
 	ImportedHash     string         `structs:"imported_hash" json:"-"`
+	// Prompt is the Prompt a Generated Playlist was made from; empty for other Playlists.
+	Prompt string `structs:"prompt" json:"prompt,omitempty"`
 
 	// SmartPlaylist attributes
 	Rules       *criteria.Criteria `structs:"rules" json:"rules"`
