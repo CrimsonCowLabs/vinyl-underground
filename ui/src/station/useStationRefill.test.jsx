@@ -66,6 +66,23 @@ describe('useStationRefill', () => {
     expect(queuedIds(store).slice(5)).toEqual(['d', 'e', 'f'])
   })
 
+  it("asks for the Station's Theme on every refill", async () => {
+    httpClient.mockResolvedValue({ json: { tracks: tracks('d', 'e', 'f') } })
+    const store = newStore()
+    store.dispatch(startStation('night-owl', tracks('a'), 'late-night drive'))
+    render(
+      <Provider store={store}>
+        <Refill />
+      </Provider>,
+    )
+    await waitFor(() => expect(queuedIds(store)).toHaveLength(4))
+    expect(JSON.parse(httpClient.mock.calls[0][1].body)).toEqual({
+      dj: 'night-owl',
+      count: REFILL_COUNT,
+      theme: 'late-night drive',
+    })
+  })
+
   it('does nothing when no Station is on air', () => {
     const store = newStore()
     render(

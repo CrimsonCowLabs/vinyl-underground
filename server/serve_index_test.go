@@ -110,6 +110,8 @@ var _ = Describe("serveIndex", func() {
 		Entry("enablePromote with no promote folder", func() { conf.Server.Ripping.Enabled = true }, "enablePromote", false),
 		Entry("enableGeneratedPlaylists", func() { conf.Server.LLM.BaseURL = "http://llm-host:11434"; conf.Server.LLM.Model = "qwen3.5:4b-q4_K_M" }, "enableGeneratedPlaylists", true),
 		Entry("enableGeneratedPlaylists without a model", func() { conf.Server.LLM.BaseURL = "http://llm-host:11434"; conf.Server.LLM.Model = "" }, "enableGeneratedPlaylists", false),
+		Entry("enableStationThemes", func() { conf.Server.LLM.BaseURL = "http://llm-host:11434"; conf.Server.LLM.Model = "qwen3.5:4b-q4_K_M" }, "enableStationThemes", true),
+		Entry("enableStationThemes without an LLM", func() {}, "enableStationThemes", false),
 		Entry("defaultDownsamplingFormat", func() { conf.Server.DefaultDownsamplingFormat = "mp3" }, "defaultDownsamplingFormat", "mp3"),
 		Entry("enableUserEditing", func() { conf.Server.EnableUserEditing = false }, "enableUserEditing", false),
 		Entry("enableSharing", func() { conf.Server.EnableSharing = true }, "enableSharing", true),

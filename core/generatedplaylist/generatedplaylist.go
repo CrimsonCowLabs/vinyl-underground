@@ -76,9 +76,25 @@ type Service interface {
 	Replace(ctx context.Context, playlistID string, trackIDs []string) error
 }
 
+// Selector is the candidate approach behind Generated Playlists, for other features to use:
+// Stations make their request from the DJ's persona and the Theme.
+type Selector interface {
+	// Select returns up to length Tracks (1 to MaxLength) from the Listener's Library for a
+	// free-text request, in the LLM's order: the LLM turns the request into filters, the server
+	// builds candidates from the Library, and the LLM picks among them. Tracks with IDs in
+	// exclude are never candidates.
+	Select(ctx context.Context, request string, length int, exclude []string) (model.MediaFiles, error)
+}
+
 // New returns the Service. A nil client means no LLM is configured. A nil similar means
 // candidates come from local tags alone.
 func New(ds model.DataStore, client llm.Client, similar SimilarArtists) Service {
+	return &service{ds: ds, llm: client, similar: similar}
+}
+
+// NewSelector returns a Selector using the LLM client, which must not be nil. A nil similar
+// means candidates come from local tags alone.
+func NewSelector(ds model.DataStore, client llm.Client, similar SimilarArtists) Selector {
 	return &service{ds: ds, llm: client, similar: similar}
 }
 
@@ -121,25 +137,7 @@ func (s *service) Preview(ctx context.Context, prompt string, length int) (*Prev
 		return nil, err
 	}
 
-	genres, err := s.libraryGenres(ctx)
-	if err != nil {
-		return nil, err
-	}
-	f, err := s.askFilters(ctx, prompt, genres)
-	if err != nil {
-		return nil, err
-	}
-	log.Debug(ctx, "Generated Playlist filters", "prompt", prompt, "filters", f)
-
-	candidates, err := s.candidates(ctx, f, candidateTarget(length))
-	if err != nil {
-		return nil, err
-	}
-	if len(candidates) == 0 {
-		return nil, ErrNoTracks
-	}
-
-	picks, err := s.askRanking(ctx, prompt, length, candidates)
+	f, tracks, err := s.generate(ctx, prompt, length, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -147,10 +145,46 @@ func (s *service) Preview(ctx context.Context, prompt string, length int) (*Prev
 	if name == "" {
 		name = truncate(prompt, maxNameLength)
 	}
-	tracks, picked := pickTracks(candidates, picks, length)
-	log.Info(ctx, "Generated Playlist preview", "length", length, "candidates", len(candidates),
-		"llmPicks", len(picks), "validPicks", picked, "tracks", len(tracks))
 	return &Preview{Prompt: prompt, Length: length, Name: name, Tracks: tracks}, nil
+}
+
+func (s *service) Select(ctx context.Context, request string, length int, exclude []string) (model.MediaFiles, error) {
+	if length < 1 || length > MaxLength {
+		return nil, ErrInvalidLength
+	}
+	_, tracks, err := s.generate(ctx, strings.TrimSpace(request), length, exclude)
+	return tracks, err
+}
+
+// generate asks the LLM for filters for the request, builds candidates from the Library
+// (leaving out the exclude IDs) and has the LLM pick length of them.
+func (s *service) generate(ctx context.Context, request string, length int, exclude []string) (filters, model.MediaFiles, error) {
+	genres, err := s.libraryGenres(ctx)
+	if err != nil {
+		return filters{}, nil, err
+	}
+	f, err := s.askFilters(ctx, request, genres)
+	if err != nil {
+		return filters{}, nil, err
+	}
+	log.Debug(ctx, "LLM candidate filters", "request", request, "filters", f)
+
+	candidates, err := s.candidates(ctx, f, candidateTarget(length), excludeFilter(exclude))
+	if err != nil {
+		return filters{}, nil, err
+	}
+	if len(candidates) == 0 {
+		return filters{}, nil, ErrNoTracks
+	}
+
+	picks, err := s.askRanking(ctx, request, length, candidates)
+	if err != nil {
+		return filters{}, nil, err
+	}
+	tracks, picked := pickTracks(candidates, picks, length)
+	log.Info(ctx, "LLM picked Tracks", "length", length, "candidates", len(candidates),
+		"llmPicks", len(picks), "validPicks", picked, "tracks", len(tracks))
+	return f, tracks, nil
 }
 
 // candidateTarget is how many candidates to offer the LLM for a Playlist of length Tracks.

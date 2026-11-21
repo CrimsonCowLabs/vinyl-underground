@@ -3,11 +3,8 @@ package stations_test
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 	"time"
 
-	"github.com/navidrome/navidrome/conf"
-	"github.com/navidrome/navidrome/conf/configtest"
 	"github.com/navidrome/navidrome/core/stations"
 	"github.com/navidrome/navidrome/db"
 	"github.com/navidrome/navidrome/model"
@@ -25,10 +22,6 @@ var _ = Describe("Stations", Ordered, func() {
 	var seq int
 
 	BeforeAll(func() {
-		// db.Db() is a process-wide singleton, so the whole suite shares one database.
-		DeferCleanup(configtest.SetupConfig())
-		conf.Server.DbPath = filepath.Join(GinkgoT().TempDir(), "stations.db") + "?_journal_mode=WAL"
-		DeferCleanup(db.Init(context.Background()))
 		ds = persistence.New(db.Db())
 
 		lib := model.Library{ID: 2, Name: "Other Library", Path: GinkgoT().TempDir()}
@@ -50,7 +43,7 @@ var _ = Describe("Stations", Ordered, func() {
 			_, err := db.Db().Exec("delete from " + table)
 			Expect(err).ToNot(HaveOccurred())
 		}
-		svc = stations.New(ds)
+		svc = stations.New(ds, nil)
 	})
 
 	// addTracks puts n Tracks, each by its own artist, in the Library (library 1 unless lib is
@@ -82,7 +75,7 @@ var _ = Describe("Stations", Ordered, func() {
 		mine := addTracks(8)
 		addTracks(8, 2)
 
-		tracks, err := svc.Next(aliceCtx, "night-owl", 5)
+		tracks, err := svc.Next(aliceCtx, "night-owl", "", 5)
 
 		Expect(err).ToNot(HaveOccurred())
 		Expect(tracks).To(HaveLen(5))
@@ -91,21 +84,21 @@ var _ = Describe("Stations", Ordered, func() {
 
 	It("serves 3 Tracks when no count is given", func() {
 		addTracks(8)
-		tracks, err := svc.Next(aliceCtx, "sunny", 0)
+		tracks, err := svc.Next(aliceCtx, "sunny", "", 0)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(tracks).To(HaveLen(3))
 	})
 
 	It("refuses an unknown DJ or a count over the limit", func() {
 		addTracks(3)
-		_, err := svc.Next(aliceCtx, "nobody", 3)
+		_, err := svc.Next(aliceCtx, "nobody", "", 3)
 		Expect(err).To(MatchError(stations.ErrUnknownDJ))
-		_, err = svc.Next(aliceCtx, "sunny", stations.MaxCount+1)
+		_, err = svc.Next(aliceCtx, "sunny", "", stations.MaxCount+1)
 		Expect(err).To(MatchError(stations.ErrInvalidCount))
 	})
 
 	It("says when the Library has no Tracks to play", func() {
-		_, err := svc.Next(aliceCtx, "sunny", 3)
+		_, err := svc.Next(aliceCtx, "sunny", "", 3)
 		Expect(err).To(MatchError(stations.ErrNoTracks))
 	})
 
@@ -116,7 +109,7 @@ var _ = Describe("Stations", Ordered, func() {
 			_, err := db.Db().Exec("update media_file set missing = true where id = ?", id)
 			Expect(err).ToNot(HaveOccurred())
 		}
-		tracks, err := svc.Next(aliceCtx, "sunny", 2)
+		tracks, err := svc.Next(aliceCtx, "sunny", "", 2)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(ids(tracks)).To(ConsistOf(present))
 	})
@@ -125,7 +118,7 @@ var _ = Describe("Stations", Ordered, func() {
 		all := addTracks(12)
 		var served []string
 		for range 4 {
-			tracks, err := svc.Next(aliceCtx, "crate-digger", 3)
+			tracks, err := svc.Next(aliceCtx, "crate-digger", "", 3)
 			Expect(err).ToNot(HaveOccurred())
 			served = append(served, ids(tracks)...)
 		}
@@ -137,7 +130,7 @@ var _ = Describe("Stations", Ordered, func() {
 		Expect(ds.MediaFile(aliceCtx).IncPlayCount(all[0], time.Now().Add(-time.Hour))).To(Succeed())
 		Expect(ds.MediaFile(aliceCtx).IncPlayCount(all[1], time.Now().Add(-50*time.Hour))).To(Succeed())
 
-		tracks, err := svc.Next(aliceCtx, "sunny", 5)
+		tracks, err := svc.Next(aliceCtx, "sunny", "", 5)
 
 		Expect(err).ToNot(HaveOccurred())
 		Expect(ids(tracks)).To(ConsistOf(all[1:]))
@@ -145,11 +138,11 @@ var _ = Describe("Stations", Ordered, func() {
 
 	It("gives each Listener their own Station", func() {
 		addTracks(20)
-		aliceTracks, err := svc.Next(aliceCtx, "sunny", 10)
+		aliceTracks, err := svc.Next(aliceCtx, "sunny", "", 10)
 		Expect(err).ToNot(HaveOccurred())
 
 		// Had Bob shared Alice's Station, he would get exactly the 10 Tracks she wasn't served.
-		bobTracks, err := svc.Next(bobCtx, "sunny", 10)
+		bobTracks, err := svc.Next(bobCtx, "sunny", "", 10)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(ids(bobTracks)).To(ContainElement(BeElementOf(ids(aliceTracks))))
 	})
@@ -162,7 +155,7 @@ var _ = Describe("Stations", Ordered, func() {
 			for range 150 {
 				_, err := db.Db().Exec("delete from station_track")
 				Expect(err).ToNot(HaveOccurred())
-				tracks, err := svc.Next(ctx, djID, 1)
+				tracks, err := svc.Next(ctx, djID, "", 1)
 				Expect(err).ToNot(HaveOccurred())
 				res[tracks[0].ID]++
 			}
@@ -172,7 +165,7 @@ var _ = Describe("Stations", Ordered, func() {
 		// skipHard serves both Tracks on Alice's Sunny Station and has her skip the first one
 		// again and again, so it plays at its least: a sixth of the first picks against half.
 		skipHard := func(tracks []string) {
-			_, err := svc.Next(aliceCtx, "sunny", 2)
+			_, err := svc.Next(aliceCtx, "sunny", "", 2)
 			Expect(err).ToNot(HaveOccurred())
 			for range 10 {
 				Expect(svc.Skip(aliceCtx, "sunny", tracks[0])).To(Succeed())
@@ -212,7 +205,7 @@ var _ = Describe("Stations", Ordered, func() {
 		It("only count for Tracks the Station served, on a known DJ", func() {
 			tracks := addTracks(2)
 			Expect(svc.Skip(aliceCtx, "sunny", tracks[0])).To(MatchError(stations.ErrNotServed))
-			_, err := svc.Next(aliceCtx, "sunny", 2)
+			_, err := svc.Next(aliceCtx, "sunny", "", 2)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(svc.Skip(bobCtx, "sunny", tracks[0])).To(MatchError(stations.ErrNotServed))
 			Expect(svc.Skip(aliceCtx, "nobody", tracks[0])).To(MatchError(stations.ErrUnknownDJ))

@@ -657,4 +657,56 @@ var _ = Describe("Generated Playlists", Ordered, func() {
 			Expect(svc.Replace(ctx, id, ids)).To(MatchError(generatedplaylist.ErrInvalidLength))
 		})
 	})
+
+	// Select is the same candidate approach, shared with Stations: their DJ's persona and Theme
+	// are the request.
+	Describe("Select", func() {
+		var sel generatedplaylist.Selector
+
+		BeforeEach(func() {
+			sel = generatedplaylist.NewSelector(ds, fake, similar)
+		})
+
+		It("turns the request into filters, and returns the LLM's pick of matching Library Tracks in its order", func() {
+			addTrack("Miles Davis", "Blue in Green", 1959, "Jazz")
+			addTrack("John Coltrane", "Naima", 1959, "Jazz")
+			addTrack("Madonna", "Vogue", 1990, "Pop")
+			refreshGenres()
+			fake.filters = map[string]any{"name": "", "genres": []string{"jazz"}, "seed_artists": []string{}, "year_from": 0, "year_to": 0}
+			var offered []string
+			fake.rank = func(c []string) []int {
+				offered = c
+				return []int{2, 1}
+			}
+
+			tracks, err := sel.Select(ctx, "Night Owl, low-key and late-night. Theme: late-night drive", 2, nil)
+
+			Expect(err).ToNot(HaveOccurred())
+			Expect(fake.request("filters").User).To(ContainSubstring("Theme: late-night drive"))
+			Expect(fake.request("ranking").User).To(ContainSubstring("Pick 2 Tracks"))
+			// The genre's Tracks come first, in random order; the LLM picked the second, then the first.
+			Expect(offered[:2]).To(ConsistOf(HaveSuffix("Blue in Green (1959, Jazz)"), HaveSuffix("Naima (1959, Jazz)")))
+			Expect(tracks).To(HaveLen(2))
+			Expect(offered[1]).To(HaveSuffix(tracks[0].Title + " (1959, Jazz)"))
+			Expect(offered[0]).To(HaveSuffix(tracks[1].Title + " (1959, Jazz)"))
+		})
+
+		It("never offers the Tracks it is told to leave out", func() {
+			kept := addTrack("Miles Davis", "Blue in Green", 1959, "Jazz")
+			left := addTrack("John Coltrane", "Naima", 1959, "Jazz")
+
+			tracks, err := sel.Select(ctx, "anything", 5, []string{left.ID})
+
+			Expect(err).ToNot(HaveOccurred())
+			Expect(candidateLines(fake.request("ranking").User)).To(HaveLen(1))
+			Expect(titles(tracks)).To(Equal([]string{kept.Title}))
+		})
+
+		It("refuses a length outside 1 to 100", func() {
+			_, err := sel.Select(ctx, "anything", 0, nil)
+			Expect(err).To(MatchError(generatedplaylist.ErrInvalidLength))
+			_, err = sel.Select(ctx, "anything", 101, nil)
+			Expect(err).To(MatchError(generatedplaylist.ErrInvalidLength))
+		})
+	})
 })

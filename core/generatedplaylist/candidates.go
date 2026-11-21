@@ -22,7 +22,7 @@ import (
 // maxPerArtistSearch each. Their similar artists take at most another third, in the same way. No
 // artist gets more than a tenth (at least 5), so a few prolific artists can't crowd out the rest.
 // Only a Library too small for that ignores the artist limit.
-func (s *service) candidates(ctx context.Context, f filters, target int) (model.MediaFiles, error) {
+func (s *service) candidates(ctx context.Context, f filters, target int, exclude Sqlizer) (model.MediaFiles, error) {
 	c := &collector{target: target, artistCap: max(5, target/10),
 		seen: map[string]bool{}, seenSong: map[string]bool{}, perArtist: map[string]int{}}
 	type search struct {
@@ -42,7 +42,7 @@ func (s *service) candidates(ctx context.Context, f filters, target int) (model.
 			break
 		}
 		if !search.matching {
-			mfs, err := s.search(ctx, nil, search.years, c.room())
+			mfs, err := s.search(ctx, c.room(), exclude, search.years)
 			if err != nil {
 				return nil, err
 			}
@@ -50,12 +50,12 @@ func (s *service) candidates(ctx context.Context, f filters, target int) (model.
 			continue
 		}
 		for _, artists := range [][]string{f.SeedArtists, similar} {
-			if err := s.addArtists(ctx, c, artists, search.years); err != nil {
+			if err := s.addArtists(ctx, c, artists, exclude, search.years); err != nil {
 				return nil, err
 			}
 		}
 		if len(f.Genres) > 0 && !c.full() {
-			mfs, err := s.searchGenres(ctx, f.Genres, search.years, c.room())
+			mfs, err := s.searchGenres(ctx, f.Genres, c.room(), exclude, search.years)
 			if err != nil {
 				return nil, err
 			}
@@ -64,7 +64,7 @@ func (s *service) candidates(ctx context.Context, f filters, target int) (model.
 	}
 	if !c.full() {
 		c.artistCap = 0
-		mfs, err := s.search(ctx, nil, nil, c.room())
+		mfs, err := s.search(ctx, c.room(), exclude)
 		if err != nil {
 			return nil, err
 		}
@@ -77,7 +77,7 @@ const maxPerArtistSearch = 6
 
 // addArtists adds Tracks by the artists, sharing a third of the candidates between them, at most
 // maxPerArtistSearch each.
-func (s *service) addArtists(ctx context.Context, c *collector, artists []string, years Sqlizer) error {
+func (s *service) addArtists(ctx context.Context, c *collector, artists []string, exclude, years Sqlizer) error {
 	if len(artists) == 0 {
 		return nil
 	}
@@ -86,7 +86,7 @@ func (s *service) addArtists(ctx context.Context, c *collector, artists []string
 		if c.full() {
 			return nil
 		}
-		mfs, err := s.search(ctx, artistFilter(artist), years, perArtist)
+		mfs, err := s.search(ctx, perArtist, artistFilter(artist), exclude, years)
 		if err != nil {
 			return err
 		}
@@ -141,6 +141,14 @@ func yearsFilter(f filters) Sqlizer {
 	return and
 }
 
+// excludeFilter leaves out the Tracks with the ids, or is nil for none.
+func excludeFilter(ids []string) Sqlizer {
+	if len(ids) == 0 {
+		return nil
+	}
+	return NotEq{"media_file.id": ids}
+}
+
 func artistFilter(name string) Sqlizer {
 	name = strings.ToLower(name)
 	return Or{
@@ -161,16 +169,16 @@ func searchOptions(max int, filters ...Sqlizer) model.QueryOptions {
 	return model.QueryOptions{Filters: and, Sort: "random", Max: max * 3}
 }
 
-func (s *service) search(ctx context.Context, filter, years Sqlizer, max int) (model.MediaFiles, error) {
-	mfs, err := s.ds.MediaFile(ctx).GetAll(searchOptions(max, filter, years))
+func (s *service) search(ctx context.Context, max int, filters ...Sqlizer) (model.MediaFiles, error) {
+	mfs, err := s.ds.MediaFile(ctx).GetAll(searchOptions(max, filters...))
 	if err != nil {
 		return nil, fmt.Errorf("finding candidates: %w", err)
 	}
 	return mfs, nil
 }
 
-func (s *service) searchGenres(ctx context.Context, genres []string, years Sqlizer, max int) (model.MediaFiles, error) {
-	mfs, err := s.ds.MediaFile(ctx).GetAllByTags(model.TagGenre, genres, searchOptions(max, years))
+func (s *service) searchGenres(ctx context.Context, genres []string, max int, filters ...Sqlizer) (model.MediaFiles, error) {
+	mfs, err := s.ds.MediaFile(ctx).GetAllByTags(model.TagGenre, genres, searchOptions(max, filters...))
 	if err != nil {
 		return nil, fmt.Errorf("finding candidates by genre: %w", err)
 	}

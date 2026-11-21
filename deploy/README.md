@@ -186,7 +186,9 @@ If the app stops in the middle of a Rip, the Track it was on starts again from s
 
 A Listener can type a Prompt ("rainy Sunday 90s indie") and a length (25 by default, 10 to 100), and get a Playlist picked by a local LLM from the Library ([ADR-0004](../docs/adr/0004-llm-ranks-library-candidates-never-invents-tracks.md)). The LLM never names Tracks itself: it turns the Prompt into genres, seed artists and years, the app finds up to 150 matching Tracks in the Library, and the LLM picks and orders them. Every Track in the result is a real Track the Listener can play.
 
-With no LLM configured, the **Generate** button is not shown. If the LLM can't be reached (its host is asleep, say), the Listener sees "AI unavailable" after a few seconds rather than a hang.
+The same LLM shapes Stations: the DJ's persona and an optional Theme ("late-night drive") pick the Tracks in the same way, chosen in the background a few Tracks ahead so playback never waits for it. The first Tracks of a new Station are chosen by rule while the LLM works.
+
+With no LLM configured, the **Generate** button and the Station's Theme field are not shown, and Stations choose Tracks by rule. If the LLM can't be reached (its host is asleep, say), the Listener sees "AI unavailable" after a few seconds rather than a hang.
 
 The app talks to any OpenAI-compatible endpoint (Ollama, llama.cpp, LM Studio), set by two settings in `.env`:
 

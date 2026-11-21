@@ -6,15 +6,21 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/navidrome/navidrome/core/generatedplaylist"
 	"github.com/navidrome/navidrome/core/stations"
 	"github.com/navidrome/navidrome/log"
 )
 
 // addStationRoute exposes Stations: GET /station/dj lists the DJs, POST /station/next serves
 // the logged-in Listener's next Station Tracks, and POST /station/skip records that they skipped
-// one. Stations need no LLM.
+// one. Stations need no LLM; with one, the DJ's persona and the Station's Theme choose its
+// Tracks, the way a Prompt does for Generated Playlists.
 func (api *Router) addStationRoute(r chi.Router) {
-	svc := stations.New(api.ds)
+	var selector stations.Selector
+	if client := newLLMClient(); client != nil {
+		selector = generatedplaylist.NewSelector(api.ds, client, api.provider)
+	}
+	svc := stations.New(api.ds, selector)
 	r.Route("/station", func(r chi.Router) {
 		r.Get("/dj", listDJs(svc))
 		r.Post("/next", nextStationTracks(svc))
@@ -24,6 +30,7 @@ func (api *Router) addStationRoute(r chi.Router) {
 
 type nextStationRequest struct {
 	DJ    string `json:"dj"`
+	Theme string `json:"theme"`
 	Count int    `json:"count"`
 }
 
@@ -40,7 +47,7 @@ func nextStationTracks(svc stations.Service) http.HandlerFunc {
 			writeStationError(w, r, http.StatusBadRequest, "badRequest", err)
 			return
 		}
-		tracks, err := svc.Next(r.Context(), body.DJ, body.Count)
+		tracks, err := svc.Next(r.Context(), body.DJ, body.Theme, body.Count)
 		switch {
 		case err == nil:
 			writeStationJSON(w, r, map[string]any{"tracks": tracks})
@@ -48,6 +55,8 @@ func nextStationTracks(svc stations.Service) http.HandlerFunc {
 			writeStationError(w, r, http.StatusNotFound, "unknownDJ", err)
 		case errors.Is(err, stations.ErrInvalidCount):
 			writeStationError(w, r, http.StatusBadRequest, "invalidCount", err)
+		case errors.Is(err, stations.ErrInvalidTheme):
+			writeStationError(w, r, http.StatusBadRequest, "invalidTheme", err)
 		case errors.Is(err, stations.ErrNoTracks):
 			writeStationError(w, r, http.StatusUnprocessableEntity, "noTracks", err)
 		default:

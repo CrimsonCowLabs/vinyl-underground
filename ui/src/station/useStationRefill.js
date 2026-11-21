@@ -12,10 +12,14 @@ export const REFILL_COUNT = 3
 // starts.
 export const RETRY_MS = 15000
 
-export const fetchStationTracks = (djId, count) =>
+// fetchStationTracks asks for a Station's next Tracks. The Theme is only sent
+// when there is one (only with an LLM configured).
+export const fetchStationTracks = (djId, count, theme = '') =>
   httpClient(`${REST_URL}/station/next`, {
     method: 'POST',
-    body: JSON.stringify({ dj: djId, count }),
+    body: JSON.stringify(
+      theme ? { dj: djId, count, theme } : { dj: djId, count },
+    ),
   }).then(({ json }) => json.tracks || [])
 
 // useStationRefill keeps the Station on air endless: while a DJ is on air and
@@ -23,6 +27,7 @@ export const fetchStationTracks = (djId, count) =>
 export const useStationRefill = () => {
   const dispatch = useDispatch()
   const djId = useSelector((state) => state.station?.djId)
+  const theme = useSelector((state) => state.station?.theme)
   const session = useSelector((state) => state.station?.session)
   const upcoming = useSelector((state) => upcomingTracks(state.player))
   const [retries, setRetries] = useState(0)
@@ -36,7 +41,7 @@ export const useStationRefill = () => {
     }
     inFlight.current = session
     let retry
-    fetchStationTracks(djId, REFILL_COUNT)
+    fetchStationTracks(djId, REFILL_COUNT, theme)
       .then((tracks) => {
         // The Listener may have stopped or changed Station meanwhile.
         if (onAir.current === session && tracks.length) {
@@ -52,5 +57,5 @@ export const useStationRefill = () => {
         if (inFlight.current === session) inFlight.current = null
       })
     return () => clearTimeout(retry)
-  }, [djId, session, upcoming, retries, dispatch])
+  }, [djId, theme, session, upcoming, retries, dispatch])
 }
