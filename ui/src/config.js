@@ -46,6 +46,7 @@ const defaultConfig = {
   enableInspect: true,
   enableRipping: false,
   pluginsEnabled: true,
+  enableGeneratedPlaylists: false,
 }
 
 let config

@@ -87,6 +87,10 @@ const useStyles = makeStyles(
       marginTop: '1em',
       marginBottom: '0.5em',
     },
+    prompt: {
+      marginBottom: '0.5em',
+      wordBreak: 'break-word',
+    },
   }),
   {
     name: 'NDPlaylistDetails',
@@ -158,6 +162,17 @@ const PlaylistDetails = (props) => {
                 <span>&nbsp;</span>
               )}
             </Typography>
+            {record.prompt && (
+              <Typography
+                variant="body2"
+                color="textSecondary"
+                className={classes.prompt}
+              >
+                {translate('resources.playlist.message.generatedFrom', {
+                  prompt: record.prompt,
+                })}
+              </Typography>
+            )}
             <CollapsibleComment record={record} />
           </CardContent>
         </div>
