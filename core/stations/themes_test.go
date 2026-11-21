@@ -143,6 +143,30 @@ var _ = Describe("Stations with an LLM", Ordered, func() {
 		Expect(req).To(ContainSubstring("Theme: late-night drive"))
 	})
 
+	It("asks with the persona of the Listener's own DJ, and starts over when they edit it", func() {
+		_, err := db.Db().Exec("delete from dj")
+		Expect(err).ToNot(HaveOccurred())
+		mine, err := svc.CreateDJ(ctx, "Mr. Mellow", "Slow, soft songs for a rainy afternoon.")
+		Expect(err).ToNot(HaveOccurred())
+		mellow, loud := llmPicks("mellow", 8), llmPicks("loud", 8)
+		sel.pick = func(req string) model.MediaFiles {
+			switch {
+			case strings.Contains(req, "Mr. Mellow") && strings.Contains(req, "rainy afternoon"):
+				return mellow
+			case strings.Contains(req, "Mr. Loud") && strings.Contains(req, "Fast and loud"):
+				return loud
+			}
+			return nil
+		}
+
+		Expect(ids(listen(mine.ID, "", 3))).To(Equal(ids(mellow[:3])))
+		stations.WaitForSelection(svc)
+
+		_, err = svc.UpdateDJ(ctx, mine.ID, "Mr. Loud", "Fast and loud.")
+		Expect(err).ToNot(HaveOccurred())
+		Expect(ids(listen(mine.ID, "", 3))).To(Equal(ids(loud[:3])))
+	})
+
 	It("asks with the DJ's persona alone when no Theme is given", func() {
 		listen("sunny", "", 3)
 		Expect(sel.asked()[0]).To(ContainSubstring("Sunny"))

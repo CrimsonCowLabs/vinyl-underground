@@ -65,9 +65,10 @@ func stationRequest(dj DJ, theme string) string {
 
 // plan is the LLM's picks for one Listener's Station, not yet served.
 type plan struct {
-	djID, theme string
-	tracks      model.MediaFiles
-	failedAt    time.Time
+	// request is what the LLM was asked, so editing a DJ's persona starts a new plan too.
+	request  string
+	tracks   model.MediaFiles
+	failedAt time.Time
 }
 
 // plans holds each Listener's plan. Only the Station they last listened to has one.
@@ -81,7 +82,8 @@ type plans struct {
 }
 
 // take serves up to n planned Tracks for the Listener's Station with the DJ and Theme, keeping
-// Pick's rules against history. A different Station from last time starts a new, empty plan.
+// Pick's rules against history. A different Station from last time, or the same DJ since edited,
+// starts a new, empty plan.
 func (ps *plans) take(userID string, dj DJ, theme string, history []Served, now time.Time, n int, rnd *rand.Rand, weights ...Weight) model.MediaFiles {
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
@@ -90,8 +92,8 @@ func (ps *plans) take(userID string, dj DJ, theme string, history []Served, now 
 		ps.selecting = map[string]bool{}
 	}
 	p := ps.byListener[userID]
-	if p == nil || p.djID != dj.ID || p.theme != theme {
-		p = &plan{djID: dj.ID, theme: theme}
+	if req := stationRequest(dj, theme); p == nil || p.request != req {
+		p = &plan{request: req}
 		ps.byListener[userID] = p
 	}
 	picked, rest := pickRanked(p.tracks, history, now, n, rnd, weights...)
@@ -119,7 +121,7 @@ func (ps *plans) selectAhead(ctx context.Context, sel Selector, userID string, d
 	go func() {
 		defer ps.wg.Done()
 		defer cancel()
-		tracks, err := sel.Select(ctx, stationRequest(dj, theme), planLength, exclude)
+		tracks, err := sel.Select(ctx, p.request, planLength, exclude)
 
 		ps.mu.Lock()
 		defer ps.mu.Unlock()

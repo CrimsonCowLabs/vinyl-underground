@@ -11,18 +11,28 @@ import (
 	"github.com/navidrome/navidrome/log"
 )
 
-// addStationRoute exposes Stations: GET /station/dj lists the DJs, POST /station/next serves
-// the logged-in Listener's next Station Tracks, and POST /station/skip records that they skipped
-// one. Stations need no LLM; with one, the DJ's persona and the Station's Theme choose its
-// Tracks, the way a Prompt does for Generated Playlists.
+// addStationRoute exposes Stations. Stations need no LLM; with one, the DJ's persona and the
+// Station's Theme choose its Tracks, the way a Prompt does for Generated Playlists.
 func (api *Router) addStationRoute(r chi.Router) {
 	var selector stations.Selector
 	if client := newLLMClient(); client != nil {
 		selector = generatedplaylist.NewSelector(api.ds, client, api.provider)
 	}
-	svc := stations.New(api.ds, selector)
+	stationRoutes(r, stations.New(api.ds, selector))
+}
+
+// stationRoutes mounts the Station endpoints, all for the logged-in Listener:
+//   - GET /station/dj lists the DJs they can start a Station with, built-in then their own;
+//   - POST /station/dj creates one of their own DJs, PUT and DELETE /station/dj/{id} edit and
+//     delete it (built-in DJs are read-only);
+//   - POST /station/next serves their next Station Tracks;
+//   - POST /station/skip records that they skipped one.
+func stationRoutes(r chi.Router, svc stations.Service) {
 	r.Route("/station", func(r chi.Router) {
 		r.Get("/dj", listDJs(svc))
+		r.Post("/dj", createDJ(svc))
+		r.Put("/dj/{id}", updateDJ(svc))
+		r.Delete("/dj/{id}", deleteDJ(svc))
 		r.Post("/next", nextStationTracks(svc))
 		r.Post("/skip", skipStationTrack(svc))
 	})
@@ -36,7 +46,77 @@ type nextStationRequest struct {
 
 func listDJs(svc stations.Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		writeStationJSON(w, r, svc.DJs())
+		djs, err := svc.DJs(r.Context())
+		if err != nil {
+			writeStationError(w, r, http.StatusInternalServerError, "internal", err)
+			return
+		}
+		writeStationJSON(w, r, djs)
+	}
+}
+
+type djRequest struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+func createDJ(svc stations.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var body djRequest
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeStationError(w, r, http.StatusBadRequest, "badRequest", err)
+			return
+		}
+		dj, err := svc.CreateDJ(r.Context(), body.Name, body.Description)
+		if err != nil {
+			writeDJError(w, r, err)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		writeStationJSON(w, r, dj)
+	}
+}
+
+func updateDJ(svc stations.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var body djRequest
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeStationError(w, r, http.StatusBadRequest, "badRequest", err)
+			return
+		}
+		dj, err := svc.UpdateDJ(r.Context(), chi.URLParam(r, "id"), body.Name, body.Description)
+		if err != nil {
+			writeDJError(w, r, err)
+			return
+		}
+		writeStationJSON(w, r, dj)
+	}
+}
+
+func deleteDJ(svc stations.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := svc.DeleteDJ(r.Context(), chi.URLParam(r, "id")); err != nil {
+			writeDJError(w, r, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+// writeDJError answers a DJ that couldn't be saved or deleted.
+func writeDJError(w http.ResponseWriter, r *http.Request, err error) {
+	switch {
+	case errors.Is(err, stations.ErrUnknownDJ):
+		writeStationError(w, r, http.StatusNotFound, "unknownDJ", err)
+	case errors.Is(err, stations.ErrBuiltInDJ):
+		writeStationError(w, r, http.StatusForbidden, "builtInDJ", err)
+	case errors.Is(err, stations.ErrInvalidDJName):
+		writeStationError(w, r, http.StatusBadRequest, "invalidDJName", err)
+	case errors.Is(err, stations.ErrInvalidDJDescription):
+		writeStationError(w, r, http.StatusBadRequest, "invalidDJDescription", err)
+	default:
+		writeStationError(w, r, http.StatusInternalServerError, "internal", err)
 	}
 }
 

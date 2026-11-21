@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/conf/configtest"
 	"github.com/navidrome/navidrome/core"
@@ -19,7 +20,10 @@ import (
 	. "github.com/onsi/gomega"
 )
 
+// fakeStations stands in for the Station Service's refills and skips. DJs are tested against
+// the real Service (see "DJ endpoints").
 type fakeStations struct {
+	stations.Service
 	err      error
 	gotDJ    string
 	gotTheme string
@@ -34,8 +38,6 @@ func (f *fakeStations) Skip(ctx context.Context, djID, trackID string) error {
 	f.gotUser = usr.ID
 	return f.err
 }
-
-func (f *fakeStations) DJs() []stations.DJ { return stations.DJs() }
 
 func (f *fakeStations) Next(ctx context.Context, djID, theme string, count int) (model.MediaFiles, error) {
 	f.gotDJ, f.gotTheme, f.gotCount = djID, theme, count
@@ -64,17 +66,6 @@ var _ = Describe("Station endpoints", func() {
 		_ = json.Unmarshal(w.Body.Bytes(), &res)
 		return w.Code, res
 	}
-
-	It("lists the DJs with their names and descriptions", func() {
-		code, res := call(listDJs(svc), http.MethodGet, "")
-		Expect(code).To(Equal(http.StatusOK))
-		Expect(res).To(HaveLen(3))
-		first := res.([]any)[0].(map[string]any)
-		Expect(first).To(HaveKeyWithValue("id", "night-owl"))
-		Expect(first).To(HaveKeyWithValue("name", "Night Owl"))
-		Expect(first).To(HaveKey("description"))
-		Expect(first).ToNot(HaveKey("Taste"))
-	})
 
 	It("serves the Listener's next Station Tracks", func() {
 		code, res := call(nextStationTracks(svc), http.MethodPost, `{"dj":"night-owl","count":5}`)
@@ -140,4 +131,107 @@ var _ = Describe("Station endpoints", func() {
 		router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/station/dj", nil))
 		Expect(w.Code).To(Equal(http.StatusUnauthorized))
 	})
+})
+
+var _ = Describe("DJ endpoints", func() {
+	var router chi.Router
+	alice := model.User{ID: "u1", UserName: "alice"}
+	bob := model.User{ID: "u2", UserName: "bob"}
+
+	BeforeEach(func() {
+		router = chi.NewRouter()
+		stationRoutes(router, stations.New(&tests.MockDataStore{}, nil))
+	})
+
+	call := func(as model.User, method, path, body string) (int, map[string]any, []any) {
+		r := httptest.NewRequest(method, path, strings.NewReader(body))
+		r = r.WithContext(request.WithUser(r.Context(), as))
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, r)
+		var obj map[string]any
+		var list []any
+		_ = json.Unmarshal(w.Body.Bytes(), &obj)
+		_ = json.Unmarshal(w.Body.Bytes(), &list)
+		return w.Code, obj, list
+	}
+
+	create := func() string {
+		code, dj, _ := call(alice, http.MethodPost, "/station/dj", `{"name":"Mr. Mellow","description":"Slow and soft."}`)
+		Expect(code).To(Equal(http.StatusCreated))
+		Expect(dj).To(HaveKeyWithValue("name", "Mr. Mellow"))
+		Expect(dj).To(HaveKeyWithValue("description", "Slow and soft."))
+		Expect(dj).To(HaveKeyWithValue("builtIn", false))
+		Expect(dj["id"]).ToNot(BeEmpty())
+		return dj["id"].(string)
+	}
+
+	It("lists the built-in DJs, read-only, with their names and descriptions", func() {
+		code, _, djs := call(alice, http.MethodGet, "/station/dj", "")
+		Expect(code).To(Equal(http.StatusOK))
+		Expect(djs).To(HaveLen(3))
+		first := djs[0].(map[string]any)
+		Expect(first).To(HaveKeyWithValue("id", "night-owl"))
+		Expect(first).To(HaveKeyWithValue("name", "Night Owl"))
+		Expect(first).To(HaveKeyWithValue("builtIn", true))
+		Expect(first).To(HaveKey("description"))
+		Expect(first).ToNot(HaveKey("Taste"))
+	})
+
+	It("creates a Listener's DJ, listed after the built-in ones for that Listener only", func() {
+		id := create()
+		_, _, djs := call(alice, http.MethodGet, "/station/dj", "")
+		Expect(djs).To(HaveLen(4))
+		Expect(djs[3]).To(HaveKeyWithValue("id", id))
+		_, _, djs = call(bob, http.MethodGet, "/station/dj", "")
+		Expect(djs).To(HaveLen(3))
+	})
+
+	It("edits and deletes the Listener's own DJ", func() {
+		id := create()
+		code, dj, _ := call(alice, http.MethodPut, "/station/dj/"+id, `{"name":"Mr. Loud","description":"Fast and loud."}`)
+		Expect(code).To(Equal(http.StatusOK))
+		Expect(dj).To(HaveKeyWithValue("id", id))
+		Expect(dj).To(HaveKeyWithValue("name", "Mr. Loud"))
+
+		code, _, _ = call(alice, http.MethodDelete, "/station/dj/"+id, "")
+		Expect(code).To(Equal(http.StatusNoContent))
+		_, _, djs := call(alice, http.MethodGet, "/station/dj", "")
+		Expect(djs).To(HaveLen(3))
+	})
+
+	It("keeps another Listener's DJ out of reach", func() {
+		id := create()
+		code, res, _ := call(bob, http.MethodPut, "/station/dj/"+id, `{"name":"Hijacked","description":"Mine now."}`)
+		Expect(code).To(Equal(http.StatusNotFound))
+		Expect(res).To(HaveKeyWithValue("error", "unknownDJ"))
+		code, res, _ = call(bob, http.MethodDelete, "/station/dj/"+id, "")
+		Expect(code).To(Equal(http.StatusNotFound))
+		Expect(res).To(HaveKeyWithValue("error", "unknownDJ"))
+	})
+
+	It("refuses to edit or delete a built-in DJ", func() {
+		code, res, _ := call(alice, http.MethodPut, "/station/dj/sunny", `{"name":"Gloomy","description":"Sad songs."}`)
+		Expect(code).To(Equal(http.StatusForbidden))
+		Expect(res).To(HaveKeyWithValue("error", "builtInDJ"))
+		code, res, _ = call(alice, http.MethodDelete, "/station/dj/sunny", "")
+		Expect(code).To(Equal(http.StatusForbidden))
+		Expect(res).To(HaveKeyWithValue("error", "builtInDJ"))
+	})
+
+	DescribeTable("rejects a DJ it can't save",
+		func(method, body string, status int, code string) {
+			path := "/station/dj"
+			if method == http.MethodPut {
+				path += "/" + create()
+			}
+			got, res, _ := call(alice, method, path, body)
+			Expect(got).To(Equal(status))
+			Expect(res).To(HaveKeyWithValue("error", code))
+		},
+		Entry("no name", http.MethodPost, `{"name":" ","description":"Slow."}`, http.StatusBadRequest, "invalidDJName"),
+		Entry("no description", http.MethodPost, `{"name":"Mr. Mellow"}`, http.StatusBadRequest, "invalidDJDescription"),
+		Entry("not JSON", http.MethodPost, `nope`, http.StatusBadRequest, "badRequest"),
+		Entry("no name, editing", http.MethodPut, `{"name":"","description":"Slow."}`, http.StatusBadRequest, "invalidDJName"),
+		Entry("not JSON, editing", http.MethodPut, `nope`, http.StatusBadRequest, "badRequest"),
+	)
 })

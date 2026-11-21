@@ -34,6 +34,7 @@ type MockDataStore struct {
 	MockedRipItem        model.RipItemRepository
 	MockedStationTrack   model.StationTrackRepository
 	MockedStationSkip    model.StationSkipRepository
+	MockedDJ             *MockDJRepo
 	scrobbleBufferMu     sync.Mutex
 	repoMu               sync.Mutex
 

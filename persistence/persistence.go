@@ -122,6 +122,10 @@ func (s *SQLStore) StationSkip(ctx context.Context) model.StationSkipRepository 
 	return NewStationSkipRepository(ctx, s.getDBXBuilder())
 }
 
+func (s *SQLStore) DJ(ctx context.Context) model.DJRepository {
+	return NewDJRepository(ctx, s.getDBXBuilder())
+}
+
 func (s *SQLStore) Resource(ctx context.Context, m any) model.ResourceRepository {
 	switch m.(type) {
 	case model.User:

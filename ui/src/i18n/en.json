@@ -292,9 +292,22 @@
       "actions": {
         "start": "Start"
       },
+      "dj": {
+        "new": "New DJ",
+        "edit": "Edit DJ",
+        "fields": {
+          "name": "Name",
+          "description": "Personality",
+          "descriptionHelp": "Their taste and tone, e.g. a dry, witty record-store clerk who loves 70s soul and obscure B-sides"
+        },
+        "deleteTitle": "Delete %{name}?",
+        "deleteContent": "Your DJ is gone for good. Tracks its Stations played stay in your play history."
+      },
       "errors": {
         "noTracks": "There are no Tracks in your Library to play",
         "invalidTheme": "The Theme must be at most 200 characters",
+        "invalidDJName": "A DJ needs a name of at most 60 characters",
+        "invalidDJDescription": "A DJ needs a personality of at most 1000 characters",
         "unknownDJ": "That DJ isn't available",
         "unavailable": "Stations are unavailable right now"
       }

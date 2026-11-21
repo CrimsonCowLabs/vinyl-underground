@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import { Title, useNotify, useTranslate } from 'react-admin'
 import {
@@ -7,18 +7,29 @@ import {
   CardActions,
   CardContent,
   Chip,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogContentText,
+  DialogTitle,
   Grid,
+  IconButton,
   TextField,
   Typography,
 } from '@material-ui/core'
 import { makeStyles } from '@material-ui/core/styles'
+import AddIcon from '@material-ui/icons/Add'
+import DeleteIcon from '@material-ui/icons/Delete'
+import EditIcon from '@material-ui/icons/Edit'
 import PlayArrowIcon from '@material-ui/icons/PlayArrow'
 import { httpClient } from '../dataProvider'
 import { REST_URL } from '../consts'
 import config from '../config'
 import { setPlayMode } from '../actions'
-import { startStation } from './stationState'
+import { startStation, stopStation } from './stationState'
 import { fetchStationTracks } from './useStationRefill'
+import DJEditor from './DJEditor'
+import { stationErrorKey } from './stationErrors'
 
 // How many Tracks a Station starts with: the one to play and a few queued.
 export const START_COUNT = 5
@@ -31,18 +42,15 @@ const useStyles = makeStyles((theme) => ({
   content: { flexGrow: 1 },
   onAir: { marginLeft: theme.spacing(1) },
   theme: { marginBottom: theme.spacing(2), maxWidth: 480 },
+  toolbar: { marginBottom: theme.spacing(2) },
+  spacer: { flexGrow: 1 },
 }))
 
-const errorKey = (err) => {
-  const code = err?.body?.error
-  return ['noTracks', 'unknownDJ', 'invalidTheme'].includes(code)
-    ? `resources.station.errors.${code}`
-    : 'resources.station.errors.unavailable'
-}
-
-// StationList shows the DJs. Starting one replaces the play queue with its
-// Station, which then keeps refilling from the server (see useStationRefill).
-// With an LLM configured, the Listener can also give a Theme for the Station.
+// StationList shows the DJs: the built-in ones, then the Listener's own, which
+// they can create, edit and delete here (built-in DJs are read-only). Starting
+// one replaces the play queue with its Station, which then keeps refilling from
+// the server (see useStationRefill). With an LLM configured, the Listener can
+// also give a Theme for the Station.
 const StationList = () => {
   const translate = useTranslate()
   const notify = useNotify()
@@ -52,14 +60,40 @@ const StationList = () => {
   const [djs, setDJs] = useState([])
   const [starting, setStarting] = useState(null)
   const [stationTheme, setStationTheme] = useState('')
+  // editing is { dj } while the editor is open; dj is null for a new one.
+  const [editing, setEditing] = useState(null)
+  const [deleting, setDeleting] = useState(null)
+
+  const loadDJs = useCallback(
+    () =>
+      httpClient(`${REST_URL}/station/dj`)
+        .then(({ json }) => setDJs(json))
+        .catch(() =>
+          notify('resources.station.errors.unavailable', { type: 'warning' }),
+        ),
+    [notify],
+  )
 
   useEffect(() => {
-    httpClient(`${REST_URL}/station/dj`)
-      .then(({ json }) => setDJs(json))
-      .catch(() =>
-        notify('resources.station.errors.unavailable', { type: 'warning' }),
-      )
-  }, [notify])
+    loadDJs()
+  }, [loadDJs])
+
+  const saved = () => {
+    setEditing(null)
+    loadDJs()
+  }
+
+  const remove = () => {
+    const dj = deleting
+    setDeleting(null)
+    httpClient(`${REST_URL}/station/dj/${dj.id}`, { method: 'DELETE' })
+      .then(() => {
+        // Its Station can't refill any more; what's queued plays out.
+        if (onAir === dj.id) dispatch(stopStation())
+      })
+      .catch((err) => notify(stationErrorKey(err), { type: 'warning' }))
+      .finally(loadDJs)
+  }
 
   const start = (dj) => {
     const theme = config.enableStationThemes ? stationTheme.trim() : ''
@@ -70,13 +104,24 @@ const StationList = () => {
         dispatch(setPlayMode('order'))
         dispatch(startStation(dj.id, tracks, theme))
       })
-      .catch((err) => notify(errorKey(err), { type: 'warning' }))
+      .catch((err) => notify(stationErrorKey(err), { type: 'warning' }))
       .finally(() => setStarting(null))
   }
 
   return (
     <div className={classes.root}>
       <Title title={translate('resources.station.name', { smart_count: 2 })} />
+      <Grid container className={classes.toolbar}>
+        <div className={classes.spacer} />
+        <Button
+          color="primary"
+          variant="outlined"
+          startIcon={<AddIcon />}
+          onClick={() => setEditing({ dj: null })}
+        >
+          {translate('resources.station.dj.new')}
+        </Button>
+      </Grid>
       {config.enableStationThemes && (
         <TextField
           id="station-theme"
@@ -119,11 +164,60 @@ const StationList = () => {
                 >
                   {translate('resources.station.actions.start')}
                 </Button>
+                {!dj.builtIn && (
+                  <>
+                    <div className={classes.spacer} />
+                    <IconButton
+                      size="small"
+                      aria-label={`${translate('ra.action.edit')} ${dj.name}`}
+                      onClick={() => setEditing({ dj })}
+                    >
+                      <EditIcon fontSize="small" />
+                    </IconButton>
+                    <IconButton
+                      size="small"
+                      aria-label={`${translate('ra.action.delete')} ${dj.name}`}
+                      onClick={() => setDeleting(dj)}
+                    >
+                      <DeleteIcon fontSize="small" />
+                    </IconButton>
+                  </>
+                )}
               </CardActions>
             </Card>
           </Grid>
         ))}
       </Grid>
+      <DJEditor
+        open={editing !== null}
+        dj={editing?.dj}
+        onClose={() => setEditing(null)}
+        onSaved={saved}
+      />
+      <Dialog
+        open={deleting !== null}
+        onClose={() => setDeleting(null)}
+        aria-labelledby="dj-delete-title"
+      >
+        <DialogTitle id="dj-delete-title">
+          {translate('resources.station.dj.deleteTitle', {
+            name: deleting?.name,
+          })}
+        </DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            {translate('resources.station.dj.deleteContent')}
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleting(null)}>
+            {translate('ra.action.cancel')}
+          </Button>
+          <Button color="primary" onClick={remove}>
+            {translate('ra.action.confirm')}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </div>
   )
 }

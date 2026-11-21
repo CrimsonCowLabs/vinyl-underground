@@ -1,4 +1,4 @@
-// Package stations runs Stations: a Listener picks a built-in DJ and gets an endless,
+// Package stations runs Stations: a Listener picks a DJ, built-in or their own, and gets an endless,
 // skippable queue of Tracks from their Library, refilled from the server a few Tracks at a
 // time. See docs/adr/0005-stations-are-personal-not-live-broadcast.md.
 //
@@ -50,8 +50,20 @@ var (
 )
 
 type Service interface {
-	// DJs returns the DJs a Listener can start a Station with.
-	DJs() []DJ
+	// DJs returns the DJs the logged-in Listener can start a Station with: the built-in ones,
+	// then their own by name.
+	DJs(ctx context.Context) ([]DJ, error)
+	// DJ returns the DJ with the id, built-in or the logged-in Listener's own, or ErrUnknownDJ.
+	DJ(ctx context.Context, id string) (DJ, error)
+	// CreateDJ creates a DJ for the logged-in Listener from a name and a personality
+	// description (ErrInvalidDJName, ErrInvalidDJDescription).
+	CreateDJ(ctx context.Context, name, description string) (DJ, error)
+	// UpdateDJ changes the name and description of the logged-in Listener's DJ. Built-in DJs
+	// are read-only (ErrBuiltInDJ).
+	UpdateDJ(ctx context.Context, id, name, description string) (DJ, error)
+	// DeleteDJ deletes the logged-in Listener's DJ (ErrBuiltInDJ for a built-in one). What its
+	// Stations served and played stays in the Listener's history.
+	DeleteDJ(ctx context.Context, id string) error
 	// Next serves the next count Tracks (DefaultCount when 0) of the logged-in Listener's
 	// Station with the DJ and the optional Theme, and remembers them so later refills don't
 	// repeat them. The Theme only counts with an LLM.
@@ -74,20 +86,16 @@ type service struct {
 	locks    sync.Map // Listener ID -> *sync.Mutex, so one Listener's refills don't race; a household has few
 }
 
-func (s *service) DJs() []DJ {
-	return DJs()
-}
-
 func (s *service) Next(ctx context.Context, djID, theme string, count int) (model.MediaFiles, error) {
-	dj, ok := FindDJ(djID)
-	if !ok {
-		return nil, ErrUnknownDJ
+	dj, err := s.DJ(ctx, djID)
+	if err != nil {
+		return nil, err
 	}
 	// Without an LLM the Theme has no say, so it is ignored rather than checked.
 	if s.selector == nil {
 		theme = ""
 	}
-	theme, err := cleanTheme(theme)
+	theme, err = cleanTheme(theme)
 	if err != nil {
 		return nil, err
 	}
@@ -162,8 +170,8 @@ func (s *service) Next(ctx context.Context, djID, theme string, count int) (mode
 }
 
 func (s *service) Skip(ctx context.Context, djID, trackID string) error {
-	if _, ok := FindDJ(djID); !ok {
-		return ErrUnknownDJ
+	if _, err := s.DJ(ctx, djID); err != nil {
+		return err
 	}
 	usr, ok := request.UserFrom(ctx)
 	if !ok {
