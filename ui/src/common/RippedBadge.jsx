@@ -4,6 +4,7 @@ import { useTranslate } from 'react-admin'
 import { Chip, Tooltip } from '@material-ui/core'
 import { makeStyles } from '@material-ui/core/styles'
 import clsx from 'clsx'
+import { ripSourceURL } from './ripSource'
 
 const useStyles = makeStyles(
   (theme) => ({
@@ -22,24 +23,22 @@ const useStyles = makeStyles(
   { name: 'NDRippedBadge' },
 )
 
-// RippedBadge marks a Rip: a Track whose File carries a SOURCE tag (see GLOSSARY.md).
-// It renders nothing for any other Track.
+// RippedBadge marks a Rip (see GLOSSARY.md) and renders nothing for any other Track.
 export const RippedBadge = ({ record, className }) => {
   const translate = useTranslate()
   const classes = useStyles()
-  const source = record?.source
-  if (!source) {
+  const url = ripSourceURL(record)
+  if (!url) {
     return null
   }
+  const source = record.source || url.hostname
   const from = translate('resources.song.ripped.from', { source })
   return (
     <Tooltip
       title={
         <>
           {from}
-          {record.sourceUrl && (
-            <span className={classes.url}>{record.sourceUrl}</span>
-          )}
+          <span className={classes.url}>{record.sourceUrl}</span>
         </>
       }
     >
