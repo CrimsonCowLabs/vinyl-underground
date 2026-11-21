@@ -1,5 +1,5 @@
 # Vinyl Underground, served over HTTPS on a tailnet by `tailscale serve`.
-# Setup and first-run steps: deploy/README.md.
+# Host setup: README.md at the repo root. Stack runbook: deploy/README.md.
 #
 # Every setting has a default, so `docker compose up -d` works with no .env at
 # all. To change one, copy .env.example to .env (gitignored) and uncomment it.
@@ -35,8 +35,10 @@ services:
       - *inbox-volume
 
   vinyl-underground:
-    # No published image yet, so the image is built from this checkout.
-    image: vinyl-underground:local
+    # The published image when VU_IMAGE is set in .env
+    # (ghcr.io/crimsoncowlabs/vinyl-underground:<version>, then `docker compose pull`).
+    # Unset, `docker compose up -d --build` builds this checkout as vinyl-underground:local.
+    image: ${VU_IMAGE:-vinyl-underground:local}
     build:
       context: ..
     container_name: vinyl-underground
