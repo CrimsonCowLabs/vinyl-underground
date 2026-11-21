@@ -11,22 +11,25 @@ import (
 
 // candidates returns up to target Tracks from the Listener's Library for the filters, best
 // matches first. It goes through looser and looser searches until it has enough:
-//  1. the seed artists, then the genres, within the years;
+//  1. the seed artists, then their similar artists in the Library, then the genres, within the
+//     years;
 //  2. the same, ignoring the years;
 //  3. anything within the years;
 //  4. anything.
 //
 // Within each search the Tracks are random, so the same Prompt can give a different Playlist.
 // The seed artists take at most a third of the candidates, shared between them and at most
-// maxPerSeedArtist each, and no artist gets more than a tenth (at least 5), so a few prolific
-// artists can't crowd out the rest. Only a Library too small for that ignores the artist limit.
+// maxPerSeedArtist each. Their similar artists take at most another third, in the same way. No
+// artist gets more than a tenth (at least 5), so a few prolific artists can't crowd out the rest.
+// Only a Library too small for that ignores the artist limit.
 func (s *service) candidates(ctx context.Context, f filters, target int) (model.MediaFiles, error) {
 	c := &collector{target: target, artistCap: max(5, target/10),
 		seen: map[string]bool{}, seenSong: map[string]bool{}, perArtist: map[string]int{}}
 	type search struct {
-		matching bool // the seed artists and genres, or anything
+		matching bool // the seed artists, their similar artists and the genres, or anything
 		years    Sqlizer
 	}
+	similar := s.similarArtists(ctx, f.SeedArtists)
 	years := yearsFilter(f)
 	searches := []search{{matching: true, years: years}}
 	if years != nil {
@@ -46,17 +49,9 @@ func (s *service) candidates(ctx context.Context, f filters, target int) (model.
 			c.add(mfs)
 			continue
 		}
-		if len(f.SeedArtists) > 0 {
-			perArtist := min(maxPerSeedArtist, max(1, (target/3+len(f.SeedArtists)-1)/len(f.SeedArtists)))
-			for _, artist := range f.SeedArtists {
-				if c.full() {
-					break
-				}
-				mfs, err := s.search(ctx, artistFilter(artist), search.years, perArtist)
-				if err != nil {
-					return nil, err
-				}
-				c.add(mfs[:min(len(mfs), perArtist)])
+		for _, artists := range [][]string{f.SeedArtists, similar} {
+			if err := s.addArtists(ctx, c, artists, search.years); err != nil {
+				return nil, err
 			}
 		}
 		if len(f.Genres) > 0 && !c.full() {
@@ -79,6 +74,26 @@ func (s *service) candidates(ctx context.Context, f filters, target int) (model.
 }
 
 const maxPerSeedArtist = 6
+
+// addArtists adds Tracks by the artists, sharing a third of the candidates between them, at most
+// maxPerSeedArtist each.
+func (s *service) addArtists(ctx context.Context, c *collector, artists []string, years Sqlizer) error {
+	if len(artists) == 0 {
+		return nil
+	}
+	perArtist := min(maxPerSeedArtist, max(1, (c.target/3+len(artists)-1)/len(artists)))
+	for _, artist := range artists {
+		if c.full() {
+			return nil
+		}
+		mfs, err := s.search(ctx, artistFilter(artist), years, perArtist)
+		if err != nil {
+			return err
+		}
+		c.add(mfs[:min(len(mfs), perArtist)])
+	}
+	return nil
+}
 
 // collector gathers distinct candidates up to target, at most artistCap per artist (0 for no
 // limit). Two Tracks with the same artist and title (the same song on an album and a

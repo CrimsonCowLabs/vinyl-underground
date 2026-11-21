@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/conf/configtest"
@@ -71,6 +72,37 @@ func candidateLines(user string) []string {
 	return lines
 }
 
+// fakeSimilar answers similar-artist lookups from a fixed map of artist name to Library
+// artists, after delay, or fails with err.
+type fakeSimilar struct {
+	similar map[string][]string
+	delay   time.Duration
+	err     error
+	asked   []string
+}
+
+func (f *fakeSimilar) SimilarArtists(ctx context.Context, name string, count int) (model.Artists, error) {
+	f.asked = append(f.asked, name)
+	if f.delay > 0 {
+		select {
+		case <-time.After(f.delay):
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	if f.err != nil {
+		return nil, f.err
+	}
+	var res model.Artists
+	for _, n := range f.similar[name] {
+		if len(res) == count {
+			break
+		}
+		res = append(res, model.Artist{ID: "ar-" + n, Name: n})
+	}
+	return res, nil
+}
+
 func titles(mfs model.MediaFiles) []string {
 	res := make([]string, len(mfs))
 	for i, mf := range mfs {
@@ -93,6 +125,7 @@ var _ = Describe("Generated Playlists", Ordered, func() {
 	var ds model.DataStore
 	var ctx context.Context
 	var fake *fakeLLM
+	var similar *fakeSimilar
 	var svc generatedplaylist.Service
 	var listener model.User
 	var seq int
@@ -123,7 +156,8 @@ var _ = Describe("Generated Playlists", Ordered, func() {
 			filters: map[string]any{"name": "Rainy Sunday", "genres": []string{}, "seed_artists": []string{}, "year_from": 0, "year_to": 0},
 			rank:    firstN(100),
 		}
-		svc = generatedplaylist.New(ds, fake)
+		similar = &fakeSimilar{}
+		svc = generatedplaylist.New(ds, fake, similar)
 	})
 
 	// addTrack puts a Track in the Library (library 1 unless lib is given) and returns it.
@@ -153,7 +187,7 @@ var _ = Describe("Generated Playlists", Ordered, func() {
 	Describe("Enabled", func() {
 		It("is enabled only with an LLM", func() {
 			Expect(svc.Enabled()).To(BeTrue())
-			Expect(generatedplaylist.New(ds, nil).Enabled()).To(BeFalse())
+			Expect(generatedplaylist.New(ds, nil, nil).Enabled()).To(BeFalse())
 		})
 	})
 
@@ -217,6 +251,63 @@ var _ = Describe("Generated Playlists", Ordered, func() {
 				"4. Arctic Monkeys - Do I Wanna Know? (2013, Indie Rock)",
 				"5. Madonna - Vogue (1990, Pop)",
 			}))
+		})
+
+		It("offers Tracks by the seed artists' similar artists that are in the Library", func() {
+			addTrack("Pixies", "Debaser", 1989, "")
+			addTrack("Pavement", "Cut Your Hair", 1994, "")
+			addTrack("Madonna", "Vogue", 1990, "")
+			for i := range 30 {
+				addTrack(fmt.Sprintf("Artist %d", i), fmt.Sprintf("Song %d", i), 2000, "")
+			}
+			// Genre tags are sparse: the LLM's genre finds nothing, and its seed artist isn't
+			// in the Library.
+			fake.filters = map[string]any{"name": "x", "genres": []string{"Indie Rock"},
+				"seed_artists": []string{"Sonic Youth"}, "year_from": 0, "year_to": 0}
+			similar.similar = map[string][]string{"Sonic Youth": {"Pixies", "Pavement"}}
+
+			_, err := svc.Preview(ctx, "noisy 90s indie", 10)
+			Expect(err).ToNot(HaveOccurred())
+
+			Expect(similar.asked).To(Equal([]string{"Sonic Youth"}))
+			lines := candidateLines(fake.request("ranking").User)
+			// The similar artists come first, in Last.fm's order, before the fallback to anything.
+			Expect(lines[:2]).To(Equal([]string{"1. Pixies - Debaser (1989)", "2. Pavement - Cut Your Hair (1994)"}))
+		})
+
+		Context("when Last.fm is unreachable", func() {
+			BeforeEach(func() {
+				addTrack("Pixies", "Debaser", 1989, "Indie Rock")
+				addTrack("Pavement", "Cut Your Hair", 1994, "Indie Rock")
+				addTrack("Madonna", "Vogue", 1990, "Pop")
+				refreshGenres()
+				fake.filters = map[string]any{"name": "x", "genres": []string{"Indie Rock"},
+					"seed_artists": []string{"Sonic Youth"}, "year_from": 0, "year_to": 0}
+				similar.similar = map[string][]string{"Sonic Youth": {"Madonna"}}
+			})
+
+			It("builds the candidates from local tags alone", func() {
+				similar.err = errors.New("dial tcp: no route to host")
+
+				p, err := svc.Preview(ctx, "noisy 90s indie", 10)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(p.Tracks).To(HaveLen(3))
+				lines := candidateLines(fake.request("ranking").User)
+				Expect(lines[2]).To(Equal("3. Madonna - Vogue (1990, Pop)"))
+			})
+
+			It("doesn't wait long for a lookup that hangs", func() {
+				DeferCleanup(generatedplaylist.SetSimilarWait(50 * time.Millisecond))
+				similar.delay = time.Minute
+
+				start := time.Now()
+				p, err := svc.Preview(ctx, "noisy 90s indie", 10)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(time.Since(start)).To(BeNumerically("<", 2*time.Second))
+				Expect(p.Tracks).To(HaveLen(3))
+				lines := candidateLines(fake.request("ranking").User)
+				Expect(lines[2]).To(Equal("3. Madonna - Vogue (1990, Pop)"))
+			})
 		})
 
 		It("caps the candidates sent to the LLM at 150", func() {
