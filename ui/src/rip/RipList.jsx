@@ -16,6 +16,7 @@ import {
 } from '@material-ui/core'
 import { List, DateField } from '../common'
 import RipForm from './RipForm'
+import { alreadyHaveExtra } from './alreadyHaveExtra'
 import YtDlpControl from './YtDlpControl'
 import { useRipPolling } from './useRipPolling'
 import { ripProgress } from './ripProgress'
@@ -43,8 +44,9 @@ export const RipStatusField = ({ record }) => {
   return status
 }
 
-// RipItems lists a job's Tracks, each with its own status, error and File.
-export const RipItems = ({ record }) => {
+// RipItems lists a job's Tracks, each with its own status, error and File. trackExtra(item)
+// renders next to an item's title, as on the review card.
+export const RipItems = ({ record, trackExtra }) => {
   const translate = useTranslate()
   const items = record?.items || []
   return (
@@ -63,6 +65,7 @@ export const RipItems = ({ record }) => {
             <TableCell>{it.position}</TableCell>
             <TableCell>
               {it.artist ? `${it.artist} - ${it.title}` : it.title}
+              {trackExtra && trackExtra(it)}
             </TableCell>
             <TableCell>
               {translate(`resources.rip.status.${it.status}`, {
@@ -104,7 +107,14 @@ const RipList = (props) => {
         actions={false}
         pagination={null}
       >
-        <RipDatagrid expand={<RipJobPanel fallback={<RipItems />} />}>
+        <RipDatagrid
+          expand={
+            <RipJobPanel
+              fallback={<RipItems />}
+              trackExtra={alreadyHaveExtra}
+            />
+          }
+        >
           <FunctionField
             source="status"
             render={(record) => <RipStatusField record={record} />}

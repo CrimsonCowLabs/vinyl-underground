@@ -67,6 +67,20 @@ var _ = Describe("RipItemRepository", func() {
 		Expect(got[0].Artist).To(Equal("Artist"))
 	})
 
+	It("keeps the Tracks the Library already seemed to have for an item", func() {
+		it := newItem(newJob("https://example.com/a"), 1, model.RipQueued)
+		Expect(items.ForJobs(it.JobID)).To(HaveEach(HaveField("AlreadyHave", BeEmpty())))
+
+		have := model.RipMatches{{ID: "mf-1", Title: "Halo", Artist: "Beyoncé", Album: "I Am... Sasha Fierce",
+			Library: "Inbox", Source: "YouTube", SourceURL: "https://www.youtube.com/watch?v=x"}}
+		it.AlreadyHave = have
+		Expect(items.Put(it)).To(Succeed())
+
+		got, err := items.ForJobs(it.JobID)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(got[0].AlreadyHave).To(Equal(have))
+	})
+
 	It("puts interrupted items back in the queue, and leaves the rest alone", func() {
 		j := newJob("https://example.com/a")
 		newItem(j, 1, model.RipReady)

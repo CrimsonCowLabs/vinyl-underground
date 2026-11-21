@@ -103,6 +103,8 @@ describe('RipForm', () => {
         title: 'Big Playlist',
         count: 51,
         titles: ['Band - Song 1', 'Band - Song 2'],
+        confirmCount: true,
+        alreadyHave: [],
       },
     }
 
@@ -136,6 +138,100 @@ describe('RipForm', () => {
       await waitFor(() => expect(queryByRole('dialog')).toBeNull())
       expect(create).toHaveBeenCalledTimes(1)
       expect(getByLabelText('resources.rip.fields.url').value).toBe(url)
+    })
+  })
+
+  describe('something the Library already seems to have', () => {
+    const url = 'https://www.youtube.com/watch?v=abc'
+    const halo = {
+      id: 'mf-1',
+      title: 'Halo',
+      artist: 'Beyoncé',
+      album: 'I Am... Sasha Fierce',
+      libraryName: 'Music Library',
+    }
+    const alreadyHave = (body) => ({
+      status: 409,
+      message: 'Conflict',
+      body: {
+        error: 'the Library already seems to have this; rip it anyway?',
+        needsConfirmation: true,
+        url,
+        title: 'Halo',
+        count: 1,
+        titles: ['Beyoncé - Halo'],
+        confirmCount: false,
+        alreadyHave: [{ position: 1, title: 'Beyoncé - Halo', tracks: [halo] }],
+        ...body,
+      },
+    })
+
+    it('warns "already have", and one click on "Rip anyway" queues it', async () => {
+      create.mockRejectedValueOnce(alreadyHave())
+      create.mockResolvedValueOnce({ data: { id: 'j1', status: 'queued' } })
+      const { findByRole, getByText, queryByText } = submit(url)
+
+      const dialog = await findByRole('dialog')
+      expect(dialog.textContent).toContain('resources.rip.messages.alreadyHave')
+      expect(dialog.textContent).toContain('I Am... Sasha Fierce')
+      expect(dialog.textContent).toContain('Music Library')
+      expect(queryByText('resources.rip.actions.ripAll')).toBeNull()
+
+      fireEvent.click(
+        getByText('resources.rip.actions.ripAnyway').closest('button'),
+      )
+      await waitFor(() => expect(refresh).toHaveBeenCalled())
+      expect(create).toHaveBeenLastCalledWith('rip', {
+        data: { url, confirm: true },
+      })
+    })
+
+    it("flags a playlist's matching items, and only those", async () => {
+      create.mockRejectedValueOnce(
+        alreadyHave({
+          error: 'the Library already seems to have 1 of these 3 items',
+          title: 'Album',
+          count: 3,
+          titles: ['Band - One', 'Beyoncé - Halo', 'Band - Three'],
+          alreadyHave: [
+            { position: 2, title: 'Beyoncé - Halo', tracks: [halo] },
+          ],
+        }),
+      )
+      const { findByRole } = submit(url)
+
+      const dialog = await findByRole('dialog')
+      expect(dialog.textContent).toContain('Beyoncé - Halo')
+      expect(dialog.textContent).not.toContain('Band - One')
+      expect(dialog.textContent).toContain('resources.rip.actions.ripAnyway')
+    })
+
+    it('asks once, with "Rip all N", for a big playlist with matches, flagging them in the list', async () => {
+      create.mockRejectedValueOnce(
+        alreadyHave({
+          title: 'Big Playlist',
+          count: 51,
+          titles: ['Band - One', 'Beyoncé - Halo'],
+          confirmCount: true,
+          alreadyHave: [
+            { position: 2, title: 'Beyoncé - Halo', tracks: [halo] },
+          ],
+        }),
+      )
+      create.mockResolvedValueOnce({ data: { id: 'j1', status: 'queued' } })
+      const { findByRole, getByText, queryByText } = submit(url)
+
+      const dialog = await findByRole('dialog')
+      expect(dialog.textContent).toContain('Band - One')
+      expect(dialog.textContent).toContain('I Am... Sasha Fierce')
+      expect(dialog.textContent).toContain('resources.rip.messages.confirm')
+      expect(queryByText('resources.rip.actions.ripAnyway')).toBeNull()
+
+      fireEvent.click(
+        getByText('resources.rip.actions.ripAll').closest('button'),
+      )
+      await waitFor(() => expect(refresh).toHaveBeenCalled())
+      expect(create).toHaveBeenCalledTimes(2)
     })
   })
 

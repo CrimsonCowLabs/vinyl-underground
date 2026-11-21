@@ -116,6 +116,20 @@ var _ = Describe("Review and Discard", func() {
 			Expect(rev.Tracks[2].Title).To(Equal("Ripped M4A"))
 		})
 
+		It("says which Tracks the Library already seemed to have when they were queued (#32)", func() {
+			landed("ripped.opus", "Album/a.opus")
+			landed("ripped.m4a", "Album/b.m4a")
+			job := newJob(model.RipReady, "Album", "Album/a.opus", "Album/b.m4a")
+			have := model.RipMatches{{ID: "mf-1", Title: "Ripped M4A", Artist: "Rip Artist", Library: "Music"}}
+			job.Items[1].AlreadyHave = have
+			Expect(ds.RipItem(ctx).Put(&job.Items[1])).To(Succeed())
+
+			rev, err := ripper.Review(ctx, job.ID)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(rev.Tracks[0].AlreadyHave).To(BeEmpty())
+			Expect(rev.Tracks[1].AlreadyHave).To(Equal(have))
+		})
+
 		It("still shows the card when a File is gone, with that Track's error, and saves the others", func() {
 			landed("ripped.opus", "Album/a.opus")
 			job := newJob(model.RipReady, "Album", "Album/a.opus", "Album/gone.opus")

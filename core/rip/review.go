@@ -40,6 +40,8 @@ type ReviewTrack struct {
 	Path string `json:"path,omitempty"`
 	// MediaFileID is the Track scanned from the File, once the Inbox has been scanned.
 	MediaFileID string `json:"mediaFileId,omitempty"`
+	// AlreadyHave are the Tracks the Library already seemed to have when the item was queued.
+	AlreadyHave model.RipMatches `json:"alreadyHave"`
 	FileTags
 }
 
@@ -97,7 +99,8 @@ func (r *Ripper) review(ctx context.Context, job *model.RipJob, inbox *model.Lib
 	tracks := r.tracksByPath(ctx, inbox.ID, job.Items)
 	first := true
 	for _, it := range job.Items {
-		t := ReviewTrack{ItemID: it.ID, Position: it.Position, Status: it.Status, Error: it.Error}
+		t := ReviewTrack{ItemID: it.ID, Position: it.Position, Status: it.Status, Error: it.Error,
+			AlreadyHave: it.AlreadyHave}
 		if it.Status == model.RipReady && it.Path != "" {
 			tags, err := readItemTags(inbox.Path, it)
 			if errors.Is(err, ErrNoInbox) {

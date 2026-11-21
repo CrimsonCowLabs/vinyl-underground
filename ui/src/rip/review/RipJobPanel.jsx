@@ -12,7 +12,7 @@ const RipJobPanel = ({ record, fallback, trackExtra, actions, ...rest }) => {
     )
   }
   const items = fallback
-    ? React.cloneElement(fallback, { record, ...rest })
+    ? React.cloneElement(fallback, { record, trackExtra, ...rest })
     : null
   if (record?.status !== 'failed') return items
   return (
