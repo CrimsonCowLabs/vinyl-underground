@@ -1,6 +1,6 @@
 # Deploy over Tailscale
 
-Runs Vinyl Underground with `docker compose` on a host in your tailnet, with the Library mounted read-only and the app served over HTTPS by `tailscale serve`. HTTPS is required: without it the browser won't register the PWA's service worker, so the app can't be installed and Downloads can't work ([ADR-0006](../docs/adr/0006-offline-downloads-in-the-pwa.md)).
+Runs Vinyl Underground with `docker compose` on a host in your tailnet, with the Library mounted read-only, a writable Inbox for new music, and the app served over HTTPS by `tailscale serve`. HTTPS is required: without it the browser won't register the PWA's service worker, so the app can't be installed and Downloads can't work ([ADR-0006](../docs/adr/0006-offline-downloads-in-the-pwa.md)).
 
 The app is meant for private networks only ([ADR-0001](../docs/adr/0001-hard-fork-navidrome.md)). Use `tailscale serve`, never `tailscale funnel`, which would put it on the public internet.
 
@@ -27,6 +27,7 @@ Nothing is required. With no `.env`, the stack uses these defaults:
 |---|---|
 | `VU_LIBRARY_DIR` | `/mnt/music` (mounted read-only) |
 | `VU_DATA_DIR` | `./data` (created and handed to `VU_UID` on first start) |
+| `VU_INBOX_DIR` | `./inbox` (mounted read-write at `/inbox`; created and handed to `VU_UID` on first start) |
 | `VU_UID` / `VU_GID` | `1000` / `1000` |
 | `VU_PORT` | `4533`, on `127.0.0.1` only |
 
@@ -41,7 +42,7 @@ The commands in this guide use these shell variables. Load them once per shell; 
 
 ```bash
 set -a; [ -f .env ] && . ./.env; set +a
-: "${VU_LIBRARY_DIR:=/mnt/music}" "${VU_DATA_DIR:=./data}" "${VU_PORT:=4533}"
+: "${VU_LIBRARY_DIR:=/mnt/music}" "${VU_DATA_DIR:=./data}" "${VU_INBOX_DIR:=./inbox}" "${VU_PORT:=4533}"
 : "${VU_TS_HOSTNAME:=$(tailscale status --json | jq -r '.Self.DNSName | rtrimstr(".")')}"
 ```
 
@@ -138,6 +139,22 @@ On each Listener's phone:
 3. Open the installed app and play a Track. It should start within a few seconds and keep playing through the end, including with the screen locked.
 
 If it doesn't load on mobile data but does on Wi-Fi, check `tailscale status` on the host and in the phone's Tailscale app: both must be connected to the same tailnet.
+
+## 9. Add new music through the Inbox
+
+New music never goes straight into the Library, which stays read-only. It lands in the **Inbox** (`$VU_INBOX_DIR` on the host, `/inbox` in the container), which the app scans as a second library called "Inbox". Only admins can see it: other Listeners never see its Tracks in browsing, search or shared Playlists, and new Listeners aren't given it. Don't add it to a Listener under **Users**, which would show them its Tracks.
+
+Copy Files into the Inbox, in any folder layout. The folder watcher usually picks them up within seconds, and the daily scan catches anything it misses; an admin can also start a Quick Scan from the activity menu. To check:
+
+```bash
+cp -r "/path/to/New Album" "$VU_INBOX_DIR/"
+docker compose exec vinyl-underground sqlite3 /data/navidrome.db \
+  "select count(*) from media_file mf join library l on l.id = mf.library_id where l.name = 'Inbox' and mf.missing = 0;"
+```
+
+As the admin, the new Tracks can be played, favorited and added to Playlists straight away. The library selector in the side menu shows "Inbox" next to the main Library. Logged in as another Listener, the Tracks must not show up anywhere.
+
+Files copied in by hand must be readable by `VU_UID`. The app sets up the Inbox library on start from `ND_INBOX_PATH` (`/inbox` by default), and scans it straight away when it is new. It must not be inside the Library, or contain it. With `ND_INBOX_PATH=` empty, or no folder at that path, no Inbox library is set up; one that already exists stays until an admin deletes it under **Libraries**.
 
 ## Updating
 

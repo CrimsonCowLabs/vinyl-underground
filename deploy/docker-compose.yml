@@ -9,10 +9,14 @@ name: vinyl-underground
 
 x-run-as: &run-as "${VU_UID:-1000}:${VU_GID:-1000}"
 x-data-volume: &data-volume "${VU_DATA_DIR:-./data}:/data"
+# The Inbox, where new music lands before it joins the Library. Writable, and
+# kept apart from /data.
+x-inbox-volume: &inbox-volume "${VU_INBOX_DIR:-./inbox}:/inbox"
 
 services:
   # One-shot: Docker creates a missing bind-mount folder as root, which the app
-  # (not root) can't write to. Hand the data folder to the app's user first.
+  # (not root) can't write to. Hand the data and Inbox folders to the app's
+  # user first.
   data-permissions:
     image: busybox:1.37
     user: "0:0"
@@ -22,9 +26,13 @@ services:
     command:
       - sh
       - -c
-      - '[ "$$(stat -c %u:%g /data)" = "$$OWNER" ] || chown -R "$$OWNER" /data'
+      - >-
+        set -e;
+        [ "$$(stat -c %u:%g /data)" = "$$OWNER" ] || chown -R "$$OWNER" /data;
+        [ "$$(stat -c %u:%g /inbox)" = "$$OWNER" ] || chown -R "$$OWNER" /inbox
     volumes:
       - *data-volume
+      - *inbox-volume
 
   vinyl-underground:
     # No published image yet, so the image is built from this checkout.
@@ -55,6 +63,9 @@ services:
       ND_BACKUP_PATH: ${ND_BACKUP_PATH:-/data/backup}
     volumes:
       - *data-volume
+      # Scanned as a second library that only the admin sees (ND_INBOX_PATH,
+      # /inbox in the image).
+      - *inbox-volume
       # The Library is always read-only for the app (ADR-0002).
       - "${VU_LIBRARY_DIR:-/mnt/music}:/music:ro"
     healthcheck:
