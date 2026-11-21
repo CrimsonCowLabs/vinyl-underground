@@ -45,6 +45,7 @@ type DataStore interface {
 	RipJob(ctx context.Context) RipJobRepository
 	RipItem(ctx context.Context) RipItemRepository
 	StationTrack(ctx context.Context) StationTrackRepository
+	StationSkip(ctx context.Context) StationSkipRepository
 
 	Resource(ctx context.Context, model any) ResourceRepository
 

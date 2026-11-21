@@ -22,9 +22,10 @@ const (
 // artist comes back within ArtistGap Tracks. Among the rest, each Track's chance is its score
 // for the DJ (see Taste). When a Library is too small for those rules, the artist rule goes
 // first, and then the Track heard longest ago plays, so a Station never runs dry while it has
-// any candidates at all.
-func Pick(dj DJ, candidates model.MediaFiles, history []Served, now time.Time, n int, rnd *rand.Rand) model.MediaFiles {
+// any candidates at all. Each of weights, if any, scales every Track's chance (see SkipWeight).
+func Pick(dj DJ, candidates model.MediaFiles, history []Served, now time.Time, n int, rnd *rand.Rand, weights ...Weight) model.MediaFiles {
 	p := newPicker(dj, candidates, history)
+	p.weights = weights
 	var picked model.MediaFiles
 	for len(picked) < n && len(p.pool) > 0 {
 		mf := p.next(now, rnd)
@@ -43,6 +44,7 @@ type picker struct {
 	affinity   map[string]float64 // per artist, the sum of liking over their candidate Tracks
 	bestArtist float64            // the highest affinity
 	maxPlays   float64            // plays of the most played candidate
+	weights    []Weight           // scale each Track's score
 }
 
 func newPicker(dj DJ, candidates model.MediaFiles, history []Served) *picker {
@@ -120,6 +122,9 @@ func (p *picker) weighted(rnd *rand.Rand, ok func(model.MediaFile) bool) (model.
 			history = plays(mf.PlayCount) / p.maxPlays
 		}
 		s := p.dj.Taste.score(mf, history, p.artistAffinity(mf))
+		for _, w := range p.weights {
+			s *= w(mf)
+		}
 		eligible = append(eligible, mf)
 		scores = append(scores, s)
 		total += s

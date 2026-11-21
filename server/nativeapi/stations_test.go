@@ -24,6 +24,14 @@ type fakeStations struct {
 	gotDJ    string
 	gotCount int
 	gotUser  string
+	gotTrack string
+}
+
+func (f *fakeStations) Skip(ctx context.Context, djID, trackID string) error {
+	f.gotDJ, f.gotTrack = djID, trackID
+	usr, _ := request.UserFrom(ctx)
+	f.gotUser = usr.ID
+	return f.err
 }
 
 func (f *fakeStations) DJs() []stations.DJ { return stations.DJs() }
@@ -91,6 +99,27 @@ var _ = Describe("Station endpoints", func() {
 		Entry("bad count", stations.ErrInvalidCount, `{"dj":"sunny","count":99}`, http.StatusBadRequest, "invalidCount"),
 		Entry("empty Library", stations.ErrNoTracks, `{"dj":"sunny"}`, http.StatusUnprocessableEntity, "noTracks"),
 		Entry("anything else", errors.New("disk on fire"), `{"dj":"sunny"}`, http.StatusInternalServerError, "internal"),
+		Entry("not JSON", nil, `nope`, http.StatusBadRequest, "badRequest"),
+	)
+
+	It("records the Listener's skip on their Station", func() {
+		code, _ := call(skipStationTrack(svc), http.MethodPost, `{"dj":"sunny","track":"mf-1"}`)
+		Expect(code).To(Equal(http.StatusNoContent))
+		Expect(svc.gotDJ).To(Equal("sunny"))
+		Expect(svc.gotTrack).To(Equal("mf-1"))
+		Expect(svc.gotUser).To(Equal("u1"))
+	})
+
+	DescribeTable("maps skip errors to a status and a code",
+		func(err error, body string, status int, code string) {
+			svc.err = err
+			got, res := call(skipStationTrack(svc), http.MethodPost, body)
+			Expect(got).To(Equal(status))
+			Expect(res).To(HaveKeyWithValue("error", code))
+		},
+		Entry("unknown DJ", stations.ErrUnknownDJ, `{"dj":"x","track":"mf-1"}`, http.StatusNotFound, "unknownDJ"),
+		Entry("not served", stations.ErrNotServed, `{"dj":"sunny","track":"mf-9"}`, http.StatusNotFound, "notServed"),
+		Entry("anything else", errors.New("disk on fire"), `{"dj":"sunny","track":"mf-1"}`, http.StatusInternalServerError, "internal"),
 		Entry("not JSON", nil, `nope`, http.StatusBadRequest, "badRequest"),
 	)
 
