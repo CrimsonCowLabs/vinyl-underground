@@ -225,6 +225,52 @@ describe('ReviewCard', () => {
     expect(screen.getByTestId('track-a')).toBeInTheDocument()
   })
 
+  it('keeps unsaved edits to other Tracks when one is discarded', async () => {
+    await renderCard()
+    fireEvent.change(screen.getByLabelText('resources.song.fields.title 1'), {
+      target: { value: 'Edited' },
+    })
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'resources.rip.review.discardTrack 3',
+      }),
+    )
+    const dialog = await screen.findByRole('dialog')
+    http.mockReturnValueOnce(reply(null))
+    fireEvent.click(
+      within(dialog).getByRole('button', {
+        name: 'resources.rip.review.discard',
+      }),
+    )
+
+    await waitFor(() => expect(screen.queryByTestId('track-c')).toBeNull())
+    expect(screen.getByLabelText('resources.song.fields.title 1')).toHaveValue(
+      'Edited',
+    )
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(
+      screen.getByRole('button', { name: 'ra.action.save' }),
+    ).not.toBeDisabled()
+  })
+
+  it('still offers Discard when the tags cannot be read', async () => {
+    http.mockImplementationOnce(() =>
+      Promise.reject({ body: { error: 'the Inbox is not set up' } }),
+    )
+    render(
+      <ReviewCard record={{ ...job, items: [{ id: 'a', path: 'a.opus' }] }} />,
+    )
+    expect(
+      await screen.findByText(/resources.rip.review.loadError/),
+    ).toBeInTheDocument()
+    fireEvent.click(
+      screen.getByRole('button', { name: 'resources.rip.review.discard' }),
+    )
+    expect((await screen.findByRole('dialog')).textContent).toContain(
+      'resources.rip.review.confirmJob {"smart_count":1}',
+    )
+  })
+
   it('has a slot on each Track row, and room for more actions', async () => {
     await renderCard({
       trackExtra: (t) => <span data-testid={`extra-${t.itemId}`} />,
@@ -248,6 +294,30 @@ describe('RipJobPanel', () => {
     render(<RipJobPanel record={job} fallback={<div data-testid="items" />} />)
     expect(await screen.findByDisplayValue('Rip Album')).toBeInTheDocument()
     expect(screen.queryByTestId('items')).toBeNull()
+  })
+
+  it('offers Discard for a failed job, under its item list', async () => {
+    render(
+      <RipJobPanel
+        record={{ ...job, status: 'failed', items: [] }}
+        fallback={<div data-testid="items" />}
+      />,
+    )
+    expect(screen.getByTestId('items')).toBeInTheDocument()
+    fireEvent.click(
+      screen.getByRole('button', { name: 'resources.rip.review.discard' }),
+    )
+    const dialog = await screen.findByRole('dialog')
+    expect(dialog.textContent).toContain('resources.rip.review.confirmNoFiles')
+    http.mockReturnValueOnce(reply(null))
+    fireEvent.click(
+      within(dialog).getByRole('button', {
+        name: 'resources.rip.review.discard',
+      }),
+    )
+    await waitFor(() =>
+      expect(http).toHaveBeenCalledWith('/api/rip/j1', { method: 'DELETE' }),
+    )
   })
 
   it('shows the item list while the job is still running, without loading tags', () => {

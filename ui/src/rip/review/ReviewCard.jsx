@@ -6,10 +6,6 @@ import {
   Card,
   CardActions,
   CardContent,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
   IconButton,
   Table,
   TableBody,
@@ -22,45 +18,20 @@ import {
 } from '@material-ui/core'
 import DeleteIcon from '@material-ui/icons/Delete'
 import { httpClient } from '../../dataProvider'
-import { REST_URL } from '../../consts'
+import {
+  DiscardDialog,
+  DiscardJobButton,
+  errorText,
+  jobUrl,
+} from './DiscardDialog'
 import {
   editsFrom,
   initialValues,
   invalidFields,
+  removeTrack,
   setAlbumField,
   setTrackField,
 } from './reviewForm'
-
-const jobUrl = (jobId) => `${REST_URL}/rip/${jobId}`
-
-const errorText = (error) =>
-  error?.body?.error || error?.message || 'ra.page.error'
-
-// DiscardDialog asks before deleting Files for good: they don't go to Quarantine.
-export const DiscardDialog = ({ open, message, busy, onConfirm, onCancel }) => {
-  const translate = useTranslate()
-  return (
-    <Dialog open={open} onClose={onCancel}>
-      <DialogTitle>
-        {translate('resources.rip.review.discardTitle')}
-      </DialogTitle>
-      <DialogContent>
-        <Typography>{message}</Typography>
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={onCancel}>{translate('ra.action.cancel')}</Button>
-        <Button
-          onClick={onConfirm}
-          variant="contained"
-          color="secondary"
-          disabled={busy}
-        >
-          {translate('resources.rip.review.discard')}
-        </Button>
-      </DialogActions>
-    </Dialog>
-  )
-}
 
 // ReviewCard is a finished job's review card: its album-level tags and its Track list, read from
 // the Files, to edit and save into them, and Discard for the whole job or one Track. Only the
@@ -77,7 +48,7 @@ const ReviewCard = ({ record, trackExtra, actions }) => {
   const [values, setValues] = useState(null)
   const [loadError, setLoadError] = useState(null)
   const [saving, setSaving] = useState(false)
-  // discarding is what the Discard dialog is asking about: {} for the whole job, or a Track.
+  // discarding is the Track the Discard dialog is asking about.
   const [discarding, setDiscarding] = useState(null)
   const [busy, setBusy] = useState(false)
   const jobId = record?.id
@@ -99,10 +70,17 @@ const ReviewCard = ({ record, trackExtra, actions }) => {
   }, [jobId, show])
 
   if (loadError) {
+    // Discard still works on a job whose tags can't be read.
     return (
-      <Typography color="error">
-        {translate('resources.rip.review.loadError', { error: loadError })}
-      </Typography>
+      <Box display="flex" alignItems="center">
+        <Typography color="error">
+          {translate('resources.rip.review.loadError', { error: loadError })}
+        </Typography>
+        <DiscardJobButton
+          jobId={jobId}
+          fileCount={(record.items || []).filter((it) => it.path).length}
+        />
+      </Box>
     )
   }
   if (!review || !values) return null
@@ -126,26 +104,18 @@ const ReviewCard = ({ record, trackExtra, actions }) => {
       .finally(() => setSaving(false))
   }
 
-  const handleDiscard = () => {
-    const track = discarding?.track
+  const handleDiscardTrack = () => {
+    const track = discarding
     setBusy(true)
-    httpClient(
-      track ? `${jobUrl(jobId)}/items/${track.itemId}` : jobUrl(jobId),
-      { method: 'DELETE' },
-    )
+    httpClient(`${jobUrl(jobId)}/items/${track.itemId}`, { method: 'DELETE' })
       .then(() => {
-        notify(
-          track
-            ? 'resources.rip.review.trackDiscarded'
-            : 'resources.rip.review.discarded',
-          'info',
-        )
-        if (track) {
-          show({
-            ...review,
-            tracks: review.tracks.filter((t) => t.itemId !== track.itemId),
-          })
-        }
+        notify('resources.rip.review.trackDiscarded', 'info')
+        // Keep the admin's unsaved edits to the other Tracks.
+        setReview({
+          ...review,
+          tracks: review.tracks.filter((t) => t.itemId !== track.itemId),
+        })
+        setValues(removeTrack(values, track.itemId))
         setDiscarding(null)
         refresh()
       })
@@ -182,13 +152,17 @@ const ReviewCard = ({ record, trackExtra, actions }) => {
     />
   )
 
-  const discardMessage = discarding?.track
-    ? translate('resources.rip.review.confirmTrack', {
-        title: discarding.track.title || discarding.track.path,
-      })
-    : translate('resources.rip.review.confirmJob', {
-        smart_count: review.tracks.filter((t) => t.path).length,
-      })
+  const discardTrackButton = (t) => (
+    <Tooltip title={translate('resources.rip.review.discardTrack')}>
+      <IconButton
+        size="small"
+        aria-label={`${translate('resources.rip.review.discardTrack')} ${t.position}`}
+        onClick={() => setDiscarding(t)}
+      >
+        <DeleteIcon fontSize="small" />
+      </IconButton>
+    </Tooltip>
+  )
 
   return (
     <Card variant="outlined">
@@ -231,24 +205,11 @@ const ReviewCard = ({ record, trackExtra, actions }) => {
                     <TableCell>
                       {trackField(t, 'artist', 'resources.song.fields.artist')}
                     </TableCell>
-                    <TableCell padding="none">
-                      <Tooltip
-                        title={translate('resources.rip.review.discardTrack')}
-                      >
-                        <IconButton
-                          size="small"
-                          aria-label={`${translate('resources.rip.review.discardTrack')} ${t.position}`}
-                          onClick={() => setDiscarding({ track: t })}
-                        >
-                          <DeleteIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                    </TableCell>
                   </>
                 ) : (
                   <>
                     <TableCell>{t.position}</TableCell>
-                    <TableCell colSpan={3}>
+                    <TableCell colSpan={2}>
                       <Typography variant="body2" color="error">
                         {translate(`resources.rip.status.${t.status}`, {
                           _: t.status,
@@ -258,6 +219,7 @@ const ReviewCard = ({ record, trackExtra, actions }) => {
                     </TableCell>
                   </>
                 )}
+                <TableCell padding="none">{discardTrackButton(t)}</TableCell>
               </TableRow>
             ))}
           </TableBody>
@@ -273,15 +235,18 @@ const ReviewCard = ({ record, trackExtra, actions }) => {
           {translate(saving ? 'resources.rip.review.saving' : 'ra.action.save')}
         </Button>
         {actions}
-        <Button color="secondary" onClick={() => setDiscarding({})}>
-          {translate('resources.rip.review.discard')}
-        </Button>
+        <DiscardJobButton
+          jobId={jobId}
+          fileCount={review.tracks.filter((t) => t.path).length}
+        />
       </CardActions>
       <DiscardDialog
         open={!!discarding}
-        message={discardMessage}
+        message={translate('resources.rip.review.confirmTrack', {
+          title: discarding?.title || discarding?.path || discarding?.position,
+        })}
         busy={busy}
-        onConfirm={handleDiscard}
+        onConfirm={handleDiscardTrack}
         onCancel={() => setDiscarding(null)}
       />
     </Card>

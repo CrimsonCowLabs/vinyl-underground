@@ -116,6 +116,20 @@ var _ = Describe("Review and Discard", func() {
 			Expect(rev.Tracks[2].Title).To(Equal("Ripped M4A"))
 		})
 
+		It("still shows the card when a File is gone, with that Track's error, and saves the others", func() {
+			landed("ripped.opus", "Album/a.opus")
+			job := newJob(model.RipReady, "Album", "Album/a.opus", "Album/gone.opus")
+
+			rev, err := ripper.Review(ctx, job.ID)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(rev.Tracks[1].Error).To(Equal(errFileUnreadable))
+			Expect(rev.Tracks[1].Path).To(BeEmpty())
+
+			_, err = ripper.SaveTags(ctx, job.ID, ReviewEdits{Album: str("Still Saved")})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(readTags(filepath.Join(inbox, "Album", "a.opus"))).To(HaveKeyWithValue("ALBUM", []string{"Still Saved"}))
+		})
+
 		It("isn't there for a job still downloading", func() {
 			job := newJob(model.RipDownloading, "Album", "Album/a.opus")
 			_, err := ripper.Review(ctx, job.ID)
@@ -239,6 +253,20 @@ var _ = Describe("Review and Discard", func() {
 			Expect(exists("Album/dropped by hand.opus")).To(BeTrue())
 		})
 
+		It("deletes nothing, and keeps the job, when the Inbox folder can't be reached", func() {
+			landed("ripped.opus", "Album/a.opus")
+			job := newJob(model.RipReady, "Album", "Album/a.opus")
+			Expect(os.Rename(inbox, inbox+"-unmounted")).To(Succeed())
+			DeferCleanup(os.Rename, inbox+"-unmounted", inbox)
+
+			Expect(ripper.Discard(ctx, job.ID)).To(MatchError(ErrNoInbox))
+			Expect(ripper.DiscardItem(ctx, job.ID, job.Items[0].ID)).To(MatchError(ErrNoInbox))
+
+			Expect(ds.RipJob(ctx).Get(job.ID)).ToNot(BeNil())
+			Expect(ds.RipItem(ctx).ForJobs(job.ID)).To(HaveLen(1))
+			Expect(filepath.Join(inbox+"-unmounted", "Album", "a.opus")).To(BeAnExistingFile())
+		})
+
 		It("deletes a single video's File, and never the Inbox itself", func() {
 			landed("ripped.opus", "Song.opus")
 			job := newJob(model.RipReady, "", "Song.opus")
@@ -311,6 +339,22 @@ var _ = Describe("Review and Discard", func() {
 			_, err := ds.RipJob(ctx).Get(job.ID)
 			Expect(err).To(MatchError(model.ErrNotFound))
 			Expect(ds.RipItem(ctx).ForJobs(job.ID)).To(BeEmpty())
+		})
+
+		It("updates the job's note when a failed Track is discarded", func() {
+			landed("ripped.opus", "a.opus")
+			job := newJob(model.RipReady, "", "a.opus", "", "")
+			job.Error = "2 of 3 Tracks failed"
+			Expect(ds.RipJob(ctx).Put(job)).To(Succeed())
+
+			Expect(ripper.DiscardItem(ctx, job.ID, job.Items[1].ID)).To(Succeed())
+			j, _ := ds.RipJob(ctx).Get(job.ID)
+			Expect(j.Error).To(Equal("1 of 2 Tracks failed"))
+
+			Expect(ripper.DiscardItem(ctx, job.ID, job.Items[2].ID)).To(Succeed())
+			j, _ = ds.RipJob(ctx).Get(job.ID)
+			Expect(j.Error).To(BeEmpty())
+			Expect(exists("a.opus")).To(BeTrue())
 		})
 
 		It("only discards an item of that job", func() {

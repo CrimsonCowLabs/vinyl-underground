@@ -3,6 +3,7 @@ import {
   editsFrom,
   initialValues,
   invalidFields,
+  removeTrack,
   setAlbumField,
   setTrackField,
 } from './reviewForm'
@@ -60,6 +61,24 @@ describe('reviewForm', () => {
         { itemId: 'a', trackNumber: '1' },
         { itemId: 'c', title: 'Third Song' },
       ],
+    })
+  })
+
+  it("doesn't count whitespace around a tag as an edit", () => {
+    const padded = {
+      ...review,
+      tracks: [{ ...review.tracks[0], title: 'First ' }],
+    }
+    expect(editsFrom(padded, initialValues(padded))).toBeNull()
+  })
+
+  it('keeps the edits to the other Tracks when one is discarded', () => {
+    let values = setTrackField(initialValues(review), 'a', 'title', 'One')
+    values = setTrackField(values, 'c', 'title', 'Three')
+    values = removeTrack(values, 'c')
+    const left = { ...review, tracks: review.tracks.slice(0, 2) }
+    expect(editsFrom(left, values)).toEqual({
+      tracks: [{ itemId: 'a', title: 'One' }],
     })
   })
 

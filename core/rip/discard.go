@@ -19,6 +19,8 @@ import (
 // are deleted rather than left as missing Files. A job still queued or downloading is
 // ErrNotReady. Every path is checked to be inside the Inbox before anything is deleted.
 func (r *Ripper) Discard(ctx context.Context, jobID string) error {
+	r.reviewMu.Lock()
+	defer r.reviewMu.Unlock()
 	job, inbox, err := r.reviewable(ctx, jobID)
 	if err != nil {
 		return err
@@ -50,6 +52,8 @@ func (r *Ripper) Discard(ctx context.Context, jobID string) error {
 // with no File at all, the job goes too, as Discard would. The Inbox is then rescanned in the
 // background, as for Discard.
 func (r *Ripper) DiscardItem(ctx context.Context, jobID, itemID string) error {
+	r.reviewMu.Lock()
+	defer r.reviewMu.Unlock()
 	job, inbox, err := r.reviewable(ctx, jobID)
 	if err != nil {
 		return err
@@ -78,7 +82,12 @@ func (r *Ripper) DiscardItem(ctx context.Context, jobID, itemID string) error {
 				return err
 			}
 			if hasFiles {
-				return nil
+				if item.Status != model.RipFailed {
+					return nil
+				}
+				// The job's note counted the failed Track just discarded.
+				job.Error = failedNote(job.Items, item.ID)
+				return tx.RipJob(ctx).Put(job)
 			}
 			for _, it := range job.Items {
 				if err := tx.RipItem(ctx).Delete(it.ID); err != nil && !errors.Is(err, model.ErrNotFound) {
@@ -96,6 +105,24 @@ func (r *Ripper) DiscardItem(ctx context.Context, jobID, itemID string) error {
 		r.rescan(ctx, inbox.ID, deleted)
 	}
 	return err
+}
+
+// failedNote is a ready job's note ("N of M Tracks failed") once the item skip is gone.
+func failedNote(items model.RipItems, skip string) string {
+	total, failed := 0, 0
+	for _, it := range items {
+		if it.ID == skip {
+			continue
+		}
+		total++
+		if it.Status == model.RipFailed {
+			failed++
+		}
+	}
+	if failed == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%d of %d Tracks failed", failed, total)
 }
 
 // discardFile is a File to delete: its path relative to the Inbox, and its checked full path.

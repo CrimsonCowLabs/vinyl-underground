@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
+	"os"
 
 	"github.com/Masterminds/squirrel"
 	"github.com/navidrome/navidrome/core"
@@ -97,15 +99,19 @@ func (r *Ripper) review(ctx context.Context, job *model.RipJob, inbox *model.Lib
 	for _, it := range job.Items {
 		t := ReviewTrack{ItemID: it.ID, Position: it.Position, Status: it.Status, Error: it.Error}
 		if it.Status == model.RipReady && it.Path != "" {
-			t.Path = it.Path
-			t.MediaFileID = tracks[it.Path]
-			path, err := inboxPath(inbox.Path, it.Path)
+			tags, err := readItemTags(inbox.Path, it)
+			if errors.Is(err, ErrNoInbox) {
+				return nil, err
+			}
 			if err != nil {
-				return nil, err
+				// One unreadable File doesn't hide the card: the Track can still be discarded.
+				log.Warn(ctx, "Could not read the tags of a Rip's File", "id", job.ID, "path", it.Path, err)
+				t.Error = errFileUnreadable
+				rev.Tracks = append(rev.Tracks, t)
+				continue
 			}
-			if t.FileTags, err = readFileTags(path); err != nil {
-				return nil, err
-			}
+			t.Path, t.FileTags = it.Path, tags
+			t.MediaFileID = tracks[it.Path]
 			if first {
 				rev.Album, rev.AlbumArtist, rev.Year = t.Album, t.AlbumArtist, t.Year
 				first = false
@@ -114,6 +120,18 @@ func (r *Ripper) review(ctx context.Context, job *model.RipJob, inbox *model.Lib
 		rev.Tracks = append(rev.Tracks, t)
 	}
 	return rev, nil
+}
+
+// errFileUnreadable is a ready Track's error when its File can't be read (gone, or no longer
+// audio), so it shows on the card instead of its tags.
+const errFileUnreadable = "its File is missing from the Inbox or can't be read"
+
+func readItemTags(root string, it model.RipItem) (FileTags, error) {
+	path, err := inboxPath(root, it.Path)
+	if err != nil {
+		return FileTags{}, err
+	}
+	return readFileTags(path)
 }
 
 // tracksByPath maps the paths of the items' Files to the Tracks scanned from them. A File not
@@ -149,6 +167,8 @@ func (r *Ripper) tracksByPath(ctx context.Context, libID int, items model.RipIte
 // replaces it only once the write succeeded (see editTags), so a failed write never leaves a File
 // half-written. It returns the card as the Files now are.
 func (r *Ripper) SaveTags(ctx context.Context, jobID string, edits ReviewEdits) (*Review, error) {
+	r.reviewMu.Lock()
+	defer r.reviewMu.Unlock()
 	job, inbox, err := r.reviewable(ctx, jobID)
 	if err != nil {
 		return nil, err
@@ -178,6 +198,13 @@ func (r *Ripper) SaveTags(ctx context.Context, jobID string, edits ReviewEdits) 
 			return nil, err
 		}
 		path, err := inboxPath(inbox.Path, it.Path)
+		if err == nil {
+			_, err = os.Stat(path)
+		}
+		if errors.Is(err, fs.ErrNotExist) && !edited {
+			// Its File is gone (the card shows it): the album-level edits go to the others.
+			continue
+		}
 		if err != nil {
 			return nil, err
 		}

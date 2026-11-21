@@ -33,7 +33,8 @@ func inboxPath(root, rel string) (string, error) {
 
 	realRoot, err := filepath.EvalSymlinks(root)
 	if err != nil {
-		return "", fmt.Errorf("finding the Inbox: %w", err)
+		// Not fs.ErrNotExist: an unmounted Inbox must not look like a File that is gone already.
+		return "", fmt.Errorf("%w: %v", ErrNoInbox, err)
 	}
 	// The folder may go through symlinks only if it ends up inside the Inbox all the same.
 	dir, err := filepath.EvalSymlinks(filepath.Join(realRoot, filepath.Dir(rel)))
