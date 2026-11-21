@@ -167,7 +167,9 @@ func (r *Ripper) finishPromote(ctx context.Context, inbox *model.Library, it *mo
 		lookedUp = err == nil
 	}
 	if err == nil {
-		err = r.ds.WithTx(func(tx model.DataStore) error {
+		// Rerun while the database is busy: a scan (often the watcher's, set off by this Promote
+		// deleting Inbox copies) can be writing, and this transaction reads before it writes.
+		err = r.ds.WithTxRetry(ctx, func(ctx context.Context, tx model.DataStore) error {
 			inInbox, err := trackAt(tx, ctx, inbox.ID, it.Path)
 			if err != nil {
 				return err
