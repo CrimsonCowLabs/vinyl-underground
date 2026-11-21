@@ -34,7 +34,12 @@ const sortAndPage = (records, { sort, pagination } = {}) => {
 // happens asynchronously as the app starts.
 export const withDownloads = (
   dataProvider,
-  { downloads, isOnline, ready = () => Promise.resolve() },
+  {
+    downloads,
+    isOnline,
+    ready = () => Promise.resolve(),
+    reachability = { markReachable: () => {}, markUnreachable: () => {} },
+  },
 ) => {
   // The Downloads' Playlists or albums
   const items = (kind) =>
@@ -93,8 +98,12 @@ export const withDownloads = (
       if (answer) return answer
     }
     try {
-      return await dataProvider[method](resource, params)
+      const result = await dataProvider[method](resource, params)
+      reachability.markReachable()
+      return result
     } catch (error) {
+      if (isNetworkError(error)) reachability.markUnreachable()
+      else reachability.markReachable() // it answered, with an error
       const answer = isNetworkError(error) && (await offline())
       if (answer) return answer
       throw error

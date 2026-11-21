@@ -71,6 +71,10 @@ const downloadCoverId = (id, kind) => `${COVER_PREFIXES[kind]}-${id}`
 // read every Track back to measure it
 const SIZE_HEADER = 'X-Download-Size'
 
+// A stored Track's size never changes, and the storage meter asks for every
+// Track's size each time one is stored, so each is measured only once
+const knownSizes = new Map() // trackId -> bytes
+
 const storedSize = async (res) => {
   const size = Number(res.headers.get(SIZE_HEADER))
   // Tracks stored before sizes were recorded are measured the slow way
@@ -122,9 +126,13 @@ export const browserStorage = {
     const paths = await keysWithPrefix(TRACK_AUDIO_PREFIX)
     const entries = await Promise.all(
       paths.map(async (path) => {
-        const res = await cache.match(path)
-        const size = res ? await storedSize(res) : 0
-        return [idFromKey(TRACK_AUDIO_PREFIX)(path), size]
+        const trackId = idFromKey(TRACK_AUDIO_PREFIX)(path)
+        if (!knownSizes.has(trackId)) {
+          const res = await cache.match(path)
+          if (!res) return [trackId, 0]
+          knownSizes.set(trackId, await storedSize(res))
+        }
+        return [trackId, knownSizes.get(trackId)]
       }),
     )
     return Object.fromEntries(entries)
@@ -161,10 +169,12 @@ export const browserStorage = {
         },
       }),
     )
+    knownSizes.set(trackId, audio.size)
   },
 
   deleteTrack: async (trackId) => {
     const cache = await open()
+    knownSizes.delete(trackId)
     await cache.delete(trackAudioKey(trackId))
     await cache.delete(coverArtKey(`mf-${trackId}`))
   },

@@ -3,6 +3,8 @@ import dataProvider from '../dataProvider/wrapperDataProvider'
 import { PLAYLIST, createDownloads, trackIdOf } from './downloads'
 import { browserStorage } from './browserStorage'
 import { withDownloads } from './offlineDataProvider'
+import { createReachability } from './offline'
+import { baseUrl } from '../utils'
 
 // A missing Track has no File to stream, so it can't be downloaded
 const playable = (tracks) => tracks.filter((t) => !t.missing)
@@ -49,6 +51,12 @@ const requestPersistence = () =>
 
 export const isOnline = () => navigator.onLine !== false
 
+// Whether the server answers, which the data provider keeps up to date
+export const serverReachability = createReachability({
+  probe: () =>
+    fetch(baseUrl('/ping'), { cache: 'no-store' }).then((res) => res.ok),
+})
+
 export const downloads = createDownloads({
   server,
   storage: browserStorage,
@@ -65,7 +73,12 @@ const loadOnce = () => {
 }
 
 export const offlineAware = (provider) =>
-  withDownloads(provider, { downloads, isOnline, ready: loadOnce })
+  withDownloads(provider, {
+    downloads,
+    isOnline,
+    ready: loadOnce,
+    reachability: serverReachability,
+  })
 
 // Picks up Downloads stored earlier, brings them up to date with their
 // Playlists and resumes any that were interrupted: now, whenever the device
@@ -171,18 +184,23 @@ export const downloadedTracksForPlayer = async () => {
   )
 }
 
-// Whether the device has lost its network connection, kept up to date.
-// Anything that needs the server (e.g. Stations, Generated Playlists) can use
-// it to show itself as unavailable offline rather than fail.
+const offlineNow = () => !isOnline() || !serverReachability.isReachable()
+
+// Whether the device has lost its network connection or the server doesn't
+// answer, kept up to date. Anything that needs the server (e.g. Stations,
+// Generated Playlists) can use it to show itself as unavailable offline
+// rather than fail.
 export const useIsOffline = () => {
-  const [offline, setOffline] = useState(() => !isOnline())
+  const [offline, setOffline] = useState(offlineNow)
   useEffect(() => {
-    const update = () => setOffline(!isOnline())
+    const update = () => setOffline(offlineNow())
     window.addEventListener('online', update)
     window.addEventListener('offline', update)
+    const unsubscribe = serverReachability.subscribe(update)
     return () => {
       window.removeEventListener('online', update)
       window.removeEventListener('offline', update)
+      unsubscribe()
     }
   }, [])
   return offline

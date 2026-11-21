@@ -47,13 +47,20 @@ const setup = ({ online = true, server = {}, loaded = true } = {}) => {
         return { id, kind }
       }),
   }
+  const reachability = { markReachable: vi.fn(), markUnreachable: vi.fn() }
   const provider = withDownloads(dataProvider, {
     downloads,
     isOnline: () => online,
     ready: () => ready,
+    reachability,
   })
   if (loaded) finishLoading()
-  return { dataProvider, provider, finishLoading: () => finishLoading() }
+  return {
+    dataProvider,
+    provider,
+    reachability,
+    finishLoading: () => finishLoading(),
+  }
 }
 
 const tracksOf = (playlist_id, params = {}) => ({
@@ -222,5 +229,33 @@ describe('withDownloads', () => {
     await expect(
       provider.getList('song', { filter: {}, pagination: { page: 1 } }),
     ).rejects.toThrow('Failed to fetch')
+  })
+})
+
+describe('server reachability', () => {
+  it('marks the server unreachable when a request cannot reach it', async () => {
+    const { provider, reachability } = setup()
+    await provider.getOne('playlist', { id: 'pl1' })
+    expect(reachability.markUnreachable).toHaveBeenCalled()
+  })
+
+  it('marks the server reachable when a request gets an answer', async () => {
+    const { provider, reachability } = setup({
+      server: { getOne: async () => ({ data: { id: 'x' } }) },
+    })
+    await provider.getOne('artist', { id: 'x' })
+    expect(reachability.markReachable).toHaveBeenCalled()
+  })
+
+  // A 401 or 500 still means the server answered
+  it('marks the server reachable when it answers with an error', async () => {
+    const { provider, reachability } = setup({
+      server: {
+        getOne: () => Promise.reject(new HttpError('Unauthorized', 401)),
+      },
+    })
+    await expect(provider.getOne('artist', { id: 'x' })).rejects.toThrow()
+    expect(reachability.markReachable).toHaveBeenCalled()
+    expect(reachability.markUnreachable).not.toHaveBeenCalled()
   })
 })

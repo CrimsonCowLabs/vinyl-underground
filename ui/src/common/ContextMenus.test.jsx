@@ -64,7 +64,9 @@ describe('ContextMenus', () => {
 
     it('shows the album-artist size on the download item', () => {
       renderMenu(ArtistContextMenu, withAlbumArtist)
-      expect(screen.getByText('ra.action.download (1 KB)')).toBeInTheDocument()
+      expect(
+        screen.getByText('resources.album.actions.saveFiles (1 KB)'),
+      ).toBeInTheDocument()
     })
 
     it('hides download and share for artists with no album-artist content', () => {
@@ -82,7 +84,9 @@ describe('ContextMenus', () => {
         duration: 100,
         size: 1024 * 1024,
       })
-      expect(screen.getByText('ra.action.download (1 MB)')).toBeInTheDocument()
+      expect(
+        screen.getByText('resources.album.actions.saveFiles (1 MB)'),
+      ).toBeInTheDocument()
     })
   })
 
