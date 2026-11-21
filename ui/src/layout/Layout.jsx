@@ -8,6 +8,7 @@ import AppBar from './AppBar'
 import Notification from './Notification'
 import useCurrentTheme from '../themes/useCurrentTheme'
 import { useSearchRefocus } from '../common'
+import { useResumeDownloads } from '../download'
 
 const useStyles = makeStyles({
   root: { paddingBottom: (props) => (props.addPadding ? '80px' : 0) },
@@ -19,6 +20,7 @@ const Layout = (props) => {
   const classes = useStyles({ addPadding: queue.length > 0 })
   const dispatch = useDispatch()
   useSearchRefocus()
+  useResumeDownloads()
 
   const keyHandlers = {
     TOGGLE_MENU: useCallback(() => dispatch(toggleSidebar()), [dispatch]),
