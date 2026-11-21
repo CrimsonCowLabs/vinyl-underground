@@ -27,6 +27,9 @@ func (m *MockRipJobRepo) Put(job *model.RipJob) error {
 		m.nextID++
 		job.ID = "rip-" + strconv.Itoa(m.nextID)
 	}
+	if job.Kind == "" {
+		job.Kind = model.RipKindRip
+	}
 	for i := range m.jobs {
 		if m.jobs[i].ID == job.ID {
 			m.jobs[i] = *job
@@ -63,7 +66,7 @@ func (m *MockRipJobRepo) NextQueued() (*model.RipJob, error) {
 	defer m.mu.Unlock()
 	var next *model.RipJob
 	for i := range m.jobs {
-		if m.jobs[i].Status == model.RipQueued && (next == nil || m.jobs[i].CreatedAt.Before(next.CreatedAt)) {
+		if m.jobs[i].Status == model.RipQueued && m.jobs[i].Kind == model.RipKindRip && (next == nil || m.jobs[i].CreatedAt.Before(next.CreatedAt)) {
 			next = &m.jobs[i]
 		}
 	}
@@ -79,7 +82,7 @@ func (m *MockRipJobRepo) RequeueInterrupted() (int64, error) {
 	defer m.mu.Unlock()
 	var n int64
 	for i := range m.jobs {
-		if m.jobs[i].Status == model.RipDownloading {
+		if m.jobs[i].Status == model.RipDownloading && m.jobs[i].Kind == model.RipKindRip {
 			m.jobs[i].Status = model.RipQueued
 			m.jobs[i].UpdatedAt = time.Now()
 			n++

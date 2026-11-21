@@ -22,4 +22,6 @@ Ripping fetches the audio of a web page (usually a YouTube or YouTube Music vide
 
 Then the admin gets a **Rips** page: paste the link to a video, a playlist or an album and press **Rip**. The Rip runs in the background, one at a time, and keeps going if you close the tab. When it is ready for review, its Tracks are in the Inbox. Details are in [`deploy/README.md`](deploy/README.md#10-rip-a-video-a-playlist-or-an-album-into-the-inbox).
 
+Uploads and Files dropped straight into the Inbox folder get the same review cards, whether ripping is on or off: the **Rips** page shows whenever the Inbox is set up, with an **Upload Files** button (mp3, m4a, opus, ogg, flac, aiff or wav, up to 500 MB each). Details are in [`deploy/README.md`](deploy/README.md#review-cards-for-uploaded-and-dropped-files).
+
 **You are responsible for what you download.** Only rip what you have the right to copy, and check the terms of the site you rip from and the law where you live. Vinyl Underground and its authors don't check what you rip and accept no responsibility for it.

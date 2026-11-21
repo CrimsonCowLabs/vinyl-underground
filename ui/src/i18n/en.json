@@ -516,7 +516,7 @@
         "button": "Promote all",
         "promoting": "Promoting...",
         "title": "Promote to the Library?",
-        "confirm": "Move this Rip's File from the Inbox into the Library's Vinyl Underground folder? It becomes visible to every Listener, and keeps its favorites, ratings, plays and Playlist entries. |||| Move all %{smart_count} of this Rip's Files from the Inbox into the Library's Vinyl Underground folder? They become visible to every Listener, and keep their favorites, ratings, plays and Playlist entries.",
+        "confirm": "Move this card's File from the Inbox into the Library's Vinyl Underground folder? It becomes visible to every Listener, and keeps its favorites, ratings, plays and Playlist entries. |||| Move all %{smart_count} of this card's Files from the Inbox into the Library's Vinyl Underground folder? They become visible to every Listener, and keep their favorites, ratings, plays and Playlist entries.",
         "unsaved": "Save or undo your changes first: Promote moves the Files with the tags they have now.",
         "done": "Promoted %{smart_count} Track to the Library |||| Promoted %{smart_count} Tracks to the Library",
         "failedTitle": "Some Files were not promoted",
@@ -527,10 +527,10 @@
         "discard": "Discard",
         "discardTrack": "Discard this Track",
         "discardTitle": "Discard for good?",
-        "confirmJob": "Delete this Rip's File from the Inbox for good? It doesn't go to Quarantine and can't be undone. |||| Delete all %{smart_count} of this Rip's Files from the Inbox for good? They don't go to Quarantine and can't be undone.",
+        "confirmJob": "Delete this card's File from the Inbox for good? It doesn't go to Quarantine and can't be undone. |||| Delete all %{smart_count} of this card's Files from the Inbox for good? They don't go to Quarantine and can't be undone.",
         "confirmTrack": "Delete \"%{title}\" from the Inbox for good? It doesn't go to Quarantine and can't be undone.",
-        "confirmNoFiles": "Remove this Rip from the list? It has no Files in the Inbox.",
-        "discarded": "Rip discarded",
+        "confirmNoFiles": "Remove this card from the list? It has no Files in the Inbox.",
+        "discarded": "Discarded",
         "trackDiscarded": "Track discarded",
         "saving": "Saving...",
         "saved": "Tags saved; the Tracks update after the Inbox scan",
@@ -542,6 +542,21 @@
         "proposed": "Proposed: %{value}",
         "proposedFile": "Proposed, not saved (the File has \"%{file}\")",
         "proposedNew": "Proposed, not saved"
+      },
+      "kind": {
+        "upload": "Uploaded",
+        "drop": "Dropped into the Inbox"
+      },
+      "upload": {
+        "button": "Upload Files",
+        "uploading": "Uploading...",
+        "help": "mp3, m4a, opus, ogg, flac, aiff or wav, up to 500 MB each. They go into the Inbox as they are, on one review card. Files copied straight into the Inbox folder get cards of their own after the next scan.",
+        "waiting": "Waiting",
+        "progress": "Uploading: %{percent}%",
+        "done": "Uploaded",
+        "failed": "Upload failed",
+        "badType": "Only mp3, m4a, opus, ogg, flac, aiff or wav Files can be uploaded",
+        "tooBig": "This File is bigger than 500 MB, the most one File can be"
       }
     }
   },

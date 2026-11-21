@@ -83,14 +83,19 @@ var _ = Describe("Tag proposals", func() {
 	// aren't atomic, so a worker already running could pick a job up before its items are saved.
 	start := func() (stop func()) {
 		runCtx, cancel := context.WithCancel(ctx)
-		done := make(chan struct{})
+		done, inboxDone := make(chan struct{}), make(chan struct{})
 		go func() {
 			defer close(done)
 			ripper.Run(runCtx)
 		}()
+		go func() {
+			defer close(inboxDone)
+			ripper.RunInbox(runCtx)
+		}()
 		return func() {
 			cancel()
 			Eventually(done).Should(BeClosed())
+			Eventually(inboxDone).Should(BeClosed())
 		}
 	}
 

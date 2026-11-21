@@ -21,13 +21,29 @@ const (
 	RipFailed RipStatus = "failed"
 )
 
-// RipJob is one request to Rip a web page's audio into the Inbox: one video, or a whole playlist or
-// album. A job has one RipItem per video (one for a single video), and items are ripped one at a
-// time, in order. Jobs and items are kept in the database so they survive an app restart.
+// RipKind is how a job's Files reached the Inbox (#35).
+type RipKind string
+
+const (
+	// RipKindRip is a Rip: Files the app fetches from a web page with yt-dlp.
+	RipKindRip RipKind = "rip"
+	// RipKindUpload is a batch of Files the admin uploaded in the web app.
+	RipKindUpload RipKind = "upload"
+	// RipKindDrop is Files someone copied straight into the Inbox folder, found after a scan.
+	RipKindDrop RipKind = "drop"
+)
+
+// RipJob is one batch of new music in the Inbox, with its review card. Most are a request to Rip
+// a web page's audio into the Inbox: one video, or a whole playlist or album. A job has one
+// RipItem per video (one for a single video), and items are ripped one at a time, in order. An
+// upload or a drop (#35, see Kind) has one item per File, ready from the start: the Ripper never
+// picks it up. Jobs and items are kept in the database so they survive an app restart.
 type RipJob struct {
 	ID     string `structs:"id" json:"id"`
 	UserID string `structs:"user_id" json:"userId"`
-	// URL is the page the admin pasted.
+	// Kind is how the Files reached the Inbox: a Rip, an upload or a drop. Empty is saved as a Rip.
+	Kind RipKind `structs:"kind" json:"kind"`
+	// URL is the page the admin pasted, for a Rip. Uploads and drops have none.
 	URL    string    `structs:"url" json:"url"`
 	Status RipStatus `structs:"status" json:"status"`
 	// Error is why the job failed (usually yt-dlp's own message), or for a ready job, a note such as
@@ -37,7 +53,9 @@ type RipJob struct {
 	Title  string `structs:"title" json:"title"`
 	Source string `structs:"source" json:"source"`
 	// Folder is the Inbox subfolder a playlist's or album's Files go into, relative to the Inbox.
-	// It is empty for a single video, whose File goes straight into the Inbox.
+	// It is empty for a single video, whose File goes straight into the Inbox. An upload's is the
+	// batch's own subfolder, and a drop's the top-level folder its Files were dropped in (empty
+	// for one File dropped loose in the Inbox).
 	Folder    string    `structs:"folder" json:"folder"`
 	CreatedAt time.Time `structs:"created_at" json:"createdAt"`
 	UpdatedAt time.Time `structs:"updated_at" json:"updatedAt"`
@@ -178,7 +196,8 @@ type RipProposal struct {
 	Album       string            `json:"album,omitempty"`
 	AlbumArtist string            `json:"albumArtist,omitempty"`
 	Year        string            `json:"year,omitempty"`
-	// From is where the title and artist came from: "youtube-music" or "title".
+	// From is where the title and artist came from: "youtube-music", "title" (a video's), or
+	// "tags" (an uploaded or dropped File's own, #35).
 	From string `json:"from,omitempty"`
 	// AlbumFrom is where the album came from: "musicbrainz", "youtube-music", "tags" (the File's
 	// own) or "title" (the Track's own title, when nothing was found).
@@ -226,9 +245,10 @@ type RipJobRepository interface {
 	Get(id string) (*RipJob, error)
 	// GetAll returns every job, newest first, without Items.
 	GetAll() (RipJobs, error)
-	// NextQueued returns the oldest queued job, or ErrNotFound when none is waiting.
+	// NextQueued returns the oldest queued Rip, or ErrNotFound when none is waiting. Uploads and
+	// drops are never handed out.
 	NextQueued() (*RipJob, error)
-	// RequeueInterrupted puts jobs that were downloading back in the queue, for when the app
+	// RequeueInterrupted puts Rips that were downloading back in the queue, for when the app
 	// stopped in the middle of a Rip. It returns how many there were.
 	RequeueInterrupted() (int64, error)
 	// Delete deletes the job and its items (a Discard, #33), or returns ErrNotFound.
@@ -248,6 +268,12 @@ type RipItemRepository interface {
 	// SetProposal saves an item's tag proposal, and nothing else of it. It returns ErrNotFound
 	// for an item that is gone (discarded meanwhile), and never creates one.
 	SetProposal(id string, p RipProposal) error
+	// SetAlreadyHave saves an item's matches, and nothing else of it. It returns ErrNotFound for
+	// an item that is gone.
+	SetAlreadyHave(id string, matches RipMatches) error
+	// Paths returns the path of every item's File (relative to the Inbox), of every job: the
+	// Files some job already knows about.
+	Paths() ([]string, error)
 	// PromotesInterrupted returns the items a Promote was moving (PromoteDest set) when the app
 	// stopped.
 	PromotesInterrupted() (RipItems, error)

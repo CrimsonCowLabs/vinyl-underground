@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path/filepath"
+	"slices"
 
 	"github.com/Masterminds/squirrel"
 	"github.com/navidrome/navidrome/core"
@@ -174,6 +176,18 @@ func (r *Ripper) removeFolderIfEmpty(ctx context.Context, root string, job *mode
 			log.Warn(ctx, "Not removing the Rip's folder", "id", job.ID, "folder", job.Folder, err)
 		}
 		return
+	}
+	// A dropped folder (#35) can have folders of its own ("Album/CD1"): the empty ones go first,
+	// deepest first. Symlinks are never followed.
+	var subdirs []string
+	_ = filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+		if err == nil && d.IsDir() && p != dir {
+			subdirs = append(subdirs, p)
+		}
+		return nil
+	})
+	for _, sub := range slices.Backward(subdirs) {
+		_ = os.Remove(sub)
 	}
 	// os.Remove removes only an empty folder: anything else left in it (a cover, a File dropped in
 	// by hand) keeps it.

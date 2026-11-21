@@ -148,6 +148,18 @@ func checkInboxFolder(path string) (string, error) {
 	return path, nil
 }
 
+// SameFolder reports whether two library paths (as Inbox.Path and Library.Path hold them) name the
+// same folder.
+func SameFolder(a, b string) bool {
+	clean := func(p string) string {
+		if !strings.Contains(p, "://") {
+			p = filepath.Clean(p)
+		}
+		return strings.TrimSuffix(p, "/")
+	}
+	return clean(a) == clean(b)
+}
+
 // pathsOverlap reports whether one folder is the other or inside it, so the same Files would be
 // scanned into both libraries.
 func pathsOverlap(a, b string) bool {

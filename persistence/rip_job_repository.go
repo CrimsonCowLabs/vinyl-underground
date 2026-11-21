@@ -22,6 +22,9 @@ func NewRipJobRepository(ctx context.Context, db dbx.Builder) model.RipJobReposi
 }
 
 func (r *ripJobRepository) Put(job *model.RipJob) error {
+	if job.Kind == "" {
+		job.Kind = model.RipKindRip
+	}
 	id, err := r.put(job.ID, job)
 	if err != nil {
 		return err
@@ -46,7 +49,7 @@ func (r *ripJobRepository) GetAll() (model.RipJobs, error) {
 
 func (r *ripJobRepository) NextQueued() (*model.RipJob, error) {
 	var res model.RipJob
-	sq := Select("*").From(r.tableName).Where(Eq{"status": model.RipQueued}).
+	sq := Select("*").From(r.tableName).Where(Eq{"status": model.RipQueued, "kind": model.RipKindRip}).
 		OrderBy("created_at", "rowid").Limit(1)
 	if err := r.queryOne(sq, &res); err != nil {
 		return nil, err
@@ -58,7 +61,7 @@ func (r *ripJobRepository) RequeueInterrupted() (int64, error) {
 	return r.executeSQL(Update(r.tableName).
 		Set("status", model.RipQueued).
 		Set("updated_at", time.Now()).
-		Where(Eq{"status": model.RipDownloading}))
+		Where(Eq{"status": model.RipDownloading, "kind": model.RipKindRip}))
 }
 
 func (r *ripJobRepository) Delete(id string) error {

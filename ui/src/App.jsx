@@ -140,7 +140,8 @@ const Admin = (props) => {
           {...(permissions === 'admin' ? radio.admin : radio.all)}
         />,
         config.enableSharing && <Resource name="share" {...share} />,
-        permissions === 'admin' && config.enableRipping ? (
+        permissions === 'admin' &&
+        (config.enableRipping || config.enableInbox) ? (
           <Resource name="rip" {...rip} />
         ) : null,
         <Resource

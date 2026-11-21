@@ -35,13 +35,13 @@ func NewFromConfig(ds model.DataStore, scanner FolderScanner) *Ripper {
 		DenoDir:    filepath.Join(conf.Server.CacheFolder.String(), "deno"),
 	}
 	opts := Options{Timeout: conf.Server.Ripping.Timeout, Matcher: match.New(ds), Proposer: newProposer(),
-		PromoteRoot: conf.Server.Inbox.PromotePath}
+		PromoteRoot: conf.Server.Inbox.PromotePath, IgnoreDrops: conf.Server.Inbox.Path == ""}
 	if asset != "" {
 		opts.Updater = bin // no standalone build to update to otherwise
 	}
 	if deno, err := exec.LookPath("deno"); err == nil {
 		yt.DenoPath = deno
-	} else {
+	} else if conf.Server.Ripping.Enabled {
 		log.Warn("Ripping: deno is not installed, so yt-dlp may miss formats or fail on YouTube")
 	}
 	return New(ds, yt, scanner, opts)

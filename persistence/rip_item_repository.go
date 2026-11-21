@@ -65,6 +65,29 @@ func (r *ripItemRepository) SetProposal(id string, p model.RipProposal) error {
 	return nil
 }
 
+func (r *ripItemRepository) SetAlreadyHave(id string, matches model.RipMatches) error {
+	n, err := r.executeSQL(Update(r.tableName).Set("already_have", matches).Where(Eq{"id": id}))
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return model.ErrNotFound
+	}
+	return nil
+}
+
+func (r *ripItemRepository) Paths() ([]string, error) {
+	var rows []struct {
+		Path string `db:"path"`
+	}
+	err := r.queryAll(Select("path").From(r.tableName).Where(NotEq{"path": ""}), &rows)
+	res := make([]string, len(rows))
+	for i := range rows {
+		res[i] = rows[i].Path
+	}
+	return res, err
+}
+
 func (r *ripItemRepository) PromotesInterrupted() (model.RipItems, error) {
 	res := model.RipItems{}
 	err := r.queryAll(Select("*").From(r.tableName).Where(NotEq{"promote_dest": ""}).

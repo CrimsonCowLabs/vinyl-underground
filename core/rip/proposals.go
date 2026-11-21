@@ -3,9 +3,11 @@ package rip
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"sync"
 	"time"
 
+	"github.com/navidrome/navidrome/core"
 	"github.com/navidrome/navidrome/core/rip/propose"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
@@ -100,7 +102,7 @@ func (r *Ripper) propose(ctx context.Context, next queuedProposal) {
 		if it.ID != next.itemID || it.Status != model.RipReady || it.Path == "" {
 			continue
 		}
-		p := r.opts.Proposer.Propose(ctx, ProposalInput(it))
+		p := r.opts.Proposer.Propose(ctx, r.proposalInput(ctx, it))
 		if ctx.Err() != nil {
 			return // still pending: the next start works it out
 		}
@@ -160,6 +162,33 @@ func (r *Ripper) RefreshProposals(ctx context.Context, jobID string) error {
 		r.queueProposal(ctx, &job.Items[i])
 	}
 	return nil
+}
+
+// proposalInput is what the item's proposal is worked out from: for a Rip, what yt-dlp said
+// (ProposalInput); for an uploaded or dropped File (#35), the File's own tags and length, or its
+// name (see fileInput). One whose File can't be read falls back to the item's title and artist.
+func (r *Ripper) proposalInput(ctx context.Context, it model.RipItem) propose.Input {
+	job, err := r.ds.RipJob(ctx).Get(it.JobID)
+	if err != nil || job.Kind == model.RipKindRip {
+		return ProposalInput(it)
+	}
+	inbox, err := core.FindInboxLibrary(ctx, r.ds)
+	if err == nil && inbox == nil {
+		err = ErrNoInbox
+	}
+	var full string
+	if err == nil {
+		full, err = inboxPath(inbox.Path, it.Path)
+	}
+	var in propose.Input
+	if err == nil {
+		in, err = fileInput(full, filepath.Base(full))
+	}
+	if err != nil {
+		log.Warn(ctx, "Could not read a File's tags to propose its tags; using its name", "id", it.JobID, "path", it.Path, err)
+		return propose.Input{Artist: it.Artist, Title: it.Title}
+	}
+	return in
 }
 
 // ProposalInput is what a Rip item's proposal is worked out from: what yt-dlp said about its

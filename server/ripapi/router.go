@@ -1,5 +1,11 @@
-// Package ripapi is the admin's HTTP API for Rips: start one from a URL, list the jobs, and see
-// and update the yt-dlp that runs them.
+// Package ripapi is the admin's HTTP API for the Inbox's new music: start a Rip from a URL, upload
+// Files, list the jobs (Rips, uploads and dropped Files, #35), and see and update the yt-dlp that
+// runs the Rips.
+//
+// Starting a Rip and yt-dlp's routes are there only with ripping on (Ripping.Enabled). The rest
+// (the job list, review, Discard, Promote and uploads) are there whenever the Inbox is
+// (Inbox.Path), ripping on or off: uploads and dropped Files aren't Rips. With neither, the whole
+// API answers 404.
 //
 //	GET  /api/rip                       every job, newest first, each with its items (and each
 //	                                    item's alreadyHave Tracks)
@@ -15,7 +21,8 @@
 //	GET  /api/rip/ytdlp                 the installed yt-dlp's version
 //	POST /api/rip/ytdlp/update          updates yt-dlp
 //
-// Reviewing and discarding a job is in review.go, and promoting it in promote.go.
+// Reviewing and discarding a job is in review.go, promoting it in promote.go, and uploads in
+// upload.go.
 package ripapi
 
 import (
@@ -43,6 +50,7 @@ type Ripper interface {
 	UpdateYtDlp(ctx context.Context, wait bool) (rip.UpdateResult, error)
 	Reviewer
 	Promoter
+	Uploader
 }
 
 type Router struct {
@@ -51,8 +59,8 @@ type Router struct {
 	ripper Ripper
 }
 
-// New returns the Rip API, meant to be mounted only when ripping is on. It also answers 404 to
-// everything while Ripping.Enabled is off.
+// New returns the Rip API, meant to be mounted when ripping is on or there is an Inbox. It answers
+// 404 to the ripping routes while Ripping.Enabled is off, and to everything while both are off.
 func New(ds model.DataStore, ripper Ripper) *Router {
 	r := &Router{ds: ds, ripper: ripper}
 	r.Handler = r.routes()
@@ -66,17 +74,37 @@ func (api *Router) routes() http.Handler {
 	r.Use(server.JWTRefresher)
 	r.Use(adminOnly)
 	r.Get("/", api.list)
-	r.Post("/", api.create)
-	r.Get("/ytdlp", api.ytDlpVersion)
-	r.Post("/ytdlp/update", api.updateYtDlp)
+	r.With(rippingOnly).Post("/", api.create)
+	r.With(rippingOnly).Get("/ytdlp", api.ytDlpVersion)
+	r.With(rippingOnly).Post("/ytdlp/update", api.updateYtDlp)
+	r.With(inboxOnly).Post("/upload", api.upload)
 	api.reviewRoutes(r)
 	api.promoteRoutes(r)
 	return r
 }
 
+// enabledOnly answers 404 unless ripping is on or there is an Inbox.
 func enabledOnly(next http.Handler) http.Handler {
+	return onlyIf(func() bool { return conf.Server.Ripping.Enabled || inboxOn() }, next)
+}
+
+// rippingOnly answers 404 unless ripping is on.
+func rippingOnly(next http.Handler) http.Handler {
+	return onlyIf(func() bool { return conf.Server.Ripping.Enabled }, next)
+}
+
+// inboxOnly answers 404 unless there is an Inbox.
+func inboxOnly(next http.Handler) http.Handler {
+	return onlyIf(inboxOn, next)
+}
+
+// inboxOn reports whether the Inbox is set up. The app clears Inbox.Path at startup when its
+// folder isn't usable.
+func inboxOn() bool { return conf.Server.Inbox.Path != "" }
+
+func onlyIf(on func() bool, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !conf.Server.Ripping.Enabled {
+		if !on() {
 			http.NotFound(w, r)
 			return
 		}
@@ -87,7 +115,7 @@ func enabledOnly(next http.Handler) http.Handler {
 func adminOnly(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if user, ok := request.UserFrom(r.Context()); !ok || !user.IsAdmin {
-			_ = rest.RespondWithError(w, http.StatusForbidden, "Only the admin can rip")
+			_ = rest.RespondWithError(w, http.StatusForbidden, "Only the admin can rip, upload and review new music")
 			return
 		}
 		next.ServeHTTP(w, r)
