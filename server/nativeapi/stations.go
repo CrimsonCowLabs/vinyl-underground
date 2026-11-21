@@ -12,13 +12,16 @@ import (
 )
 
 // addStationRoute exposes Stations. Stations need no LLM; with one, the DJ's persona and the
-// Station's Theme choose its Tracks, the way a Prompt does for Generated Playlists.
+// Station's Theme choose its Tracks, the way a Prompt does for Generated Playlists, and the DJ
+// writes Blurbs.
 func (api *Router) addStationRoute(r chi.Router) {
 	var selector stations.Selector
+	var writer stations.BlurbWriter
 	if client := newLLMClient(); client != nil {
 		selector = generatedplaylist.NewSelector(api.ds, client, api.provider)
+		writer = stations.NewBlurbWriter(client)
 	}
-	stationRoutes(r, stations.New(api.ds, selector))
+	stationRoutes(r, stations.New(api.ds, selector, writer))
 }
 
 // stationRoutes mounts the Station endpoints, all for the logged-in Listener:
@@ -26,7 +29,8 @@ func (api *Router) addStationRoute(r chi.Router) {
 //   - POST /station/dj creates one of their own DJs, PUT and DELETE /station/dj/{id} edit and
 //     delete it (built-in DJs are read-only);
 //   - POST /station/next serves their next Station Tracks;
-//   - POST /station/skip records that they skipped one.
+//   - POST /station/skip records that they skipped one;
+//   - GET /station/blurb gives the Blurb for a Track change.
 func stationRoutes(r chi.Router, svc stations.Service) {
 	r.Route("/station", func(r chi.Router) {
 		r.Get("/dj", listDJs(svc))
@@ -35,6 +39,7 @@ func stationRoutes(r chi.Router, svc stations.Service) {
 		r.Delete("/dj/{id}", deleteDJ(svc))
 		r.Post("/next", nextStationTracks(svc))
 		r.Post("/skip", skipStationTrack(svc))
+		r.Get("/blurb", stationBlurb(svc))
 	})
 }
 
@@ -168,6 +173,21 @@ func skipStationTrack(svc stations.Service) http.HandlerFunc {
 		default:
 			writeStationError(w, r, http.StatusInternalServerError, "internal", err)
 		}
+	}
+}
+
+// stationBlurb answers GET /station/blurb?dj=…&track=…&after=… with the Blurb ({djName, text}) the
+// DJ shows as the Station changes from the Track after into track, or 204 No Content when there
+// is none (not written yet, or no LLM): the Track then plays without one.
+func stationBlurb(svc stations.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		blurb, ok := svc.Blurb(r.Context(), q.Get("dj"), q.Get("track"), q.Get("after"))
+		if !ok {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		writeStationJSON(w, r, blurb)
 	}
 }
 

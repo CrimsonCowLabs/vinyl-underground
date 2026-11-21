@@ -30,6 +30,18 @@ type fakeStations struct {
 	gotCount int
 	gotUser  string
 	gotTrack string
+	gotAfter string
+	blurb    *stations.Blurb
+}
+
+func (f *fakeStations) Blurb(ctx context.Context, djID, trackID, afterID string) (stations.Blurb, bool) {
+	f.gotDJ, f.gotTrack, f.gotAfter = djID, trackID, afterID
+	usr, _ := request.UserFrom(ctx)
+	f.gotUser = usr.ID
+	if f.blurb == nil {
+		return stations.Blurb{}, false
+	}
+	return *f.blurb, true
 }
 
 func (f *fakeStations) Skip(ctx context.Context, djID, trackID string) error {
@@ -57,8 +69,8 @@ var _ = Describe("Station endpoints", func() {
 		svc = &fakeStations{}
 	})
 
-	call := func(handler http.HandlerFunc, method, body string) (int, any) {
-		r := httptest.NewRequest(method, "/station", strings.NewReader(body))
+	call := func(handler http.HandlerFunc, method, body string, query ...string) (int, any) {
+		r := httptest.NewRequest(method, "/station"+strings.Join(query, ""), strings.NewReader(body))
 		r = r.WithContext(request.WithUser(r.Context(), alice))
 		w := httptest.NewRecorder()
 		handler(w, r)
@@ -122,6 +134,23 @@ var _ = Describe("Station endpoints", func() {
 		Entry("not JSON", nil, `nope`, http.StatusBadRequest, "badRequest"),
 	)
 
+	It("gives the Blurb for the Listener's Track change, once it is written", func() {
+		svc.blurb = &stations.Blurb{DJName: "Night Owl", Text: "That was Miles. Here's Coltrane."}
+		code, res := call(stationBlurb(svc), http.MethodGet, "", "?dj=night-owl&track=mf-2&after=mf-1")
+		Expect(code).To(Equal(http.StatusOK))
+		Expect(svc.gotDJ).To(Equal("night-owl"))
+		Expect(svc.gotTrack).To(Equal("mf-2"))
+		Expect(svc.gotAfter).To(Equal("mf-1"))
+		Expect(svc.gotUser).To(Equal("u1"))
+		Expect(res).To(HaveKeyWithValue("djName", "Night Owl"))
+		Expect(res).To(HaveKeyWithValue("text", "That was Miles. Here's Coltrane."))
+	})
+
+	It("answers with no content when the Blurb isn't written", func() {
+		code, _ := call(stationBlurb(svc), http.MethodGet, "", "?dj=night-owl&track=mf-2&after=mf-1")
+		Expect(code).To(Equal(http.StatusNoContent))
+	})
+
 	It("needs a logged-in Listener", func() {
 		DeferCleanup(configtest.SetupConfig())
 		conf.Server.EnableSharing = false
@@ -140,7 +169,7 @@ var _ = Describe("DJ endpoints", func() {
 
 	BeforeEach(func() {
 		router = chi.NewRouter()
-		stationRoutes(router, stations.New(&tests.MockDataStore{}, nil))
+		stationRoutes(router, stations.New(&tests.MockDataStore{}, nil, nil))
 	})
 
 	call := func(as model.User, method, path, body string) (int, map[string]any, []any) {

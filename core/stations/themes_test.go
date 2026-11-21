@@ -86,7 +86,7 @@ var _ = Describe("Stations with an LLM", Ordered, func() {
 			Expect(err).ToNot(HaveOccurred())
 		}
 		sel = &fakeSelector{pick: func(string) model.MediaFiles { return nil }}
-		svc = stations.New(ds, sel)
+		svc = stations.New(ds, sel, nil)
 	})
 
 	// track makes a Track, by its own artist, named after the kind.
@@ -268,7 +268,7 @@ var _ = Describe("Stations with an LLM", Ordered, func() {
 	})
 
 	It("ignores the Theme without an LLM", func() {
-		noLLM := stations.New(ds, nil)
+		noLLM := stations.New(ds, nil, nil)
 		tracks, err := noLLM.Next(ctx, "sunny", "late-night drive", 3)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(tracks).To(HaveLen(3))

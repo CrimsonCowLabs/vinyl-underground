@@ -87,6 +87,7 @@ func serveIndex(ds model.DataStore, fs fs.FS, shareInfo *model.Share) http.Handl
 			"enablePromote":             conf.Server.Inbox.Path != "" && conf.Server.Inbox.PromotePath != "",
 			"enableGeneratedPlaylists":  llm.Configured(llm.FromConfig()),
 			"enableStationThemes":       llm.Configured(llm.FromConfig()),
+			"enableStationBlurbs":       llm.Configured(llm.FromConfig()),
 			"pluginsEnabled":            conf.Server.Plugins.Enabled,
 			"extAuthLogoutURL":          conf.Server.ExtAuth.LogoutURL,
 		}

@@ -50,6 +50,7 @@ const defaultConfig = {
   pluginsEnabled: true,
   enableGeneratedPlaylists: false,
   enableStationThemes: false,
+  enableStationBlurbs: false,
 }
 
 let config

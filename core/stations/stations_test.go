@@ -44,7 +44,7 @@ var _ = Describe("Stations", Ordered, func() {
 			_, err := db.Db().Exec("delete from " + table)
 			Expect(err).ToNot(HaveOccurred())
 		}
-		svc = stations.New(ds, nil)
+		svc = stations.New(ds, nil, nil)
 	})
 
 	// addTracks puts n Tracks, each by its own artist, in the Library (library 1 unless lib is

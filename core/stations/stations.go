@@ -14,6 +14,9 @@
 // A Station is a Listener's with one DJ. Skipping a Track on it is a mild "less like this":
 // Skip records it in the station_skip table, and that Station alone then plays the Track and
 // its artist a little less, fading over SkipFade. Skips never touch ratings or favorites.
+//
+// With an LLM, the DJ also shows a Blurb at each Track change, written ahead in the background
+// (see blurbs.go). Without one there are no Blurbs, and the Station plays the same.
 package stations
 
 import (
@@ -71,18 +74,22 @@ type Service interface {
 	// Skip records that the logged-in Listener skipped a Track their Station served lately, so
 	// their Station with the DJ plays it, and its artist, a little less for a while.
 	Skip(ctx context.Context, djID, trackID string) error
+	// Blurb returns the Blurb for the change from afterID into trackID on the logged-in
+	// Listener's Station with the DJ, if it is written. It never waits for one.
+	Blurb(ctx context.Context, djID, trackID, afterID string) (Blurb, bool)
 }
 
 // New returns the Service. A nil selector means no LLM is configured: selection is rule-based
-// and the Theme is ignored.
-func New(ds model.DataStore, selector Selector) Service {
-	return &service{ds: ds, selector: selector}
+// and the Theme is ignored. A nil writer means there are no Blurbs.
+func New(ds model.DataStore, selector Selector, writer BlurbWriter) Service {
+	return &service{ds: ds, selector: selector, blurbs: blurbs{writer: writer}}
 }
 
 type service struct {
 	ds       model.DataStore
 	selector Selector
 	plans    plans
+	blurbs   blurbs
 	locks    sync.Map // Listener ID -> *sync.Mutex, so one Listener's refills don't race; a household has few
 }
 
@@ -166,7 +173,16 @@ func (s *service) Next(ctx context.Context, djID, theme string, count int) (mode
 		}
 		s.plans.selectAhead(ctx, s.selector, usr.ID, dj, theme, exclude)
 	}
+	s.blurbs.queueAhead(ctx, usr.ID, dj, theme, picked)
 	return picked, nil
+}
+
+func (s *service) Blurb(ctx context.Context, djID, trackID, afterID string) (Blurb, bool) {
+	usr, ok := request.UserFrom(ctx)
+	if !ok {
+		return Blurb{}, false
+	}
+	return s.blurbs.get(usr.ID, djID, trackID, afterID)
 }
 
 func (s *service) Skip(ctx context.Context, djID, trackID string) error {
