@@ -125,7 +125,7 @@ func (r *Ripper) Run(ctx context.Context) {
 	} else if n > 0 {
 		log.Info(ctx, "Re-queued Rips interrupted by the last stop", "count", n)
 	}
-	for {
+	for ctx.Err() == nil {
 		job, err := r.ds.RipJob(ctx).NextQueued()
 		switch {
 		case err == nil:
