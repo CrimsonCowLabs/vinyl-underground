@@ -36,7 +36,12 @@ var _ = Describe("Rips", Ordered, func() {
 	var admin model.User
 	var native http.Handler
 
+	// Rescanning albums that are already in the database deadlocks the album-refresh phase
+	// at the harness's MaxOpenConns=1 (its cursor holds the only connection while its workers
+	// wait for one; see subsonic_artwork_test.go). Scan with production's minimum pool instead.
 	scanAll := func(fullScan bool) {
+		db.Db().SetMaxOpenConns(4)
+		defer db.Db().SetMaxOpenConns(1)
 		s := scanner.New(ctx, ds, events.NoopBroker(),
 			playlists.NewPlaylists(ds, artwork.NewUploader(ds)), metrics.NewNoopInstance())
 		_, err := s.ScanAll(ctx, fullScan)
