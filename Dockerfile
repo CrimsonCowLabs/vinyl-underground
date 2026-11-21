@@ -180,8 +180,8 @@ EOT
 ########################################################################################################################
 ### Build Final Image
 FROM alpine:3.22 AS final
-LABEL maintainer="deluan@navidrome.org"
-LABEL org.opencontainers.image.source="https://github.com/navidrome/navidrome"
+# Links the GHCR package to the repo. The publish workflow adds the other OCI labels.
+LABEL org.opencontainers.image.source="https://github.com/CrimsonCowLabs/vinyl-underground"
 
 # Install runtime dependencies
 # - libwebp + symlinks: enables native WebP encoding via purego/dlopen

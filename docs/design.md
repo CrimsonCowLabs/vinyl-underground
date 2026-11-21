@@ -169,6 +169,7 @@ The Library keeps growing, and all new music reaches it through one path: the **
 - The Inbox (`VU_INBOX_DIR`) is a separate read-write bind mount at `/inbox`.
 - HTTPS through `tailscale serve`, which the PWA needs for its service worker.
 - Personal details (hostnames, IPs, credentials) live in a gitignored `.env`. The repo ships `.env.example` and an example `docker-compose.yml`.
+- Each version tag publishes a multi-arch (amd64 + arm64) image to `ghcr.io/crimsoncowlabs/vinyl-underground` ([releasing](./releasing.md)).
 - Development needs Go 1.27 (cgo enabled, for sqlite), Node 24 and ffmpeg.
 
 ## Open source obligations
