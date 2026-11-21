@@ -81,6 +81,36 @@ var _ = Describe("RipItemRepository", func() {
 		Expect(got[0].AlreadyHave).To(Equal(have))
 	})
 
+	It("finds the items a Promote was moving when the app stopped", func() {
+		j := newJob("https://example.com/a")
+		newItem(j, 1, model.RipReady)
+		moving := newItem(j, 2, model.RipReady)
+		moving.PromoteDest = "/music/Vinyl Underground/A/B/02 C.opus"
+		Expect(items.Put(moving)).To(Succeed())
+
+		got, err := items.PromotesInterrupted()
+		Expect(err).ToNot(HaveOccurred())
+		Expect(got).To(HaveLen(1))
+		Expect(got[0].ID).To(Equal(moving.ID))
+		Expect(got[0].PromoteDest).To(Equal(moving.PromoteDest))
+	})
+
+	It("moves a promoted Track's \"already have\" snapshots to its new library, and no other's", func() {
+		j := newJob("https://example.com/a")
+		a, b := newItem(j, 1, model.RipQueued), newItem(j, 2, model.RipQueued)
+		a.AlreadyHave = model.RipMatches{{ID: "mf_1", Title: "Halo", Library: "Inbox"}, {ID: "mf-2", Library: "Inbox"}}
+		b.AlreadyHave = model.RipMatches{{ID: "mf-1", Title: "Halo", Library: "Inbox"}}
+		Expect(items.Put(a)).To(Succeed())
+		Expect(items.Put(b)).To(Succeed())
+
+		Expect(items.MoveMatches("mf-1", "Music")).To(Succeed())
+
+		got, err := items.ForJobs(j.ID)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(got[0].AlreadyHave).To(Equal(model.RipMatches{{ID: "mf_1", Title: "Halo", Library: "Inbox"}, {ID: "mf-2", Library: "Inbox"}}))
+		Expect(got[1].AlreadyHave).To(Equal(model.RipMatches{{ID: "mf-1", Title: "Halo", Library: "Music"}}))
+	})
+
 	It("puts interrupted items back in the queue, and leaves the rest alone", func() {
 		j := newJob("https://example.com/a")
 		newItem(j, 1, model.RipReady)

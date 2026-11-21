@@ -32,7 +32,7 @@ func NewFromConfig(ds model.DataStore, scanner FolderScanner) *Ripper {
 		TempDir:    filepath.Join(bin.Dir, "tmp"),
 		DenoDir:    filepath.Join(conf.Server.CacheFolder.String(), "deno"),
 	}
-	opts := Options{Timeout: conf.Server.Ripping.Timeout, Matcher: match.New(ds)}
+	opts := Options{Timeout: conf.Server.Ripping.Timeout, Matcher: match.New(ds), PromoteRoot: conf.Server.Inbox.PromotePath}
 	if asset != "" {
 		opts.Updater = bin // no standalone build to update to otherwise
 	}

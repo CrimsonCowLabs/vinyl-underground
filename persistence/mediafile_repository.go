@@ -408,6 +408,35 @@ func (r *mediaFileRepository) Delete(id string) error {
 	return r.delete(Eq{"id": id})
 }
 
+// relocatedAt is the updated_at a relocated Track gets: older than any File, so the next scan of
+// its new folder always re-reads the File's tags (its album and persistent IDs depend on the
+// library) into the same row.
+var relocatedAt = time.Unix(0, 0).UTC()
+
+func (r *mediaFileRepository) Relocate(id string, libraryID int, path, folderID string) error {
+	// A Track whose File was at that path before and is gone (missing) would make two rows for
+	// one File: it is a ghost, so it goes.
+	ghosts := And{Eq{"library_id": libraryID}, Eq{"path": path}, Eq{"missing": true}, NotEq{"id": id}}
+	if err := r.delete(ghosts); err != nil {
+		return fmt.Errorf("removing the missing Track at %q: %w", path, err)
+	}
+	upd := Update(r.tableName).
+		Set("library_id", libraryID).
+		Set("path", path).
+		Set("folder_id", folderID).
+		Set("missing", false).
+		Set("updated_at", relocatedAt).
+		Where(Eq{"id": id})
+	n, err := r.executeSQL(upd)
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return model.ErrNotFound
+	}
+	return nil
+}
+
 func (r *mediaFileRepository) ReassignReferences(prevID, newID string) error {
 	if err := r.ReassignAnnotation(prevID, newID); err != nil {
 		return fmt.Errorf("reassigning annotations: %w", err)

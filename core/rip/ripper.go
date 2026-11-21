@@ -127,6 +127,9 @@ type Options struct {
 	// Matcher finds the Tracks the Library already seems to have for a video, to warn the admin
 	// before it is ripped. Nil warns of nothing.
 	Matcher Matcher
+	// PromoteRoot is the promote folder reviewed Files are moved into (see Promote and
+	// CheckPromoteFolder). Empty turns Promote off.
+	PromoteRoot string
 }
 
 // Updater keeps yt-dlp up to date. *Binary implements it.
@@ -172,6 +175,8 @@ type Ripper struct {
 	// reviewMu runs one tag save or Discard at a time, so two of them never race over the same
 	// Files (e.g. a Discard deleting a File a save is about to rename back into place).
 	reviewMu sync.Mutex
+	// promoteFS is the filesystem Promote works on. Nil is the real one; tests set another.
+	promoteFS promoteFS
 }
 
 func New(ds model.DataStore, fetcher Fetcher, scanner FolderScanner, opts Options) *Ripper {
@@ -677,9 +682,14 @@ func (r *Ripper) rip(ctx context.Context, inboxPath string, job *model.RipJob, i
 // scanInbox scans the Inbox library, waiting while another scan runs (often the watcher's, set
 // off by the Rip itself). Any other scan error is returned straight away.
 func (r *Ripper) scanInbox(ctx context.Context, libID int) error {
+	return r.scanWithRetry(ctx, model.ScanTarget{LibraryID: libID})
+}
+
+// scanWithRetry scans the targets, waiting for any other scan to finish first.
+func (r *Ripper) scanWithRetry(ctx context.Context, targets ...model.ScanTarget) error {
 	var err error
 	for range r.opts.ScanAttempts {
-		_, err = r.scanner.ScanFolders(ctx, false, []model.ScanTarget{{LibraryID: libID}})
+		_, err = r.scanner.ScanFolders(ctx, false, targets)
 		if !errors.Is(err, scanner.ErrAlreadyScanning) {
 			return err
 		}

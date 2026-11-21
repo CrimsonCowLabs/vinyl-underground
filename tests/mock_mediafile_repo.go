@@ -190,6 +190,18 @@ func (m *MockMediaFileRepo) ReassignReferences(prevID, newID string) error {
 	return nil
 }
 
+func (m *MockMediaFileRepo) Relocate(id string, libraryID int, path, folderID string) error {
+	if m.Err {
+		return errors.New("error")
+	}
+	d, ok := m.Data[id]
+	if !ok {
+		return model.ErrNotFound
+	}
+	d.LibraryID, d.Path, d.FolderID, d.Missing = libraryID, path, folderID, false
+	return nil
+}
+
 func (m *MockMediaFileRepo) IncPlayCount(id string, timestamp time.Time) error {
 	if m.Err {
 		return errors.New("error")

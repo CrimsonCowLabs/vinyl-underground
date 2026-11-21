@@ -70,7 +70,10 @@ type RipItem struct {
 	// AlreadyHave are the Tracks the Library or the Inbox already seemed to have for this item
 	// when it was queued ("already have: …"). They are only a warning: the item is ripped anyway.
 	AlreadyHave RipMatches `structs:"already_have,omitnested" json:"alreadyHave"`
-	CreatedAt   time.Time  `structs:"created_at" json:"createdAt"`
+	// PromoteDest is where a Promote is moving the File (an absolute path), while it does. A
+	// restart finishes or undoes every move it finds here (#36).
+	PromoteDest string    `structs:"promote_dest" json:"-"`
+	CreatedAt   time.Time `structs:"created_at" json:"createdAt"`
 	UpdatedAt   time.Time  `structs:"updated_at" json:"updatedAt"`
 }
 
@@ -152,4 +155,10 @@ type RipItemRepository interface {
 	RequeueInterrupted() (int64, error)
 	// Delete deletes one item (a single Track's Discard, #33), or returns ErrNotFound.
 	Delete(id string) error
+	// PromotesInterrupted returns the items a Promote was moving (PromoteDest set) when the app
+	// stopped.
+	PromotesInterrupted() (RipItems, error)
+	// MoveMatches updates every item's AlreadyHave snapshots of the Track trackID to say it is
+	// now in the library libraryName (a promoted Track, #36).
+	MoveMatches(trackID, libraryName string) error
 }

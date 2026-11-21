@@ -2,6 +2,7 @@ package persistence
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	. "github.com/Masterminds/squirrel"
@@ -49,6 +50,40 @@ func (r *ripItemRepository) RequeueInterrupted() (int64, error) {
 
 func (r *ripItemRepository) Delete(id string) error {
 	return r.deleteByID(id)
+}
+
+func (r *ripItemRepository) PromotesInterrupted() (model.RipItems, error) {
+	res := model.RipItems{}
+	err := r.queryAll(Select("*").From(r.tableName).Where(NotEq{"promote_dest": ""}).
+		OrderBy("job_id", "position", "rowid"), &res)
+	return res, err
+}
+
+func (r *ripItemRepository) MoveMatches(trackID, libraryName string) error {
+	var items model.RipItems
+	// A cheap first cut; each candidate's snapshots are then matched exactly.
+	like := `%"id":"` + strings.NewReplacer(`%`, `\%`, `_`, `\_`, `\`, `\\`).Replace(trackID) + `"%`
+	err := r.queryAll(Select("*").From(r.tableName).Where(Expr(`already_have LIKE ? ESCAPE '\'`, like)), &items)
+	if err != nil {
+		return err
+	}
+	for _, it := range items {
+		changed := false
+		for i := range it.AlreadyHave {
+			if it.AlreadyHave[i].ID == trackID && it.AlreadyHave[i].Library != libraryName {
+				it.AlreadyHave[i].Library = libraryName
+				changed = true
+			}
+		}
+		if !changed {
+			continue
+		}
+		upd := Update(r.tableName).Set("already_have", it.AlreadyHave).Where(Eq{"id": it.ID})
+		if _, err := r.executeSQL(upd); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 var _ model.RipItemRepository = (*ripItemRepository)(nil)
