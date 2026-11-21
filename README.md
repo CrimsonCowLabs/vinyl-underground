@@ -64,7 +64,7 @@ Start the app only once the share is mounted. If the app starts without it, it s
 
 ### 2. Move Duplicates into Quarantine
 
-The app has no dedupe code ([ADR-0002](docs/adr/0002-quarantine-duplicates-instead-of-in-app-dedupe.md)): every File becomes a Track, so a copy such as `Song 1.mp3` shows up twice. Before the first scan, move byte-identical Duplicates into a `_Quarantine/` folder on the share, which the scanner skips. You need `jdupes` and Python 3.10+ on the host, and a temporary writable mount of the share beside the read-only one (same options, with `rw` instead of `ro`):
+The app has no dedupe code ([ADR-0002](docs/adr/0002-quarantine-duplicates-instead-of-in-app-dedupe.md)): every File becomes a Track, so a Duplicate such as `Song 1.mp3` shows up twice. Before the first scan, move byte-identical Duplicates into a `_Quarantine/` folder on the share, which the scanner skips. You need `jdupes` and Python 3.10+ on the host, and a temporary writable mount of the share beside the read-only one (same options, with `rw` instead of `ro`). On a case-insensitive NAS (old SMB1 devices), first [merge names that differ only by letter case](contrib/library-cleanup/README.md#recipe-merge-names-that-differ-only-by-case), as `jdupes` can't be trusted on them.
 
 ```bash
 sudo install -d /mnt/music-rw
@@ -96,20 +96,22 @@ PLANS=~/library-plans; mkdir -p "$PLANS"    # any folder outside the share
 
 4. **Check:** repeat step 1; `dupes.py` must report `0 Duplicates to quarantine`. Give the recycle bin a `.ndignore` too (`touch /mnt/music-rw/trashbox/.ndignore`), or empty it, as Files removed over SMB land there. Then `sudo umount /mnt/music-rw`.
 
-On a case-insensitive NAS, merge folder names that differ only by letter case first, as `jdupes` can't be trusted on them. That recipe, and the passes for Duplicates whose tags differ and for albums held twice, are in [`contrib/library-cleanup`](contrib/library-cleanup/README.md). Re-run the recipe whenever new Duplicates may have arrived.
+This is the short form of the [full recipe](contrib/library-cleanup/README.md#recipe-quarantine-duplicates), which explains the plan's format and which File is kept. The passes after it there, for Duplicates whose tags differ and for albums held twice, are worth running too. Re-run them whenever new Duplicates may have arrived.
 
 ### 3. Get the app
 
 Run the rest from `deploy/` (from the clone's root: `cd deploy`). [`deploy/docker-compose.yml`](deploy/docker-compose.yml) and [`deploy/.env.example`](deploy/.env.example) hold no personal values: every setting has a default, and your own values go in a gitignored `deploy/.env`.
 
-- **Published image** (amd64 and arm64): set the version in `.env` and pull it.
+- **Build from source** (the default): leave `VU_IMAGE` unset, and add `--build` to `docker compose up` in the next step. The first build takes several minutes.
+
+- **Published image** (amd64 and arm64), once a release is published ([the image's versions](https://github.com/CrimsonCowLabs/vinyl-underground/pkgs/container/vinyl-underground)); until then, build from source. Set the version in `.env` and pull it:
 
   ```bash
   echo 'VU_IMAGE=ghcr.io/crimsoncowlabs/vinyl-underground:<version>' >> .env
   docker compose pull vinyl-underground
   ```
 
-- **Build from source:** leave `VU_IMAGE` unset, and add `--build` to `docker compose up` in the next step. The first build takes several minutes.
+  Tags are the full version (`1.2.3`, without the `v`), the minor line (`1.2`), and `latest` for the newest stable release. How releases are cut is in [`docs/releasing.md`](docs/releasing.md).
 
 The defaults expect the Library at `/mnt/music` and keep the database in `deploy/data` and the Inbox in `deploy/inbox`. To change those or any app setting, see [Configure](deploy/README.md#2-configure).
 
@@ -166,7 +168,7 @@ ND_LLM_MODEL=qwen3.5:4b-q4_K_M
 - `ND_LLM_APIKEY` is for endpoints that need a key (Ollama doesn't). `ND_LLM_TIMEOUT` (default `3m`) bounds one call, and `ND_LLM_CONNECTTIMEOUT` (default `5s`) how long to wait before reporting the LLM unavailable.
 - With Ollama, use a GGUF build of the model; its MLX builds refuse the JSON-schema replies the app asks for.
 
-**Without an LLM** everything else works: streaming, Downloads, Playlists made by hand, the Inbox, and Stations, whose DJs then pick Tracks by rule, still shaped by your skips. Only the **Generate** button and the Station's **Theme** field are hidden. If a configured LLM can't be reached (its host is asleep, say), the Listener sees "AI unavailable" after a few seconds instead of a hang.
+**Without an LLM** everything else works: streaming, Downloads, Playlists made by hand, the Inbox, and Stations, whose DJs then pick Tracks by rule, still shaped by your skips. Only the AI parts are hidden: the **Generate** and **Regenerate** buttons and the Station's **Theme** field. If a configured LLM can't be reached (its host is asleep, say), the Listener sees "AI unavailable" after a few seconds instead of a hang.
 
 Running Ollama on another machine, or on the same host with the stack's `ollama` profile, and measured timings, are in [the runbook](deploy/README.md#11-generated-playlists-optional-llm).
 
