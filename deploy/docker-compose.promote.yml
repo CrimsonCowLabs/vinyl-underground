@@ -1,0 +1,23 @@
+# Promote (ADR-0008): the Library's one read-write folder, `Vinyl Underground/`.
+# Turn it on in .env (deploy/README.md, "12. Promote Inbox Tracks to the NAS"):
+#
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.promote.yml
+#   VU_PROMOTE_DIR=/mnt/vinyl-underground
+#
+# VU_PROMOTE_DIR is a second, read-write host mount of just that folder of the
+# music share. It is bound over the same folder inside the read-only Library
+# bind (/music), so promoted Files are in the Library at their final path and
+# the rest of the share stays read-only. Docker can't make the mountpoint
+# inside a read-only bind: the folder must already exist on the share.
+
+services:
+  vinyl-underground:
+    environment:
+      ND_INBOX_PROMOTEPATH: /music/Vinyl Underground
+    volumes:
+      - type: bind
+        source: ${VU_PROMOTE_DIR:?set VU_PROMOTE_DIR to the host mount of the share's Vinyl Underground folder}
+        target: /music/Vinyl Underground
+        bind:
+          # A missing host folder is an error, never an empty folder made on local disk.
+          create_host_path: false
