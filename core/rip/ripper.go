@@ -17,6 +17,7 @@ import (
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/model/request"
+	"github.com/navidrome/navidrome/scanner"
 )
 
 var (
@@ -151,46 +152,65 @@ func (r *Ripper) process(ctx context.Context, job *model.RipJob) {
 	r.save(ctx, job)
 	log.Info(ctx, "Ripping", "id", job.ID, "url", job.URL)
 
-	jobCtx, cancel := context.WithTimeout(ctx, r.opts.Timeout)
-	defer cancel()
-	note, err := r.rip(jobCtx, ctx, job)
+	inbox, err := core.FindInboxLibrary(ctx, r.ds)
+	if err == nil && inbox == nil {
+		err = ErrNoInbox
+	}
+	if err == nil && !inInbox(inbox, job) {
+		jobCtx, cancel := context.WithTimeout(ctx, r.opts.Timeout)
+		err = r.rip(jobCtx, inbox.Path, job)
+		if err != nil && errors.Is(jobCtx.Err(), context.DeadlineExceeded) {
+			err = fmt.Errorf("the Rip took longer than %s and was stopped", r.opts.Timeout)
+		}
+		cancel()
+	}
 	if ctx.Err() != nil {
-		// The app is stopping. The job stays "downloading", so the next start runs it again.
+		// The app is stopping. The job stays "downloading", so the next start runs it again (or,
+		// if its File is already in the Inbox, only scans it).
 		log.Info(ctx, "Rip interrupted; it will run again on the next start", "id", job.ID)
 		return
 	}
-	switch {
-	case errors.Is(jobCtx.Err(), context.DeadlineExceeded):
-		job.Status, job.Error = model.RipFailed, fmt.Sprintf("the Rip took longer than %s and was stopped", r.opts.Timeout)
-	case err != nil:
+	if err != nil {
 		job.Status, job.Error = model.RipFailed, err.Error()
-	default:
-		job.Status, job.Error = model.RipReady, note
-	}
-	if job.Status == model.RipFailed {
 		log.Warn(ctx, "Rip failed", "id", job.ID, "url", job.URL, "error", job.Error)
+		r.save(ctx, job)
+		return
+	}
+
+	// The File is in the Inbox now, so the scan is not bound by the job's timeout.
+	if err := r.scanInbox(ctx, inbox.ID); err != nil {
+		if ctx.Err() != nil {
+			log.Info(ctx, "Rip interrupted before its Inbox scan; it is scanned on the next start", "id", job.ID)
+			return
+		}
+		job.Error = fmt.Sprintf("saved, but the Inbox scan failed (%s); the Rip shows up after the next scan", err)
+		log.Warn(ctx, "Rip saved, but the Inbox scan failed", "id", job.ID, "path", job.Path, err)
 	} else {
 		log.Info(ctx, "Rip ready for review", "id", job.ID, "path", job.Path)
 	}
+	job.Status = model.RipReady
 	r.save(ctx, job)
 }
 
-// rip fetches the job's audio into the Inbox and scans it. It returns a note for the admin if
-// the Rip worked but its scan didn't.
-func (r *Ripper) rip(ctx, appCtx context.Context, job *model.RipJob) (string, error) {
-	inbox, err := core.FindInboxLibrary(ctx, r.ds)
-	if err != nil {
-		return "", err
+// inInbox reports whether the job's File already landed in the Inbox, in a run the app stopped
+// before the Inbox scan finished.
+func inInbox(inbox *model.Library, job *model.RipJob) bool {
+	if job.Path == "" {
+		return false
 	}
-	if inbox == nil {
-		return "", ErrNoInbox
-	}
-	work := filepath.Join(inbox.Path, workDirName, job.ID)
+	_, err := os.Stat(filepath.Join(inbox.Path, job.Path))
+	return err == nil
+}
+
+// rip fetches the job's audio into the Inbox folder at inboxPath, and records the File's path in
+// the job as soon as it is there.
+func (r *Ripper) rip(ctx context.Context, inboxPath string, job *model.RipJob) error {
+	work := filepath.Join(inboxPath, workDirName, job.ID)
 	if err := os.RemoveAll(work); err != nil {
-		return "", err
+		return err
 	}
 	if err := os.MkdirAll(work, 0o755); err != nil {
-		return "", err
+		return err
 	}
 	defer func() {
 		_ = os.RemoveAll(work)
@@ -199,40 +219,38 @@ func (r *Ripper) rip(ctx, appCtx context.Context, job *model.RipJob) (string, er
 
 	info, err := r.fetcher.Probe(ctx, job.URL)
 	if err != nil {
-		return "", err
+		return err
 	}
 	if info.IsPlaylist {
-		return "", errors.New(errPlaylist)
+		return errors.New(errPlaylist)
 	}
 	job.Title, job.Source = info.Title, info.Source
 	r.save(ctx, job)
 
 	file, err := r.fetcher.Download(ctx, job.URL, work)
 	if err != nil {
-		return "", err
+		return err
 	}
 	if err := r.opts.Tagger(file, info); err != nil {
-		return "", err
+		return err
 	}
-	dest, err := moveIntoInbox(file, inbox.Path, fileName(info, filepath.Ext(file)))
+	dest, err := moveIntoInbox(file, inboxPath, fileName(info, filepath.Ext(file)))
 	if err != nil {
-		return "", err
+		return err
 	}
 	job.Path = filepath.Base(dest)
-
-	// The File is in the Inbox now, so the scan is not bound by the job's timeout.
-	if err := r.scanInbox(appCtx, inbox.ID); err != nil {
-		log.Warn(appCtx, "Rip saved, but the Inbox scan failed", "id", job.ID, err)
-		return fmt.Sprintf("saved, but the Inbox scan failed (%s); the Rip shows up after the next scan", err), nil
-	}
-	return "", nil
+	r.save(context.WithoutCancel(ctx), job)
+	return nil
 }
 
+// scanInbox scans the Inbox library, waiting while another scan runs (often the watcher's, set
+// off by the Rip itself). Any other scan error is returned straight away.
 func (r *Ripper) scanInbox(ctx context.Context, libID int) error {
 	var err error
 	for range r.opts.ScanAttempts {
-		if _, err = r.scanner.ScanFolders(ctx, false, []model.ScanTarget{{LibraryID: libID}}); err == nil {
-			return nil
+		_, err = r.scanner.ScanFolders(ctx, false, []model.ScanTarget{{LibraryID: libID}})
+		if !errors.Is(err, scanner.ErrAlreadyScanning) {
+			return err
 		}
 		select {
 		case <-ctx.Done():
@@ -286,13 +304,14 @@ func fileName(info *Info, ext string) string {
 	if a := sanitize(info.Artist); a != "" {
 		name = a + " - " + name
 	}
+	if len(name) > 160 {
+		name = strings.ToValidUTF8(name[:160], "")
+	}
+	name = strings.TrimRight(name, " .")
 	if id := sanitize(info.ID); id != "" {
 		name += " [" + id + "]"
 	}
 	name = strings.TrimLeft(strings.TrimSpace(name), ". -")
-	if len(name) > 180 {
-		name = strings.ToValidUTF8(name[:180], "")
-	}
 	return cmp.Or(name, "Rip") + strings.ToLower(ext)
 }
 

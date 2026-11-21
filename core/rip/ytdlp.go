@@ -142,6 +142,9 @@ func (y *YtDlp) run(ctx context.Context, args []string) ([]byte, error) {
 	cmd.Stderr = &stderr
 	cmd.Env = os.Environ()
 	if y.TempDir != "" {
+		// A yt-dlp that was killed leaves its unpacked copy behind. Only one runs at a time (the
+		// Ripper has a single worker), so whatever is there is left over.
+		_ = os.RemoveAll(y.TempDir)
 		if err := os.MkdirAll(y.TempDir, 0o755); err != nil {
 			return nil, err
 		}

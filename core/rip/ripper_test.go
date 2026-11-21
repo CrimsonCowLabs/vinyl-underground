@@ -11,6 +11,7 @@ import (
 	"github.com/navidrome/navidrome/core"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/model/request"
+	"github.com/navidrome/navidrome/scanner"
 	"github.com/navidrome/navidrome/tests"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -90,16 +91,25 @@ type fakeScanner struct {
 	seen    [][]string
 	err     error
 	failN   int
+	// blocked makes a scan hang until its context ends, like a long scan when the app stops.
+	blocked bool
 }
 
-func (s *fakeScanner) ScanFolders(_ context.Context, _ bool, targets []model.ScanTarget) ([]string, error) {
+func (s *fakeScanner) ScanFolders(ctx context.Context, _ bool, targets []model.ScanTarget) ([]string, error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.targets = append(s.targets, targets)
 	s.seen = append(s.seen, visibleFiles(s.inbox))
+	blocked := s.blocked
+	s.mu.Unlock()
+	if blocked {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.failN > 0 {
 		s.failN--
-		return nil, errors.New("already scanning")
+		return nil, scanner.ErrAlreadyScanning
 	}
 	return nil, s.err
 }
@@ -381,13 +391,43 @@ var _ = Describe("Ripper", func() {
 		Expect(getJob(job.ID).Error).To(BeEmpty())
 	})
 
-	It("still reports the Rip as ready, with a note, if the Inbox scan keeps failing", func() {
+	It("still reports the Rip as ready, with a note, if the Inbox scan fails", func() {
 		scanner.err = errors.New("disk on fire")
 		defer start()()
 		job, _ := ripper.Enqueue(ctx, "https://example.com/a")
 
 		Eventually(jobStatus(job.ID)).Should(Equal(model.RipReady))
 		Expect(getJob(job.ID).Error).To(ContainSubstring("disk on fire"))
+		Expect(visibleFiles(inbox)).To(HaveLen(1))
+		Expect(scanner.scans()).To(HaveLen(1), "only a busy scanner is retried")
+	})
+
+	It("doesn't fail a Rip whose timeout passes while it waits for the Inbox scan", func() {
+		opts.Timeout = 100 * time.Millisecond
+		opts.ScanRetryDelay = 50 * time.Millisecond
+		scanner.failN = 4
+		defer start()()
+		job, _ := ripper.Enqueue(ctx, "https://example.com/a")
+
+		Eventually(jobStatus(job.ID)).Should(Equal(model.RipReady))
+		Expect(getJob(job.ID).Error).To(BeEmpty())
+	})
+
+	It("only scans, without ripping again, a job the app stopped after its File landed", func() {
+		scanner.blocked = true
+		stop := start()
+		job, _ := ripper.Enqueue(ctx, "https://example.com/a")
+		Eventually(func() int { return len(scanner.scans()) }).Should(Equal(1))
+		stop()
+		Expect(jobStatus(job.ID)()).To(Equal(model.RipDownloading))
+		Expect(getJob(job.ID).Path).ToNot(BeEmpty())
+
+		scanner.mu.Lock()
+		scanner.blocked = false
+		scanner.mu.Unlock()
+		defer start()()
+		Eventually(jobStatus(job.ID)).Should(Equal(model.RipReady))
+		Expect(fetcher.downloaded()).To(HaveLen(1))
 		Expect(visibleFiles(inbox)).To(HaveLen(1))
 	})
 })

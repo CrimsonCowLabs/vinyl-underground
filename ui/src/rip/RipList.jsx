@@ -4,15 +4,11 @@ import {
   FunctionField,
   TextField,
   UrlField,
-  useRefresh,
   useTranslate,
 } from 'react-admin'
 import { List, DateField } from '../common'
-import { useInterval } from '../common/useInterval'
 import RipForm from './RipForm'
-
-// Jobs run on the server whether or not this page is open; while it is, it polls for their status.
-const POLL_INTERVAL_MS = 3000
+import { useRipPolling } from './useRipPolling'
 
 export const RipStatusField = ({ record }) => {
   const translate = useTranslate()
@@ -22,10 +18,12 @@ export const RipStatusField = ({ record }) => {
   })
 }
 
-const RipList = (props) => {
-  const refresh = useRefresh()
-  useInterval(refresh, POLL_INTERVAL_MS)
+const RipDatagrid = (props) => {
+  useRipPolling()
+  return <Datagrid {...props} />
+}
 
+const RipList = (props) => {
   return (
     <>
       <RipForm />
@@ -37,7 +35,7 @@ const RipList = (props) => {
         actions={false}
         pagination={null}
       >
-        <Datagrid>
+        <RipDatagrid>
           <FunctionField
             source="status"
             render={(record) => <RipStatusField record={record} />}
@@ -54,7 +52,7 @@ const RipList = (props) => {
           <TextField source="path" sortable={false} />
           <TextField source="error" sortable={false} />
           <DateField source="createdAt" showTime sortable={false} />
-        </Datagrid>
+        </RipDatagrid>
       </List>
     </>
   )

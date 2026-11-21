@@ -121,6 +121,15 @@ echo "$dir/abc.opus"`
 			Expect(tmpdir()).To(Equal(tmp))
 		})
 
+		It("clears what a killed yt-dlp left in its temp folder", func(ctx SpecContext) {
+			stale := filepath.Join(tmp, "_MEI12345")
+			Expect(os.MkdirAll(stale, 0o755)).To(Succeed())
+			bin, _, _ := fakeYtDlp(writesFile)
+			_, err := (&YtDlp{Binary: fixedBinary(bin), TempDir: tmp}).Download(ctx, "https://example.com/v", GinkgoT().TempDir())
+			Expect(err).ToNot(HaveOccurred())
+			Expect(stale).ToNot(BeAnExistingFile())
+		})
+
 		It("refuses a result that isn't .opus or .m4a", func(ctx SpecContext) {
 			bin, _, _ := fakeYtDlp(`while [ $# -gt 0 ]; do [ "$1" = "-P" ] && dir="$2"; shift; done
 printf 'audio' > "$dir/abc.mp3"; echo "$dir/abc.mp3"`)
