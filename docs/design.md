@@ -47,6 +47,49 @@ It is a public, GPL-3.0, hard fork of Navidrome **v0.64.2**, renamed and never r
 - Listeners can create their own DJs, which are private to them, from a name plus a personality description.
 - DJs never speak aloud. Their character comes through Track selection and on-screen Blurbs.
 
+### Inbox and Rips (designed 2026-11-20)
+The Library keeps growing, and all new music reaches it through one path: the **Inbox**.
+
+**Scope and access**
+- Ripping is off by default (`ND_RIPPING_ENABLED=false`).
+- The README states that users are responsible for what they download.
+- Only the admin can rip, upload, review and Promote.
+
+**Getting music into the Inbox**
+- The Inbox is a host folder, set by `VU_INBOX_DIR` (default `./inbox`), mounted read-write at `/inbox`. It is kept separate from `/data`.
+- The app scans it as a second library, and only the admin has access to it. Inbox Tracks can be played, favorited and added to Playlists straight away.
+- Music arrives in three ways:
+  - **Rip:** paste a URL for one video, a playlist or an album. Any site yt-dlp supports is accepted, but only YouTube and YouTube Music are tested. The UI suggests `music.youtube.com` album links.
+  - **Upload:** several Files at once through the web app. Accepted formats are mp3, m4a, opus, ogg, flac, aiff and wav, up to 500 MB per File.
+  - **Drop:** Files copied straight into the Inbox folder are picked up by the scan.
+
+**Ripping**
+- Rips keep the best original audio stream, remuxed to `.opus` or `.m4a` and never re-encoded.
+- Each Rip gets a `SOURCE` tag naming the site and a tag holding the source URL. The UI shows a "Ripped" badge, driven by those tags, so it survives promotion and a database rebuild.
+- A playlist of more than 50 items asks for confirmation. More than 300 is refused.
+- Each Rip is a background job, run one at a time. A job's status is queued, downloading, tagging, ready for review, or failed (showing yt-dlp's error). Jobs keep running after the tab is closed.
+- yt-dlp lives in `/data/bin`, because the container is read-only. The app downloads it, updates it on a schedule and from an "Update yt-dlp" button, and after a failed Rip it updates yt-dlp once and retries.
+- Before ripping, the app matches artist and title against the Library and warns "already have: …". It never blocks the Rip.
+
+**Tagging and review**
+- Tag proposals start from YouTube Music's own metadata (from auto-generated "Topic" uploads) when it exists. Otherwise they come from a cleaned-up video title.
+- MusicBrainz then sets the album and year. It picks the earliest official studio album by the main artist, else the single, never a compilation, live or remix release. Uploads get the same proposal.
+- Review is one card per job, with editable album tags and an editable Track list. It offers **Promote all** and **Discard**, and single Tracks can also be discarded.
+- Discard deletes the File permanently. Quarantine stays reserved for Duplicates.
+
+**Promote** (Phase 2, after the case-name merge in #2; [ADR-0008](./adr/0008-app-writes-to-one-dedicated-library-folder.md))
+- Promote moves Files to `Vinyl Underground/<Album Artist>/<Album> (<Year>)/<NN> <Title>.<ext>`, a NAS folder with its own read-write mount.
+- Before creating a folder, the app looks for an existing one whose name differs only in letter case and reuses it, because the NAS is case-insensitive.
+- The Track keeps its identity. Its path and library change in place, so favorites, Playlist entries and play counts carry over.
+
+**Phases**
+1. The Inbox, Rips, uploads, the drop folder, tagging and review.
+2. Promote and the dedicated read-write folder.
+
+**First use:** two batches go into the Inbox as soon as Phase 1 works:
+- The 68 Files already tagged for the 2026-11 intake.
+- The 73 YouTube-quality Files excluded then, marked as Rips.
+
 ## Architecture
 
 - **One codebase.** All new backend features (Generated Playlists, Stations, DJs, Blurbs) live in the Go server: new tables through Navidrome's migrations, and new endpoints next to its native `/api`, reusing its auth.
@@ -65,7 +108,8 @@ It is a public, GPL-3.0, hard fork of Navidrome **v0.64.2**, renamed and never r
 
 - A `docker compose` stack running the Vinyl Underground image. An `ollama` service is optional (a compose profile) for self-hosters who run the LLM on the same machine.
 - The reference deployment runs Ollama on a separate, always-on Apple Silicon Mac on the tailnet, which reads long prompts much faster than a CPU-only host. Ollama must listen on the tailnet interface, not just localhost.
-- The music share is mounted on the host and bind-mounted **read-only** into the container.
+- The music share is mounted on the host and bind-mounted **read-only** into the container. The one exception is the `Vinyl Underground/` folder, which has its own read-write mount for Promote ([ADR-0008](./adr/0008-app-writes-to-one-dedicated-library-folder.md)).
+- The Inbox (`VU_INBOX_DIR`) is a separate read-write bind mount at `/inbox`.
 - HTTPS through `tailscale serve`, which the PWA needs for its service worker.
 - Personal details (hostnames, IPs, credentials) live in a gitignored `.env`. The repo ships `.env.example` and an example `docker-compose.yml`.
 - Development needs Go 1.27 (cgo enabled, for sqlite), Node 24 and ffmpeg.
@@ -86,6 +130,8 @@ It is a public, GPL-3.0, hard fork of Navidrome **v0.64.2**, renamed and never r
 - Configuring an LLM endpoint, and what happens without one.
 - Tailscale HTTPS setup.
 - The Navidrome credit and license notice.
+- Enabling ripping, and that users are responsible for what they download.
+- Mounting the read-write `Vinyl Underground/` subfolder for Promote.
 
 ## Build order
 
