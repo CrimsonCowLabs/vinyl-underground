@@ -37,6 +37,16 @@ describe('<RippedBadge />', () => {
     expect(tooltip).toHaveTextContent(url)
   })
 
+  it('opens the tooltip for keyboard users too', async () => {
+    renderBadge({ title: 'Song', source: 'YouTube', sourceUrl: url })
+
+    const badge = screen.getByLabelText('Ripped from YouTube')
+    badge.focus()
+    expect(badge).toHaveFocus()
+
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(url)
+  })
+
   it('renders nothing for a Track that is not a Rip', () => {
     const { container } = renderBadge({ title: 'Bought on CD' })
 

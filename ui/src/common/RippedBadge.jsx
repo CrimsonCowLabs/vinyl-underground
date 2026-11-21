@@ -49,6 +49,7 @@ export const RippedBadge = ({ record, className }) => {
         variant="outlined"
         label={translate('resources.song.ripped.label')}
         aria-label={from}
+        tabIndex={0}
       />
     </Tooltip>
   )
