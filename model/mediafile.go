@@ -570,6 +570,10 @@ type MediaFileRepository interface {
 	// ReassignReferences moves annotations, bookmarks and playlist entries from prevID to newID,
 	// keeping newID's own row wherever a user has both.
 	ReassignReferences(prevID, newID string) error
+	// Relocate points the Track at its File's new place, another library's path and folder,
+	// keeping its ID, so everything that refers to it stays attached (Promote, #36). The next
+	// scan of that folder re-reads the File's tags into it.
+	Relocate(id string, libraryID int, path, folderID string) error
 
 	// The following methods are used exclusively by the scanner:
 	MarkMissing(bool, ...*MediaFile) error
