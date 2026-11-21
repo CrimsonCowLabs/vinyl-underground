@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 	"unicode"
@@ -89,8 +90,6 @@ type FolderScanner interface {
 type Options struct {
 	// Timeout bounds one item, from looking at its page to its File landing in the Inbox.
 	Timeout time.Duration
-	// ProbeTimeout bounds the look at the pasted page when a Rip is queued.
-	ProbeTimeout time.Duration
 	// Tagger writes the Rip's tags into the File. Defaults to WriteTags.
 	Tagger func(path string, info *Info) error
 	// ScanRetryDelay and ScanAttempts control how long a finished Rip waits for another scan
@@ -113,7 +112,6 @@ type Ripper struct {
 
 func New(ds model.DataStore, fetcher Fetcher, scanner FolderScanner, opts Options) *Ripper {
 	opts.Timeout = cmp.Or(opts.Timeout, 30*time.Minute)
-	opts.ProbeTimeout = cmp.Or(opts.ProbeTimeout, 2*time.Minute)
 	opts.ScanRetryDelay = cmp.Or(opts.ScanRetryDelay, 10*time.Second)
 	opts.ScanAttempts = cmp.Or(opts.ScanAttempts, 180)
 	if opts.Tagger == nil {
@@ -141,11 +139,10 @@ func (r *Ripper) Enqueue(ctx context.Context, rawURL string, confirmed bool) (*m
 	}
 	user, _ := request.UserFrom(ctx)
 	now := time.Now()
-	job := &model.RipJob{UserID: user.ID, URL: rawURL, Status: model.RipQueued, CreatedAt: now, UpdatedAt: now}
+	job := &model.RipJob{UserID: user.ID, URL: rawURL, Status: model.RipQueued, CreatedAt: now, UpdatedAt: now,
+		Items: model.RipItems{}}
 
-	probeCtx, cancel := context.WithTimeout(ctx, r.opts.ProbeTimeout)
-	info, err := r.fetcher.Probe(probeCtx, rawURL)
-	cancel()
+	info, err := r.fetcher.Probe(ctx, rawURL)
 	switch {
 	case err != nil:
 		job.Status, job.Error = model.RipFailed, err.Error()
@@ -298,6 +295,9 @@ func (r *Ripper) process(ctx context.Context, job *model.RipJob) {
 	if err == nil && inbox == nil {
 		err = ErrNoInbox
 	}
+	if err == nil {
+		err = r.claimFolder(ctx, inbox.Path, job, items)
+	}
 	for i := range items {
 		item := &items[i]
 		if item.Status != model.RipQueued && item.Status != model.RipDownloading {
@@ -363,6 +363,35 @@ func (r *Ripper) process(ctx context.Context, job *model.RipJob) {
 	}
 	job.Status = model.RipReady
 	r.save(ctx, job)
+}
+
+// claimFolder gives a playlist job an Inbox folder of its own before its first File lands, adding
+// " (2)", " (3)"... to its name if a folder with Files in it is already there (another playlist
+// of the same name, or the same album ripped again). An empty folder is reused, as it is this
+// job's own after a restart.
+func (r *Ripper) claimFolder(ctx context.Context, inboxPath string, job *model.RipJob, items model.RipItems) error {
+	if job.Folder == "" || slices.ContainsFunc(items, func(it model.RipItem) bool { return it.Path != "" }) {
+		return nil
+	}
+	base := job.Folder
+	for i := 1; i < 1000; i++ {
+		name := base
+		if i > 1 {
+			name = fmt.Sprintf("%s (%d)", base, i)
+		}
+		dir := filepath.Join(inboxPath, name)
+		if err := os.Mkdir(dir, 0o755); err != nil && !errors.Is(err, os.ErrExist) {
+			return err
+		}
+		if entries, err := os.ReadDir(dir); err == nil && len(entries) == 0 {
+			if name != job.Folder {
+				job.Folder = name
+				r.save(ctx, job)
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("too many folders named %q in the Inbox", base)
 }
 
 // processItem rips one item into the Inbox at inboxPath, and leaves it ready or failed (or, if

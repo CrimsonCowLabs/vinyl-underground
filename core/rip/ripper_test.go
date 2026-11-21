@@ -466,6 +466,20 @@ var _ = Describe("Ripper", func() {
 			Expect(fetcher.downloaded()).To(Equal(urls[1:]))
 		})
 
+		It("gives each job a folder of its own when the same album is ripped again", func() {
+			playlist("Great Album", 2)
+			defer start()()
+			first, _ := ripper.Enqueue(ctx, listURL, false)
+			Eventually(jobStatus(first.ID)).Should(Equal(model.RipReady))
+			second, _ := ripper.Enqueue(ctx, listURL, false)
+			Eventually(jobStatus(second.ID)).Should(Equal(model.RipReady))
+
+			Expect(getJob(second.ID).Folder).To(Equal("Great Album (2)"))
+			Expect(getJob(second.ID).Items[0].Path).To(Equal("Great Album (2)/Band - Track 1 [t1].opus"))
+			Expect(visibleFiles(filepath.Join(inbox, "Great Album"))).To(HaveLen(2))
+			Expect(visibleFiles(filepath.Join(inbox, "Great Album (2)"))).To(HaveLen(2))
+		})
+
 		It("names the folder safely, and falls back to the playlist's id", func() {
 			playlist("../../etc", 1)
 			defer start()()

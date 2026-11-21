@@ -72,10 +72,15 @@ const RipForm = () => {
     setSending(true)
     return dataProvider
       .create('rip', { data })
-      .then(() => {
+      .then(({ data: job }) => {
         setUrl('')
         setPreview(null)
-        notify('resources.rip.messages.queued', 'info')
+        // A page that can't be read is saved as a failed job straight away.
+        if (job?.status === 'failed') {
+          notify(job.error || 'resources.rip.status.failed', 'warning')
+        } else {
+          notify('resources.rip.messages.queued', 'info')
+        }
         refresh()
       })
       .catch((error) => {

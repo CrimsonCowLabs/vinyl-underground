@@ -70,6 +70,27 @@ describe('RipForm', () => {
     )
   })
 
+  it("says why when the page couldn't be read, rather than that the Rip is queued", async () => {
+    create.mockResolvedValue({
+      data: {
+        id: 'j1',
+        status: 'failed',
+        error: 'ERROR: [youtube] abc: Video unavailable',
+      },
+    })
+    submit('https://www.youtube.com/watch?v=abc')
+
+    await waitFor(() => expect(refresh).toHaveBeenCalled())
+    expect(notify).toHaveBeenCalledWith(
+      'ERROR: [youtube] abc: Video unavailable',
+      'warning',
+    )
+    expect(notify).not.toHaveBeenCalledWith(
+      'resources.rip.messages.queued',
+      'info',
+    )
+  })
+
   describe('a playlist of more than 50 items', () => {
     const url = 'https://www.youtube.com/playlist?list=PL1'
     const needsConfirmation = {
