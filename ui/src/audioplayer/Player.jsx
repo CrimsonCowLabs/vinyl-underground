@@ -37,6 +37,7 @@ import { detectBrowserProfile, decisionService } from '../transcode'
 import { APP_NAME } from '../consts'
 import { useStationRefill } from '../station/useStationRefill'
 import { useStationSkips } from '../station/useStationSkips'
+import StationBlurb from '../station/StationBlurb'
 
 const Player = () => {
   const theme = useCurrentTheme()
@@ -478,6 +479,7 @@ const Player = () => {
         onBeforeDestroy={onBeforeDestroy}
         getAudioInstance={setAudioInstance}
       />
+      {visible && <StationBlurb />}
       <GlobalHotKeys handlers={handlers} keyMap={keyMap} allowChanges />
     </ThemeProvider>
   )

@@ -12,19 +12,23 @@ import (
 )
 
 // addStationRoute exposes Stations: GET /station/dj lists the DJs, POST /station/next serves
-// the logged-in Listener's next Station Tracks, and POST /station/skip records that they skipped
-// one. Stations need no LLM; with one, the DJ's persona and the Station's Theme choose its
-// Tracks, the way a Prompt does for Generated Playlists.
+// the logged-in Listener's next Station Tracks, POST /station/skip records that they skipped
+// one, and GET /station/blurb gives the Blurb for a Track change. Stations need no LLM; with
+// one, the DJ's persona and the Station's Theme choose its Tracks, the way a Prompt does for
+// Generated Playlists, and the DJ writes Blurbs.
 func (api *Router) addStationRoute(r chi.Router) {
 	var selector stations.Selector
+	var writer stations.BlurbWriter
 	if client := newLLMClient(); client != nil {
 		selector = generatedplaylist.NewSelector(api.ds, client, api.provider)
+		writer = stations.NewBlurbWriter(client)
 	}
-	svc := stations.New(api.ds, selector)
+	svc := stations.New(api.ds, selector, writer)
 	r.Route("/station", func(r chi.Router) {
 		r.Get("/dj", listDJs(svc))
 		r.Post("/next", nextStationTracks(svc))
 		r.Post("/skip", skipStationTrack(svc))
+		r.Get("/blurb", stationBlurb(svc))
 	})
 }
 
@@ -88,6 +92,21 @@ func skipStationTrack(svc stations.Service) http.HandlerFunc {
 		default:
 			writeStationError(w, r, http.StatusInternalServerError, "internal", err)
 		}
+	}
+}
+
+// stationBlurb answers GET /station/blurb?dj=…&track=…&after=… with the Blurb ({dj, text}) the
+// DJ shows as the Station changes from the Track after into track, or 204 No Content when there
+// is none (not written yet, or no LLM): the Track then plays without one.
+func stationBlurb(svc stations.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		blurb, ok := svc.Blurb(r.Context(), q.Get("dj"), q.Get("track"), q.Get("after"))
+		if !ok {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		writeStationJSON(w, r, blurb)
 	}
 }
 

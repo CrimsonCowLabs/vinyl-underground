@@ -51,6 +51,11 @@ It is a public, GPL-3.0, hard fork of Navidrome **v0.64.2**, renamed and never r
   - **Changing Station:** a different DJ or Theme starts a new plan; picks for the old one are dropped.
   - **Failures:** when a selection fails (e.g. the LLM's host is asleep), the Station plays by rule and asks the LLM again after ~2 minutes. A restart forgets the plans, so a Station plays by rule until its next selection is ready.
   - **Theme:** up to 200 characters, trimmed. With no LLM configured the Theme field is hidden (`enableStationThemes`), and a Theme sent anyway is ignored.
+- How Blurbs work (#16):
+  - **Writing ahead:** each refill queues a Blurb for every Track change among the Tracks it served, the first following on from the previous refill's last Track. They are written in the background, one at a time per Listener, in play order. As the web app keeps 2–5 Tracks queued after the one playing, Blurbs are written that far ahead. Nothing waits on them: a refill returns at once.
+  - **Request:** the DJ's name and description are its persona; the LLM gets the Track that just played and the next one (title, artist, album, year, genre) and the Theme, if any, and writes 1–3 short sentences mentioning both. A reply that doesn't name the next Track (by artist, or by title without a note like "(Remastered)"), is empty, or runs over 400 characters is dropped.
+  - **Showing:** when a Station Track starts after another Track of the same Station, the web app asks `GET /api/station/blurb?dj=…&track=…&after=…`, an in-memory lookup that never waits on the LLM, and shows the Blurb with the DJ's name at the top of the screen for ~15 s. 204 means it isn't written (or failed): the Track plays without one. Only a Blurb written for that exact change (`after` → `track`) is shown, so after jumping around in the queue there is none. Asking for a Track also drops the Blurbs not yet written up to it, so a slow LLM catches up with the Listener.
+  - **Memory:** Blurbs are kept in memory only, for each Listener's last Station (its ~30 newest), and a different DJ or Theme drops them; a restart forgets them. With no LLM configured (`enableStationBlurbs` false), the web app never asks. Blurbs are text only: nothing is spoken.
 - Later (not now): start a Station from a Track, artist or Playlist.
 
 ### DJs
