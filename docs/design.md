@@ -32,6 +32,7 @@ It is a public, GPL-3.0, hard fork of Navidrome **v0.64.2**, renamed and never r
 - The Listener enters a Prompt and a length (default 25, range 10–100).
 - The LLM turns the Prompt into filters and seed artists. The server builds candidates from the Library, and the LLM ranks or trims them.
 - The result is shown as a preview with a **Save** button. Once saved, it's an ordinary Playlist that remembers its Prompt, so the Listener can regenerate it.
+- **Regenerate** reruns a Generated Playlist's Prompt at its stored length for a fresh preview. Its owner can replace the Playlist's Tracks with it; anyone who can see the Playlist can save it as a new one.
 
 ### Stations ([ADR-0005](./adr/0005-stations-are-personal-not-live-broadcast.md))
 - Personal, endless and skippable. The Listener starts a Station with a DJ and an optional Theme.

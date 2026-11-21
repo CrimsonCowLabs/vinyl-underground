@@ -231,6 +231,9 @@
         "generate": "Generate",
         "generatePreview": "Preview",
         "regenerate": "Try again",
+        "regeneratePlaylist": "Regenerate",
+        "replaceTracks": "Replace Tracks",
+        "saveAsNew": "Save as new",
         "selectPlaylist": "Select a playlist:",
         "addNewPlaylist": "Create \"%{name}\"",
         "export": "Export",
@@ -259,6 +262,7 @@
         "invalidLength": "The length must be from 10 to 100 Tracks.",
         "generateFailed": "Could not generate a Playlist. Check your connection and try again.",
         "generatedSaved": "Playlist saved",
+        "generatedReplaced": "Playlist updated",
         "generatedFrom": "Generated from: \"%{prompt}\""
       }
     },
