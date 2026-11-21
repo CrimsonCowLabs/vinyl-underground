@@ -518,7 +518,14 @@
         "trackDiscarded": "Track discarded",
         "saving": "Saving...",
         "saved": "Tags saved; the Tracks update after the Inbox scan",
-        "loadError": "Could not read the tags: %{error}"
+        "loadError": "Could not read the tags: %{error}",
+        "proposals": "Proposed tags",
+        "proposalsPending": "Looking up tags...",
+        "useProposals": "Use proposals",
+        "refreshProposals": "Refresh proposals",
+        "proposed": "Proposed: %{value}",
+        "proposedFile": "Proposed, not saved (the File has \"%{file}\")",
+        "proposedNew": "Proposed, not saved"
       }
     }
   },
