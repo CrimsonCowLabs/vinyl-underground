@@ -19,7 +19,7 @@ A playable piece of music in the Library. Each Track is backed by exactly one Fi
 _Avoid_: Song (ambiguous between Track and File), item
 
 **Duplicate**:
-A File whose bytes are identical to another File's, usually left behind by a music app copying it (e.g. `Song 1.mp3`, `Song 2.mp3`). A Duplicate is moved to Quarantine; it is never a Track.
+A File whose audio is identical to another File's, even if its tags or embedded art differ, usually left behind by a music app copying it (e.g. `Song 1.mp3`, `Song 2.mp3`). A Duplicate is moved to Quarantine; it is never a Track. Identical audio means identical audio data (e.g. the same MP3 frames), never just the same name, title or duration.
 _Avoid_: Copy, version (a live or remastered recording is a different Track, not a Duplicate)
 
 **Quarantine**:

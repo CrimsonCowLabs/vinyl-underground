@@ -7,6 +7,8 @@ Tools for cleaning up a music share before the app scans it. The app itself has 
 | `scan.py` | Lists every folder and File on the share, serially, as TSV |
 | `casemerge.py` | Plans merges of sibling names that differ only by letter case (pure, unit-tested) |
 | `dupes.py` | Plans moving Duplicates into Quarantine from a `jdupes` report (pure, unit-tested) |
+| `audiodupes.py` | Plans moving Duplicates whose tags differ (`Song 1.mp3` beside `Song.mp3`) into Quarantine, by comparing their audio (pure planner, unit-tested) |
+| `audio.py` | Finds the audio in an MP3, M4A, AIFF or WAV File, leaving out its tags and embedded art (unit-tested) |
 | `apply.py` | Carries out a plan, checking each step by re-listing both folders |
 | `health.py` | Reports how healthy the Library is, from the app's database, read-only (pure, unit-tested) |
 
@@ -104,7 +106,38 @@ Before each move, `apply.py` checks again that SRC is byte-identical to KEEP and
 
 **4. Check.** Repeat step 1 and plan again. `dupes.py` must report `0 Duplicates to quarantine`.
 
-**5. Unmount the writable mount:** `sudo umount /mnt/music-rw`. Then rescan in the app; a Full Scan marks the moved Files as missing. Files only leave Quarantine when you delete them by hand.
+**5. Unmount the writable mount**, unless the next recipe follows: `sudo umount /mnt/music-rw`. Then rescan in the app; a Full Scan marks the moved Files as missing. Files only leave Quarantine when you delete them by hand.
+
+## Recipe: quarantine Duplicates whose tags differ
+
+`jdupes` only finds Files with identical bytes. A music app that copies a File next to itself (`09 Car Alarm 1.mp3` beside `09 Car Alarm.mp3`) often rewrites the new File's tags or art, so it survives the recipe above and the app shows the same Track twice. `audiodupes.py` finds those by comparing the audio alone. Run it after the recipe above (it leaves Files in different folders to `jdupes`), with the same writable mount, and re-run it whenever new Duplicates may have arrived.
+
+What counts as the audio, per format (`audio.py`):
+
+- **MP3:** everything between the leading ID3v2 tags and the trailing ID3v1, APEv2, Lyrics3 and appended ID3v2 tags, so the MP3 frames, including any Xing/LAME header frame.
+- **M4A/MP4:** the media data (`mdat`), without the `moov` metadata, which holds the tags and art.
+- **AIFF/WAV:** the format and sample chunks (`COMM`/`SSND`, `fmt `/`data`), without tag chunks such as `ID3 `, `NAME` or `LIST`.
+- **Anything else** (FLAC, Ogg, WMA, …) is listed as `not compared` and never planned.
+
+**1. Scan and plan, then review.** Planning only reads, so it runs on the read-only mount:
+
+```bash
+python3 scan.py /mnt/music > $PLANS/scan.tsv
+python3 audiodupes.py $PLANS/scan.tsv --root /mnt/music > $PLANS/audiodupes.tsv
+```
+
+Only candidates are compared: each audio File with the copy-named Files beside it (same folder and extension, e.g. `Song 1.mp3`, `Song (1).mp3`, `Copy of Song.mp3` beside `Song.mp3`). Their tag headers are read first, and only Files whose audio is the same size are read in full, so planning reads about the candidates' total size (roughly 30 GB and half an hour over SMB1 for 2,000 pairs). A copy-named File whose audio differs (a different recording or encoding that got the same name) is counted on stderr and left alone. Each line is `quarantine-audio<TAB>SRC<TAB>_Quarantine/SRC<TAB>KEEP`, and the File kept is chosen by the same rules as above, so the copy's name goes. Edit the plan as above: swap SRC and KEEP to keep the other File, or delete a line to keep both.
+
+**2. Apply.**
+
+```bash
+python3 apply.py /mnt/music-rw $PLANS/audiodupes.tsv --dry-run
+python3 apply.py /mnt/music-rw $PLANS/audiodupes.tsv
+```
+
+Before each move, `apply.py` checks again that SRC's audio is identical to KEEP's, and stops if not (or if either can't be read or compared). Like the byte check, this reads both Files in full. It is resumable: re-run the same command after a stop.
+
+**3. Check.** Scan and plan again: `audiodupes.py` must report `0 Duplicates to quarantine`. Then unmount the writable mount (`sudo umount /mnt/music-rw`) and run a Full Scan in the app.
 
 ## Library health report
 
@@ -125,4 +158,4 @@ python3 health.py /path/to/navidrome.db --list suspect-discs   # the offenders b
 | `no-cover` | Albums with no embedded art and no image in any of their folders |
 | `no-year`, `no-album`, `no-artist`, `no-track-number`, `no-musicbrainz-id` | Tracks missing that tag; a blank, `Unknown` or `[Unknown …]` album or artist counts as missing |
 
-Only Tracks and albums the app still has count: Files gone from the share since the last scan are left out. Likely Duplicates are a hint, not proof: only byte-identical Files are Duplicates, and those go through the Quarantine recipe above. They need the same album too, so a live or compilation version of a song isn't counted; grouping by artist and title alone gives a larger number. An album also counts as held twice when one stray Track of it sits in another folder, such as a mix; `--list albums-twice` shows the folders.
+Only Tracks and albums the app still has count: Files gone from the share since the last scan are left out. Likely Duplicates are a hint, not proof: only Files whose audio is identical are Duplicates, and those go through the Quarantine recipes above. They need the same album too, so a live or compilation version of a song isn't counted; grouping by artist and title alone gives a larger number. An album also counts as held twice when one stray Track of it sits in another folder, such as a mix; `--list albums-twice` shows the folders.
