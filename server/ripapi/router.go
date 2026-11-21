@@ -1,4 +1,5 @@
-// Package ripapi is the admin's HTTP API for Rips: start one from a URL, and list the jobs.
+// Package ripapi is the admin's HTTP API for Rips: start one from a URL, list the jobs, and see
+// and update the yt-dlp that runs them.
 package ripapi
 
 import (
@@ -22,6 +23,8 @@ import (
 type Ripper interface {
 	Enqueue(ctx context.Context, url string) (*model.RipJob, error)
 	Jobs(ctx context.Context) (model.RipJobs, error)
+	YtDlpVersion(ctx context.Context) (string, error)
+	UpdateYtDlp(ctx context.Context, wait bool) (rip.UpdateResult, error)
 }
 
 type Router struct {
@@ -46,6 +49,8 @@ func (api *Router) routes() http.Handler {
 	r.Use(adminOnly)
 	r.Get("/", api.list)
 	r.Post("/", api.create)
+	r.Get("/ytdlp", api.ytDlpVersion)
+	r.Post("/ytdlp/update", api.updateYtDlp)
 	return r
 }
 
@@ -104,5 +109,34 @@ func (api *Router) create(w http.ResponseWriter, r *http.Request) {
 		_ = rest.RespondWithError(w, http.StatusInternalServerError, "Could not queue the Rip")
 	default:
 		_ = rest.RespondWithJSON(w, http.StatusCreated, job)
+	}
+}
+
+func (api *Router) ytDlpVersion(w http.ResponseWriter, r *http.Request) {
+	version, err := api.ripper.YtDlpVersion(r.Context())
+	if err != nil {
+		log.Error(r.Context(), "Could not read yt-dlp's version", err)
+		_ = rest.RespondWithError(w, http.StatusInternalServerError, "Could not read yt-dlp's version: "+err.Error())
+		return
+	}
+	_ = rest.RespondWithJSON(w, http.StatusOK, map[string]string{"version": version})
+}
+
+// updateYtDlp updates yt-dlp now. It refuses, rather than waits, while a Rip is running, as a
+// Rip can take many minutes.
+func (api *Router) updateYtDlp(w http.ResponseWriter, r *http.Request) {
+	res, err := api.ripper.UpdateYtDlp(r.Context(), false)
+	switch {
+	case errors.Is(err, rip.ErrRipRunning):
+		_ = rest.RespondWithError(w, http.StatusConflict, err.Error())
+	case err != nil:
+		log.Warn(r.Context(), "yt-dlp update failed", "kept", res.Version, err)
+		msg := "Updating yt-dlp failed: " + err.Error()
+		if res.Version != "" {
+			msg += " (still using " + res.Version + ")"
+		}
+		_ = rest.RespondWithError(w, http.StatusBadGateway, msg)
+	default:
+		_ = rest.RespondWithJSON(w, http.StatusOK, res)
 	}
 }

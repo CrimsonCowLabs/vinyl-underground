@@ -162,12 +162,18 @@ Ripping is off by default. To turn it on, add `ND_RIPPING_ENABLED=true` to `.env
 
 As the admin, open **Rips** in the side menu, paste the link to one video (YouTube and YouTube Music are tested; any site yt-dlp supports is accepted) and press **Rip**. The job shows **Queued**, then **Downloading**, then **Ready for review** once the File is in the Inbox and scanned as a Track, or **Failed** with yt-dlp's error message. Jobs run one at a time in the background, so closing the tab doesn't stop them. If the app stops in the middle of a Rip, that Rip starts again from scratch on the next start (or, if its File was already in the Inbox, is only scanned). The page refreshes the list every few seconds while a Rip is queued or downloading.
 
-- **yt-dlp** is not in the image. The first Rip downloads the standalone build for the host (amd64 or arm64) from yt-dlp's latest GitHub release into `$VU_DATA_DIR/bin`, and checks it against the release's `SHA2-256SUMS`. To update it, delete `$VU_DATA_DIR/bin/yt-dlp`; the next Rip downloads the latest one. It never reads a yt-dlp config file. The image includes [deno](https://deno.com) (Alpine's package), the JavaScript runtime yt-dlp needs to read YouTube pages fully; its cache is `$VU_DATA_DIR/cache/deno`.
+- **yt-dlp** is not in the image. The first Rip downloads the standalone build for the host (amd64 or arm64) from yt-dlp's latest GitHub release into `$VU_DATA_DIR/bin`, and checks it against the release's `SHA2-256SUMS`. It never reads a yt-dlp config file. The image includes [deno](https://deno.com) (Alpine's package), the JavaScript runtime yt-dlp needs to read YouTube pages fully; its cache is `$VU_DATA_DIR/cache/deno`.
 - **Audio** is the page's best Opus stream, else its best AAC stream, saved as `.opus` or `.m4a` as it is, never re-encoded. A page with neither fails.
 - **Tags:** the File gets `SOURCE` (the site, e.g. `YouTube`), `SOURCEURL` (the page), and the title and artist the site gives.
 - **File name:** `<Artist> - <Title> [<video id>].<ext>` at the top of the Inbox. A File already there is never replaced; the new one gets ` (2)`. While downloading, the File is in the hidden `.rips` folder, which the scanner skips.
 - **Playlists** aren't supported yet: a playlist link fails with a message saying so. A video link that also names a playlist (`watch?v=...&list=...`) rips just that video.
 - **Time limit:** a Rip that takes longer than `ND_RIPPING_TIMEOUT` (default `30m`) is stopped and marked failed.
+- **Keeping yt-dlp working:** sites like YouTube change often, and only a newer yt-dlp keeps up. The app updates yt-dlp in `$VU_DATA_DIR/bin` three ways, without rebuilding the image:
+  - **On a schedule:** `ND_RIPPING_YTDLPUPDATESCHEDULE` (default `@daily`; a cron expression or `@every 24h` also works, and `0` turns it off).
+  - **On demand:** the **Update yt-dlp** button on the Rips page, next to the installed version. It refuses while a Rip is running; press it again once that Rip has finished.
+  - **After a failed Rip:** the app updates yt-dlp once and tries that Rip once more before marking it failed. It skips this when no update could help: an unsupported URL, a private, removed, age-restricted, members-only or blocked video, a playlist, the Rip's own time limit, or an error of the app's (such as a full disk).
+
+  Each update looks up the latest release's tag first, and downloads nothing when `yt-dlp --version` already shows that tag. Otherwise it fetches both the binary and `SHA2-256SUMS` from that tag, checks the checksum, and checks the new binary runs before it replaces the old one. A failed update leaves the old binary in place. An update never replaces yt-dlp while a Rip is running: it waits for that Rip to finish.
 
 ## 11. Generated Playlists (optional LLM)
 
