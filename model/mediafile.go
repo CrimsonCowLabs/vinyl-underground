@@ -94,6 +94,10 @@ type MediaFile struct {
 	RGAlbumPeak          *float64 `structs:"rg_album_peak" json:"rgAlbumPeak"`
 	RGTrackGain          *float64 `structs:"rg_track_gain" json:"rgTrackGain"`
 	RGTrackPeak          *float64 `structs:"rg_track_peak" json:"rgTrackPeak"`
+	// Source and SourceURL name the site and page a Rip came from (its SOURCE and SOURCEURL tags).
+	// They are read from the File on every scan, so they are never set in the app alone.
+	Source    string `structs:"source" json:"source,omitempty"`
+	SourceURL string `structs:"source_url" json:"sourceUrl,omitempty"`
 
 	Tags         Tags         `structs:"tags" json:"tags,omitempty" hash:"ignore"`       // All imported tags from the original file
 	Participants Participants `structs:"participants" json:"participants" hash:"ignore"` // All artists that participated in this track

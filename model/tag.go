@@ -202,6 +202,11 @@ const (
 	TagMovementNumber TagName = "movement"
 	TagMovementTotal  TagName = "movementtotal"
 
+	// Rips (see GLOSSARY.md): the site a File was ripped from, and the page's URL
+
+	TagSource    TagName = "source"
+	TagSourceURL TagName = "sourceurl"
+
 	// Dates and years
 
 	TagOriginalDate  TagName = "originaldate"
