@@ -29,6 +29,9 @@ export const DownloadPlaylistButton = ({ record }) => {
     downloads
       .remove(record.id)
       .then(() => notify('resources.playlist.message.downloadRemoved', 'info'))
+      .catch(() =>
+        notify('resources.playlist.message.removeDownloadFailed', 'warning'),
+      )
   }
 
   let label, icon, onClick

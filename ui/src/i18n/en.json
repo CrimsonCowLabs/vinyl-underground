@@ -246,6 +246,7 @@
         "downloaded": "Downloaded",
         "downloadFailed": "Could not download this Playlist. Check your connection and try again.",
         "downloadRemoved": "Download removed",
+        "removeDownloadFailed": "Could not remove this Download. Try again.",
         "removeDownloadTitle": "Remove Download?",
         "removeDownloadContent": "\"%{name}\" will no longer play offline, and the space it uses on this device will be freed."
       }

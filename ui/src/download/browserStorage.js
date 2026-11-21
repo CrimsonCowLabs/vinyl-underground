@@ -19,6 +19,16 @@ const COVER_SIZE = 300
 
 const open = () => caches.open(DOWNLOADS_CACHE)
 
+// Subsonic reports errors (Track not found, transcoding failed) as HTTP 200
+// with a JSON or XML body, so a 2xx alone doesn't mean audio came back
+export const checkAudioResponse = (res, trackId) => {
+  if (!res.ok) throw new Error(`Track ${trackId}: HTTP ${res.status}`)
+  const type = res.headers.get('Content-Type')
+  if (type && !type.startsWith('audio/')) {
+    throw new Error(`Track ${trackId}: response is ${type}, not audio`)
+  }
+}
+
 const keysWithPrefix = async (prefix) => {
   const cache = await open()
   const requests = await cache.keys()
@@ -107,7 +117,7 @@ export const browserStorage = {
       ),
       { signal },
     )
-    if (!res.ok) throw new Error(`Track ${trackId}: HTTP ${res.status}`)
+    checkAudioResponse(res, trackId)
     // A fresh Response, so none of the stream's headers (e.g. a Content-Range
     // or a short-lived cache policy) are stored with it
     await cache.put(
