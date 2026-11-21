@@ -2,6 +2,7 @@ package rip
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -10,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -21,9 +23,29 @@ type Info struct {
 	// Source is the site's display name (e.g. "YouTube"), and SourceURL the page's canonical URL.
 	Source    string
 	SourceURL string
-	// IsPlaylist is true when the URL is a playlist (or channel) rather than one video.
+	// IsPlaylist is true when the URL is a playlist (or album, or channel) rather than one video.
 	IsPlaylist bool
+	// Count is how many items the page has: 1 for a video, yt-dlp's total for a playlist (which
+	// can be more than len(Entries), as only the first MaxItems+1 are listed).
+	Count int
+	// Entries are a playlist's items, in order, as listed by --flat-playlist: no item has been
+	// looked at on its own yet, so the title and artist are only a first guess.
+	Entries []PlaylistEntry
 }
+
+// PlaylistEntry is one item of a playlist.
+type PlaylistEntry struct {
+	URL    string
+	Title  string
+	Artist string
+}
+
+// albumPrefix is how YouTube Music titles an album's playlist ("Album - <name>"), whose id starts
+// with albumIDPrefix.
+const (
+	albumPrefix   = "Album - "
+	albumIDPrefix = "OLAK5uy_"
+)
 
 // BinaryPath finds the yt-dlp executable, downloading it if needed. *Binary implements it.
 type BinaryPath interface {
@@ -47,6 +69,13 @@ type YtDlp struct {
 	// DenoDir is deno's cache folder (DENO_DIR), as its default under $HOME isn't writable in
 	// the read-only container.
 	DenoDir string
+
+	// ProbeTimeout bounds one Probe, not counting the download of yt-dlp itself on first use.
+	// Defaults to 2 minutes.
+	ProbeTimeout time.Duration
+
+	// clearTemp empties TempDir once, of what a yt-dlp killed in an earlier run of the app left.
+	clearTemp sync.Once
 }
 
 // audioFormat keeps the best Opus stream, else the best AAC one, from audio-only formats first.
@@ -67,9 +96,12 @@ func (y *YtDlp) commonArgs() []string {
 }
 
 // Probe reads the page's metadata without downloading anything.
+// A playlist's items are only listed (--flat-playlist), and only the first MaxItems+1 of them,
+// which is enough to tell a playlist that is too big to rip.
 func (y *YtDlp) Probe(ctx context.Context, url string) (*Info, error) {
-	args := append(y.commonArgs(), "--flat-playlist", "--dump-single-json", "--", url)
-	out, err := y.run(ctx, args)
+	args := append(y.commonArgs(), "--flat-playlist", "--playlist-items", fmt.Sprintf("1:%d", MaxItems+1),
+		"--dump-single-json", "--", url)
+	out, err := y.run(ctx, args, cmp.Or(y.ProbeTimeout, 2*time.Minute))
 	if err != nil {
 		return nil, err
 	}
@@ -85,6 +117,15 @@ func (y *YtDlp) Probe(ctx context.Context, url string) (*Info, error) {
 		Channel      string   `json:"channel"`
 		ExtractorKey string   `json:"extractor_key"`
 		WebpageURL   string   `json:"webpage_url"`
+		// Only in a playlist:
+		PlaylistCount int `json:"playlist_count"`
+		Entries       []struct {
+			URL        string `json:"url"`
+			WebpageURL string `json:"webpage_url"`
+			Title      string `json:"title"`
+			Uploader   string `json:"uploader"`
+			Channel    string `json:"channel"`
+		} `json:"entries"`
 	}
 	if err := json.Unmarshal(out, &meta); err != nil {
 		return nil, fmt.Errorf("reading yt-dlp's metadata: %w", err)
@@ -93,14 +134,30 @@ func (y *YtDlp) Probe(ctx context.Context, url string) (*Info, error) {
 	if len(meta.Artists) > 0 {
 		artist = strings.Join(meta.Artists, ", ")
 	}
-	return &Info{
+	info := &Info{
 		ID:         meta.ID,
 		Title:      firstNonEmpty(meta.Track, meta.Title),
 		Artist:     firstNonEmpty(artist, meta.Creator, meta.Uploader, meta.Channel),
 		Source:     SourceName(meta.ExtractorKey),
 		SourceURL:  firstNonEmpty(meta.WebpageURL, url),
 		IsPlaylist: meta.Type == "playlist" || meta.Type == "multi_video",
-	}, nil
+		Count:      1,
+	}
+	if info.IsPlaylist {
+		if info.Source == "YouTube" && strings.HasPrefix(meta.ID, albumIDPrefix) {
+			info.Title = strings.TrimPrefix(info.Title, albumPrefix)
+		}
+		info.Count = max(meta.PlaylistCount, len(meta.Entries))
+		for _, e := range meta.Entries {
+			info.Entries = append(info.Entries, PlaylistEntry{
+				URL:   firstNonEmpty(e.WebpageURL, e.URL),
+				Title: e.Title,
+				// YouTube Music lists an album's Tracks as uploaded by "<Artist> - Topic".
+				Artist: strings.TrimSuffix(firstNonEmpty(e.Uploader, e.Channel), " - Topic"),
+			})
+		}
+	}
+	return info, nil
 }
 
 // Download fetches the page's audio into dir and returns the File's path, ending in .opus or .m4a.
@@ -117,7 +174,7 @@ func (y *YtDlp) Download(ctx context.Context, url, dir string) (string, error) {
 		args = append(args, "--ffmpeg-location", y.FFmpegPath)
 	}
 	args = append(args, "--", url)
-	out, err := y.run(ctx, args)
+	out, err := y.run(ctx, args, 0)
 	if err != nil {
 		if strings.Contains(err.Error(), "Requested format is not available") {
 			return "", fmt.Errorf("the page has no Opus or AAC audio to keep without re-encoding: %w", err)
@@ -140,10 +197,18 @@ func (y *YtDlp) Download(ctx context.Context, url, dir string) (string, error) {
 	return path, nil
 }
 
-func (y *YtDlp) run(ctx context.Context, args []string) ([]byte, error) {
+// run runs yt-dlp with args, stopping it after timeout (0: no limit of its own). The timeout
+// starts once yt-dlp is there, so a slow first download of it doesn't count. Runs can overlap (a
+// Rip being queued probes its page while the worker downloads), so each gets its own TMPDIR.
+func (y *YtDlp) run(ctx context.Context, args []string, timeout time.Duration) ([]byte, error) {
 	bin, err := y.Binary.Path(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("getting yt-dlp: %w", err)
+	}
+	if timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
 	}
 	var stdout, stderr bytes.Buffer
 	cmd := exec.CommandContext(ctx, bin, args...)
@@ -154,13 +219,18 @@ func (y *YtDlp) run(ctx context.Context, args []string) ([]byte, error) {
 		cmd.Env = append(cmd.Env, "DENO_DIR="+y.DenoDir)
 	}
 	if y.TempDir != "" {
-		// A yt-dlp that was killed leaves its unpacked copy behind. Only one runs at a time (the
-		// Ripper has a single worker), so whatever is there is left over.
-		_ = os.RemoveAll(y.TempDir)
+		// A yt-dlp that was killed leaves its unpacked copy behind: in its own run folder, removed
+		// below, or, if the app itself was stopped, in a run folder cleared on the first run.
+		y.clearTemp.Do(func() { _ = os.RemoveAll(y.TempDir) })
 		if err := os.MkdirAll(y.TempDir, 0o755); err != nil {
 			return nil, err
 		}
-		cmd.Env = append(cmd.Env, "TMPDIR="+y.TempDir)
+		runDir, err := os.MkdirTemp(y.TempDir, "run-")
+		if err != nil {
+			return nil, err
+		}
+		defer os.RemoveAll(runDir)
+		cmd.Env = append(cmd.Env, "TMPDIR="+runDir)
 	}
 	killProcessGroup(cmd)
 	cmd.WaitDelay = 5 * time.Second

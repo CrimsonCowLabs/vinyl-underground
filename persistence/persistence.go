@@ -106,6 +106,10 @@ func (s *SQLStore) ArtworkQueue(ctx context.Context) model.ArtworkQueueRepositor
 	return NewArtworkQueueRepository(ctx, s.getDBXBuilder())
 }
 
+func (s *SQLStore) RipItem(ctx context.Context) model.RipItemRepository {
+	return NewRipItemRepository(ctx, s.getDBXBuilder())
+}
+
 func (s *SQLStore) RipJob(ctx context.Context) model.RipJobRepository {
 	return NewRipJobRepository(ctx, s.getDBXBuilder())
 }

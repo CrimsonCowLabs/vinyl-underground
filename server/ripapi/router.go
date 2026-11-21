@@ -1,5 +1,15 @@
 // Package ripapi is the admin's HTTP API for Rips: start one from a URL, list the jobs, and see
 // and update the yt-dlp that runs them.
+//
+//	GET  /api/rip                       every job, newest first, each with its items
+//	POST /api/rip {url}                 201: the queued job, with its items
+//	                                    409: {error, needsConfirmation: true, url, title, count,
+//	                                         titles} for a playlist of more than 50 items; nothing
+//	                                         is queued
+//	                                    422: {error} for a playlist of more than 300 items
+//	POST /api/rip {url, confirm: true}  queues a playlist of 51 to 300 items
+//	GET  /api/rip/ytdlp                 the installed yt-dlp's version
+//	POST /api/rip/ytdlp/update          updates yt-dlp
 package ripapi
 
 import (
@@ -21,7 +31,7 @@ import (
 
 // Ripper is the part of *rip.Ripper the API uses.
 type Ripper interface {
-	Enqueue(ctx context.Context, url string) (*model.RipJob, error)
+	Enqueue(ctx context.Context, url string, confirmed bool) (*model.RipJob, error)
 	Jobs(ctx context.Context) (model.RipJobs, error)
 	YtDlpVersion(ctx context.Context) (string, error)
 	UpdateYtDlp(ctx context.Context, wait bool) (rip.UpdateResult, error)
@@ -91,6 +101,8 @@ func (api *Router) list(w http.ResponseWriter, r *http.Request) {
 func (api *Router) create(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		URL string `json:"url"`
+		// Confirm is the admin's go-ahead for a playlist of more than 50 items.
+		Confirm bool `json:"confirm"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10)).Decode(&body); err != nil {
 		_ = rest.RespondWithError(w, http.StatusBadRequest, "Send the URL as JSON: {\"url\": \"...\"}")
@@ -98,8 +110,18 @@ func (api *Router) create(w http.ResponseWriter, r *http.Request) {
 	}
 	// The job outlives the request: it runs in the background, whatever happens to the tab.
 	ctx := context.WithoutCancel(r.Context())
-	job, err := api.ripper.Enqueue(ctx, body.URL)
+	job, err := api.ripper.Enqueue(ctx, body.URL, body.Confirm)
+	var confirm *rip.NeedsConfirmationError
+	var tooMany *rip.TooManyItemsError
 	switch {
+	case errors.As(err, &confirm):
+		_ = rest.RespondWithJSON(w, http.StatusConflict, struct {
+			Error             string `json:"error"`
+			NeedsConfirmation bool   `json:"needsConfirmation"`
+			*rip.Preview
+		}{err.Error(), true, confirm.Preview})
+	case errors.As(err, &tooMany):
+		_ = rest.RespondWithError(w, http.StatusUnprocessableEntity, err.Error())
 	case errors.Is(err, rip.ErrInvalidURL):
 		_ = rest.RespondWithError(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, rip.ErrNoInbox):

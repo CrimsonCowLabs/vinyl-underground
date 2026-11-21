@@ -72,6 +72,12 @@ The Library keeps growing, and all new music reaches it through one path: the **
   - The badge shows only when `SOURCEURL` is an http(s) URL, which the ripper always writes. A File another tool tagged with `SOURCE` alone (e.g. `SOURCE=CD`) gets no badge.
 - A playlist of more than 50 items asks for confirmation. More than 300 is refused.
 - Each Rip is a background job, run one at a time. A job's status is queued, downloading, tagging, ready for review, or failed (showing yt-dlp's error). Jobs keep running after the tab is closed.
+- A job has one item per video (a single video is a job with one item), stored in `rip_job` and `rip_item` (#30):
+  - **Queuing** looks at the URL with `yt-dlp --flat-playlist`, so a playlist's items are known (and shown) straight away. Over 50 items, `POST /api/rip` answers 409 with the item count and titles, and queues nothing until it is sent again with `confirm: true`. Over 300, it answers 422.
+  - **Items** are ripped one at a time, in order, each with its own timeout. An item is queued, downloading, ready (its File is in the Inbox) or failed (with its own error).
+  - **Partial failure:** a failed item doesn't stop the others. The job ends ready if any item landed, with "N of M Tracks failed" as its message ("ready with failures"), and failed only if none did.
+  - **Restart:** items that were downloading are queued again and ripped from scratch. Items already in the Inbox are not ripped again.
+  - **Files:** a playlist's Files go into an Inbox subfolder named after the playlist or album. The Inbox is scanned once, when the job is done.
 - yt-dlp lives in `/data/bin`, because the container is read-only. The app downloads it, updates it on a schedule and from an "Update yt-dlp" button, and after a failed Rip it updates yt-dlp once and retries.
   - The schedule is `ND_RIPPING_YTDLPUPDATESCHEDULE` (default `@daily`). An update resolves the latest release to its tag once, fetches the binary and `SHA2-256SUMS` from that tag, and downloads nothing when `yt-dlp --version` is already that tag. A failed update keeps the old binary, and no update replaces it while a Rip runs.
   - A failed Rip is retried only when yt-dlp itself failed and an update might help. Not retried: unsupported URLs, private, removed, age-restricted, members-only or blocked videos, playlists, the Rip's own timeout, and the app's own errors.
