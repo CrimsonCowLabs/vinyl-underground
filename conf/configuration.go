@@ -272,7 +272,8 @@ type backupOptions struct {
 // inboxOptions configures the Inbox: the writable folder where new music lands before it joins
 // the Library. The app scans it as a second library that only admins can see.
 type inboxOptions struct {
-	// Path is the Inbox folder. Empty, or a folder that doesn't exist, turns the Inbox off.
+	// Path is the Inbox folder. If it is empty or the folder doesn't exist, no Inbox library is
+	// set up.
 	Path string
 }
 

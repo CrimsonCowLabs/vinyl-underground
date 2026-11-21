@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"net/http"
+	"os"
 	"testing/fstest"
 
 	"github.com/Masterminds/squirrel"
@@ -65,7 +66,7 @@ var _ = Describe("Inbox", Ordered, func() {
 		})
 		storagetest.Register("fake-inbox", &inboxFS)
 
-		Expect(core.EnsureInboxLibrary(ctx, ds, inboxPath)).To(Succeed())
+		Expect(ensureInbox(inboxPath)).To(BeTrue())
 
 		s := scanner.New(ctx, ds, events.NoopBroker(),
 			playlists.NewPlaylists(ds, artwork.NewUploader(ds)), metrics.NewNoopInstance())
@@ -98,7 +99,7 @@ var _ = Describe("Inbox", Ordered, func() {
 		})
 
 		It("is idempotent", func() {
-			Expect(core.EnsureInboxLibrary(ctx, ds, inboxPath)).To(Succeed())
+			Expect(ensureInbox(inboxPath)).To(BeFalse())
 			Expect(inboxLibraries()).To(HaveLen(1))
 		})
 
@@ -189,7 +190,14 @@ var _ = Describe("Inbox", Ordered, func() {
 	})
 })
 
-var _ = Describe("Inbox when not configured", func() {
+// ensureInbox runs the startup step and reports whether it created or moved the Inbox library.
+func ensureInbox(path string) bool {
+	changed, err := core.EnsureInboxLibrary(ctx, ds, path)
+	Expect(err).ToNot(HaveOccurred())
+	return changed
+}
+
+var _ = Describe("Inbox library bootstrap", func() {
 	BeforeEach(func() {
 		setupTestDB()
 	})
@@ -200,26 +208,90 @@ var _ = Describe("Inbox when not configured", func() {
 		return n
 	}
 
+	getLibrary := func(id int) *model.Library {
+		l, err := ds.Library(ctx).Get(id)
+		Expect(err).ToNot(HaveOccurred())
+		return l
+	}
+
+	// The only library besides the Library itself.
+	inboxLibrary := func() model.Library {
+		libs, err := ds.Library(ctx).GetAll(model.QueryOptions{Filters: squirrel.NotEq{"id": lib.ID}})
+		Expect(err).ToNot(HaveOccurred())
+		Expect(libs).To(HaveLen(1))
+		return libs[0]
+	}
+
 	It("does nothing when no Inbox path is set", func() {
 		before := countLibraries()
-		Expect(core.EnsureInboxLibrary(ctx, ds, "")).To(Succeed())
+		Expect(ensureInbox("")).To(BeFalse())
 		Expect(countLibraries()).To(Equal(before))
 	})
 
 	It("does nothing when the Inbox folder is missing", func() {
 		before := countLibraries()
-		Expect(core.EnsureInboxLibrary(ctx, ds, GinkgoT().TempDir()+"/missing")).To(Succeed())
+		Expect(ensureInbox(GinkgoT().TempDir() + "/missing")).To(BeFalse())
 		Expect(countLibraries()).To(Equal(before))
+	})
+
+	It("stores a clean path", func() {
+		dir := GinkgoT().TempDir()
+		Expect(ensureInbox(dir + "/")).To(BeTrue())
+		Expect(inboxLibrary().Path).To(Equal(dir))
+		Expect(ensureInbox(dir)).To(BeFalse())
 	})
 
 	It("moves the Inbox library when its path changes", func() {
 		oldPath, newPath := GinkgoT().TempDir(), GinkgoT().TempDir()
-		Expect(core.EnsureInboxLibrary(ctx, ds, oldPath)).To(Succeed())
-		Expect(core.EnsureInboxLibrary(ctx, ds, newPath)).To(Succeed())
+		Expect(ensureInbox(oldPath)).To(BeTrue())
+		id := inboxLibrary().ID
 
-		libs, err := ds.Library(ctx).GetAll(model.QueryOptions{Filters: squirrel.Eq{"name": core.InboxLibraryName}})
-		Expect(err).ToNot(HaveOccurred())
-		Expect(libs).To(HaveLen(1))
-		Expect(libs[0].Path).To(Equal(newPath))
+		Expect(ensureInbox(newPath)).To(BeTrue())
+		Expect(countLibraries()).To(Equal(int64(2)))
+		Expect(getLibrary(id).Path).To(Equal(newPath))
+	})
+
+	It("still finds the Inbox after an admin renames it", func() {
+		dir := GinkgoT().TempDir()
+		Expect(ensureInbox(dir)).To(BeTrue())
+		inbox := inboxLibrary()
+		inbox.Name = "New Arrivals"
+		Expect(ds.Library(ctx).Put(&inbox)).To(Succeed())
+
+		Expect(ensureInbox(dir)).To(BeFalse())
+		Expect(countLibraries()).To(Equal(int64(2)))
+	})
+
+	It("turns 'default for new users' back off on an existing Inbox", func() {
+		dir := GinkgoT().TempDir()
+		Expect(ensureInbox(dir)).To(BeTrue())
+		inbox := inboxLibrary()
+		inbox.DefaultNewUsers = true
+		Expect(ds.Library(ctx).Put(&inbox)).To(Succeed())
+
+		ensureInbox(dir)
+		Expect(getLibrary(inbox.ID).DefaultNewUsers).To(BeFalse())
+	})
+
+	It("does not take over another library that happens to be called Inbox", func() {
+		other := model.Library{Name: core.InboxLibraryName, Path: GinkgoT().TempDir()}
+		Expect(ds.Library(ctx).Put(&other)).To(Succeed())
+
+		_, err := core.EnsureInboxLibrary(ctx, ds, GinkgoT().TempDir())
+		Expect(err).To(HaveOccurred())
+		Expect(getLibrary(other.ID).Path).To(Equal(other.Path))
+	})
+
+	It("refuses an Inbox inside, or containing, another library", func() {
+		parent := GinkgoT().TempDir()
+		music := model.Library{Name: "Local Music", Path: parent + "/music"}
+		Expect(os.MkdirAll(music.Path+"/inbox", 0o755)).To(Succeed())
+		Expect(ds.Library(ctx).Put(&music)).To(Succeed())
+		before := countLibraries()
+
+		Expect(ensureInbox(music.Path + "/inbox")).To(BeFalse())
+		Expect(ensureInbox(music.Path)).To(BeFalse())
+		Expect(ensureInbox(parent)).To(BeFalse())
+		Expect(countLibraries()).To(Equal(before))
 	})
 })

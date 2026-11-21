@@ -83,7 +83,8 @@ func runNavidrome(ctx context.Context) {
 	defer db.Init(ctx)()
 
 	// Before the watcher and the initial scan start, so both pick up the Inbox.
-	if err := core.EnsureInboxLibrary(ctx, CreateDataStore(), conf.Server.Inbox.Path); err != nil {
+	inboxChanged, err := core.EnsureInboxLibrary(ctx, CreateDataStore(), conf.Server.Inbox.Path)
+	if err != nil {
 		log.Error(ctx, "Could not set up the Inbox library", err)
 	}
 
@@ -100,7 +101,7 @@ func runNavidrome(ctx context.Context) {
 	artworkWorker := CreateArtworkWorker()
 	g.Go(startArtworkWorker(ctx, artworkWorker))
 	g.Go(scheduleArtworkHousekeeping(ctx, artworkWorker))
-	g.Go(runInitialScan(ctx))
+	g.Go(runInitialScan(ctx, inboxChanged))
 	if conf.Server.Scanner.Enabled {
 		g.Go(startScanWatcher(ctx))
 		g.Go(schedulePeriodicScan(ctx))
@@ -201,8 +202,9 @@ func pidHashChanged(ds model.DataStore) (bool, error) {
 	return !strings.EqualFold(pidAlbum, conf.Server.PID.Album) || !strings.EqualFold(pidTrack, conf.Server.PID.Track), nil
 }
 
-// runInitialScan runs an initial scan of the music library if needed.
-func runInitialScan(ctx context.Context) func() error {
+// runInitialScan runs an initial scan of the music library if needed. A new or moved Inbox
+// library is always scanned, even with ScanOnStartup off.
+func runInitialScan(ctx context.Context, inboxChanged bool) func() error {
 	return func() error {
 		ds := CreateDataStore()
 		fullScanRequired, err := ds.Property(ctx).DefaultGet(consts.FullScanAfterMigrationFlagKey, "0")
@@ -218,7 +220,8 @@ func runInitialScan(ctx context.Context) func() error {
 			return err
 		}
 		scanOnStartup := conf.Server.Scanner.Enabled && conf.Server.Scanner.ScanOnStartup
-		scanNeeded := scanOnStartup || inProgress || fullScanRequired == "1" || pidHasChanged
+		inboxScan := conf.Server.Scanner.Enabled && inboxChanged
+		scanNeeded := scanOnStartup || inboxScan || inProgress || fullScanRequired == "1" || pidHasChanged
 		time.Sleep(2 * time.Second) // Wait 2 seconds before the initial scan
 		if scanNeeded {
 			s := CreateScanner(ctx)

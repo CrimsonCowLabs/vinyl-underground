@@ -154,7 +154,7 @@ docker compose exec vinyl-underground sqlite3 /data/navidrome.db \
 
 As the admin, the new Tracks can be played, favorited and added to Playlists straight away. The library selector in the side menu shows "Inbox" next to the main Library. Logged in as another Listener, the Tracks must not show up anywhere.
 
-Files copied in by hand must be readable by `VU_UID`. The app creates the Inbox library on start (`ND_INBOX_PATH`, `/inbox` by default); with `ND_INBOX_PATH=` empty, or no folder at that path, the Inbox is off.
+Files copied in by hand must be readable by `VU_UID`. The app sets up the Inbox library on start from `ND_INBOX_PATH` (`/inbox` by default), and scans it straight away when it is new. It must not be inside the Library, or contain it. With `ND_INBOX_PATH=` empty, or no folder at that path, no Inbox library is set up; one that already exists stays until an admin deletes it under **Libraries**.
 
 ## Updating
 
