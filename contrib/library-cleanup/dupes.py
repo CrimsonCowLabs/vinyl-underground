@@ -62,9 +62,14 @@ def parse_jdupes(report: str) -> list[list[str]]:
     return sets
 
 
+def copied_from(name: str) -> list[str]:
+    """The names a File called `name` may have been copied from: "Song.mp3" for "Song 1.mp3"."""
+    stem, ext = os.path.splitext(name)
+    return [m["base"] + ext for marker in _COPY_MARKERS if (m := marker.match(stem))]
+
+
 def _is_copy_name(path: str, names: set[str]) -> bool:
-    stem, ext = os.path.splitext(os.path.basename(path))
-    return any((m := marker.match(stem)) and m["base"] + ext in names for marker in _COPY_MARKERS)
+    return any(base in names for base in copied_from(os.path.basename(path)))
 
 
 def choose_keeper(paths: list[str]) -> str:
@@ -82,7 +87,7 @@ def ignored_folders(scan: Iterable[Entry]) -> set[str]:
     return {os.path.dirname(e.path) for e in scan if e.kind == "f" and os.path.basename(e.path) == ".ndignore"}
 
 
-def _outside_library(path: str, ignored: set[str]) -> bool:
+def outside_library(path: str, ignored: set[str]) -> bool:
     parts = path.split("/")
     folders = {"/".join(parts[:i]).casefold() for i in range(1, len(parts))}
     return bool(folders & ({QUARANTINE.casefold()} | {f.casefold() for f in ignored}))
@@ -97,13 +102,15 @@ def _quarantine_path(src: str, taken: set[str]) -> str:
     return path
 
 
-def plan_duplicates(sets: Iterable[list[str]], taken: Iterable[str] = (), ignored: Iterable[str] = ()) -> list[Action]:
-    """quarantine steps for every Duplicate: all but one File of each set of audio Files in the Library."""
+def plan_duplicates(
+    sets: Iterable[list[str]], taken: Iterable[str] = (), ignored: Iterable[str] = (), op: str = "quarantine"
+) -> list[Action]:
+    """Steps (`op`, "quarantine" by default) moving every Duplicate: all but one File of each set of audio Files in the Library."""
     used = {t.casefold() for t in taken}
     skipped = set(ignored)
     plan: list[Action] = []
     for files in sets:
-        audio = [f for f in files if AUDIO.search(f) and not _outside_library(f, skipped)]
+        audio = [f for f in files if AUDIO.search(f) and not outside_library(f, skipped)]
         if len(audio) < 2:
             continue
         keep = choose_keeper(audio)
@@ -112,7 +119,7 @@ def plan_duplicates(sets: Iterable[list[str]], taken: Iterable[str] = (), ignore
                 continue
             dst = _quarantine_path(src, used)
             used.add(dst.casefold())
-            plan.append(Action("quarantine", src, dst, keep))
+            plan.append(Action(op, src, dst, keep))
     return plan
 
 
@@ -123,11 +130,11 @@ def _top(path: str) -> str:
 def folder_impact(scan: Iterable[Entry], plan: Iterable[Action]) -> list[tuple[str, int, int]]:
     """(top-level folder, audio Files moving out, audio Files in it now), for every folder."""
     total = Counter(_top(e.path) for e in scan if e.kind == "f" and AUDIO.search(e.path))
-    moving = Counter(_top(a.src) for a in plan if a.op == "quarantine")
+    moving = Counter(_top(a.src) for a in plan if a.op.startswith("quarantine"))
     return sorted((top, moving[top], n) for top, n in total.items())
 
 
-def _quarantined(root: str) -> set[str]:
+def quarantined(root: str) -> set[str]:
     found = set()
     for here, _dirs, files in os.walk(os.path.join(root, QUARANTINE)):
         rel = os.path.relpath(here, root)
@@ -149,7 +156,7 @@ def main(argv: list[str]) -> int:
         sets = parse_jdupes(fh.read())
     scan = read_scans(args[1:])
     ignored = ignored_folders(scan)
-    plan = plan_duplicates(sets, _quarantined(root) if root else (), ignored)
+    plan = plan_duplicates(sets, quarantined(root) if root else (), ignored)
     for a in plan:
         print("\t".join(a))
     audio_sets = len({a.keep for a in plan})

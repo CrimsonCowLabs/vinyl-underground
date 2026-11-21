@@ -6,3 +6,4 @@ Navidrome has no dedupe: every File becomes its own Track, so byte-identical cop
 
 - The Library is mounted read-only for the app. The cleanup is a separate, manual step run through a temporary writable mount, and is re-run if new Duplicates appear.
 - Self-hosters get the same recipe in the README. A built-in `dedupe` command is possible later but is out of scope for now.
+- Changed (#53): a Duplicate is a File whose *audio* is identical to another File's, not only its bytes. A music app copying a File often rewrites the new File's tags (about 2,100 iTunes `… 1.mp3` Files survived the `jdupes` pass that way), and the app showed each such Track twice. A second pass compares the audio data alone, ignoring tags and embedded art, and quarantines through the same reviewed plan; the decision itself is unchanged: Duplicates leave the drive rather than being grouped in the app.
