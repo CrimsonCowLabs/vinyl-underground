@@ -17,6 +17,16 @@ const server = {
     // A missing Track has no File to stream, so it can't be downloaded
     return { playlist, tracks: tracks.filter((t) => !t.missing) }
   },
+  // Its updatedAt changes whenever its Tracks are added, removed or reordered
+  getPlaylistInfo: async (id) => {
+    try {
+      const { data } = await dataProvider.getOne('playlist', { id })
+      return data
+    } catch (error) {
+      if (error?.status === 404) return null
+      throw error
+    }
+  },
 }
 
 // Without persistent storage, Android may evict Downloads when space is low
@@ -43,17 +53,25 @@ const loadOnce = () => {
 export const offlineAware = (provider) =>
   withDownloads(provider, { downloads, isOnline, ready: loadOnce })
 
-// Picks up Downloads stored earlier, and resumes any that were interrupted,
-// now and whenever the device comes back online.
+// Picks up Downloads stored earlier, brings them up to date with their
+// Playlists and resumes any that were interrupted: now, whenever the device
+// comes back online, and whenever the app is brought back to the screen.
 export const useResumeDownloads = () => {
   useEffect(() => {
     if (!supported()) return undefined
-    const resume = () => {
-      if (isOnline()) downloads.resume()
+    const refresh = () => {
+      if (isOnline()) downloads.refresh()
     }
-    loadOnce().then(resume, () => {})
-    window.addEventListener('online', resume)
-    return () => window.removeEventListener('online', resume)
+    const refreshIfVisible = () => {
+      if (document.visibilityState === 'visible') refresh()
+    }
+    loadOnce().then(refresh, () => {})
+    window.addEventListener('online', refresh)
+    document.addEventListener('visibilitychange', refreshIfVisible)
+    return () => {
+      window.removeEventListener('online', refresh)
+      document.removeEventListener('visibilitychange', refreshIfVisible)
+    }
   }, [])
 }
 
