@@ -282,6 +282,18 @@
         "playNow": "Play Now"
       }
     },
+    "station": {
+      "name": "Station |||| Stations",
+      "onAir": "On air",
+      "actions": {
+        "start": "Start"
+      },
+      "errors": {
+        "noTracks": "There are no Tracks in your Library to play",
+        "unknownDJ": "That DJ isn't available",
+        "unavailable": "Stations are unavailable right now"
+      }
+    },
     "share": {
       "name": "Share |||| Shares",
       "fields": {

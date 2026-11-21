@@ -91,6 +91,7 @@ func (api *Router) routes() http.Handler {
 		api.addQuickConnectRoute(r)
 		api.addStreamingQualityRoute(r)
 		api.addGeneratedPlaylistRoute(r)
+		api.addStationRoute(r)
 
 		r.With(adminOnlyMiddleware).Group(func(r chi.Router) {
 			api.addInspectRoute(r)
