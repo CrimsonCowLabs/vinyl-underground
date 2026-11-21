@@ -31,7 +31,7 @@ import { formatBytes } from '../utils'
 import config from '../config'
 import { ToggleFieldsMenu } from '../common'
 import { CopyPlaylistButton } from './CopyPlaylistButton'
-import { DownloadPlaylistButton } from './DownloadPlaylistButton'
+import { DownloadButton } from '../download/DownloadButton'
 
 const useStyles = makeStyles({
   toolbar: { display: 'flex', justifyContent: 'space-between', width: '100%' },
@@ -141,7 +141,7 @@ const PlaylistActions = ({ className, ids, data, record, ...rest }) => {
           >
             <RiPlayListAddFill />
           </Button>
-          <DownloadPlaylistButton record={record} />
+          <DownloadButton record={record} kind="playlist" />
           {config.enableSharing && (
             <Button onClick={handleShare} label={translate('ra.action.share')}>
               <ShareIcon />

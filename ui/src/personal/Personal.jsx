@@ -11,6 +11,7 @@ import config from '../config'
 import { APP_NAME } from '../consts'
 import { ReplayGainToggle } from './ReplayGainToggle'
 import { SelectStreamingQuality } from './SelectStreamingQuality'
+import { DownloadsStorage } from './DownloadsStorage'
 
 const useStyles = makeStyles({
   root: { marginTop: '1em' },
@@ -32,6 +33,7 @@ const Personal = () => {
         <NotificationsToggle />
         {config.lastFMEnabled && <LastfmScrobbleToggle />}
         {config.listenBrainzEnabled && <ListenBrainzScrobbleToggle />}
+        <DownloadsStorage />
       </SimpleForm>
     </Card>
   )

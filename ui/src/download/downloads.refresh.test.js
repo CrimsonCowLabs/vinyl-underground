@@ -36,6 +36,8 @@ const fakeServer = () => {
         throw Object.assign(new Error('Not found'), { status: 404 })
       return structuredClone(playlists[id])
     }),
+    albums: {},
+    getAlbum: vi.fn(async (id) => structuredClone(server.albums[id])),
     getPlaylistInfo: vi.fn(async (id) => {
       reach(id)
       return playlists[id] ? structuredClone(playlists[id].playlist) : null
@@ -55,7 +57,8 @@ const fakeStorage = () => {
     saved: [],
     listDownloads: async () => [...records.values()],
     saveDownload: async (record) => {
-      records.set(record.playlist.id, structuredClone(record))
+      const kind = record.kind || 'playlist'
+      records.set(record[kind].id, structuredClone(record))
     },
     deleteDownload: async (id) => {
       records.delete(id)
@@ -249,6 +252,21 @@ describe('refreshing Downloads', () => {
     expect(downloads.get('pl1')).toMatchObject({ state: 'downloaded' })
     expect(storage.records.has('pl1')).toBe(true)
     expect(storage.trackIds.has('t1')).toBe(true)
+  })
+
+  it('leaves album Downloads alone', async () => {
+    const { downloads, server, storage } = setup()
+    server.albums.al1 = {
+      album: { id: 'al1', name: 'Album 1' },
+      tracks: tracksOf(1, 2),
+    }
+    await downloads.start('al1', 'album')
+
+    await downloads.refresh()
+
+    expect(server.getPlaylistInfo).not.toHaveBeenCalled()
+    expect(downloads.get('al1', 'album')).toMatchObject({ state: 'downloaded' })
+    expect([...storage.trackIds].sort()).toEqual(['t1', 't2'])
   })
 
   it("leaves another Listener's Downloads, and the Tracks they use, alone", async () => {

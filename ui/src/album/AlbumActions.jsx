@@ -28,6 +28,7 @@ import {
 import { formatBytes } from '../utils'
 import config from '../config'
 import { RefreshMetadataButton, ToggleFieldsMenu } from '../common'
+import { DownloadButton } from '../download/DownloadButton'
 
 const useStyles = makeStyles({
   toolbar: { display: 'flex', justifyContent: 'space-between', width: '100%' },
@@ -119,6 +120,7 @@ const AlbumActions = ({
           >
             <PlaylistAddIcon />
           </AlbumButton>
+          <DownloadButton record={record} kind="album" />
           {config.enableSharing && (
             <AlbumButton
               onClick={handleShare}
@@ -131,7 +133,9 @@ const AlbumActions = ({
             <AlbumButton
               onClick={handleDownload}
               label={
-                translate('ra.action.download') +
+                // "Download" means an album stored for offline play; this
+                // button saves the original Files instead
+                translate('resources.album.actions.saveFiles') +
                 (isDesktop ? ` (${formatBytes(record.size)})` : '')
               }
             >

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { createDownloads } from './downloads'
+import { createDownloads, trackIdOf } from './downloads'
 
 const track = (n) => ({ id: String(n), mediaFileId: `t${n}`, title: `T${n}` })
 
@@ -11,6 +11,16 @@ const PLAYLISTS = {
   pl2: {
     playlist: { id: 'pl2', name: 'Rainy day' },
     tracks: [3, 4].map(track),
+  },
+}
+
+// Album Tracks are songs: their id is the Track id
+const song = (n) => ({ id: `t${n}`, title: `T${n}` })
+
+const ALBUMS = {
+  al1: {
+    album: { id: 'al1', name: 'Blue', albumArtist: 'Joni Mitchell' },
+    tracks: [4, 5].map(song),
   },
 }
 
@@ -27,16 +37,21 @@ const fakeStorage = (initial = {}) => {
     saved: [],
     listDownloads: async () => [...records.values()],
     saveDownload: async (record) => {
-      records.set(record.playlist.id, record)
+      const kind = record.kind || 'playlist'
+      records.set(`${kind}:${record[kind].id}`, record)
     },
-    deleteDownload: async (id) => {
-      records.delete(id)
+    deleteDownload: async (id, kind = 'playlist') => {
+      records.delete(`${kind}:${id}`)
     },
     listTrackIds: async () => [...trackIds],
+    // Every stored Track takes 10 bytes per digit of its number: t3 is 30
+    listTrackSizes: async () =>
+      Object.fromEntries([...trackIds].map((id) => [id, 10 * +id.slice(1)])),
     saveTrack: async function (t) {
-      if (failing.has(t.mediaFileId)) throw new TypeError('Failed to fetch')
-      this.saved.push(t.mediaFileId)
-      trackIds.add(t.mediaFileId)
+      const id = t.mediaFileId || t.id
+      if (failing.has(id)) throw new TypeError('Failed to fetch')
+      this.saved.push(id)
+      trackIds.add(id)
     },
     deleteTrack: async (id) => {
       trackIds.delete(id)
@@ -47,6 +62,7 @@ const fakeStorage = (initial = {}) => {
 const setup = ({ storage = fakeStorage(), listener = 'ana' } = {}) => {
   const server = {
     getPlaylist: vi.fn(async (id) => structuredClone(PLAYLISTS[id])),
+    getAlbum: vi.fn(async (id) => structuredClone(ALBUMS[id])),
   }
   const requestPersistence = vi.fn(async () => true)
   let currentListener = listener
@@ -137,7 +153,7 @@ describe('downloads', () => {
 
   it('resumes an unfinished Download after the app restarts', async () => {
     const storage = fakeStorage({
-      records: { pl1: { listener: 'ana', ...PLAYLISTS.pl1 } },
+      records: { 'playlist:pl1': { listener: 'ana', ...PLAYLISTS.pl1 } },
       trackIds: ['t1'],
     })
     const { downloads } = setup({ storage })
@@ -175,7 +191,7 @@ describe('downloads', () => {
     await downloads.remove('pl1')
 
     expect(downloads.get('pl1')).toBeUndefined()
-    expect(storage.records.has('pl1')).toBe(false)
+    expect(storage.records.has('playlist:pl1')).toBe(false)
     expect([...storage.trackIds].sort()).toEqual(['t3', 't4'])
     expect(downloads.isTrackDownloaded('t1')).toBe(false)
   })
@@ -205,5 +221,124 @@ describe('downloads', () => {
     expect(downloads.get('pl1')).toBeUndefined()
     expect(downloads.list()).toEqual([])
     expect(downloads.getRecord('pl1')).toBeUndefined()
+  })
+
+  it('downloads an album like a Playlist', async () => {
+    const { downloads, storage } = setup()
+
+    await downloads.start('al1', 'album')
+
+    expect([...storage.trackIds].sort()).toEqual(['t4', 't5'])
+    expect(downloads.get('al1', 'album')).toMatchObject({
+      id: 'al1',
+      kind: 'album',
+      name: 'Blue',
+      state: 'downloaded',
+      total: 2,
+    })
+    expect(downloads.getRecord('al1', 'album').album.name).toBe('Blue')
+    expect(downloads.get('al1')).toBeUndefined()
+  })
+
+  it('lists albums and Playlists together, each with its kind', async () => {
+    const { downloads } = setup()
+    await downloads.start('pl2')
+    await downloads.start('al1', 'album')
+
+    expect(downloads.list().map((d) => `${d.kind} ${d.name}`)).toEqual([
+      'playlist Rainy day',
+      'album Blue',
+    ])
+  })
+
+  it('removing an album keeps Tracks a Playlist still uses', async () => {
+    const { downloads, storage } = setup()
+    await downloads.start('pl2')
+    await downloads.start('al1', 'album')
+
+    await downloads.remove('al1', 'album')
+
+    expect(downloads.get('al1', 'album')).toBeUndefined()
+    expect(storage.records.has('album:al1')).toBe(false)
+    expect([...storage.trackIds].sort()).toEqual(['t3', 't4'])
+  })
+
+  it('opens Playlist Downloads stored before albums could be downloaded', async () => {
+    const storage = fakeStorage({
+      records: { old: { listener: 'ana', ...PLAYLISTS.pl1 } },
+      trackIds: ['t1', 't2', 't3'],
+    })
+    const { downloads } = setup({ storage })
+
+    await downloads.load()
+
+    expect(downloads.get('pl1')).toMatchObject({
+      kind: 'playlist',
+      state: 'downloaded',
+    })
+  })
+
+  it('measures the space each Download uses, and the total', async () => {
+    const { downloads } = setup()
+    await downloads.start('pl1') // t1 t2 t3: 10 + 20 + 30
+    await downloads.start('pl2') // t3 t4: 30 + 40
+    await downloads.start('al1', 'album') // t4 t5: 40 + 50
+
+    const usage = await downloads.usage()
+
+    // A Track shared by several Downloads counts in each of them, but only
+    // once in the total, which is the space actually used on the device
+    expect(usage.downloads.map((d) => `${d.name} ${d.size}`)).toEqual([
+      'Road trip 60',
+      'Rainy day 70',
+      'Blue 90',
+    ])
+    expect(usage.total).toBe(150)
+  })
+
+  it('measures only the Tracks stored so far', async () => {
+    const { downloads, storage } = setup()
+    storage.failing.add('t2')
+    await downloads.start('pl1')
+
+    const usage = await downloads.usage()
+
+    expect(usage.downloads[0]).toMatchObject({ name: 'Road trip', size: 40 })
+    expect(usage.total).toBe(40)
+  })
+
+  it("measures only the current Listener's Downloads", async () => {
+    const { downloads, switchListener } = setup()
+    await downloads.start('pl1')
+    switchListener('ben')
+    await downloads.start('pl2')
+
+    const usage = await downloads.usage()
+
+    expect(usage.downloads.map((d) => d.name)).toEqual(['Rainy day'])
+    expect(usage.total).toBe(70)
+  })
+
+  it('gathers every downloaded Track once, for shuffling offline', async () => {
+    const { downloads, storage } = setup()
+    storage.failing.add('t5')
+    await downloads.start('pl1')
+    await downloads.start('pl2')
+    await downloads.start('al1', 'album')
+
+    const tracks = downloads.downloadedTracks()
+
+    // t3 and t4 are in two Downloads each; t5 never finished storing
+    expect(tracks.map(trackIdOf)).toEqual(['t1', 't2', 't3', 't4'])
+    expect(tracks.map((t) => t.title)).toEqual(['T1', 'T2', 'T3', 'T4'])
+  })
+
+  it("gathers only the current Listener's downloaded Tracks", async () => {
+    const { downloads, switchListener } = setup()
+    await downloads.start('pl1')
+    switchListener('ben')
+    await downloads.start('al1', 'album')
+
+    expect(downloads.downloadedTracks().map(trackIdOf)).toEqual(['t4', 't5'])
   })
 })

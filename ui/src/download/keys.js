@@ -15,10 +15,13 @@ export const trackAudioKey = (trackId) =>
 export const coverArtKey = (coverArtId) =>
   `${PREFIX}/cover/${encodeURIComponent(coverArtId)}`
 
-export const downloadRecordKey = (playlistId) =>
-  `${PREFIX}/playlist/${encodeURIComponent(playlistId)}`
+// A Download's record, by its kind ('playlist' or 'album') and id
+export const downloadRecordKey = (id, kind = 'playlist') =>
+  `${PREFIX}/${kind}/${encodeURIComponent(id)}`
 
-export const DOWNLOAD_RECORD_PREFIX = `${PREFIX}/playlist/`
+export const DOWNLOAD_RECORD_PREFIXES = ['playlist', 'album'].map(
+  (kind) => `${PREFIX}/${kind}/`,
+)
 export const TRACK_AUDIO_PREFIX = `${PREFIX}/track/`
 
 const subsonicCommand = (url) => {

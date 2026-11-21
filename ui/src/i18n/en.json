@@ -94,7 +94,8 @@
         "addToPlaylist": "Add to Playlist",
         "download": "Download",
         "info": "Get Info",
-        "refresh": "Refresh Metadata"
+        "refresh": "Refresh Metadata",
+        "saveFiles": "Save Files"
       },
       "lists": {
         "all": "All",
@@ -231,9 +232,6 @@
         "pressEnterToCreate": "Press Enter to create new playlist",
         "removeFromSelection": "Remove from selection",
         "copyToMyPlaylists": "Copy to my Playlists",
-        "download": "Download",
-        "resumeDownload": "Resume Download (%{done}/%{total})",
-        "removeDownload": "Remove Download",
         "saveFiles": "Save Files"
       },
       "message": {
@@ -241,14 +239,7 @@
         "duplicate_song": "Add duplicated songs",
         "song_exist": "There are duplicates being added to the playlist. Would you like to add the duplicates or skip them?",
         "noPlaylistsFound": "No playlists found",
-        "noPlaylists": "No playlists available",
-        "downloading": "Downloading %{done}/%{total}",
-        "downloaded": "Downloaded",
-        "downloadFailed": "Could not download this Playlist. Check your connection and try again.",
-        "downloadRemoved": "Download removed",
-        "removeDownloadFailed": "Could not remove this Download. Try again.",
-        "removeDownloadTitle": "Remove Download?",
-        "removeDownloadContent": "\"%{name}\" will no longer play offline, and the space it uses on this device will be freed."
+        "noPlaylists": "No playlists available"
       }
     },
     "radio": {
@@ -790,6 +781,42 @@
       "vol_up": "Volume Up",
       "vol_down": "Volume Down",
       "toggle_love": "Add this track to favourites"
+    }
+  },
+  "download": {
+    "actions": {
+      "download": "Download",
+      "resume": "Resume Download (%{done}/%{total})",
+      "remove": "Remove Download",
+      "shuffleAll": "Shuffle all Downloads"
+    },
+    "message": {
+      "downloading": "Downloading %{done}/%{total}",
+      "downloaded": "Downloaded",
+      "failed": "Could not download \"%{name}\". Check your connection and try again.",
+      "removed": "Download removed",
+      "removeFailed": "Could not remove this Download. Try again.",
+      "removeTitle": "Remove Download?",
+      "removeContent": "\"%{name}\" will no longer play offline, and the space it uses on this device will be freed.",
+      "nothingToShuffle": "Nothing is downloaded on this device yet"
+    },
+    "kind": {
+      "playlist": "Playlist",
+      "album": "Album"
+    },
+    "storage": {
+      "title": "Downloads",
+      "total": "Downloads use %{size} on this device",
+      "device": "This app is using %{used} of the %{quota} the browser allows it",
+      "noCap": "There is no limit: Downloads can use as much space as the browser allows.",
+      "shared": "A Track in several Downloads is stored once: it counts in each of their sizes, but only once in the total.",
+      "none": "Nothing is downloaded on this device yet.",
+      "measuring": "Measuring…"
+    },
+    "offline": {
+      "indicator": "Offline",
+      "unavailableTitle": "Not available offline",
+      "unavailableContent": "This needs a connection to the server. Your Downloads still play, and the rest will be back when you are online."
     }
   }
 }

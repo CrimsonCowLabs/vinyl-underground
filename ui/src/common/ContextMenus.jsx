@@ -125,7 +125,7 @@ const ContextMenu = ({
     download: {
       enabled: config.enableDownloads && downloadSize,
       needData: false,
-      label: `${translate('ra.action.download')} (${formatBytes(downloadSize)})`,
+      label: `${translate('resources.album.actions.saveFiles')} (${formatBytes(downloadSize)})`,
       action: () => {
         dispatch(
           openDownloadMenu(

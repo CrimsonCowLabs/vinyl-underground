@@ -1,6 +1,6 @@
-// Lets the app open downloaded Playlists with no network. Wraps the
-// react-admin data provider: Playlist and Track reads that can't reach the
-// server are answered from the Downloads instead. Server errors (a response
+// Lets the app open downloaded Playlists and albums with no network. Wraps
+// the react-admin data provider: Playlist, album and Track reads that can't
+// reach the server are answered from the Downloads instead. Server errors (a response
 // with a status) pass through untouched.
 
 const isNetworkError = (error) => error && error.status === undefined
@@ -34,29 +34,56 @@ const sortAndPage = (records, { sort, pagination } = {}) => {
 // happens asynchronously as the app starts.
 export const withDownloads = (
   dataProvider,
-  { downloads, isOnline, ready = () => Promise.resolve() },
+  {
+    downloads,
+    isOnline,
+    ready = () => Promise.resolve(),
+    reachability = { markReachable: () => {}, markUnreachable: () => {} },
+  },
 ) => {
+  // The Downloads' Playlists or albums
+  const items = (kind) =>
+    downloads
+      .list()
+      .filter((d) => d.kind === kind)
+      .map(({ id }) => downloads.getRecord(id, kind)?.[kind])
+      .filter(Boolean)
+
+  // The Tracks of one Download
+  const tracksOf = (kind, id, params) => {
+    const record = id != null && downloads.getRecord(id, kind)
+    return record ? sortAndPage(record.tracks, params) : undefined
+  }
+
   // Returns the offline answer for a request, or undefined if there is none
   const fromDownloads = {
     getOne: (resource, { id }) => {
-      const record = resource === 'playlist' && downloads.getRecord(id)
-      return record ? { data: record.playlist } : undefined
+      const kind = ['playlist', 'album'].includes(resource) && resource
+      const record = kind && downloads.getRecord(id, kind)
+      return record ? { data: record[kind] } : undefined
     },
     getList: (resource, params) => {
-      if (resource === 'playlist') {
-        const playlists = downloads
-          .list()
-          .map(({ id }) => downloads.getRecord(id)?.playlist)
-          .filter(Boolean)
-        return sortAndPage(playlists, params)
+      switch (resource) {
+        case 'playlist':
+        case 'album':
+          return sortAndPage(items(resource), params)
+        case 'playlistTrack':
+          return tracksOf(
+            'playlist',
+            params.filter?.playlist_id ?? params.id,
+            params,
+          )
+        case 'song':
+          // Only the Tracks of one album, as the album page asks for them
+          return tracksOf(
+            'album',
+            params.filter?.album_id ??
+              (params.target === 'album_id' ? params.id : undefined),
+            params,
+          )
+        default:
+          return undefined
       }
-      if (resource === 'playlistTrack') {
-        const record = downloads.getRecord(
-          params.filter?.playlist_id ?? params.id,
-        )
-        return record ? sortAndPage(record.tracks, params) : undefined
-      }
-      return undefined
     },
   }
   fromDownloads.getManyReference = fromDownloads.getList
@@ -71,8 +98,12 @@ export const withDownloads = (
       if (answer) return answer
     }
     try {
-      return await dataProvider[method](resource, params)
+      const result = await dataProvider[method](resource, params)
+      reachability.markReachable()
+      return result
     } catch (error) {
+      if (isNetworkError(error)) reachability.markUnreachable()
+      else reachability.markReachable() // it answered, with an error
       const answer = isNetworkError(error) && (await offline())
       if (answer) return answer
       throw error

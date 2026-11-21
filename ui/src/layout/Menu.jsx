@@ -11,6 +11,7 @@ import albumLists from '../album/albumLists'
 import PlaylistsSubMenu from './PlaylistsSubMenu'
 import LibrarySelector from '../common/LibrarySelector'
 import config from '../config'
+import { isAvailableOffline, useIsOffline } from '../download'
 
 const useStyles = makeStyles((theme) => ({
   root: {
@@ -52,6 +53,7 @@ const Menu = ({ dense = false }) => {
   const queue = useSelector((state) => state.player?.queue)
   const classes = useStyles({ addPadding: queue.length > 0 })
   const resources = useSelector(getResources)
+  const offline = useIsOffline()
 
   // TODO State is not persisted in mobile when you close the sidebar menu. Move to redux?
   const [state, setState] = useState({
@@ -73,6 +75,8 @@ const Menu = ({ dense = false }) => {
       leftIcon={resource.icon || <ViewListIcon />}
       sidebarIsOpen={open}
       dense={dense}
+      // Offline, a page that needs the server can't be opened
+      disabled={offline && !isAvailableOffline(`/${resource.name}`)}
     />
   )
 
