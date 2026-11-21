@@ -2,13 +2,15 @@
 # SPDX-License-Identifier: GPL-3.0-only
 """Plan moving Duplicates into Quarantine from a `jdupes` report.
 
-Usage: dupes.py JDUPES.txt [SCAN.tsv] [--root ROOT] > dupes.tsv
+Usage: dupes.py JDUPES.txt SCAN.tsv [--root ROOT] > dupes.tsv
 
 JDUPES.txt is the output of a read-only `jdupes -r -S` run from the share root, so its
 paths are relative to it. For each set of byte-identical audio Files, one is kept and
 every other one becomes a "quarantine" step for apply.py, which moves it to the same
 relative path under _Quarantine/ after checking again that its bytes still match the
-kept File. Sets with no audio (e.g. a DVD's matching .IFO and .BUP) are left alone.
+kept File. Sets with no audio (e.g. a DVD's matching .IFO and .BUP) are left alone, and
+so are Files in _Quarantine/ or in any folder with a .ndignore (e.g. the NAS's recycle bin),
+since the app's scanner skips them: they are not in the Library.
 
 Which File is kept, in order:
   1. Not a copy's name: "Song 1", "Song (1)", "Copy of Song" when "Song" is in the set.
@@ -16,8 +18,8 @@ Which File is kept, in order:
      tags the app shows, are identical, so this only decides where the File lives.
   3. The shortest file name, then the first in alphabetical order.
 
-SCAN.tsv (from scan.py) adds a per-folder summary to stderr, so the owner can see
-which folders the plan empties. --root lists ROOT/_Quarantine so the plan doesn't pick
+SCAN.tsv (from scan.py) shows which folders have a .ndignore, and gives the per-folder
+summary on stderr, so the owner can see which folders the plan empties. --root lists ROOT/_Quarantine so the plan doesn't pick
 a path that's already taken there.
 
 This module is pure apart from main(): it never touches the share.
@@ -75,8 +77,15 @@ def choose_keeper(paths: list[str]) -> str:
     return min(paths, key=rank)
 
 
-def _in_quarantine(path: str) -> bool:
-    return path.split("/", 1)[0].casefold() == QUARANTINE.casefold()
+def ignored_folders(scan: Iterable[Entry]) -> set[str]:
+    """Folders holding a .ndignore, which the app's scanner skips with everything under them."""
+    return {os.path.dirname(e.path) for e in scan if e.kind == "f" and os.path.basename(e.path) == ".ndignore"}
+
+
+def _outside_library(path: str, ignored: set[str]) -> bool:
+    parts = path.split("/")
+    folders = {"/".join(parts[:i]).casefold() for i in range(1, len(parts))}
+    return bool(folders & ({QUARANTINE.casefold()} | {f.casefold() for f in ignored}))
 
 
 def _quarantine_path(src: str, taken: set[str]) -> str:
@@ -88,12 +97,13 @@ def _quarantine_path(src: str, taken: set[str]) -> str:
     return path
 
 
-def plan_duplicates(sets: Iterable[list[str]], taken: Iterable[str] = ()) -> list[Action]:
-    """quarantine steps for every Duplicate: all but one File of each set of audio Files."""
+def plan_duplicates(sets: Iterable[list[str]], taken: Iterable[str] = (), ignored: Iterable[str] = ()) -> list[Action]:
+    """quarantine steps for every Duplicate: all but one File of each set of audio Files in the Library."""
     used = {t.casefold() for t in taken}
+    skipped = set(ignored)
     plan: list[Action] = []
     for files in sets:
-        audio = [f for f in files if AUDIO.search(f) and not _in_quarantine(f)]
+        audio = [f for f in files if AUDIO.search(f) and not _outside_library(f, skipped)]
         if len(audio) < 2:
             continue
         keep = choose_keeper(audio)
@@ -132,22 +142,25 @@ def main(argv: list[str]) -> int:
         i = args.index("--root")
         root = args[i + 1]
         del args[i : i + 2]
-    if not 1 <= len(args) <= 2:
+    if len(args) != 2:
         print(__doc__, file=sys.stderr)
         return 2
     with open(args[0], encoding="utf-8") as fh:
         sets = parse_jdupes(fh.read())
-    plan = plan_duplicates(sets, _quarantined(root) if root else ())
+    scan = read_scans(args[1:])
+    ignored = ignored_folders(scan)
+    plan = plan_duplicates(sets, _quarantined(root) if root else (), ignored)
     for a in plan:
         print("\t".join(a))
     audio_sets = len({a.keep for a in plan})
     print(f"{len(sets)} sets in the report, {audio_sets} of them audio; {len(plan)} Duplicates to quarantine", file=sys.stderr)
-    if len(args) == 2:
-        print("folder\tmoving out\taudio Files now", file=sys.stderr)
-        for top, out, now in folder_impact(read_scans(args[1:]), plan):
-            if out:
-                note = "  <- emptied" if out == now else ""
-                print(f"{top}\t{out}\t{now}{note}", file=sys.stderr)
+    if ignored:
+        print(f"skipped, not in the Library (.ndignore): {', '.join(sorted(ignored))}", file=sys.stderr)
+    print("folder\tmoving out\taudio Files now", file=sys.stderr)
+    for top, out, now in folder_impact(scan, plan):
+        if out:
+            note = "  <- emptied" if out == now else ""
+            print(f"{top}\t{out}\t{now}{note}", file=sys.stderr)
     return 0
 
 

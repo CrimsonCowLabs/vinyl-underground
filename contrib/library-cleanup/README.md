@@ -84,7 +84,7 @@ python3 scan.py /mnt/music > $PLANS/scan.tsv
 python3 dupes.py $PLANS/jdupes.txt $PLANS/scan.tsv --root /mnt/music > $PLANS/dupes.tsv
 ```
 
-Each line is `quarantine<TAB>SRC<TAB>_Quarantine/SRC<TAB>KEEP`: SRC moves to the same relative path under `_Quarantine/`, and KEEP is the byte-identical File that stays. Sets with no audio Files (a DVD's matching `.IFO` and `.BUP`, cover art) are left alone. Which File is kept, in order:
+Each line is `quarantine<TAB>SRC<TAB>_Quarantine/SRC<TAB>KEEP`: SRC moves to the same relative path under `_Quarantine/`, and KEEP is the byte-identical File that stays. Sets with no audio Files (a DVD's matching `.IFO` and `.BUP`, cover art) are left alone. So are Files under `_Quarantine/` or any folder with a `.ndignore`, such as the recycle bin once you give it one: the app's scanner skips those folders, so they are not part of the Library. Give the recycle bin a `.ndignore` (`touch /mnt/music-rw/trashbox/.ndignore`) before the first scan, or it becomes Tracks. Which File is kept, in order:
 
 1. Not a copy's name: `Song 1`, `Song (1)` or `Copy of Song`, when `Song` itself is in the set.
 2. The deepest folder, so `Artist/Album/Song` beats a loose `Song`. The bytes, and so the tags the app shows, are identical; this only decides where the File lives.

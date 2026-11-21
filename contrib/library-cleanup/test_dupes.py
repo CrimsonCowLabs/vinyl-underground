@@ -2,7 +2,7 @@
 import unittest
 
 from casemerge import Action, Entry
-from dupes import choose_keeper, folder_impact, parse_jdupes, plan_duplicates
+from dupes import choose_keeper, folder_impact, ignored_folders, parse_jdupes, plan_duplicates
 
 REPORT = """\
 28672 bytes each:
@@ -81,10 +81,26 @@ class PlanDuplicates(unittest.TestCase):
     def test_ignores_files_already_in_quarantine(self) -> None:
         self.assertEqual(plan_duplicates([["_Quarantine/A/Song.mp3", "A/Song.mp3"]]), [])
 
+    def test_ignores_files_in_folders_the_scanner_skips(self) -> None:
+        # A recycle bin with a .ndignore isn't in the Library: its copy must neither be kept nor moved.
+        sets = [["trashbox/A/Song.mp3", "A/Song.mp3"], ["trashbox/B.mp3", "B/B.mp3", "C/B 1.mp3"]]
+
+        self.assertEqual(
+            plan_duplicates(sets, ignored={"trashbox"}),
+            [Action("quarantine", "C/B 1.mp3", "_Quarantine/C/B 1.mp3", "B/B.mp3")],
+        )
+
     def test_numbers_a_quarantine_path_that_is_already_taken_in_any_letter_case(self) -> None:
         plan = plan_duplicates([["A/Song 1.mp3", "A/Song.mp3"]], taken={"_quarantine/a/song 1.mp3"})
 
         self.assertEqual(plan[0].dst, "_Quarantine/A/Song 1 [2].mp3")
+
+
+class IgnoredFolders(unittest.TestCase):
+    def test_lists_every_folder_holding_a_ndignore(self) -> None:
+        scan = [Entry("f", 0, "trashbox/.ndignore"), Entry("f", 0, "A/B/.ndignore"), Entry("f", 1, "C/.ndignore.mp3")]
+
+        self.assertEqual(ignored_folders(scan), {"trashbox", "A/B"})
 
 
 class FolderImpact(unittest.TestCase):
