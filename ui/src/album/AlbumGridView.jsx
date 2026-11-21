@@ -23,6 +23,8 @@ import { DraggableTypes } from '../consts'
 import clsx from 'clsx'
 import { AlbumDatesField } from './AlbumDatesField.jsx'
 import { Artwork } from '../common/Artwork'
+import { DownloadBadge } from '../download/DownloadBadge'
+import { ALBUM } from '../download/downloads'
 
 const useStyles = makeStyles(
   (theme) => ({
@@ -96,6 +98,7 @@ const useStyles = makeStyles(
 
 const useCoverStyles = makeStyles({
   coverContainer: {
+    position: 'relative',
     width: '100%',
     aspectRatio: '1',
     overflow: 'hidden',
@@ -109,6 +112,12 @@ const useCoverStyles = makeStyles({
     aspectRatio: '1',
     height: (props) => props.height,
     transition: 'opacity 0.3s ease-in-out',
+  },
+  // Top left, clear of the play button and context menu along the bottom
+  downloadBadge: {
+    position: 'absolute',
+    top: 6,
+    left: 6,
   },
 })
 
@@ -147,6 +156,11 @@ const Cover = withContentRect('bounds')(({
           title={record.name}
         />
       </div>
+      <DownloadBadge
+        id={record.id}
+        kind={ALBUM}
+        className={classes.downloadBadge}
+      />
     </div>
   )
 })
