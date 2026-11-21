@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-only
 """Tests for the covers plugin. They need beets, so run them in the image: retag.sh test."""
+import hashlib
 import io
 import os
 import shutil
@@ -278,6 +279,80 @@ class Covers(unittest.TestCase):
 
         self.assertEqual(self.plugin.cover(album), ("kept", "cover.jpg"))
         self.assertEqual(read(os.path.join(self.music, "Radiohead/The Bends/cover.jpg")), cover)
+
+    # The options run-covers.sh passes: a dry run, a backup, and covers in folders only.
+
+    def test_a_dry_run_says_what_it_would_do_and_writes_nothing(self) -> None:
+        album = self.album("Radiohead/The Bends")
+        kept = self.album("Radiohead/Pablo Honey", name="Pablo Honey")
+        image(os.path.join(self.music, "Radiohead/Pablo Honey/Folder.png"), 800, fmt="PNG")
+        self.online("The Bends", 3000)
+        config["covers"]["pretend"] = True
+        before = {f: read(os.path.join(self.music, "Radiohead/The Bends", f)) for f in ("01 Track.mp3", "02 Track.mp3")}
+
+        self.assertEqual(self.plugin.cover(album).status, "found")
+        self.assertEqual(self.plugin.cover(kept).status, "kept")
+
+        self.assertEqual(sorted(os.listdir(os.path.join(self.music, "Radiohead/The Bends"))), sorted(before))
+        self.assertEqual({f: read(os.path.join(self.music, "Radiohead/The Bends", f)) for f in before}, before)
+        self.assertFalse(os.path.exists(os.path.join(self.music, "Radiohead/Pablo Honey/cover.jpg")))
+        self.assertEqual(self.embedded("Radiohead/Pablo Honey"), [None, None])
+        self.assertIsNone(self.lib.get_album(album.id).artpath)
+
+    def test_a_backup_keeps_each_file_as_it_was_before_the_cover_went_in(self) -> None:
+        backup = os.path.join(os.path.dirname(self.music), "backup")
+        album = self.album("Radiohead/The Bends")
+        original = read(os.path.join(self.music, "Radiohead/The Bends/01 Track.mp3"))
+        self.online("The Bends", 1200)
+        config["covers"]["backup"] = backup
+
+        self.plugin.cover(album)
+
+        self.assertEqual(read(os.path.join(backup, "files/Radiohead/The Bends/01 Track.mp3")), original)
+        cover = os.path.join(self.music, "Radiohead/The Bends/cover.jpg")
+        digest = hashlib.sha256(read(cover)).hexdigest()
+        # Each File's checksum after the cover went in, so a restore can tell it hasn't changed since.
+        after = [hashlib.sha256(read(os.path.join(self.music, "Radiohead/The Bends", f))).hexdigest()
+                 for f in ("01 Track.mp3", "02 Track.mp3")]
+        with open(os.path.join(backup, "manifest.tsv"), encoding="utf-8") as fh:
+            self.assertEqual(fh.read().splitlines(), [
+                f"cover\tRadiohead/The Bends/cover.jpg\t{digest}",
+                f"file\tRadiohead/The Bends/01 Track.mp3\t{after[0]}",
+                f"file\tRadiohead/The Bends/02 Track.mp3\t{after[1]}",
+            ])
+
+    def test_a_backup_leaves_out_files_it_does_not_change(self) -> None:
+        backup = os.path.join(os.path.dirname(self.music), "backup")
+        art = read(image(os.path.join(self.images, "art.jpg"), 800))
+        album = self.album("Radiohead/The Bends", embedded=art)
+        config["covers"]["backup"] = backup
+
+        self.plugin.cover(album)
+
+        self.assertFalse(os.path.exists(os.path.join(backup, "files")))
+        with open(os.path.join(backup, "manifest.tsv"), encoding="utf-8") as fh:
+            self.assertEqual([l.split("\t")[0] for l in fh.read().splitlines()], ["cover"])
+
+    def test_with_embedding_off_only_the_folder_gets_the_cover(self) -> None:
+        album = self.album("Radiohead/The Bends")
+        self.online("The Bends", 1200)
+        config["covers"]["embed"] = False
+
+        self.assertEqual(self.plugin.cover(album).status, "found")
+
+        self.assertTrue(os.path.exists(os.path.join(self.music, "Radiohead/The Bends/cover.jpg")))
+        self.assertEqual(self.embedded("Radiohead/The Bends"), [None, None])
+
+    def test_the_command_takes_the_options_for_a_dry_run_a_backup_and_no_embedding(self) -> None:
+        cmd = self.plugin.commands()[0]
+        opts, args = cmd.parser.parse_args(["--pretend", "--backup", "/backup", "--no-embed", "album:Bends"])
+
+        self.plugin.apply_options(opts)
+
+        self.assertEqual(args, ["album:Bends"])
+        self.assertTrue(config["covers"]["pretend"].get(bool))
+        self.assertEqual(config["covers"]["backup"].get(), "/backup")
+        self.assertFalse(config["covers"]["embed"].get(bool))
 
 
 if __name__ == "__main__":
