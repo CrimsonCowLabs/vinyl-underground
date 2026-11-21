@@ -9,7 +9,7 @@ import unittest
 
 import apply
 from casemerge import Entry
-from heldtwice import Track, plan_albums, plan_line, read_tracks
+from heldtwice import Stray, Track, plan_albums, plan_line, read_tracks
 
 CURATED = "Radiohead/Albums/The Bends"
 ITUNES = "iTunes_Library/Music/Radiohead/The Bends"
@@ -29,7 +29,7 @@ def album(folder: str, titles: list[str] = BENDS, **cols: object) -> list[Track]
 
 
 class FindAlbumsHeldTwice(unittest.TestCase):
-    def test_pairs_the_songs_of_two_copies_by_artist_and_title_not_file_name(self) -> None:
+    def test_pairs_the_tracks_of_two_copies_by_artist_and_title_not_file_name(self) -> None:
         tracks = album(CURATED) + [track(f"{ITUNES}/{t} (iTunes).mp3", t.upper() + "!", bit_rate=192) for t in BENDS]
 
         [line] = plan_albums(tracks).lines
@@ -51,17 +51,32 @@ class FindAlbumsHeldTwice(unittest.TestCase):
         [stray] = planned.strays
         self.assertEqual((stray.folder, stray.tracks, stray.folder_tracks), (mix, 1, 10))
 
-    def test_leaves_alone_folders_that_share_few_songs(self) -> None:
-        # iTunes split one copy by Track artist: each folder holds different songs.
+    def test_reports_a_lone_track_of_the_album_as_a_stray_even_in_a_folder_of_its_own(self) -> None:
+        planned = plan_albums(album(CURATED) + [track("Singles/High and Dry.mp3", "High and Dry", bit_rate=128)])
+
+        self.assertEqual(planned.lines, [])
+        self.assertEqual(planned.strays, [Stray("Radiohead - The Bends", "Singles", 1, 1)])
+
+    def test_plans_two_multi_disc_copies_disc_by_disc(self) -> None:
+        tracks = (album("X/CD1", BENDS[:3], disc=1) + album("X/CD2", BENDS[3:] + ["Sulk"], disc=2)
+                  + album("Y/CD1", BENDS[:3], disc=1, bit_rate=192) + album("Y/CD2", BENDS[3:] + ["Sulk"], disc=2, bit_rate=192))
+
+        planned = plan_albums(tracks)
+
+        self.assertEqual([(line.keep, line.other, len(line.pairs)) for line in planned.lines], [("X/CD1", "Y/CD1", 3), ("X/CD2", "Y/CD2", 3)])
+        self.assertEqual(planned.unmatched, [])
+
+    def test_leaves_alone_folders_that_share_few_tracks(self) -> None:
+        # iTunes split one copy by Track artist: each folder holds different Tracks.
         tracks = (album("Ja Rule/Pain Is Love", BENDS[:4]) + album("Ja Rule feat. Case/Pain Is Love", BENDS[3:])
-                  + album("Ja Rule ft. Missy/Pain Is Love", ["Sulk"]))
+                  + album("Ja Rule ft. Missy/Pain Is Love", ["Sulk", "Just"]))
 
         planned = plan_albums(tracks)
 
         self.assertEqual(planned.lines, [])
         self.assertEqual(planned.unmatched, [  # each against the biggest copy
             ("Radiohead - The Bends", "Ja Rule feat. Case/Pain Is Love", "Ja Rule/Pain Is Love", 1, 2),
-            ("Radiohead - The Bends", "Ja Rule ft. Missy/Pain Is Love", "Ja Rule/Pain Is Love", 0, 1),
+            ("Radiohead - The Bends", "Ja Rule ft. Missy/Pain Is Love", "Ja Rule/Pain Is Love", 0, 2),
         ])
 
     def test_leaves_alone_an_album_whose_folders_each_hold_a_different_disc(self) -> None:
@@ -69,7 +84,7 @@ class FindAlbumsHeldTwice(unittest.TestCase):
 
         self.assertEqual(plan_albums(tracks), plan_albums([]))
 
-    def test_only_songs_both_copies_hold_move(self) -> None:
+    def test_only_tracks_both_copies_hold_move(self) -> None:
         tracks = album(CURATED, BENDS[:4]) + album(ITUNES, BENDS, bit_rate=192)
 
         [line] = plan_albums(tracks).lines
@@ -136,12 +151,12 @@ class ChooseTheCopyToKeep(unittest.TestCase):
     def test_then_a_cover(self) -> None:
         self.assertEqual(self.kept(dict(), dict(cover=True)), (ITUNES, "has a cover, the other copy has none"))
 
-    def test_then_more_songs_then_the_first_folder(self) -> None:
+    def test_then_more_tracks_then_the_first_folder(self) -> None:
         [line] = plan_albums(album(CURATED, BENDS[:4]) + album(ITUNES)).lines
-        self.assertEqual((line.keep, line.reason), (ITUNES, "same quality; more songs (5 vs 4)"))
+        self.assertEqual((line.keep, line.reason), (ITUNES, "same quality; more Tracks (5 vs 4)"))
         self.assertEqual(self.kept(dict(), dict()), (CURATED, "same quality; kept the first folder"))
 
-    def test_judges_only_the_songs_both_copies_hold(self) -> None:
+    def test_judges_only_the_tracks_both_copies_hold(self) -> None:
         tracks = album(CURATED, BENDS[:3]) + album(ITUNES, BENDS[:3], bit_rate=256) + [track(f"{CURATED}/09 Sulk.flac", "Sulk", lossless=True)]
 
         [line] = plan_albums(tracks).lines
@@ -203,7 +218,7 @@ class ReadTracks(unittest.TestCase):
 
 
 class ApplyAPlanLine(unittest.TestCase):
-    """A plan line moves the songs both copies hold out of the copy marked quarantine."""
+    """A plan line moves the Tracks both copies hold out of the copy marked quarantine."""
 
     def setUp(self) -> None:
         self.root, self.plans = tempfile.mkdtemp(), tempfile.mkdtemp()
@@ -232,7 +247,7 @@ class ApplyAPlanLine(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             return apply.main([self.root, self.plan])
 
-    def test_moves_the_weaker_copy_of_each_song_both_hold_into_quarantine_keeping_its_path(self) -> None:
+    def test_moves_the_weaker_copy_of_each_track_both_hold_into_quarantine_keeping_its_path(self) -> None:
         self.assertEqual(self.run_plan(plan_line(self.line)), 0)
 
         for i, t in enumerate(BENDS[:3], 1):

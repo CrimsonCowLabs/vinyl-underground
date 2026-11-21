@@ -15,7 +15,7 @@ whatever their tags (see audio.py), and stops if not. A "set-aside" step
 is the owner's answer to a "decide": it moves a File that is NOT byte-identical
 (e.g. a lower-bitrate copy of the same recording) into Quarantine, provided the
 File it gives way to still exists. A "held-twice" step (from heldtwice.py) moves
-the songs both copies of an album hold out of the copy marked quarantine; it first
+the Tracks both copies of an album hold out of the copy marked quarantine; it first
 checks that every one of those Files, and the File kept for each, is still listed at
 the size it had when planned, and moves nothing if not. A step stopped part-way
 resumes: a File already in Quarantine at its planned size counts as moved.
@@ -88,11 +88,14 @@ def _size(root: str, rel: str) -> int | None:
 
 
 def quarantine_copy(root: str, fields: list[str]) -> str:
-    """A "held-twice" step (heldtwice.py): move the songs both copies of an album hold out of
+    """A "held-twice" step (heldtwice.py): move the Tracks both copies of an album hold out of
     the copy marked quarantine. Every File is checked before any moves: the File kept and the
     File moved must both still be listed, at the size they had when planned. A File already
     in Quarantine at that size was moved by an earlier, interrupted run."""
-    kept, away, moves = parse_line(fields)
+    try:
+        kept, away, moves = parse_line(fields)
+    except ValueError as e:
+        raise RuntimeError(f"not a valid held-twice line: {e}") from e
     todo = []
     for m in moves:
         if _size(root, m.keep) != m.keep_size:
@@ -167,7 +170,7 @@ def main(argv: list[str]) -> int:
                 result = "ok"
             else:
                 raise RuntimeError(f"unknown op {op!r}")
-        except (OSError, RuntimeError, ValueError) as e:
+        except (OSError, RuntimeError) as e:
             print(f"STOPPED at step {i}: {e}", file=sys.stderr)
             return 1
         done += 1

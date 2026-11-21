@@ -23,7 +23,7 @@ A File whose audio is identical to another File's, even if its tags or embedded 
 _Avoid_: Copy, version (a live or remastered recording is a different Track, not a Duplicate)
 
 **Album held twice**:
-An album (with its album artist) kept on the drive as two separate copies in different folders, so the app lists every song twice. Their audio differs, so they are not Duplicates; the songs the weaker copy shares with the other are moved to Quarantine. One stray Track of an album in another folder (e.g. a mix) doesn't make it held twice, and neither does a multi-disc album with one folder per disc.
+An album (with its album artist) kept on the drive as two separate copies in different folders, so the app lists every Track twice. Their audio differs, so they are not Duplicates; the songs the weaker copy shares with the other are moved to Quarantine. One stray Track of an album in another folder (e.g. a mix) doesn't make it held twice, and neither does a multi-disc album with one folder per disc.
 _Avoid_: Duplicate album (its Files are not Duplicates), double album (an album of two discs)
 
 **Quarantine**:

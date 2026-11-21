@@ -28,7 +28,7 @@ import sqlite3
 import sys
 from collections import defaultdict
 from pathlib import Path
-from typing import NamedTuple
+from typing import Iterable, NamedTuple
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from dupes import _is_copy_name  # noqa: E402
@@ -39,7 +39,7 @@ LIVE = "missing = 0"
 _FOLDER_PATH = "CASE WHEN f.path IN ('', '.') THEN f.name ELSE f.path || '/' || f.name END"
 SHORT_DISC = 2  # Tracks on a disc short enough to look stray
 # A tag the app shows as "[Unknown Album]" or "[Unknown Artist]" was blank in the File.
-_UNKNOWN = ("", "unknown", "[unknown album]", "[unknown artist]")
+UNKNOWN = ("", "unknown", "[unknown album]", "[unknown artist]")
 
 
 class Measure(NamedTuple):
@@ -56,7 +56,7 @@ def _scalar(db: sqlite3.Connection, sql: str) -> int:
 
 
 def _unknown(column: str) -> str:
-    values = ", ".join(f"'{v}'" for v in _UNKNOWN)
+    values = ", ".join(f"'{v}'" for v in UNKNOWN)
     return f"lower(trim({column})) IN ({values})"
 
 
@@ -96,6 +96,13 @@ def _likely_duplicates(db: sqlite3.Connection) -> list[Measure]:
     ]
 
 
+def one_disc_per_folder(discs: Iterable[set[int]]) -> bool:
+    """Whether an album's folders, given the disc numbers each holds, are one disc each (CD1/, CD2/)."""
+    per_folder = list(discs)
+    single = [next(iter(d)) for d in per_folder if len(d) == 1]
+    return len(single) == len(per_folder) and 0 not in single and len(set(single)) == len(single)
+
+
 def _albums_held_twice(db: sqlite3.Connection) -> Measure:
     albums: dict[tuple[str, str], dict[str, set[int]]] = defaultdict(lambda: defaultdict(set))
     shown: dict[tuple[str, str], tuple[str, str, str]] = {}
@@ -111,9 +118,7 @@ def _albums_held_twice(db: sqlite3.Connection) -> Measure:
     for key, folders in albums.items():
         if len(folders) < 2:
             continue
-        discs = [next(iter(d)) for d in folders.values() if len(d) == 1]
-        one_disc_per_folder = len(discs) == len(folders) and 0 not in discs and len(set(discs)) == len(discs)
-        if not one_disc_per_folder:
+        if not one_disc_per_folder(folders.values()):
             _folder, album_artist, album = shown[key]
             rows.append((album_artist, album, " | ".join(sorted(folders))))
     rows.sort(key=lambda r: (r[0].casefold(), r[1].casefold()))

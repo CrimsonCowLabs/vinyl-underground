@@ -11,23 +11,26 @@ read-only; SCAN.tsv (scan.py) says which Files are on the share now. A Track cou
 the scan lists its File at the size the app recorded, so a File moved, retagged or replaced
 since the app's last scan is left out (and listed).
 
-A folder holds a copy of the album only if the album is most of its Tracks. One Track of
-the album in a mix or a folder of loose songs is a stray: it is reported, never planned.
-Two copies are the album held twice if most songs of the smaller one are in the other.
-Songs match by artist and title, ignoring case, spaces and punctuation, then by title
+A folder holds a copy of the album only if it holds two or more of its Tracks and the album
+is most of the folder. A lone Track, or a few in a mix or a folder of loose Tracks, is a
+stray: it is reported, never planned. Two copies are the album held twice if most Tracks of
+the smaller one are in the other. Copies that share most Tracks form a group (two copies of
+disc 1, apart from two copies of disc 2), and each group keeps its best copy.
+Tracks match by artist and title, ignoring case, spaces and punctuation, then by title
 without a bracketed subtitle if the two are the same length; never by File name. Copy-named
 Files ("Song 1.mp3" beside "Song.mp3") are left to the audio Duplicate pass (audiodupes.py).
 
-The copy kept is judged on the songs both hold, in order: more lossless Files, a higher
-average bitrate, more complete tags (see TAGS), a cover; then more songs, then the first
+The copy kept is judged on the Tracks both hold, in order: more lossless Files, a higher
+average bitrate, more complete tags (see TAGS), a cover; then more Tracks, then the first
 folder. Each line of the plan is one copy to quarantine, usually one per album:
 
-  held-twice  keep  FOLDER  quarantine  FOLDER  ALBUM  WHY  SONG...
+  held-twice  keep  FOLDER  quarantine  FOLDER  ALBUM  WHY  TRACK...
 
-where each SONG is NAME/SIZE/NAME/SIZE: the song's File in the first folder and in the
+where each TRACK is NAME/SIZE/NAME/SIZE: the Track's File in the first folder and in the
 second. To keep the other copy, swap the words keep and quarantine; delete a line to
-keep both. apply.py moves only the SONG Files of the folder marked quarantine, to the same
-path under _Quarantine/, so a song only that copy has stays. --library picks the app's
+keep both. A group of three copies gets two lines with the same copy kept: change the
+copy kept on both, or plan again after the first run. apply.py moves only the TRACK Files of the folder marked quarantine, to the same
+path under _Quarantine/, so a Track only that copy has stays. --library picks the app's
 library holding the share (1, the first, by default; the Inbox is another).
 
 Apart from main(), this module only reads the database connection it's given.
@@ -45,13 +48,9 @@ from typing import Callable, Iterable, NamedTuple
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from casemerge import QUARANTINE, Entry, read_scans  # noqa: E402
 from dupes import _is_copy_name, ignored_folders, outside_library  # noqa: E402
-from health import open_read_only  # noqa: E402
+from health import LIVE, UNKNOWN, one_disc_per_folder, open_read_only  # noqa: E402
 
-# A tag the app shows as "[Unknown Album]" or "[Unknown Artist]" was blank in the File.
-_UNKNOWN = ("", "unknown", "[unknown album]", "[unknown artist]")
-
-
-# The tags counted for completeness (title and album are always there: songs are matched by them).
+# The tags counted for completeness (title and album are always there: Tracks are matched by them).
 TAGS = ("artist", "album artist", "year", "track number", "genre", "MusicBrainz recording ID")
 
 
@@ -73,15 +72,15 @@ class Track(NamedTuple):
 
 
 @dataclass
-class Line:
-    """One album held twice: the copy to keep, the other copy, and the songs both hold."""
+class HeldTwice:
+    """One copy of an album held twice to quarantine: the copy to keep, the other copy, and the Tracks both hold."""
 
     album: str  # "Album artist - Album", for people
     keep: str  # folder
     other: str  # folder
     reason: str
     pairs: list[tuple[Track, Track]]  # (Track in keep, Track in other), in track order
-    only_other: int = 0  # songs only the other copy has: they stay
+    only_other: int = 0  # Tracks only the other copy has: they stay
     copy_named: int = 0  # copy-named Files in either copy, left to the audio Duplicate pass
 
 
@@ -92,11 +91,21 @@ class Stray(NamedTuple):
     folder_tracks: int  # all Tracks in the folder
 
 
+class Unmatched(NamedTuple):
+    """A copy of an album that shares no more than half its Tracks with any other copy: not planned."""
+
+    album: str
+    folder: str
+    other: str  # the copy it shares most with
+    in_common: int  # Tracks both hold
+    smaller: int  # Tracks in the smaller of the two
+
+
 @dataclass
 class Planned:
-    lines: list[Line] = field(default_factory=list)
+    lines: list[HeldTwice] = field(default_factory=list)
     strays: list[Stray] = field(default_factory=list)
-    unmatched: list[tuple[str, str, str, int, int]] = field(default_factory=list)  # (album, folder, folder, in common, smaller copy)
+    unmatched: list[Unmatched] = field(default_factory=list)
 
 
 LOSSLESS = {"flac", "wav", "aif", "aiff", "ape", "wv", "alac"}  # suffixes and codecs (an M4A may hold ALAC)
@@ -110,7 +119,7 @@ class Read:
 
 
 def _known(value: str) -> bool:
-    return value.strip().casefold() not in _UNKNOWN
+    return value.strip().casefold() not in UNKNOWN
 
 
 def read_tracks(db: sqlite3.Connection, scan: Iterable[Entry], library: int = 1) -> Read:
@@ -122,11 +131,11 @@ def read_tracks(db: sqlite3.Connection, scan: Iterable[Entry], library: int = 1)
     read = Read([], [], 0)
     for (path, size, album_artist, album, artist, title, duration, suffix, codec, bit_rate, disc, number,
          year, genre, mbid, embedded, images) in db.execute(
-        """SELECT m.path, m.size, m.album_artist, m.album, m.artist, m.title, m.duration, m.suffix, m.codec,
+        f"""SELECT m.path, m.size, m.album_artist, m.album, m.artist, m.title, m.duration, m.suffix, m.codec,
                   m.bit_rate, m.disc_number, m.track_number, m.year, m.genre, m.mbz_recording_id,
                   m.has_cover_art, coalesce(f.image_files, '[]')
            FROM media_file m LEFT JOIN folder f ON f.id = m.folder_id
-           WHERE m.missing = 0 AND m.library_id = ? ORDER BY m.path""",
+           WHERE m.{LIVE} AND m.library_id = ? ORDER BY m.path""",
         (library,),
     ):
         if path not in sizes:
@@ -150,11 +159,11 @@ _BRACKETED = re.compile(r"\([^)]*\)|\[[^\]]*\]")
 SAME_LENGTH = 3.0  # seconds: two rips of one recording differ by less
 
 
-def _song(t: Track) -> tuple[str, str]:
+def _artist_title(t: Track) -> tuple[str, str]:
     return (_norm(t.artist), _norm(t.title))
 
 
-def _song_without_subtitle(t: Track) -> tuple[str, str]:
+def _artist_title_without_subtitle(t: Track) -> tuple[str, str]:
     return (_norm(t.artist), _norm(_BRACKETED.sub("", t.title)))
 
 
@@ -181,16 +190,16 @@ def _pair_by(key: Callable[[Track], tuple[str, str]], a: list[Track], b: list[Tr
     return pairs
 
 
-def match_songs(a: list[Track], b: list[Track]) -> list[tuple[Track, Track]]:
-    """(Track in a, Track in b) for each song both copies hold, in a's track order.
+def match_tracks(a: list[Track], b: list[Track]) -> list[tuple[Track, Track]]:
+    """(Track in a, Track in b) for each Track both copies hold, in a's track order.
 
-    Songs match by artist and title, ignoring case, spaces and punctuation. What's left
+    Tracks match by artist and title, ignoring case, spaces and punctuation. What's left
     matches by title without its bracketed subtitle ("2 + 2 = 5 (The Lukewarm.)" and
     "2+2=5"), but only if the two are the same length, so a remix doesn't match the original.
     """
-    pairs = _pair_by(_song, a, b, close=False)
+    pairs = _pair_by(_artist_title, a, b, close=False)
     paired = {id(t) for p in pairs for t in p}
-    pairs += _pair_by(_song_without_subtitle, [t for t in a if id(t) not in paired], [t for t in b if id(t) not in paired], close=True)
+    pairs += _pair_by(_artist_title_without_subtitle, [t for t in a if id(t) not in paired], [t for t in b if id(t) not in paired], close=True)
     return sorted(pairs, key=lambda p: _order(p[0]))
 
 
@@ -198,9 +207,9 @@ def _formats(tracks: list[Track]) -> str:
     return "/".join(sorted({t.suffix.upper() for t in tracks}))
 
 
-def _choose(a: list[Track], b: list[Track], songs_a: int, songs_b: int) -> tuple[bool, str]:
-    """Whether copy a is kept over copy b, judged on the songs both hold (a[i] and b[i] are
-    the same song), and why. In order: lossless, bitrate, tags, cover, then more songs."""
+def _choose(a: list[Track], b: list[Track], tracks_a: int, tracks_b: int) -> tuple[bool, str]:
+    """Whether copy a is kept over copy b, judged on the Tracks both hold (a[i] and b[i] are
+    the same Track), and why. In order: lossless, bitrate, tags, cover, then more Tracks."""
     lossless_a, lossless_b = (sum(t.lossless for t in c) for c in (a, b))
     if lossless_a != lossless_b:
         win, lose = (a, b) if lossless_a > lossless_b else (b, a)
@@ -216,19 +225,17 @@ def _choose(a: list[Track], b: list[Track], songs_a: int, songs_b: int) -> tuple
     cover_a, cover_b = (any(t.cover for t in c) for c in (a, b))
     if cover_a != cover_b:
         return cover_a, "has a cover, the other copy has none"
-    if songs_a != songs_b:
-        return songs_a > songs_b, f"same quality; more songs ({max(songs_a, songs_b)} vs {min(songs_a, songs_b)})"
+    if tracks_a != tracks_b:
+        return tracks_a > tracks_b, f"same quality; more Tracks ({max(tracks_a, tracks_b)} vs {min(tracks_a, tracks_b)})"
     return True, "same quality; kept the first folder"
 
 
-def _is_one_disc_per_folder(folders: dict[str, list[Track]]) -> bool:
-    """CD1/ and CD2/ of one album, as health.py counts it: not held twice."""
-    discs = [next(iter(d)) for d in ({t.disc for t in ts} for ts in folders.values()) if len(d) == 1]
-    return len(discs) == len(folders) and 0 not in discs and len(set(discs)) == len(discs)
-
-
 def plan_albums(tracks: Iterable[Track]) -> Planned:
-    """Albums held twice: each copy of an album that shares most songs with the copy kept, and the strays."""
+    """Albums held twice: each copy of an album that shares most Tracks with the copy kept, and the strays.
+
+    Copies that share most Tracks form a group (two copies of one disc, say, apart from two
+    copies of another), and each group keeps one copy: the best of the group.
+    """
     tracks = list(tracks)
     folder_tracks = Counter(os.path.dirname(t.path) for t in tracks)
     names: dict[str, set[str]] = defaultdict(set)
@@ -236,53 +243,81 @@ def plan_albums(tracks: Iterable[Track]) -> Planned:
         names[os.path.dirname(t.path)].add(os.path.basename(t.path))
     albums: dict[tuple[str, str], dict[str, list[Track]]] = defaultdict(lambda: defaultdict(list))
     for t in tracks:
-        if t.album.strip().casefold() in _UNKNOWN:
+        if t.album.strip().casefold() in UNKNOWN:
             continue
         albums[(t.album_artist.strip().casefold(), t.album.strip().casefold())][os.path.dirname(t.path)].append(t)
     planned = Planned()
     for _key, folders in sorted(albums.items()):
-        if len(folders) < 2 or _is_one_disc_per_folder(folders):
+        if len(folders) < 2 or one_disc_per_folder({t.disc for t in ts} for ts in folders.values()):
             continue
         first = min((t for ts in folders.values() for t in ts), key=lambda t: t.path)
         label = f"{first.album_artist.strip()} - {first.album.strip()}"
         copies: dict[str, list[Track]] = {}
         copy_named: dict[str, int] = {}
         for folder, ts in sorted(folders.items()):
-            if 2 * len(ts) <= folder_tracks[folder]:
+            if len(ts) < 2 or 2 * len(ts) <= folder_tracks[folder]:
                 planned.strays.append(Stray(label, folder, len(ts), folder_tracks[folder]))
                 continue
             copies[folder] = [t for t in ts if not _is_copy_name(t.path, names[folder])]
             copy_named[folder] = len(ts) - len(copies[folder])
         if len(copies) < 2:
             continue
-
-        def shared(fa: str, fb: str) -> tuple[list[tuple[Track, Track]], bool]:
-            pairs = match_songs(copies[fa], copies[fb])
-            return pairs, 2 * len(pairs) > min(len(copies[fa]), len(copies[fb]))
-
-        def wins(fa: str, fb: str, pairs: list[tuple[Track, Track]]) -> tuple[bool, str]:
-            return _choose([p[0] for p in pairs], [p[1] for p in pairs], len(copies[fa]), len(copies[fb]))
-
-        # Start from the biggest copy, so copies that share little are reported against it.
-        keep = min(copies, key=lambda f: (-len(copies[f]), f))
-        for folder in copies:
-            if folder == keep:
-                continue
-            pairs, most = shared(keep, folder)
-            if most and not wins(keep, folder, pairs)[0]:
-                keep = folder
-        for folder in copies:
-            if folder == keep:
-                continue
-            pairs, most = shared(keep, folder)
-            if not most:
-                a, b = sorted((keep, folder))
-                planned.unmatched.append((label, a, b, len(pairs), min(len(copies[keep]), len(copies[folder]))))
-                continue
-            _won, reason = wins(keep, folder, pairs)
-            planned.lines.append(Line(label, keep, folder, reason, pairs, len(copies[folder]) - len(pairs),
-                                      copy_named[keep] + copy_named[folder]))
+        _plan_copies(label, copies, copy_named, planned)
     return planned
+
+
+def _plan_copies(label: str, copies: dict[str, list[Track]], copy_named: dict[str, int], planned: Planned) -> None:
+    """Plan (or report) the copies of one album, held in more than one folder."""
+    shared: dict[tuple[str, str], list[tuple[Track, Track]]] = {}
+    for fa in copies:
+        for fb in copies:
+            if fa != fb:
+                shared[(fa, fb)] = match_tracks(copies[fa], copies[fb])
+
+    def most(fa: str, fb: str) -> bool:
+        return 2 * len(shared[(fa, fb)]) > min(len(copies[fa]), len(copies[fb]))
+
+    def choose(fa: str, fb: str) -> tuple[bool, str]:
+        pairs = shared[(fa, fb)]
+        return _choose([p[0] for p in pairs], [p[1] for p in pairs], len(copies[fa]), len(copies[fb]))
+
+    # Biggest first, so the group's first copy is its biggest, and so is the copy a loner is reported against.
+    order = sorted(copies, key=lambda f: (-len(copies[f]), f))
+    groups: list[list[str]] = []
+    for folder in order:
+        joined = [g for g in groups if any(most(folder, other) for other in g)]
+        for g in joined[1:]:
+            joined[0] += g
+            groups.remove(g)
+        if joined:
+            joined[0].append(folder)
+        else:
+            groups.append([folder])
+    lines = []
+    for group in groups:
+        if len(group) == 1:
+            folder = group[0]
+            if folder == order[0]:
+                continue
+            other = max((f for f in order if f != folder), key=lambda f: (len(shared[(folder, f)]), len(copies[f])))
+            smaller = min(len(copies[folder]), len(copies[other]))
+            planned.unmatched.append(Unmatched(label, folder, other, len(shared[(folder, other)]), smaller))
+            continue
+        keep = group[0]
+        for folder in group[1:]:
+            if most(keep, folder) and not choose(keep, folder)[0]:
+                keep = folder
+        for folder in group:
+            if folder == keep:
+                continue
+            if not most(keep, folder):
+                planned.unmatched.append(Unmatched(label, folder, keep, len(shared[(keep, folder)]),
+                                                   min(len(copies[keep]), len(copies[folder]))))
+                continue
+            pairs = shared[(keep, folder)]
+            lines.append(HeldTwice(label, keep, folder, choose(keep, folder)[1], pairs, len(copies[folder]) - len(pairs),
+                                   copy_named[keep] + copy_named[folder]))
+    planned.lines += sorted(lines, key=lambda line: line.other)
 
 
 OP = "held-twice"
@@ -293,25 +328,25 @@ def _clean(text: str) -> str:
     return " ".join(text.split())  # no tabs or newlines in a plan field
 
 
-def plan_line(line: Line) -> str:
+def plan_line(line: HeldTwice) -> str:
     """The plan line for apply.py: op, "keep", the folder kept, "quarantine", the other folder,
-    album, reason, then one field per song both hold: its name and size in the first folder,
+    album, reason, then one field per Track both hold: its name and size in the first folder,
     then in the second, joined by "/" (which no File name contains)."""
-    songs = [f"{os.path.basename(k.path)}/{k.size}/{os.path.basename(o.path)}/{o.size}" for k, o in line.pairs]
-    return "\t".join([OP, KEEP, line.keep, AWAY, line.other, _clean(line.album), _clean(line.reason), *songs])
+    tracks = [f"{os.path.basename(k.path)}/{k.size}/{os.path.basename(o.path)}/{o.size}" for k, o in line.pairs]
+    return "\t".join([OP, KEEP, line.keep, AWAY, line.other, _clean(line.album), _clean(line.reason), *tracks])
 
 
 class Move(NamedTuple):
     src: str  # the File to quarantine
     size: int  # its size when planned
-    keep: str  # the same song in the copy kept
+    keep: str  # the same Track in the copy kept
     keep_size: int
 
 
 def parse_line(fields: list[str]) -> tuple[str, str, list[Move]]:
     """(folder kept, folder quarantined, moves) from a plan line, whichever folder the owner marked keep."""
     if len(fields) < 8 or fields[0] != OP:
-        raise ValueError("a held-twice line needs op, two marked folders, album, reason and at least one song")
+        raise ValueError("a held-twice line needs op, two marked folders, album, reason and at least one TRACK")
     if sorted((fields[1], fields[3])) != [KEEP, AWAY]:
         raise ValueError(f"mark one folder {KEEP!r} and the other {AWAY!r}, not {fields[1]!r} and {fields[3]!r}")
     first, second = fields[2], fields[4]
@@ -321,10 +356,10 @@ def parse_line(fields: list[str]) -> tuple[str, str, list[Move]]:
         raise ValueError("both copies must be in the Library, not in Quarantine")
     keep_first = fields[1] == KEEP
     moves = []
-    for song in fields[7:]:
-        parts = song.split("/")
+    for track in fields[7:]:
+        parts = track.split("/")
         if len(parts) != 4 or not all(parts) or not parts[1].isdigit() or not parts[3].isdigit():
-            raise ValueError(f"a song must be NAME/SIZE/NAME/SIZE, not {song!r}")
+            raise ValueError(f"a TRACK must be NAME/SIZE/NAME/SIZE, not {track!r}")
         a, b = (f"{first}/{parts[0]}", int(parts[1])), (f"{second}/{parts[2]}", int(parts[3]))
         (src, size), (keep, keep_size) = (b, a) if keep_first else (a, b)
         moves.append(Move(src, size, keep, keep_size))
@@ -338,7 +373,7 @@ def describe(fields: list[str]) -> str:
         kept, away, moves = parse_line(fields)
     except ValueError as e:
         return f"(not a valid line: {e})"
-    return f"{fields[5]}: {len(moves)} songs from {away}\t-> {QUARANTINE}/, keeping {kept}"
+    return f"{fields[5]}: {len(moves)} Tracks from {away}\t-> {QUARANTINE}/, keeping {kept}"
 
 
 def main(argv: list[str]) -> int:
@@ -370,8 +405,8 @@ def main(argv: list[str]) -> int:
     for line in planned.lines:
         note = f" ({line.copy_named} copy-named Files left to the audio Duplicate pass)" if line.copy_named else ""
         print(f"{line.album}\t{line.keep}\t{line.other}\t{len(line.pairs)}\t{line.only_other}\t{line.reason}{note}", file=err)
-    for album, a, b, common, smaller in planned.unmatched:
-        print(f"not planned, few songs in common ({common} of {smaller}): {album}\t{a} | {b}", file=err)
+    for u in planned.unmatched:
+        print(f"not planned, few Tracks in common ({u.in_common} of {u.smaller}): {u.album}\t{u.folder} | {u.other}", file=err)
     for s in planned.strays:
         print(f"stray, left to you: {s.album}\t{s.tracks} Track{'' if s.tracks == 1 else 's'} in {s.folder}, "
               f"which holds {s.folder_tracks}", file=err)
