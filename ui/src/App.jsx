@@ -24,6 +24,7 @@ import share from './share'
 import library from './library'
 import plugin from './plugin'
 import rip from './rip'
+import station, { stationReducer } from './station'
 import { Player } from './audioplayer'
 import customRoutes from './routes'
 import {
@@ -73,6 +74,7 @@ const adminStore = createAdminStore({
   customReducers: {
     library: libraryReducer,
     player: playerReducer,
+    station: stationReducer,
     albumView: albumViewReducer,
     theme: themeReducer,
     addToPlaylistDialog: addToPlaylistDialogReducer,
@@ -132,6 +134,7 @@ const Admin = (props) => {
         <Resource name="album" {...album} options={{ subMenu: 'albumList' }} />,
         <Resource name="artist" {...artist} />,
         <Resource name="song" {...song} />,
+        <Resource name="station" {...station} />,
         <Resource
           name="radio"
           {...(permissions === 'admin' ? radio.admin : radio.all)}

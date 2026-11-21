@@ -35,6 +35,7 @@ import keyHandlers from './keyHandlers'
 import { calculateGain } from '../utils/calculateReplayGain'
 import { detectBrowserProfile, decisionService } from '../transcode'
 import { APP_NAME } from '../consts'
+import { useStationRefill } from '../station/useStationRefill'
 
 const Player = () => {
   const theme = useCurrentTheme()
@@ -56,6 +57,7 @@ const Player = () => {
     )
 
   const { authenticated } = useAuthState()
+  useStationRefill()
 
   // Keep a ref to playerState so the mount effect can read the latest value
   // without re-triggering on every queue/position change
