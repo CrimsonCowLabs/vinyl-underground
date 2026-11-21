@@ -18,11 +18,11 @@ import {
 } from '@material-ui/core'
 import AutorenewIcon from '@material-ui/icons/Autorenew'
 import config from '../config'
-import { httpClient } from '../dataProvider'
-import { isWritable } from '../common/playlistUtils'
+import { canChangeTracks } from '../common/playlistUtils'
 import {
   GENERATED_PLAYLIST_URL,
   errorMessage,
+  replaceGeneratedPlaylistTracks,
   saveGeneratedPlaylist,
   usePreview,
 } from './generatedPlaylist'
@@ -36,7 +36,7 @@ const RegeneratePlaylistDialog = ({ record, onClose }) => {
   const fullScreen = useMediaQuery((theme) => theme.breakpoints.down('xs'))
   const [saving, setSaving] = useState(false)
   const { generating, error, setError, preview, generate } = usePreview()
-  const canReplace = isWritable(record.ownerId)
+  const canReplace = canChangeTracks(record)
 
   // The server reruns the stored Prompt at its stored length
   const handleRegenerate = useCallback(
@@ -49,10 +49,7 @@ const RegeneratePlaylistDialog = ({ record, onClose }) => {
 
   const handleReplace = useCallback(() => {
     setSaving(true)
-    httpClient(`${GENERATED_PLAYLIST_URL}/${record.id}/tracks`, {
-      method: 'PUT',
-      body: JSON.stringify({ trackIds: preview.tracks.map((t) => t.id) }),
-    })
+    replaceGeneratedPlaylistTracks(record.id, preview)
       .then(() => {
         notify('resources.playlist.message.generatedReplaced', { type: 'info' })
         refresh()
@@ -66,7 +63,7 @@ const RegeneratePlaylistDialog = ({ record, onClose }) => {
 
   const handleSaveAsNew = useCallback(() => {
     setSaving(true)
-    saveGeneratedPlaylist(preview, preview.name || '')
+    saveGeneratedPlaylist(preview, preview.name)
       .then((id) => {
         notify('resources.playlist.message.generatedSaved', { type: 'info' })
         refresh()

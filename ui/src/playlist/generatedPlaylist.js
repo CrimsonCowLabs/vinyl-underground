@@ -18,6 +18,9 @@ const errorMessages = {
   noTracks: 'resources.playlist.message.noTracks',
   invalidPrompt: 'resources.playlist.message.invalidPrompt',
   invalidLength: 'resources.playlist.message.invalidLength',
+  notGenerated: 'resources.playlist.message.notGenerated',
+  notFound: 'resources.playlist.message.generatedNotFound',
+  notAuthorized: 'resources.playlist.message.notAuthorized',
 }
 
 export const errorMessage = (err) =>
@@ -72,7 +75,8 @@ export const usePreview = () => {
 }
 
 // saveGeneratedPlaylist saves a preview as a new Playlist and returns its id.
-export const saveGeneratedPlaylist = (preview, name) =>
+// The server names it after its Prompt when name is empty.
+export const saveGeneratedPlaylist = (preview, name = '') =>
   httpClient(GENERATED_PLAYLIST_URL, {
     method: 'POST',
     body: JSON.stringify({
@@ -82,3 +86,11 @@ export const saveGeneratedPlaylist = (preview, name) =>
       trackIds: preview.tracks.map((t) => t.id),
     }),
   }).then(({ json }) => json.id)
+
+// replaceGeneratedPlaylistTracks swaps the Generated Playlist's Tracks for the
+// preview's.
+export const replaceGeneratedPlaylistTracks = (playlistId, preview) =>
+  httpClient(`${GENERATED_PLAYLIST_URL}/${playlistId}/tracks`, {
+    method: 'PUT',
+    body: JSON.stringify({ trackIds: preview.tracks.map((t) => t.id) }),
+  })

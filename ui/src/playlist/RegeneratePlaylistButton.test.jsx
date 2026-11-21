@@ -210,6 +210,23 @@ describe('<RegeneratePlaylistButton />', () => {
     expect(httpClient).toHaveBeenCalledTimes(2)
   })
 
+  // e.g. the Playlist was deleted, or stopped being shared, while open
+  it('explains why the Tracks could not be replaced', async () => {
+    httpClient
+      .mockResolvedValueOnce({ json: preview })
+      .mockRejectedValueOnce(httpError(403, 'notAuthorized'))
+    open()
+    await waitFor(() => screen.getByText('Alison'))
+
+    fireEvent.click(replaceButton())
+
+    await waitFor(() =>
+      screen.getByText('resources.playlist.message.notAuthorized'),
+    )
+    expect(refresh).not.toHaveBeenCalled()
+    expect(replaceButton().disabled).toBe(false)
+  })
+
   it('cancels the request when the dialog is closed', () => {
     httpClient.mockReturnValue(new Promise(() => {}))
     open()

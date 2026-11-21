@@ -257,6 +257,7 @@ func (s *service) Replace(ctx context.Context, playlistID string, trackIDs []str
 	if err != nil {
 		return err
 	}
+	pls.Tracks = nil // Put replaces every Track with these
 	pls.AddMediaFilesByID(ids)
 	if err := s.ds.Playlist(ctx).Put(pls); err != nil {
 		return fmt.Errorf("replacing Generated Playlist Tracks: %w", err)
