@@ -33,6 +33,9 @@ const (
 type Provider interface {
 	UpdateAlbumInfo(ctx context.Context, id string) (*model.Album, error)
 	UpdateArtistInfo(ctx context.Context, id string, count int, includeNotPresent bool) (*model.Artist, error)
+	// SimilarArtists returns up to count artists in the Library similar to the named artist,
+	// who needn't be in the Library.
+	SimilarArtists(ctx context.Context, artistName string, count int) (model.Artists, error)
 	SimilarSongs(ctx context.Context, id string, count int) (model.MediaFiles, error)
 	TopSongs(ctx context.Context, artist, artistId string, count int) (model.MediaFiles, error)
 	RefreshInfo(ctx context.Context, kind model.Kind, id string) error
@@ -223,6 +226,29 @@ func (e *provider) UpdateArtistInfo(ctx context.Context, id string, similarCount
 
 	err = e.loadSimilar(ctx, &artist, similarCount, includeNotPresent)
 	return &artist.Artist, err
+}
+
+// SimilarArtists looks a Library artist up through its cached artist info, like
+// UpdateArtistInfo, and asks the agents by name for any other artist.
+func (e *provider) SimilarArtists(ctx context.Context, artistName string, count int) (model.Artists, error) {
+	found, err := e.findArtist(ctx, artistName, "")
+	if err == nil {
+		artist, err := e.refreshArtistInfo(ctx, found.ID)
+		if err != nil {
+			return nil, err
+		}
+		err = e.loadSimilar(ctx, &artist, count, false)
+		return artist.SimilarArtists, err
+	}
+	if !errors.Is(err, model.ErrNotFound) {
+		return nil, err
+	}
+	// Ask for as many as for a Library artist's info: most won't be in the Library.
+	artist := auxArtist{Artist: model.Artist{Name: artistName}}
+	if err := e.callGetSimilarArtists(ctx, e.ag, &artist, maxSimilarArtists, false); err != nil {
+		return nil, err
+	}
+	return artist.SimilarArtists[:min(count, len(artist.SimilarArtists))], nil
 }
 
 func (e *provider) refreshArtistInfo(ctx context.Context, id string) (auxArtist, error) {
