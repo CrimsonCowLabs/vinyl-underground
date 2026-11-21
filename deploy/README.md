@@ -156,6 +156,19 @@ As the admin, the new Tracks can be played, favorited and added to Playlists str
 
 Files copied in by hand must be readable by `VU_UID`. The app sets up the Inbox library on start from `ND_INBOX_PATH` (`/inbox` by default), and scans it straight away when it is new. It must not be inside the Library, or contain it. With `ND_INBOX_PATH=` empty, or no folder at that path, no Inbox library is set up; one that already exists stays until an admin deletes it under **Libraries**.
 
+## 10. Rip a video into the Inbox
+
+Ripping is off by default. To turn it on, add `ND_RIPPING_ENABLED=true` to `.env` and run `docker compose up -d`. **You are responsible for what you download:** only rip what you have the right to copy.
+
+As the admin, open **Rips** in the side menu, paste the link to one video (YouTube and YouTube Music are tested; any site yt-dlp supports is accepted) and press **Rip**. The job shows **Queued**, then **Downloading**, then **Ready for review** once the File is in the Inbox and scanned as a Track, or **Failed** with yt-dlp's error message. Jobs run one at a time in the background, so closing the tab doesn't stop them. If the app stops in the middle of a Rip, that Rip starts again from scratch on the next start (or, if its File was already in the Inbox, is only scanned). The page refreshes the list every few seconds while a Rip is queued or downloading.
+
+- **yt-dlp** is not in the image. The first Rip downloads the standalone build for the host (amd64 or arm64) from yt-dlp's latest GitHub release into `$VU_DATA_DIR/bin`, and checks it against the release's `SHA2-256SUMS`. To update it, delete `$VU_DATA_DIR/bin/yt-dlp`; the next Rip downloads the latest one. It never reads a yt-dlp config file.
+- **Audio** is the page's best Opus stream, else its best AAC stream, saved as `.opus` or `.m4a` as it is, never re-encoded. A page with neither fails.
+- **Tags:** the File gets `SOURCE` (the site, e.g. `YouTube`), `SOURCEURL` (the page), and the title and artist the site gives.
+- **File name:** `<Artist> - <Title> [<video id>].<ext>` at the top of the Inbox. A File already there is never replaced; the new one gets ` (2)`. While downloading, the File is in the hidden `.rips` folder, which the scanner skips.
+- **Playlists** aren't supported yet: a playlist link fails with a message saying so. A video link that also names a playlist (`watch?v=...&list=...`) rips just that video.
+- **Time limit:** a Rip that takes longer than `ND_RIPPING_TIMEOUT` (default `30m`) is stopped and marked failed.
+
 ## Updating
 
 ```bash

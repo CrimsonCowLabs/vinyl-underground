@@ -89,6 +89,16 @@ func EnsureInboxLibrary(ctx context.Context, ds model.DataStore, path string) (b
 	return true, nil
 }
 
+// FindInboxLibrary returns the Inbox library, or nil if there is none (it is off, or an admin
+// deleted it).
+func FindInboxLibrary(ctx context.Context, ds model.DataStore) (*model.Library, error) {
+	libs, err := ds.Library(ctx).GetAll()
+	if err != nil {
+		return nil, fmt.Errorf("loading libraries: %w", err)
+	}
+	return findInboxLibrary(ds.Property(ctx), libs)
+}
+
 // findInboxLibrary returns the library recorded as the Inbox, or nil if there is none (yet, or
 // any more, because an admin deleted it).
 func findInboxLibrary(props model.PropertyRepository, libs model.Libraries) (*model.Library, error) {

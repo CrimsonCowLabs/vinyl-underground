@@ -1,0 +1,108 @@
+// Package ripapi is the admin's HTTP API for Rips: start one from a URL, and list the jobs.
+package ripapi
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"strconv"
+
+	"github.com/deluan/rest"
+	"github.com/go-chi/chi/v5"
+	"github.com/navidrome/navidrome/conf"
+	"github.com/navidrome/navidrome/core/rip"
+	"github.com/navidrome/navidrome/log"
+	"github.com/navidrome/navidrome/model"
+	"github.com/navidrome/navidrome/model/request"
+	"github.com/navidrome/navidrome/server"
+)
+
+// Ripper is the part of *rip.Ripper the API uses.
+type Ripper interface {
+	Enqueue(ctx context.Context, url string) (*model.RipJob, error)
+	Jobs(ctx context.Context) (model.RipJobs, error)
+}
+
+type Router struct {
+	http.Handler
+	ds     model.DataStore
+	ripper Ripper
+}
+
+// New returns the Rip API, meant to be mounted only when ripping is on. It also answers 404 to
+// everything while Ripping.Enabled is off.
+func New(ds model.DataStore, ripper Ripper) *Router {
+	r := &Router{ds: ds, ripper: ripper}
+	r.Handler = r.routes()
+	return r
+}
+
+func (api *Router) routes() http.Handler {
+	r := chi.NewRouter()
+	r.Use(enabledOnly)
+	r.Use(server.Authenticator(api.ds))
+	r.Use(server.JWTRefresher)
+	r.Use(adminOnly)
+	r.Get("/", api.list)
+	r.Post("/", api.create)
+	return r
+}
+
+func enabledOnly(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !conf.Server.Ripping.Enabled {
+			http.NotFound(w, r)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func adminOnly(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if user, ok := request.UserFrom(r.Context()); !ok || !user.IsAdmin {
+			_ = rest.RespondWithError(w, http.StatusForbidden, "Only the admin can rip")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (api *Router) list(w http.ResponseWriter, r *http.Request) {
+	jobs, err := api.ripper.Jobs(r.Context())
+	if err != nil {
+		log.Error(r.Context(), "Could not list Rips", err)
+		_ = rest.RespondWithError(w, http.StatusInternalServerError, "Could not list Rips")
+		return
+	}
+	if jobs == nil {
+		jobs = model.RipJobs{}
+	}
+	w.Header().Set("X-Total-Count", strconv.Itoa(len(jobs)))
+	_ = rest.RespondWithJSON(w, http.StatusOK, jobs)
+}
+
+func (api *Router) create(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		URL string `json:"url"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10)).Decode(&body); err != nil {
+		_ = rest.RespondWithError(w, http.StatusBadRequest, "Send the URL as JSON: {\"url\": \"...\"}")
+		return
+	}
+	// The job outlives the request: it runs in the background, whatever happens to the tab.
+	ctx := context.WithoutCancel(r.Context())
+	job, err := api.ripper.Enqueue(ctx, body.URL)
+	switch {
+	case errors.Is(err, rip.ErrInvalidURL):
+		_ = rest.RespondWithError(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, rip.ErrNoInbox):
+		_ = rest.RespondWithError(w, http.StatusConflict, err.Error())
+	case err != nil:
+		log.Error(r.Context(), "Could not queue the Rip", err)
+		_ = rest.RespondWithError(w, http.StatusInternalServerError, "Could not queue the Rip")
+	default:
+		_ = rest.RespondWithJSON(w, http.StatusCreated, job)
+	}
+}

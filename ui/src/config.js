@@ -44,6 +44,7 @@ const defaultConfig = {
   publicBaseUrl: '/share',
   separator: '/',
   enableInspect: true,
+  enableRipping: false,
   pluginsEnabled: true,
 }
 

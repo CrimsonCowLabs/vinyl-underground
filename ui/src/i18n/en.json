@@ -433,6 +433,33 @@
         "configKey": "key",
         "configValue": "value"
       }
+    },
+    "rip": {
+      "name": "Rip |||| Rips",
+      "empty": "No Rips yet",
+      "fields": {
+        "url": "URL",
+        "status": "Status",
+        "title": "Title",
+        "source": "Source",
+        "path": "File",
+        "error": "Message",
+        "createdAt": "Added"
+      },
+      "status": {
+        "queued": "Queued",
+        "downloading": "Downloading",
+        "ready": "Ready for review",
+        "failed": "Failed"
+      },
+      "actions": {
+        "rip": "Rip"
+      },
+      "messages": {
+        "urlHelp": "Paste the link to one video. Its audio is saved to the Inbox as it is, without re-encoding. Playlists aren't supported yet.",
+        "queued": "Rip queued",
+        "responsibility": "You are responsible for what you download: only rip what you have the right to."
+      }
     }
   },
   "ra": {

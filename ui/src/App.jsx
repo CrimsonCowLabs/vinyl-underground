@@ -23,6 +23,7 @@ import radio from './radio'
 import share from './share'
 import library from './library'
 import plugin from './plugin'
+import rip from './rip'
 import { Player } from './audioplayer'
 import customRoutes from './routes'
 import {
@@ -136,6 +137,9 @@ const Admin = (props) => {
           {...(permissions === 'admin' ? radio.admin : radio.all)}
         />,
         config.enableSharing && <Resource name="share" {...share} />,
+        permissions === 'admin' && config.enableRipping ? (
+          <Resource name="rip" {...rip} />
+        ) : null,
         <Resource
           name="playlist"
           {...playlist}
