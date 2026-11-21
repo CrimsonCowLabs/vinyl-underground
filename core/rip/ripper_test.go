@@ -431,3 +431,255 @@ var _ = Describe("Ripper", func() {
 		Expect(visibleFiles(inbox)).To(HaveLen(1))
 	})
 })
+
+// fakeUpdater stands in for yt-dlp's updates. onUpdate runs on each update, e.g. to make the
+// fetcher work again as a newer yt-dlp would.
+type fakeUpdater struct {
+	mu       sync.Mutex
+	calls    int
+	err      error
+	onUpdate func()
+}
+
+func (u *fakeUpdater) Update(context.Context) (UpdateResult, error) {
+	u.mu.Lock()
+	u.calls++
+	on, err := u.onUpdate, u.err
+	u.mu.Unlock()
+	if on != nil {
+		on()
+	}
+	if err != nil {
+		return UpdateResult{Previous: "2026.01.01", Version: "2026.01.01"}, err
+	}
+	return UpdateResult{Previous: "2026.01.01", Version: "2026.11.01", Updated: true}, nil
+}
+
+func (u *fakeUpdater) Version(context.Context) (string, error) { return "2026.01.01", nil }
+
+func (u *fakeUpdater) updates() int {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	return u.calls
+}
+
+// fakeScheduler records what is scheduled, so a test can run it.
+type fakeScheduler struct {
+	crontabs []string
+	cmds     []func()
+}
+
+func (s *fakeScheduler) Add(crontab string, cmd func()) (int, error) {
+	s.crontabs = append(s.crontabs, crontab)
+	s.cmds = append(s.cmds, cmd)
+	return len(s.cmds), nil
+}
+
+var _ = Describe("Ripper and yt-dlp updates", func() {
+	var (
+		ctx     context.Context
+		ds      *tests.MockDataStore
+		fetcher *fakeFetcher
+		updater *fakeUpdater
+		opts    Options
+		ripper  *Ripper
+		inbox   string
+	)
+
+	const url = "https://www.youtube.com/watch?v=abc"
+	botCheck := &YtDlpError{Msg: "ERROR: [youtube] abc: Sign in to confirm you're not a bot"}
+
+	BeforeEach(func() {
+		ctx = request.WithUser(GinkgoT().Context(), model.User{ID: "admin", IsAdmin: true})
+		libs := &tests.MockLibraryRepo{}
+		libs.SetData(model.Libraries{{ID: 1, Name: "Music", Path: GinkgoT().TempDir()}})
+		libs.PutFn = func(l *model.Library) error {
+			if l.ID == 0 {
+				l.ID = 2
+			}
+			libs.Data[l.ID] = *l
+			return nil
+		}
+		ds = &tests.MockDataStore{MockedLibrary: libs}
+		inbox = GinkgoT().TempDir()
+		_, err := core.EnsureInboxLibrary(ctx, ds, inbox)
+		Expect(err).ToNot(HaveOccurred())
+		fetcher = newFakeFetcher()
+		updater = &fakeUpdater{}
+		opts = Options{
+			Timeout: time.Minute, ScanRetryDelay: time.Millisecond, Updater: updater,
+			Tagger: func(string, *Info) error { return nil },
+		}
+	})
+
+	start := func() {
+		ripper = New(ds, fetcher, &fakeScanner{inbox: inbox}, opts)
+		runCtx, cancel := context.WithCancel(ctx)
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			ripper.Run(runCtx)
+		}()
+		DeferCleanup(func() {
+			cancel()
+			Eventually(done).Should(BeClosed())
+		})
+	}
+
+	finished := func(id string) func() *model.RipJob {
+		return func() *model.RipJob {
+			j, err := ds.RipJob(ctx).Get(id)
+			Expect(err).ToNot(HaveOccurred())
+			if j.Status != model.RipReady && j.Status != model.RipFailed {
+				return nil
+			}
+			return j
+		}
+	}
+
+	Describe("after a failed Rip", func() {
+		It("updates yt-dlp and tries the Rip once more", func() {
+			fetcher.dlErr[url] = botCheck
+			updater.onUpdate = func() {
+				fetcher.mu.Lock()
+				delete(fetcher.dlErr, url)
+				fetcher.mu.Unlock()
+			}
+			start()
+			job, _ := ripper.Enqueue(ctx, url)
+
+			Eventually(finished(job.ID)).Should(HaveField("Status", model.RipReady))
+			Expect(finished(job.ID)().Error).To(BeEmpty())
+			Expect(updater.updates()).To(Equal(1))
+			Expect(fetcher.downloaded()).To(HaveLen(2))
+		})
+
+		It("fails the job when the retry fails too, without trying again", func() {
+			fetcher.dlErr[url] = botCheck
+			start()
+			job, _ := ripper.Enqueue(ctx, url)
+
+			Eventually(finished(job.ID)).Should(HaveField("Status", model.RipFailed))
+			Expect(finished(job.ID)().Error).To(Equal(botCheck.Msg))
+			Expect(updater.updates()).To(Equal(1))
+			Expect(fetcher.downloaded()).To(HaveLen(2))
+		})
+
+		It("still retries with the old yt-dlp when the update fails, and says so", func() {
+			fetcher.dlErr[url] = botCheck
+			updater.err = errors.New("GitHub is down")
+			start()
+			job, _ := ripper.Enqueue(ctx, url)
+
+			Eventually(finished(job.ID)).Should(HaveField("Status", model.RipFailed))
+			Expect(finished(job.ID)().Error).To(And(ContainSubstring(botCheck.Msg), ContainSubstring("GitHub is down")))
+			Expect(fetcher.downloaded()).To(HaveLen(2))
+		})
+
+		It("updates and retries for each failed job", func() {
+			fetcher.dlErr[url] = botCheck
+			start()
+			first, _ := ripper.Enqueue(ctx, url)
+			second, _ := ripper.Enqueue(ctx, url)
+
+			Eventually(finished(second.ID)).ShouldNot(BeNil())
+			Expect(finished(first.ID)()).ToNot(BeNil())
+			Expect(updater.updates()).To(Equal(2))
+		})
+
+		DescribeTable("doesn't update or retry what an update can't fix",
+			func(setup func(), wantErr string) {
+				setup()
+				start()
+				job, _ := ripper.Enqueue(ctx, url)
+
+				Eventually(finished(job.ID)).Should(HaveField("Status", model.RipFailed))
+				Expect(finished(job.ID)().Error).To(ContainSubstring(wantErr))
+				Expect(updater.updates()).To(BeZero())
+				Expect(len(fetcher.downloaded())).To(BeNumerically("<=", 1))
+			},
+			Entry("an unsupported URL", func() {
+				fetcher.probeErr[url] = &YtDlpError{Msg: "ERROR: Unsupported URL: https://example.com/"}
+			}, "Unsupported URL"),
+			Entry("a private video", func() {
+				fetcher.dlErr[url] = &YtDlpError{Msg: "ERROR: [youtube] abc: Private video. Sign in if you've been granted access to this video"}
+			}, "Private video"),
+			Entry("a removed video", func() {
+				fetcher.dlErr[url] = &YtDlpError{Msg: "ERROR: [youtube] abc: Video unavailable. This video has been removed by the uploader"}
+			}, "removed"),
+			Entry("a playlist", func() {
+				fetcher.infos[url] = &Info{ID: "PL1", Title: "A Playlist", IsPlaylist: true}
+			}, "playlist"),
+			Entry("the Rip's own timeout", func() {
+				opts.Timeout = 100 * time.Millisecond
+				fetcher.hold(url)
+			}, "took longer than"),
+			Entry("an error that isn't yt-dlp's", func() {
+				opts.Tagger = func(string, *Info) error { return errors.New("disk full") }
+			}, "disk full"),
+		)
+	})
+
+	Describe("UpdateYtDlp", func() {
+		It("waits for the running Rip before it touches yt-dlp", func() {
+			hold := fetcher.hold(url)
+			start()
+			job, _ := ripper.Enqueue(ctx, url)
+			Eventually(fetcher.started).Should(Receive())
+
+			done := make(chan error, 1)
+			go func() {
+				_, err := ripper.UpdateYtDlp(ctx, true)
+				done <- err
+			}()
+			Consistently(updater.updates, 100*time.Millisecond).Should(BeZero())
+			close(hold)
+			Eventually(done).Should(Receive(BeNil()))
+			Expect(updater.updates()).To(Equal(1))
+			Eventually(finished(job.ID)).Should(HaveField("Status", model.RipReady))
+		})
+
+		It("refuses straight away, when asked not to wait, while a Rip is running", func() {
+			hold := fetcher.hold(url)
+			start()
+			_, _ = ripper.Enqueue(ctx, url)
+			Eventually(fetcher.started).Should(Receive())
+
+			_, err := ripper.UpdateYtDlp(ctx, false)
+			Expect(err).To(MatchError(ErrRipRunning))
+			Expect(updater.updates()).To(BeZero())
+			close(hold)
+		})
+
+		It("updates straight away when no Rip is running", func() {
+			start()
+			res, err := ripper.UpdateYtDlp(ctx, false)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(res).To(Equal(UpdateResult{Previous: "2026.01.01", Version: "2026.11.01", Updated: true}))
+		})
+
+		It("reports the installed version", func() {
+			start()
+			Expect(ripper.YtDlpVersion(ctx)).To(Equal("2026.01.01"))
+		})
+	})
+
+	Describe("ScheduleYtDlpUpdates", func() {
+		It("updates yt-dlp on the schedule", func() {
+			start()
+			s := &fakeScheduler{}
+			Expect(ripper.ScheduleYtDlpUpdates(ctx, s, "@daily")).To(Succeed())
+			Expect(s.crontabs).To(Equal([]string{"@daily"}))
+
+			s.cmds[0]()
+			Expect(updater.updates()).To(Equal(1))
+		})
+
+		It("schedules nothing when the schedule is empty", func() {
+			start()
+			s := &fakeScheduler{}
+			Expect(ripper.ScheduleYtDlpUpdates(ctx, s, "")).To(Succeed())
+			Expect(s.crontabs).To(BeEmpty())
+		})
+	})
+})

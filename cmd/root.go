@@ -173,6 +173,9 @@ func startRipper(ctx context.Context, g *errgroup.Group) *rip.Ripper {
 		ripper.Run(ctx)
 		return nil
 	})
+	if err := ripper.ScheduleYtDlpUpdates(ctx, scheduler.GetInstance(), conf.Server.Ripping.YtDlpUpdateSchedule); err != nil {
+		log.Error(ctx, "Could not schedule yt-dlp updates", err)
+	}
 	log.Info(ctx, "Ripping is enabled")
 	return ripper
 }

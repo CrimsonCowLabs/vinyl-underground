@@ -55,7 +55,28 @@ type Options struct {
 	// (often the watcher's, set off by the Rip itself) before its own Inbox scan runs.
 	ScanRetryDelay time.Duration
 	ScanAttempts   int
+	// Updater updates yt-dlp, after a failed Rip and on demand. *Binary implements it. Nil turns
+	// updates off.
+	Updater Updater
 }
+
+// Updater keeps yt-dlp up to date. *Binary implements it.
+type Updater interface {
+	Update(ctx context.Context) (UpdateResult, error)
+	Version(ctx context.Context) (string, error)
+}
+
+// Scheduler runs a function on a crontab schedule. scheduler.Scheduler implements it.
+type Scheduler interface {
+	Add(crontab string, cmd func()) (int, error)
+}
+
+var (
+	// ErrRipRunning is returned by UpdateYtDlp, when it isn't to wait, while a Rip is running.
+	ErrRipRunning = errors.New("a Rip is running; update yt-dlp once it has finished")
+	// ErrNoUpdater is returned when yt-dlp can't be updated (there is no Updater).
+	ErrNoUpdater = errors.New("yt-dlp can't be updated here")
+)
 
 // Ripper runs Rip jobs in the background, one at a time. Jobs live in the database, so they keep
 // going when the admin closes the tab, and a job the app stopped in the middle of is started
@@ -66,6 +87,9 @@ type Ripper struct {
 	scanner FolderScanner
 	opts    Options
 	wake    chan struct{}
+	// ytDlp is held while yt-dlp runs a Rip or is being updated, so an update never swaps the
+	// binary under a running Rip.
+	ytDlp chan struct{}
 }
 
 func New(ds model.DataStore, fetcher Fetcher, scanner FolderScanner, opts Options) *Ripper {
@@ -75,7 +99,10 @@ func New(ds model.DataStore, fetcher Fetcher, scanner FolderScanner, opts Option
 	if opts.Tagger == nil {
 		opts.Tagger = WriteTags
 	}
-	return &Ripper{ds: ds, fetcher: fetcher, scanner: scanner, opts: opts, wake: make(chan struct{}, 1)}
+	return &Ripper{
+		ds: ds, fetcher: fetcher, scanner: scanner, opts: opts,
+		wake: make(chan struct{}, 1), ytDlp: make(chan struct{}, 1),
+	}
 }
 
 // Enqueue queues a Rip of the page at rawURL for the user in ctx.
@@ -157,12 +184,7 @@ func (r *Ripper) process(ctx context.Context, job *model.RipJob) {
 		err = ErrNoInbox
 	}
 	if err == nil && !inInbox(inbox, job) {
-		jobCtx, cancel := context.WithTimeout(ctx, r.opts.Timeout)
-		err = r.rip(jobCtx, inbox.Path, job)
-		if err != nil && errors.Is(jobCtx.Err(), context.DeadlineExceeded) {
-			err = fmt.Errorf("the Rip took longer than %s and was stopped", r.opts.Timeout)
-		}
-		cancel()
+		err = r.ripWithRetry(ctx, inbox.Path, job)
 	}
 	if ctx.Err() != nil {
 		// The app is stopping. The job stays "downloading", so the next start runs it again (or,
@@ -201,6 +223,110 @@ func inInbox(inbox *model.Library, job *model.RipJob) bool {
 	_, err := os.Stat(filepath.Join(inbox.Path, job.Path))
 	return err == nil
 }
+
+// ripWithRetry rips the job, with no yt-dlp update allowed meanwhile. When yt-dlp fails in a way
+// a newer yt-dlp might fix (see UpdateMightFix), it updates yt-dlp and tries the job once more,
+// even if the update fails or finds yt-dlp already current, as the failure may have been
+// passing. Each try gets the full timeout.
+func (r *Ripper) ripWithRetry(ctx context.Context, inboxPath string, job *model.RipJob) error {
+	if err := r.lockYtDlp(ctx, true); err != nil {
+		return err
+	}
+	defer r.unlockYtDlp()
+	err := r.ripTimed(ctx, inboxPath, job)
+	if err == nil || r.opts.Updater == nil || ctx.Err() != nil || !UpdateMightFix(err) {
+		return err
+	}
+	log.Warn(ctx, "Rip failed; updating yt-dlp and trying again", "id", job.ID, "error", err)
+	res, updErr := r.opts.Updater.Update(ctx)
+	if updErr != nil {
+		log.Warn(ctx, "Could not update yt-dlp; trying the Rip again with the one installed", "id", job.ID, updErr)
+	} else {
+		log.Info(ctx, "yt-dlp checked before trying the Rip again", "id", job.ID, "version", res.Version, "updated", res.Updated)
+	}
+	if ctx.Err() != nil {
+		return err
+	}
+	err = r.ripTimed(ctx, inboxPath, job)
+	if err != nil && updErr != nil {
+		err = fmt.Errorf("%w (updating yt-dlp failed too: %v)", err, updErr)
+	}
+	return err
+}
+
+// ripTimed is rip, bounded by the Rip's timeout.
+func (r *Ripper) ripTimed(ctx context.Context, inboxPath string, job *model.RipJob) error {
+	jobCtx, cancel := context.WithTimeout(ctx, r.opts.Timeout)
+	defer cancel()
+	err := r.rip(jobCtx, inboxPath, job)
+	if err != nil && errors.Is(jobCtx.Err(), context.DeadlineExceeded) {
+		err = fmt.Errorf("the Rip took longer than %s and was stopped", r.opts.Timeout)
+	}
+	return err
+}
+
+// UpdateYtDlp updates yt-dlp to its latest release. It waits for a running Rip to finish first,
+// or, if wait is false, returns ErrRipRunning straight away.
+func (r *Ripper) UpdateYtDlp(ctx context.Context, wait bool) (UpdateResult, error) {
+	if r.opts.Updater == nil {
+		return UpdateResult{}, ErrNoUpdater
+	}
+	if err := r.lockYtDlp(ctx, wait); err != nil {
+		return UpdateResult{}, err
+	}
+	defer r.unlockYtDlp()
+	return r.opts.Updater.Update(ctx)
+}
+
+// YtDlpVersion returns the installed yt-dlp's version, or "" before it is installed.
+func (r *Ripper) YtDlpVersion(ctx context.Context) (string, error) {
+	if r.opts.Updater == nil {
+		return "", ErrNoUpdater
+	}
+	return r.opts.Updater.Version(ctx)
+}
+
+// ScheduleYtDlpUpdates updates yt-dlp on the crontab schedule, waiting for a running Rip each
+// time. An empty schedule schedules nothing.
+func (r *Ripper) ScheduleYtDlpUpdates(ctx context.Context, s Scheduler, schedule string) error {
+	if schedule == "" || r.opts.Updater == nil {
+		log.Info(ctx, "Scheduled yt-dlp updates are DISABLED")
+		return nil
+	}
+	log.Info(ctx, "Scheduling yt-dlp updates", "schedule", schedule)
+	_, err := s.Add(schedule, func() {
+		res, err := r.UpdateYtDlp(ctx, true)
+		switch {
+		case err != nil:
+			log.Error(ctx, "Scheduled yt-dlp update failed; keeping the one installed", "version", res.Version, err)
+		case res.Updated:
+			log.Info(ctx, "Updated yt-dlp", "from", res.Previous, "to", res.Version)
+		default:
+			log.Debug(ctx, "yt-dlp is up to date", "version", res.Version)
+		}
+	})
+	return err
+}
+
+// lockYtDlp takes the yt-dlp lock, waiting for it if wait is true.
+func (r *Ripper) lockYtDlp(ctx context.Context, wait bool) error {
+	if !wait {
+		select {
+		case r.ytDlp <- struct{}{}:
+			return nil
+		default:
+			return ErrRipRunning
+		}
+	}
+	select {
+	case r.ytDlp <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (r *Ripper) unlockYtDlp() { <-r.ytDlp }
 
 // rip fetches the job's audio into the Inbox folder at inboxPath, and records the File's path in
 // the job as soon as it is there.
