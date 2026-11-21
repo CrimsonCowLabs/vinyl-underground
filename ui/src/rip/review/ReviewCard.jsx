@@ -34,7 +34,8 @@ import {
 // admin sees Rips at all.
 //
 // Slots for later work: trackExtra(track) renders next to a Track's title (e.g. #32's "already
-// have" indicator), and actions are more buttons beside Save and Discard (e.g. #36's "Promote
+// have" indicator), and actions are more buttons beside Save and Discard: an element, or a
+// function given { jobId, review, dirty (unsaved edits), show(review) } (e.g. #36's "Promote
 // all"). Proposed tags (#34) go into the same form state (see reviewForm.js).
 const ReviewCard = ({ record, trackExtra, actions }) => {
   const translate = useTranslate()
@@ -230,7 +231,9 @@ const ReviewCard = ({ record, trackExtra, actions }) => {
         >
           {translate(saving ? 'resources.rip.review.saving' : 'ra.action.save')}
         </Button>
-        {actions}
+        {typeof actions === 'function'
+          ? actions({ jobId, review, dirty: !!edits, show })
+          : actions}
         <DiscardJobButton
           jobId={jobId}
           fileCount={review.tracks.filter((t) => t.path).length}
