@@ -3,6 +3,10 @@
   "resources": {
     "song": {
       "name": "Song |||| Songs",
+      "ripped": {
+        "label": "Ripped",
+        "from": "Ripped from %{source}"
+      },
       "fields": {
         "albumArtist": "Album Artist",
         "duration": "Time",

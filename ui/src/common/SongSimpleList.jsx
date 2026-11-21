@@ -8,6 +8,7 @@ import ListItemText from '@material-ui/core/ListItemText'
 import { makeStyles } from '@material-ui/core/styles'
 import { sanitizeListRestProps } from 'react-admin'
 import { DurationField, SongContextMenu, RatingField } from './index'
+import { RippedBadge } from './RippedBadge'
 import { setTrack } from '../actions'
 import { useDispatch } from 'react-redux'
 import config from '../config'
@@ -75,7 +76,10 @@ export const SongSimpleList = ({
                 <ListItem className={classes.listItem} button={true}>
                   <ListItemText
                     primary={
-                      <div className={classes.title}>{data[id].title}</div>
+                      <div className={classes.title}>
+                        {data[id].title}
+                        <RippedBadge record={data[id]} />
+                      </div>
                     }
                     secondary={
                       <>

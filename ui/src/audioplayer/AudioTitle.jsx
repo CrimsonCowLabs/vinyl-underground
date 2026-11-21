@@ -2,7 +2,7 @@ import React from 'react'
 import { useMediaQuery } from '@material-ui/core'
 import { Link } from 'react-router-dom'
 import clsx from 'clsx'
-import { QualityInfo } from '../common'
+import { QualityInfo, RippedBadge } from '../common'
 import { decisionService } from '../transcode'
 import useStyle from './styles'
 import { useDrag } from 'react-dnd'
@@ -57,6 +57,7 @@ const AudioTitle = React.memo(({ audioInfo, gainInfo, isMobile }) => {
     <Link to={linkTo} className={className} ref={dragSongRef}>
       <span>
         <span className={clsx(classes.songTitle, 'songTitle')}>{title}</span>
+        <RippedBadge record={song} />
         {isDesktop && (
           <QualityInfo
             record={qi}

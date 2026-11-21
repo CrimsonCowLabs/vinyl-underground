@@ -111,6 +111,29 @@ var _ = Describe("Extractor", func() {
 		)
 	})
 
+	// A Rip carries the site name in SOURCE and the page it came from in SOURCEURL
+	// (issue #28 writes them, issue #29 reads them). See tests/fixtures/rips/generate.sh.
+	Describe("Rip source", func() {
+		DescribeTable("reads the source tags",
+			func(file string) {
+				mf := parseTestFile("tests/fixtures/rips/" + file)
+
+				Expect(mf.Source).To(Equal("YouTube"))
+				Expect(mf.SourceURL).To(Equal("https://www.youtube.com/watch?v=dQw4w9WgXcQ"))
+			},
+			Entry("opus (Vorbis comments)", "ripped.opus"),
+			Entry("m4a (iTunes freeform atoms)", "ripped.m4a"),
+			Entry("mp3 (TXXX frames)", "ripped.mp3"),
+		)
+
+		It("leaves the source empty for a File that is not a Rip", func() {
+			mf := parseTestFile("tests/fixtures/rips/untagged.opus")
+
+			Expect(mf.Source).To(BeEmpty())
+			Expect(mf.SourceURL).To(BeEmpty())
+		})
+	})
+
 	Describe("lyrics", func() {
 		makeLyrics := func(code, secondLine string) model.Lyrics {
 			return model.Lyrics{

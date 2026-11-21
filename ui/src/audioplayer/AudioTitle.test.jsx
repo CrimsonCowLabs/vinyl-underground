@@ -55,4 +55,22 @@ describe('<AudioTitle />', () => {
     const link = screen.getByRole('link')
     expect(link.getAttribute('href')).toBe('/album/album-1/show')
   })
+
+  // No i18n provider here, so the badge shows its translation key.
+  it('shows the Ripped badge for a Rip', () => {
+    const audioInfo = {
+      trackId: 'track-1',
+      song: { ...baseSong, source: 'YouTube' },
+    }
+    render(<AudioTitle audioInfo={audioInfo} gainInfo={{}} isMobile={false} />)
+    expect(screen.getByText('resources.song.ripped.label')).toBeInTheDocument()
+  })
+
+  it('shows no Ripped badge for a Track that is not a Rip', () => {
+    const audioInfo = { trackId: 'track-1', song: baseSong }
+    render(<AudioTitle audioInfo={audioInfo} gainInfo={{}} isMobile={false} />)
+    expect(
+      screen.queryByText('resources.song.ripped.label'),
+    ).not.toBeInTheDocument()
+  })
 })

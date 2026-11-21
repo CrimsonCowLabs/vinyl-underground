@@ -79,7 +79,8 @@ var _ = Describe("fields", func() {
 			for _, name := range []string{"mbz_album_id", "mbz_album_artist_id", "mbz_artist_id",
 				"mbz_recording_id", "mbz_release_track_id", "mbz_release_group_id", "lyrics",
 				"album", "comment", "catalognumber", "discsubtitle", "albumcomment",
-				"sorttitle", "sortalbum", "sortartist", "sortalbumartist", "explicitstatus"} {
+				"sorttitle", "sortalbum", "sortartist", "sortalbumartist", "explicitstatus",
+				"source", "sourceurl"} {
 				field, ok := LookupField(name)
 				gomega.Expect(ok).To(gomega.BeTrue(), name)
 				gomega.Expect(field.Nullable).To(gomega.BeTrue(), name)

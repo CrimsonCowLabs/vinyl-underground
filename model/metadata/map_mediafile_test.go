@@ -118,6 +118,31 @@ var _ = Describe("ToMediaFile", func() {
 		})
 	})
 
+	Describe("Rip source", func() {
+		const url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+
+		DescribeTable("maps the source tags of a Rip",
+			func(sourceTag, urlTag string) {
+				mf = toMediaFile(model.RawTags{sourceTag: {"YouTube"}, urlTag: {url}})
+
+				Expect(mf.Source).To(Equal("YouTube"))
+				Expect(mf.SourceURL).To(Equal(url))
+				Expect(mf.Tags).ToNot(HaveKey(model.TagSource))
+				Expect(mf.Tags).ToNot(HaveKey(model.TagSourceURL))
+			},
+			Entry("Vorbis comments", "SOURCE", "SOURCEURL"),
+			Entry("ID3 TXXX frames", "TXXX:SOURCE", "TXXX:SOURCEURL"),
+			Entry("iTunes freeform atoms", "----:com.apple.iTunes:SOURCE", "----:com.apple.iTunes:SOURCEURL"),
+		)
+
+		It("leaves the source empty when the File has no source tags", func() {
+			mf = toMediaFile(model.RawTags{"TITLE": {"Bought on CD"}})
+
+			Expect(mf.Source).To(BeEmpty())
+			Expect(mf.SourceURL).To(BeEmpty())
+		})
+	})
+
 	Describe("BPM", func() {
 		It("maps the BPM tag rounded to the nearest integer", func() {
 			mf = toMediaFile(model.RawTags{"BPM": {"120.6"}})

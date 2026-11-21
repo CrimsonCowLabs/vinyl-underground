@@ -200,6 +200,12 @@ main:
     type: pair
   explicitstatus:
     aliases: [ itunesadvisory, rtng ]
+  # Rips: the site a File was ripped from (e.g. YouTube) and the page's URL. Written by the
+  # ripper as SOURCE / SOURCEURL: Vorbis comments, iTunes freeform atoms, or ID3 TXXX frames
+  source:
+    aliases: [ txxx:source, source, ----:com.apple.itunes:source ]
+  sourceurl:
+    aliases: [ txxx:sourceurl, sourceurl, ----:com.apple.itunes:sourceurl ]
 
 # Additional tags. You can add new tags without the need to modify the code. They will be available as fields
 # for smart playlists

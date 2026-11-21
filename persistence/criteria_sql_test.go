@@ -200,6 +200,11 @@ var _ = Describe("Smart playlist criteria SQL", func() {
 			"(media_file.explicit_status IS NULL OR media_file.explicit_status = ?)", ""),
 		Entry("isPresent comment [true]", criteria.IsPresent{"comment": true},
 			"(media_file.comment IS NOT NULL AND media_file.comment <> ?)", ""),
+		// A Rip's source tags live in columns, not in the tags JSON (issue #29)
+		Entry("isPresent source [true]", criteria.IsPresent{"source": true},
+			"(media_file.source IS NOT NULL AND media_file.source <> ?)", ""),
+		Entry("isMissing sourceurl [true]", criteria.IsMissing{"sourceurl": true},
+			"(media_file.source_url IS NULL OR media_file.source_url = ?)", ""),
 	)
 
 	Describe("playlist permissions", func() {
