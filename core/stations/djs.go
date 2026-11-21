@@ -8,13 +8,16 @@ import (
 	"github.com/navidrome/navidrome/model"
 )
 
-// DJ is a built-in persona that gives a Station its character. Its Taste decides which Tracks
-// suit it.
+// DJ is the persona that gives a Station its character. It is either built-in or one a
+// Listener created from a name and a personality description (#17). Its Taste decides which
+// Tracks suit it without an LLM; with one, its name and description do.
 type DJ struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
 	Description string `json:"description"`
-	Taste       Taste  `json:"-"`
+	// BuiltIn DJs come with the app and can't be edited or deleted.
+	BuiltIn bool  `json:"builtIn"`
+	Taste   Taste `json:"-"`
 }
 
 // Taste weighs a Track's existing metadata for a DJ. Every Track starts at a score of 1 and
@@ -51,6 +54,7 @@ type Served struct {
 var builtIn = []DJ{
 	{
 		ID:          "night-owl",
+		BuiltIn:     true,
 		Name:        "Night Owl",
 		Description: "Low-key and late-night: slow, mellow Tracks you love for the small hours.",
 		Taste: Taste{
@@ -68,6 +72,7 @@ var builtIn = []DJ{
 	},
 	{
 		ID:          "crate-digger",
+		BuiltIn:     true,
 		Name:        "The Crate Digger",
 		Description: "Deep cuts: Tracks you rarely play, older records, and the B-sides of artists you love.",
 		Taste: Taste{
@@ -80,6 +85,7 @@ var builtIn = []DJ{
 	},
 	{
 		ID:          "sunny",
+		BuiltIn:     true,
 		Name:        "Sunny",
 		Description: "Upbeat and bright, morning-show style: feel-good Tracks and your favorites.",
 		Taste: Taste{

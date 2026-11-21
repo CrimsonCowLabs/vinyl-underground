@@ -1,0 +1,85 @@
+package persistence
+
+import (
+	"context"
+
+	"github.com/navidrome/navidrome/log"
+	"github.com/navidrome/navidrome/model"
+	"github.com/navidrome/navidrome/model/request"
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
+)
+
+var _ = Describe("DJRepository", func() {
+	var mine, theirs model.DJRepository
+
+	BeforeEach(func() {
+		ctx := log.NewContext(context.TODO())
+		mine = NewDJRepository(request.WithUser(ctx, adminUser), GetDBXBuilder())
+		theirs = NewDJRepository(request.WithUser(ctx, regularUser), GetDBXBuilder())
+		_, err := GetDBXBuilder().NewQuery("DELETE FROM dj").Execute()
+		Expect(err).ToNot(HaveOccurred())
+	})
+
+	It("creates a Listener's DJs and lists them by name", func() {
+		b := &model.DJ{Name: "Mr. Mellow", Description: "Slow and soft."}
+		a := &model.DJ{Name: "Anna Analog", Description: "Only tape hiss."}
+		Expect(mine.Put(b)).To(Succeed())
+		Expect(mine.Put(a)).To(Succeed())
+		Expect(a.ID).ToNot(BeEmpty())
+		Expect(a.ID).ToNot(Equal(b.ID))
+
+		got, err := mine.GetAll()
+		Expect(err).ToNot(HaveOccurred())
+		Expect(got).To(HaveLen(2))
+		Expect(got[0].Name).To(Equal("Anna Analog"))
+		Expect(got[0].Description).To(Equal("Only tape hiss."))
+		Expect(got[1].Name).To(Equal("Mr. Mellow"))
+		Expect(got[0].CreatedAt).ToNot(BeZero())
+	})
+
+	It("updates the Listener's DJ in place", func() {
+		dj := &model.DJ{Name: "Mr. Mellow", Description: "Slow and soft."}
+		Expect(mine.Put(dj)).To(Succeed())
+		Expect(mine.Put(&model.DJ{ID: dj.ID, Name: "Mr. Loud", Description: "Fast and loud."})).To(Succeed())
+
+		got, err := mine.Get(dj.ID)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(got.Name).To(Equal("Mr. Loud"))
+		Expect(got.Description).To(Equal("Fast and loud."))
+		Expect(mine.GetAll()).To(HaveLen(1))
+	})
+
+	It("deletes the Listener's DJ", func() {
+		dj := &model.DJ{Name: "Mr. Mellow"}
+		Expect(mine.Put(dj)).To(Succeed())
+		Expect(mine.Delete(dj.ID)).To(Succeed())
+		_, err := mine.Get(dj.ID)
+		Expect(err).To(MatchError(model.ErrNotFound))
+		Expect(mine.Delete(dj.ID)).To(MatchError(model.ErrNotFound))
+	})
+
+	Describe("another Listener", func() {
+		var dj *model.DJ
+
+		BeforeEach(func() {
+			dj = &model.DJ{Name: "Mr. Mellow", Description: "Slow and soft."}
+			Expect(mine.Put(dj)).To(Succeed())
+		})
+
+		It("doesn't see the DJ", func() {
+			Expect(theirs.GetAll()).To(BeEmpty())
+			_, err := theirs.Get(dj.ID)
+			Expect(err).To(MatchError(model.ErrNotFound))
+		})
+
+		It("can't change or delete it", func() {
+			Expect(theirs.Put(&model.DJ{ID: dj.ID, Name: "Hijacked"})).To(MatchError(model.ErrNotFound))
+			Expect(theirs.Delete(dj.ID)).To(MatchError(model.ErrNotFound))
+
+			got, err := mine.Get(dj.ID)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(got.Name).To(Equal("Mr. Mellow"))
+		})
+	})
+})

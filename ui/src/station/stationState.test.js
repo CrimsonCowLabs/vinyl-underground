@@ -5,6 +5,7 @@ import { addTracks, clearQueue, playTracks, setTrack } from '../actions'
 import {
   addStationTracks,
   startStation,
+  stopStation,
   stationReducer,
   upcomingTracks,
 } from './stationState'
@@ -18,6 +19,19 @@ const newStore = () =>
   createStore(
     combineReducers({ player: playerReducer, station: stationReducer }),
   )
+
+describe('stopStation', () => {
+  it('takes the DJ off air, leaving the queued Tracks to play out', () => {
+    const store = newStore()
+    store.dispatch(startStation('night-owl', tracks))
+
+    store.dispatch(stopStation())
+
+    const { player, station } = store.getState()
+    expect(station.djId).toBeNull()
+    expect(player.queue.map((item) => item.trackId)).toEqual(['mf-1', 'mf-2'])
+  })
+})
 
 describe('startStation', () => {
   it('replaces the play queue with the Station Tracks and puts the DJ on air', () => {
