@@ -607,6 +607,9 @@ var _ = Describe("Ripper and yt-dlp updates", func() {
 			Entry("a removed video", func() {
 				fetcher.dlErr[url] = &YtDlpError{Msg: "ERROR: [youtube] abc: Video unavailable. This video has been removed by the uploader"}
 			}, "removed"),
+			Entry("a video taken down", func() {
+				fetcher.probeErr[url] = &YtDlpError{Msg: "ERROR: [youtube] abc: This video is unavailable"}
+			}, "unavailable"),
 			Entry("a playlist", func() {
 				fetcher.infos[url] = &Info{ID: "PL1", Title: "A Playlist", IsPlaylist: true}
 			}, "playlist"),

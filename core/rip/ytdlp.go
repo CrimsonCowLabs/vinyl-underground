@@ -208,6 +208,7 @@ var unfixable = []string{
 	"private video",
 	"video is private",
 	"video unavailable",
+	"video is unavailable",
 	"has been removed",
 	"has been terminated",
 	"no longer available",
