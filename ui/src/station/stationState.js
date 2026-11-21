@@ -12,14 +12,16 @@ const toQueueData = (tracks) =>
   Object.fromEntries(tracks.map((track, i) => [`_${i}_${track.id}`, track]))
 
 // startStation replaces the play queue with a Station's first Tracks and puts
-// its DJ on air, so the queue keeps being refilled from the server.
-export const startStation = (djId, tracks) => {
+// its DJ (and optional Theme) on air, so the queue keeps being refilled from
+// the server.
+export const startStation = (djId, tracks, theme = '') => {
   const data = toQueueData(tracks)
   return {
     type: PLAYER_PLAY_TRACKS,
     id: Object.keys(data)[0],
     data,
     station: djId,
+    theme,
   }
 }
 
@@ -29,11 +31,18 @@ export const addStationTracks = (tracks) => addTracks(toQueueData(tracks))
 // The Station on air, if any. Playing anything else ends it. Each start gets a
 // new session, so a refill asked for by an earlier Station is never queued in
 // a later one, even with the same DJ.
-export const stationReducer = (state = { djId: null, session: 0 }, action) => {
+export const stationReducer = (
+  state = { djId: null, theme: '', session: 0 },
+  action,
+) => {
   switch (action.type) {
     case PLAYER_PLAY_TRACKS:
       return action.station
-        ? { djId: action.station, session: (state.session || 0) + 1 }
+        ? {
+            djId: action.station,
+            theme: action.theme || '',
+            session: (state.session || 0) + 1,
+          }
         : { ...state, djId: null }
     case PLAYER_SET_TRACK:
     case PLAYER_CLEAR_QUEUE:

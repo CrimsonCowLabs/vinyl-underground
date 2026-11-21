@@ -10,6 +10,7 @@ import {
 } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { ThemeProvider, createTheme } from '@material-ui/core/styles'
+import config from '../config'
 import { playerReducer } from '../reducers'
 import { setPlayMode } from '../actions'
 import { stationReducer } from './stationState'
@@ -17,6 +18,10 @@ import StationList from './StationList'
 
 const notify = vi.fn()
 const httpClient = vi.fn()
+
+vi.mock('../config', () => ({
+  default: { enableStationThemes: false },
+}))
 
 vi.mock('react-admin', () => ({
   Title: ({ title }) => <h1>{title}</h1>,
@@ -60,6 +65,7 @@ describe('StationList', () => {
   beforeEach(() => {
     httpClient.mockReset()
     notify.mockReset()
+    config.enableStationThemes = false
     httpClient.mockImplementation((url) =>
       url.endsWith('/station/dj')
         ? Promise.resolve({ json: djs })
@@ -95,6 +101,36 @@ describe('StationList', () => {
       'mf-2',
     ])
     expect(screen.getByText('resources.station.onAir')).toBeInTheDocument()
+  })
+
+  it('hides the Theme field when no LLM is configured', async () => {
+    renderPage()
+    await screen.findByText('Night Owl')
+    expect(
+      screen.queryByLabelText('resources.station.fields.theme'),
+    ).not.toBeInTheDocument()
+  })
+
+  it('starts a Station with the Theme the Listener gives, when an LLM is configured', async () => {
+    config.enableStationThemes = true
+    const store = renderPage()
+    await screen.findByText('Night Owl')
+    fireEvent.change(screen.getByLabelText('resources.station.fields.theme'), {
+      target: { value: 'late-night drive' },
+    })
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'resources.station.actions.start Night Owl',
+      }),
+    )
+    await waitFor(() => expect(store.getState().station.djId).toBe('night-owl'))
+    const [, opts] = httpClient.mock.calls[1]
+    expect(JSON.parse(opts.body)).toEqual({
+      dj: 'night-owl',
+      count: 5,
+      theme: 'late-night drive',
+    })
+    expect(store.getState().station.theme).toBe('late-night drive')
   })
 
   it('plays the Station in order, as shuffle or repeat would replay Tracks', async () => {
