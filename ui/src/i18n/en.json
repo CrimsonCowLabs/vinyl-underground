@@ -230,14 +230,25 @@
         "searchOrCreate": "Search playlists or type to create new...",
         "pressEnterToCreate": "Press Enter to create new playlist",
         "removeFromSelection": "Remove from selection",
-        "copyToMyPlaylists": "Copy to my Playlists"
+        "copyToMyPlaylists": "Copy to my Playlists",
+        "download": "Download",
+        "resumeDownload": "Resume Download (%{done}/%{total})",
+        "removeDownload": "Remove Download",
+        "saveFiles": "Save Files"
       },
       "message": {
         "copied": "Playlist copied to your Playlists",
         "duplicate_song": "Add duplicated songs",
         "song_exist": "There are duplicates being added to the playlist. Would you like to add the duplicates or skip them?",
         "noPlaylistsFound": "No playlists found",
-        "noPlaylists": "No playlists available"
+        "noPlaylists": "No playlists available",
+        "downloading": "Downloading %{done}/%{total}",
+        "downloaded": "Downloaded",
+        "downloadFailed": "Could not download this Playlist. Check your connection and try again.",
+        "downloadRemoved": "Download removed",
+        "removeDownloadFailed": "Could not remove this Download. Try again.",
+        "removeDownloadTitle": "Remove Download?",
+        "removeDownloadContent": "\"%{name}\" will no longer play offline, and the space it uses on this device will be freed."
       }
     },
     "radio": {

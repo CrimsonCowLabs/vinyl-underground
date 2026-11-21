@@ -8,7 +8,8 @@ import {
   useRefresh,
 } from 'react-admin'
 import { HotKeys } from 'react-hotkeys'
-import dataProvider from './dataProvider'
+import baseDataProvider from './dataProvider'
+import { offlineAware } from './download'
 import authProvider from './authProvider'
 import { Layout, Login, Logout } from './layout'
 import transcoding from './transcoding'
@@ -52,6 +53,9 @@ import missing from './missing/index.js'
 import { useEffect } from 'react'
 
 const history = createHashHistory()
+
+// Downloaded Playlists open even when the server can't be reached
+const dataProvider = offlineAware(baseDataProvider)
 
 if (config.gaTrackingId) {
   ReactGA.initialize(config.gaTrackingId)

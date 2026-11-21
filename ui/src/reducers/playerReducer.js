@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from 'uuid'
 import subsonic from '../subsonic'
 import { decisionService } from '../transcode'
+import { downloads } from '../download'
 import {
   PLAYER_ADD_TRACKS,
   PLAYER_CLEAR_QUEUE,
@@ -32,13 +33,17 @@ const pad = (value) => {
   }
 }
 
+// A downloaded Track skips the transcode decision, which needs the server:
+// the service worker answers its stream URL from the device.
 const makeMusicSrc = (trackId) =>
-  decisionService.getProfile()
-    ? () =>
-        decisionService
-          .resolveStreamUrl(trackId)
-          .catch(() => subsonic.streamUrl(trackId))
-    : subsonic.streamUrl(trackId)
+  downloads.isTrackDownloaded(trackId)
+    ? subsonic.streamUrl(trackId)
+    : decisionService.getProfile()
+      ? () =>
+          decisionService
+            .resolveStreamUrl(trackId)
+            .catch(() => subsonic.streamUrl(trackId))
+      : subsonic.streamUrl(trackId)
 
 const mapToAudioLists = (item) => {
   // If item comes from a playlist, trackId is mediaFileId
