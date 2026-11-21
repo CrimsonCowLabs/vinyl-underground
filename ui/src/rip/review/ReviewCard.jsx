@@ -18,12 +18,8 @@ import {
 } from '@material-ui/core'
 import DeleteIcon from '@material-ui/icons/Delete'
 import { httpClient } from '../../dataProvider'
-import {
-  DiscardDialog,
-  DiscardJobButton,
-  errorText,
-  jobUrl,
-} from './DiscardDialog'
+import { DiscardDialog, DiscardJobButton } from './DiscardDialog'
+import { errorText, jobUrl } from './reviewApi'
 import {
   editsFrom,
   initialValues,

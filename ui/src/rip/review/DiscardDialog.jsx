@@ -9,12 +9,7 @@ import {
   Typography,
 } from '@material-ui/core'
 import { httpClient } from '../../dataProvider'
-import { REST_URL } from '../../consts'
-
-export const jobUrl = (jobId) => `${REST_URL}/rip/${jobId}`
-
-export const errorText = (error) =>
-  error?.body?.error || error?.message || 'ra.page.error'
+import { errorText, jobUrl } from './reviewApi'
 
 // DiscardDialog asks before deleting Files for good: they don't go to Quarantine.
 export const DiscardDialog = ({ open, message, busy, onConfirm, onCancel }) => {
