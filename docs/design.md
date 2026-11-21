@@ -23,7 +23,7 @@ It is a public, GPL-3.0, hard fork of Navidrome **v0.64.2**, renamed and never r
 
 ### Downloads ([ADR-0006](./adr/0006-offline-downloads-in-the-pwa.md))
 - Playlists and albums can be downloaded to the device as Opus at ~160 kbps.
-- A downloaded Playlist syncs automatically when online: when the app starts, comes back online or is brought back to the screen. It does not sync while the app is closed.
+- A downloaded Playlist is brought up to date automatically when online: when the app starts, comes back online or is brought back to the screen. It is not refreshed while the app is closed.
 - The app requests persistent storage and shows a storage meter. There is no hard cap.
 - Offline: play Downloads and shuffle them. Stations are unavailable.
 - Lock-screen and background playback use the Media Session API.

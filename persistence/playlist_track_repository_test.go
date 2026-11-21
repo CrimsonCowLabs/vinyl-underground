@@ -11,6 +11,7 @@ import (
 	"github.com/navidrome/navidrome/utils/slice"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/pocketbase/dbx"
 )
 
 // sqliteMaxVariables is SQLITE_MAX_VARIABLE_NUMBER as compiled into the driver
@@ -157,15 +158,17 @@ var _ = Describe("PlaylistTrackRepository", func() {
 
 		// Offline Downloads compare updatedAt to tell whether a Playlist changed
 		It("marks the playlist as updated", func() {
-			before, err := plsRepo.Get(pls.ID)
+			// A fixed past time, so the check doesn't depend on clock resolution
+			past := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+			_, err := GetDBXBuilder().Update("playlist", dbx.Params{"updated_at": past},
+				dbx.HashExp{"id": pls.ID}).Execute()
 			Expect(err).ToNot(HaveOccurred())
-			time.Sleep(10 * time.Millisecond)
 
 			Expect(tracks.Reorder(1, 3)).To(Succeed())
 
 			after, err := plsRepo.Get(pls.ID)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(after.UpdatedAt).To(BeTemporally(">", before.UpdatedAt))
+			Expect(after.UpdatedAt).To(BeTemporally(">", past))
 		})
 
 		DescribeTable("clamps the destination to the playlist",

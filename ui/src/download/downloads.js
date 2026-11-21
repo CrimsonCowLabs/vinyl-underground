@@ -131,10 +131,13 @@ export const createDownloads = ({
     const before = records.get(id)
     if (!before) return
     const info = await server.getPlaylistInfo(id)
+    // Each await below may race a remove or start of the same Download
+    const replaced = () => records.get(id) !== before
+    if (replaced()) return
     if (!info) return remove(id) // deleted on the server
     if (!hasChanged(before.playlist, info)) return
     const { playlist, tracks } = await server.getPlaylist(id)
-    if (records.get(id) !== before) return // removed or restarted meanwhile
+    if (replaced()) return
     const record = { listener: before.listener, playlist, tracks }
     records.set(id, record)
     await storage.saveDownload(record)

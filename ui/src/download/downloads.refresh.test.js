@@ -232,6 +232,25 @@ describe('refreshing Downloads', () => {
     expect(storage.trackIds.size).toBe(0)
   })
 
+  it('keeps a Download started again while its Playlist was being checked', async () => {
+    const { downloads, server, storage } = setup()
+    server.setTracks('pl1', 1)
+    await downloads.start('pl1')
+
+    // The check answers "deleted", but by then the Listener has removed the
+    // Download and started it again, so that newer Download must stay
+    server.getPlaylistInfo.mockImplementationOnce(async () => {
+      await downloads.remove('pl1')
+      await downloads.start('pl1')
+      return null
+    })
+    await downloads.refresh()
+
+    expect(downloads.get('pl1')).toMatchObject({ state: 'downloaded' })
+    expect(storage.records.has('pl1')).toBe(true)
+    expect(storage.trackIds.has('t1')).toBe(true)
+  })
+
   it("leaves another Listener's Downloads, and the Tracks they use, alone", async () => {
     const { downloads, server, storage, switchListener } = setup()
     server.setTracks('pl1', 1, 2)
