@@ -191,9 +191,11 @@ With no LLM configured, the **Generate** button is not shown. If the LLM can't b
 The app talks to any OpenAI-compatible endpoint (Ollama, llama.cpp, LM Studio), set by two settings in `.env`:
 
 ```bash
-ND_LLM_BASEURL=http://<llm-host>:11434   # one with no path gets /v1 added
+ND_LLM_BASEURL=http://<llm-host>.<tailnet>.ts.net:11434   # one with no path gets /v1 added
 ND_LLM_MODEL=qwen3.5:4b-q4_K_M
 ```
+
+Both are needed and both are empty by default: with only the URL set, the **Generate** button stays hidden. For a machine on the tailnet, use its full MagicDNS name (or its tailnet IP). Docker's DNS inside the container doesn't add the tailnet's search domain, so a short name that works on the host fails in the app with "bad address".
 
 Then `docker compose up -d` to restart the app with them. Optional: `ND_LLM_APIKEY` for endpoints that need one, `ND_LLM_TIMEOUT` (default `3m`) for one LLM call, and `ND_LLM_CONNECTTIMEOUT` (default `5s`) before reporting it unavailable.
 
@@ -207,7 +209,7 @@ The reference setup runs Ollama on an always-on Apple Silicon Mac on the tailnet
 2. Make Ollama listen on the Mac's tailnet address, not just localhost: set `OLLAMA_HOST=<tailnet-ip>:11434` for the Ollama service.
 3. Keep the Mac awake on power (`sudo pmset -c sleep 0`), and Tailscale running at login.
 4. Ollama has no login of its own, so use a tailnet ACL to allow port 11434 only from the app's host.
-5. Check from the app's host: `curl -fsS http://<llm-host>:11434/api/tags` lists the model.
+5. Check from inside the app's container, which resolves names differently from the host: `docker exec vinyl-underground wget -qO- http://<llm-host>.<tailnet>.ts.net:11434/api/tags` lists the model.
 
 ### LLM on this host (`ollama` profile)
 
