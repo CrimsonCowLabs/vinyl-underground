@@ -255,6 +255,8 @@
         "aiUnavailable": "AI unavailable. The AI server can't be reached right now (it may be asleep). Try again later.",
         "aiInvalidReply": "The AI gave an answer that couldn't be used. Try again.",
         "noTracks": "There are no Tracks in your Library to choose from.",
+        "invalidPrompt": "The Prompt must be 1 to 500 characters.",
+        "invalidLength": "The length must be from 10 to 100 Tracks.",
         "generateFailed": "Could not generate a Playlist. Check your connection and try again.",
         "generatedSaved": "Playlist saved",
         "generatedFrom": "Generated from: \"%{prompt}\""

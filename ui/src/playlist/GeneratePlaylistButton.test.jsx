@@ -201,4 +201,30 @@ describe('<GeneratePlaylistButton />', () => {
       screen.getByText('resources.playlist.message.generateFailed'),
     )
   })
+
+  // The server checks the Prompt and length too, e.g. if the UI's limits drift
+  it.each([
+    ['invalidPrompt', 'resources.playlist.message.invalidPrompt'],
+    ['invalidLength', 'resources.playlist.message.invalidLength'],
+  ])('explains a rejected %s', async (code, message) => {
+    httpClient.mockRejectedValue(httpError(400, code))
+    open()
+    fireEvent.change(promptField(), { target: { value: 'indie' } })
+    fireEvent.click(generateButton())
+    await waitFor(() => screen.getByText(message))
+  })
+
+  // So the server stops the LLM work nobody is waiting for
+  it('cancels the request when the dialog is closed', async () => {
+    httpClient.mockReturnValue(new Promise(() => {}))
+    open()
+    fireEvent.change(promptField(), { target: { value: 'indie' } })
+    fireEvent.click(generateButton())
+    const { signal } = httpClient.mock.calls[0][1]
+    expect(signal.aborted).toBe(false)
+
+    fireEvent.click(screen.getByText('ra.action.cancel'))
+
+    expect(signal.aborted).toBe(true)
+  })
 })

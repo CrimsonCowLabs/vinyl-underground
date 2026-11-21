@@ -37,6 +37,8 @@ const errorMessages = {
   aiUnavailable: 'resources.playlist.message.aiUnavailable',
   aiInvalidReply: 'resources.playlist.message.aiInvalidReply',
   noTracks: 'resources.playlist.message.noTracks',
+  invalidPrompt: 'resources.playlist.message.invalidPrompt',
+  invalidLength: 'resources.playlist.message.invalidLength',
 }
 
 const errorMessage = (err) =>
@@ -93,6 +95,9 @@ const GeneratePlaylistDialog = ({ open, onClose }) => {
   const elapsed = useElapsedSeconds(generating)
   // Ignore a reply that arrives after the dialog was closed or a newer request started.
   const request = useRef(0)
+  // Closing the dialog cancels the preview, so the server stops the LLM work
+  const inFlight = useRef(null)
+  useEffect(() => () => inFlight.current?.abort(), [])
 
   useEffect(() => {
     if (!open) request.current++
@@ -109,12 +114,16 @@ const GeneratePlaylistDialog = ({ open, onClose }) => {
       e?.preventDefault()
       if (!canGenerate) return
       const id = ++request.current
+      inFlight.current?.abort()
+      const controller = new AbortController()
+      inFlight.current = controller
       setGenerating(true)
       setError(null)
       setPreview(null)
       httpClient(`${REST_URL}/generatedPlaylist/preview`, {
         method: 'POST',
         body: JSON.stringify({ prompt: prompt.trim(), length: Number(length) }),
+        signal: controller.signal,
       })
         .then(({ json }) => {
           if (id !== request.current) return
