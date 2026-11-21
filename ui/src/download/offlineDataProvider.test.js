@@ -7,9 +7,18 @@ const tracks = [
   { id: '2', mediaFileId: 't2', title: 'Alpha', duration: 100 },
   { id: '10', mediaFileId: 't3', title: 'Charlie', duration: 300 },
 ]
+const songs = [
+  { id: 's1', title: 'All I Want', trackNumber: 1 },
+  { id: 's2', title: 'My Old Man', trackNumber: 2 },
+]
 const RECORDS = {
-  pl1: { playlist: { id: 'pl1', name: 'Road trip' }, tracks },
-  pl2: { playlist: { id: 'pl2', name: 'Autumn' }, tracks: [] },
+  'playlist:pl1': { playlist: { id: 'pl1', name: 'Road trip' }, tracks },
+  'playlist:pl2': { playlist: { id: 'pl2', name: 'Autumn' }, tracks: [] },
+  'album:al1': {
+    kind: 'album',
+    album: { id: 'al1', name: 'Blue', albumArtist: 'Joni Mitchell' },
+    tracks: songs,
+  },
 }
 
 const networkDown = () => Promise.reject(new TypeError('Failed to fetch'))
@@ -31,8 +40,12 @@ const setup = ({ online = true, server = {}, loaded = true } = {}) => {
     }
   })
   const downloads = {
-    getRecord: (id) => records[id],
-    list: () => Object.keys(records).map((id) => ({ id })),
+    getRecord: (id, kind = 'playlist') => records[`${kind}:${id}`],
+    list: () =>
+      Object.keys(records).map((key) => {
+        const [kind, id] = key.split(':')
+        return { id, kind }
+      }),
   }
   const provider = withDownloads(dataProvider, {
     downloads,
@@ -102,9 +115,12 @@ describe('withDownloads', () => {
     )
   })
 
-  it('fails as before for anything other than Playlists', async () => {
+  it('fails as before for anything other than Playlists and albums', async () => {
     const { provider } = setup({ online: false })
 
+    await expect(provider.getOne('artist', { id: 'pl1' })).rejects.toThrow(
+      'Failed to fetch',
+    )
     await expect(provider.getOne('album', { id: 'pl1' })).rejects.toThrow(
       'Failed to fetch',
     )
@@ -160,5 +176,51 @@ describe('withDownloads', () => {
 
     expect(result.data.map((p) => p.name)).toEqual(['Autumn', 'Road trip'])
     expect(result.total).toBe(2)
+  })
+
+  it('opens a downloaded album when the network is down', async () => {
+    const { provider } = setup()
+
+    const { data } = await provider.getOne('album', { id: 'al1' })
+
+    expect(data.name).toBe('Blue')
+  })
+
+  it('lists the Tracks of a downloaded album in album order', async () => {
+    const { provider } = setup({ online: false })
+
+    // As the album page asks for them
+    const result = await provider.getManyReference('song', {
+      target: 'album_id',
+      id: 'al1',
+      sort: { field: 'album', order: 'ASC' },
+      pagination: { page: 1, perPage: 0 },
+      filter: {},
+    })
+
+    expect(result.data.map((t) => t.title)).toEqual([
+      'All I Want',
+      'My Old Man',
+    ])
+  })
+
+  it('lists the downloaded albums when the network is down', async () => {
+    const { provider } = setup()
+
+    const result = await provider.getList('album', {
+      filter: {},
+      sort: { field: 'name', order: 'ASC' },
+      pagination: { page: 1, perPage: 25 },
+    })
+
+    expect(result.data.map((a) => a.name)).toEqual(['Blue'])
+  })
+
+  it('fails as before for songs not asked for by album', async () => {
+    const { provider } = setup({ online: false })
+
+    await expect(
+      provider.getList('song', { filter: {}, pagination: { page: 1 } }),
+    ).rejects.toThrow('Failed to fetch')
   })
 })

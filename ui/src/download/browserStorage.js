@@ -4,13 +4,13 @@ import subsonic from '../subsonic'
 import { baseUrl } from '../utils'
 import {
   DOWNLOADS_CACHE,
-  DOWNLOAD_RECORD_PREFIX,
+  DOWNLOAD_RECORD_PREFIXES,
   TRACK_AUDIO_PREFIX,
   coverArtKey,
   downloadRecordKey,
   trackAudioKey,
 } from './keys'
-import { trackIdOf } from './downloads'
+import { itemOf, kindOf, trackIdOf } from './downloads'
 
 // ADR-0006: Downloads are Opus at ~160 kbps
 export const DOWNLOAD_FORMAT = 'opus'
@@ -63,12 +63,26 @@ const trackCover = (track) => {
   }
 }
 
-const playlistCoverId = (playlistId) => `pl-${playlistId}`
+// The same cover the Playlist and album pages ask for (see getCoverArtUrl)
+const COVER_PREFIXES = { playlist: 'pl', album: 'al' }
+const downloadCoverId = (id, kind) => `${COVER_PREFIXES[kind]}-${id}`
+
+// Each stored Track remembers its size, so the storage meter doesn't have to
+// read every Track back to measure it
+const SIZE_HEADER = 'X-Download-Size'
+
+const storedSize = async (res) => {
+  const size = Number(res.headers.get(SIZE_HEADER))
+  // Tracks stored before sizes were recorded are measured the slow way
+  return size > 0 ? size : (await res.blob()).size
+}
 
 export const browserStorage = {
   listDownloads: async () => {
     const cache = await open()
-    const paths = await keysWithPrefix(DOWNLOAD_RECORD_PREFIX)
+    const paths = (
+      await Promise.all(DOWNLOAD_RECORD_PREFIXES.map(keysWithPrefix))
+    ).flat()
     const records = await Promise.all(
       paths.map((path) => cache.match(path).then((res) => res?.json())),
     )
@@ -77,29 +91,44 @@ export const browserStorage = {
 
   saveDownload: async (record) => {
     const cache = await open()
+    const item = itemOf(record)
+    const kind = kindOf(record)
     await cache.put(
-      downloadRecordKey(record.playlist.id),
+      downloadRecordKey(item.id, kind),
       new Response(JSON.stringify(record), {
         headers: { 'Content-Type': 'application/json' },
       }),
     )
     await storeCover(
       cache,
-      playlistCoverId(record.playlist.id),
-      subsonic.getCoverArtUrl(record.playlist, COVER_SIZE),
+      downloadCoverId(item.id, kind),
+      subsonic.getCoverArtUrl(item, COVER_SIZE),
     )
   },
 
-  deleteDownload: async (playlistId) => {
+  deleteDownload: async (id, kind = 'playlist') => {
     const cache = await open()
-    await cache.delete(downloadRecordKey(playlistId))
-    await cache.delete(coverArtKey(playlistCoverId(playlistId)))
+    await cache.delete(downloadRecordKey(id, kind))
+    await cache.delete(coverArtKey(downloadCoverId(id, kind)))
   },
 
   listTrackIds: async () =>
     (await keysWithPrefix(TRACK_AUDIO_PREFIX)).map(
       idFromKey(TRACK_AUDIO_PREFIX),
     ),
+
+  listTrackSizes: async () => {
+    const cache = await open()
+    const paths = await keysWithPrefix(TRACK_AUDIO_PREFIX)
+    const entries = await Promise.all(
+      paths.map(async (path) => {
+        const res = await cache.match(path)
+        const size = res ? await storedSize(res) : 0
+        return [idFromKey(TRACK_AUDIO_PREFIX)(path), size]
+      }),
+    )
+    return Object.fromEntries(entries)
+  },
 
   // The Track's audio is stored last: once it is there, the Track is done
   saveTrack: async (track, { signal } = {}) => {
@@ -118,13 +147,17 @@ export const browserStorage = {
       { signal },
     )
     checkAudioResponse(res, trackId)
-    // A fresh Response, so none of the stream's headers (e.g. a Content-Range
-    // or a short-lived cache policy) are stored with it
+    // Read in full to learn its size (a transcoded stream has no
+    // Content-Length), then stored as a fresh Response, so none of the
+    // stream's headers (e.g. a Content-Range or a short-lived cache policy)
+    // are stored with it
+    const audio = await res.blob()
     await cache.put(
       trackAudioKey(trackId),
-      new Response(res.body, {
+      new Response(audio, {
         headers: {
           'Content-Type': res.headers.get('Content-Type') || 'audio/ogg',
+          [SIZE_HEADER]: String(audio.size),
         },
       }),
     )

@@ -1,13 +1,19 @@
-// Keeps track of a Listener's Downloads: which Playlists are stored on the
-// device, how far each one has got, and which Tracks are safe to delete when
-// a Download is removed.
+// Keeps track of a Listener's Downloads: which Playlists and albums are
+// stored on the device, how far each one has got, and which Tracks are safe
+// to delete when a Download is removed.
 //
 // The browser APIs live behind three seams so this logic can be tested:
 //   server.getPlaylist(id) -> { playlist, tracks }
 //   server.getPlaylistInfo(id) -> playlist, or null if it no longer exists
-//   storage: listDownloads, saveDownload, deleteDownload, listTrackIds,
+//   server.getAlbum(id) -> { album, tracks }
+//   storage: listDownloads, saveDownload, deleteDownload(id, kind),
+//            listTrackIds, listTrackSizes() -> { [trackId]: bytes },
 //            saveTrack(track, { signal }), deleteTrack(trackId)
 //   requestPersistence() -> asks the browser not to evict the Downloads
+//
+// A Download is a Playlist or an album (its kind). Its stored record is
+// { listener, kind, [kind]: playlist or album, tracks }; records stored
+// before albums could be downloaded have no kind and are Playlists.
 //
 // Tracks are stored one at a time. A Track that fails to store leaves its
 // Download interrupted; resume() retries whatever is still missing.
@@ -15,7 +21,22 @@
 // refresh() brings Downloads up to date with Playlists changed elsewhere:
 // added Tracks are stored, removed ones deleted, and the new order kept.
 
+export const PLAYLIST = 'playlist'
+export const ALBUM = 'album'
+
 export const trackIdOf = (track) => track.mediaFileId || track.id
+
+export const kindOf = (record) => record.kind || PLAYLIST
+
+// The Playlist or album a Download record holds
+export const itemOf = (record) => record[kindOf(record)]
+
+const keyOf = (id, kind) => `${kind}:${id}`
+
+const fetchers = {
+  [PLAYLIST]: (server, id) => server.getPlaylist(id),
+  [ALBUM]: (server, id) => server.getAlbum(id),
+}
 
 export const createDownloads = ({
   server,
@@ -23,7 +44,7 @@ export const createDownloads = ({
   requestPersistence,
   currentListener,
 }) => {
-  const records = new Map() // playlist id -> { listener, playlist, tracks }
+  const records = new Map() // `${kind}:${id}` -> record
   const stored = new Set() // Track ids stored on the device
   const failed = new Set() // Track ids that failed during the current run
   const listeners = new Set()
@@ -33,10 +54,13 @@ export const createDownloads = ({
 
   const notify = () => listeners.forEach((fn) => fn())
 
-  const mine = (id) => {
-    const record = records.get(id)
+  const mine = (id, kind = PLAYLIST) => {
+    const record = records.get(keyOf(id, kind))
     return record && record.listener === currentListener() ? record : undefined
   }
+
+  const myRecords = () =>
+    [...records.values()].filter((r) => r.listener === currentListener())
 
   const trackIdsOf = (record) => [...new Set(record.tracks.map(trackIdOf))]
 
@@ -102,8 +126,8 @@ export const createDownloads = ({
     return running
   }
 
-  const get = (id) => {
-    const record = mine(id)
+  const get = (id, kind = PLAYLIST) => {
+    const record = mine(id, kind)
     if (!record) return undefined
     const ids = trackIdsOf(record)
     const done = ids.filter((tid) => stored.has(tid)).length
@@ -111,14 +135,15 @@ export const createDownloads = ({
     let state = 'interrupted'
     if (done === ids.length) state = 'downloaded'
     else if (running && pending) state = 'downloading'
-    return { id, name: record.playlist.name, state, done, total: ids.length }
+    const { name } = itemOf(record)
+    return { id, kind, name, state, done, total: ids.length }
   }
 
-  const remove = async (playlistId) => {
-    const record = mine(playlistId)
+  const remove = async (id, kind = PLAYLIST) => {
+    const record = mine(id, kind)
     if (!record) return
-    records.delete(playlistId)
-    await storage.deleteDownload(playlistId)
+    records.delete(keyOf(id, kind))
+    await storage.deleteDownload(id, kind)
     await deleteOrphans(trackIdsOf(record))
   }
 
@@ -127,26 +152,37 @@ export const createDownloads = ({
   const hasChanged = (before, now) =>
     Boolean(now.rules) || now.updatedAt !== before.updatedAt
 
+  // Only Playlist Downloads are refreshed: an album doesn't change (ADR-0006)
   const refreshOne = async (id) => {
-    const before = records.get(id)
+    const key = keyOf(id, PLAYLIST)
+    const before = records.get(key)
     if (!before) return
     const info = await server.getPlaylistInfo(id)
     // Each await below may race a remove or start of the same Download
-    const replaced = () => records.get(id) !== before
+    const replaced = () => records.get(key) !== before
     if (replaced()) return
     if (!info) return remove(id) // deleted on the server
     if (!hasChanged(before.playlist, info)) return
     const { playlist, tracks } = await server.getPlaylist(id)
     if (replaced()) return
-    const record = { listener: before.listener, playlist, tracks }
-    records.set(id, record)
+    const record = {
+      listener: before.listener,
+      kind: PLAYLIST,
+      playlist,
+      tracks,
+    }
+    records.set(key, record)
     await storage.saveDownload(record)
-    if (!records.has(id)) await storage.deleteDownload(id) // removed meanwhile
+    // Removed meanwhile
+    if (!records.has(key)) await storage.deleteDownload(id, PLAYLIST)
     await deleteOrphans(trackIdsOf(before))
   }
 
   const refreshAll = async () => {
-    for (const id of [...records.keys()].filter((id) => mine(id))) {
+    const playlistIds = myRecords()
+      .filter((r) => kindOf(r) === PLAYLIST)
+      .map((r) => itemOf(r).id)
+    for (const id of playlistIds) {
       // Unreachable now: the Download stays as it is until the next refresh
       await refreshOne(id).catch(() => {})
     }
@@ -173,17 +209,17 @@ export const createDownloads = ({
         storage.listDownloads(),
         storage.listTrackIds(),
       ])
-      list.forEach((r) => records.set(r.playlist.id, r))
+      list.forEach((r) => records.set(keyOf(itemOf(r).id, kindOf(r)), r))
       trackIds.forEach((id) => stored.add(id))
       notify()
     },
 
-    start: async (playlistId) => {
+    start: async (id, kind = PLAYLIST) => {
       Promise.resolve(requestPersistence()).catch(() => {})
-      const { playlist, tracks } = await server.getPlaylist(playlistId)
-      const record = { listener: currentListener(), playlist, tracks }
+      const { tracks, [kind]: item } = await fetchers[kind](server, id)
+      const record = { listener: currentListener(), kind, [kind]: item, tracks }
       await storage.saveDownload(record)
-      records.set(playlistId, record)
+      records.set(keyOf(id, kind), record)
       record.tracks.forEach((t) => failed.delete(trackIdOf(t)))
       notify()
       return drain()
@@ -199,9 +235,43 @@ export const createDownloads = ({
     remove,
 
     get,
-    list: () =>
-      [...records.keys()].filter((id) => mine(id)).map((id) => get(id)),
-    getRecord: (playlistId) => mine(playlistId),
+    list: () => myRecords().map((r) => get(itemOf(r).id, kindOf(r))),
+
+    // The space the current Listener's Downloads use on the device. A Track
+    // shared by several Downloads counts in each of their sizes, as each
+    // needs it, but only once in the total: the per-Download sizes can add up
+    // to more than the total. Cover art is small and not counted.
+    usage: async () => {
+      const sizes = await storage.listTrackSizes()
+      const sizeOf = (ids) =>
+        ids.reduce((sum, tid) => sum + (sizes[tid] || 0), 0)
+      const mineList = myRecords()
+      return {
+        total: sizeOf([...new Set(mineList.flatMap(trackIdsOf))]),
+        downloads: mineList.map((r) => ({
+          id: itemOf(r).id,
+          kind: kindOf(r),
+          name: itemOf(r).name,
+          size: sizeOf(trackIdsOf(r)),
+        })),
+      }
+    },
+
+    getRecord: (id, kind = PLAYLIST) => mine(id, kind),
+
+    // Every Track stored for the current Listener, once each, in Download
+    // order: what "Shuffle all Downloads" plays
+    downloadedTracks: () => {
+      const seen = new Set()
+      return myRecords()
+        .flatMap((r) => r.tracks)
+        .filter((t) => {
+          const tid = trackIdOf(t)
+          if (seen.has(tid) || !stored.has(tid)) return false
+          seen.add(tid)
+          return true
+        })
+    },
     isTrackDownloaded: (trackId) => stored.has(trackId),
     subscribe: (fn) => {
       listeners.add(fn)
