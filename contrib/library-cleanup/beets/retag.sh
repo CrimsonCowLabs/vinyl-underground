@@ -6,18 +6,21 @@
 #        retag.sh test               run the plugins' tests in the image
 #        retag.sh import PATHS.txt   retag the paths retag.py listed, asking about each album
 #        retag.sh review             go through the albums skipped so far, asking about every one
-#        retag.sh covers [QUERY]     give each retagged album (or those QUERY matches) a cover.jpg, embedded
+#        retag.sh covers [OPTS] [QUERY]  give each retagged album (or those QUERY matches) a cover.jpg,
+#                                    embedded; run-covers.sh wraps this with its options
 #
 # MUSIC_RW   the share's temporary writable mount (default /mnt/music-rw); beets sees it as /music
 # RETAG_STATE  a folder outside the share for beets' library, resume state and import log (required)
 # RETAG_QUIET=1  (import only) apply strong matches and skip the rest without asking: only for a test on a scratch copy
+# RETAG_CONFIG  (covers only) extra beets settings, as the container sees them (e.g. /state/run-covers.yaml)
+# RETAG_BACKUP  (covers only) a folder outside the share, mounted as /backup for covers --backup /backup
 set -euo pipefail
 
 IMAGE=vinyl-underground-beets
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 MUSIC_RW=${MUSIC_RW:-/mnt/music-rw}
 
-usage() { sed -n '4,13p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2; exit 2; }
+usage() { sed -n '4,16p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2; exit 2; }
 
 beet() {
   : "${RETAG_STATE:?set RETAG_STATE to a folder outside the share}"
@@ -30,8 +33,16 @@ beet() {
   # beets reads the owner's answers from stdin, so keep it open, as a terminal when there is one.
   local tty=(-i)
   [[ -t 0 && -t 1 ]] && tty=(-it)
+  local backup=()
+  if [[ -n ${RETAG_BACKUP:-} ]]; then
+    mkdir -p "$RETAG_BACKUP"
+    local dir
+    dir=$(realpath "$RETAG_BACKUP")
+    case "$dir/" in "$music"/*) echo "RETAG_BACKUP must be outside the share: $RETAG_BACKUP" >&2; exit 1 ;; esac
+    backup=(-v "$dir:/backup")
+  fi
   docker run --rm "${tty[@]}" --user "$(id -u):$(id -g)" \
-    -v "$music:/music" -v "$state:/state" "$IMAGE" "$@"
+    -v "$music:/music" -v "$state:/state" "${backup[@]}" "$IMAGE" "$@"
 }
 
 quiet=()
@@ -64,7 +75,9 @@ case "${1:-}" in
     beet -c /etc/beets/review.yaml import --from-logfile /state/import.log ;;
   covers)
     shift
-    beet covers "$@" ;;
+    config=()
+    [[ -n ${RETAG_CONFIG:-} ]] && config=(-c "$RETAG_CONFIG")
+    beet "${config[@]}" covers "$@" ;;
   *)
     usage ;;
 esac

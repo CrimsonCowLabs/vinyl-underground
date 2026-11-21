@@ -13,7 +13,7 @@ Tools for cleaning up a music share before the app scans it. The app itself has 
 | `apply.py` | Carries out a plan, checking each step by re-listing both folders |
 | `health.py` | Reports how healthy the Library is, from the app's database, read-only (pure, unit-tested) |
 | `retag.py` | Lists the folders beets should retag, leaving out Quarantine, the recycle bin and `.ndignore` folders (pure, unit-tested) |
-| `beets/` | beets in Docker, set up to retag Files in place from MusicBrainz and give every album a cover (`retag.sh`, config, four small plugins) |
+| `beets/` | beets in Docker, set up to retag Files in place from MusicBrainz and give every album a cover (`retag.sh`, `run-covers.sh`, config, four small plugins) |
 
 Python 3.10+ only, no dependencies. Run the tests with `python3 -m unittest` in this folder. beets runs in Docker, and the tests of its plugins (in `beets/`) run in its image, with `beets/retag.sh test`.
 
@@ -298,6 +298,58 @@ cat $RETAG_STATE/no-cover.tsv
 An album downloaded for offline play before this keeps the placeholder it stored when downloaded: remove its Download and download it again to store its new cover.
 
 **Re-running for new music.** After retagging new albums (steps 3 and 4 of the retag), run `beets/retag.sh covers` again: albums that already have a `cover.jpg` are kept as they are, and the others are looked up again, so an album listed as `none` may be found later. `no-cover.tsv` is rewritten each run with the albums of that run only, so after a trial on a query it lists only those.
+
+### All in one: `run-covers.sh`
+
+[`beets/run-covers.sh`](beets/run-covers.sh) does the steps above in one command, with options for a dry run, backups and where to look. It runs `retag.sh covers` underneath, so it works on the albums the retag put in beets' library, with the same `RETAG_STATE`, and it keeps the same rules: an existing `cover.jpg` is never replaced, Files with art are never changed, and Quarantine, the recycle bin and `.ndignore` folders are left out. `run-covers.sh --help` lists every option.
+
+| Option | What it does |
+|---|---|
+| `QUERY...` | Only the albums a beets query matches, e.g. `'albumartist:Radiohead'` or `'path:/music/iTunes_Library/Music/Radiohead'`. None means every album beets retagged |
+| `-n`, `--dry-run` | Prints what it would do for each album (`kept`, `found` and the source, `small`, `none`…) and writes nothing to the share. Its list goes to `$RETAG_STATE/no-cover-dry-run.tsv`, so the real `no-cover.tsv` stays as it was. Online sources are still asked, to know what would be found |
+| `-b`, `--backup` | Before the cover is embedded in a File, copies that File to `$RETAG_STATE/backups/YYYYmmdd-HHMMSS/files/`, and lists each `cover.jpg` and File the run wrote, with checksums of what it wrote, in that folder's `manifest.tsv`, as it goes. Also keeps a copy of beets' `library.db` there, from before the first run into that folder |
+| `--backup-dir DIR` | The same, into `DIR`, which must be outside the share (it refuses one inside before writing anything). Implies `--backup`. Using the same `DIR` again, e.g. after a Ctrl-C, adds to it: Files already copied are never copied over |
+| `--restore DIR` | Undoes the runs backed up in `DIR`: puts each File back as it was and removes each `cover.jpg` they wrote. Anything changed since the run, such as a cover you replaced by hand or a File retagged again, is kept and listed (its copy stays in `DIR/files`). A File with no copy in the backup is listed, and the restore carries on and then fails. Add `--dry-run` to see what it would do. Running it twice is harmless. It takes only `--dry-run` and the `--music`/`--mount` options |
+| `--no-embed` | Only writes `cover.jpg` into each folder. The Files are never touched, so nothing needs backing up |
+| `--embed-size PX` | Size of the copy embedded in each File (default 600; 0 embeds `cover.jpg` as it is) |
+| `--min-size PX` | A cover counts as good from this width (default 500) |
+| `--max-size PX` | A downloaded cover is shrunk to this size (default 1200) |
+| `--sources LIST` | Where to look, in order, comma-separated: `local` (an image in the folder, then the Files' art), `coverart` (the Cover Art Archive, by release then release group), `fanarttv`, `itunes`, `wikipedia`. Default: all, in that order |
+| `--local-only` | Same as `--sources local`: no web requests at all |
+| `--music DIR` | The share's writable mount (default `$MUSIC_RW`, else `/mnt/music-rw`) |
+| `--state DIR` | beets' state from the retag (default `$RETAG_STATE`; required) |
+| `--mount SHARE` | Mounts `SHARE` (e.g. `//NAS/music`) writable at `--music` first, with `sudo` and the options from step 1 of the case merge, and unmounts it at the end, even if the run fails or is stopped. If something is already mounted there, it's used as it is |
+| `--credentials FILE` | The SMB credentials file for `--mount` |
+| `--smb-version V` | SMB version for `--mount` (default `1.0`) |
+| `--keep-mount` | Leaves the `--mount` mount up at the end |
+| `--health DB` | First saves the health report's `no-cover` list from the app's database to `$RETAG_STATE/no-cover-before-YYYYmmdd-HHMMSS.tsv`, and prints the count, for comparing after the Full Scan |
+| `--build` | Rebuilds the beets image first. Needed once after pulling changes to `beets/` |
+| `-y`, `--yes` | Writes to the share without a backup without asking. Without `--backup` or `--yes` it asks first, and refuses when there's no terminal to ask on, so an unattended run needs one of them |
+
+The same three steps as above, with it:
+
+```bash
+export RETAG_STATE=/path/to/retag-state
+# 1. Trial on one artist: look first, then write it with a backup.
+beets/run-covers.sh --build --mount //NAS/music --credentials /path/to/smb-credentials \
+  --health /path/to/navidrome.db --dry-run 'path:/music/iTunes_Library/Music/Radiohead'
+beets/run-covers.sh --mount //NAS/music --credentials /path/to/smb-credentials \
+  --backup 'path:/music/iTunes_Library/Music/Radiohead'
+# Full Scan in the app, and check those covers.
+
+# 2. Every album, unattended (Ctrl-C and run it again to carry on).
+beets/run-covers.sh --mount //NAS/music --credentials /path/to/smb-credentials --backup-dir /big/disk/covers-backup
+
+# 3. Full Scan in the app, then check as in step 3 above.
+```
+
+If the trial looks wrong, `beets/run-covers.sh --restore $RETAG_STATE/backups/YYYYmmdd-HHMMSS` (with `--mount …` if the share isn't mounted) puts it back. Then run a Full Scan.
+
+**Backups take room.** A backup holds a full copy of every File the cover is embedded in. On a first run that's most of the albums with no cover, so the backup can be as large as a big part of the Library. Put it on a disk with room (`--backup-dir`). On a later run, for new albums, it's small. Alternatives: `--no-embed`, which changes no Files at all (after a Full Scan the app, and its offline Downloads, show the folder's `cover.jpg`; only clients that read just the art embedded in Files miss out), or a backed-up trial on a few albums, then a full run with `--yes`. Each run only writes new `cover.jpg` files and embeds into Files with no art, so you can delete a backup once a Full Scan looks right.
+
+`--restore` doesn't change beets' library, which still records the removed `cover.jpg` as each album's cover. That's harmless: the next run looks in the folder, not at that record. To be exact, copy the backup's `library.db` back over `$RETAG_STATE/library.db`, but only if you have retagged nothing since.
+
+**Re-running for new music** with it: after retagging the new albums, run `beets/run-covers.sh --mount … --backup` again. Albums with a `cover.jpg` keep it as it is, so only the new albums, and those not found before, are looked up.
 
 ## Library health report
 

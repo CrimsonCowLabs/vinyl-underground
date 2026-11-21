@@ -26,10 +26,21 @@ fetchart's `embedded` source.
     covers:
         embed_maxwidth: 600       # pixels; 0 embeds cover.jpg as it is
         report: /state/no-cover.tsv
+        embed: yes                # no: only write cover.jpg, never touch the Files (--no-embed)
+        pretend: no               # yes: only say what it would do (--pretend); the report goes
+                                  # beside `report`, named *-dry-run.tsv
+        backup:                   # a folder outside the share (--backup DIR): see below
+
+With a backup folder, each File is copied to `files/` in it, by its path in the share, before
+the cover is embedded in it (never over an earlier copy), and `manifest.tsv` in it lists what the
+run changed, as it goes: `cover<TAB>PATH<TAB>SHA256` for each cover.jpg, just before it is written,
+and `file<TAB>PATH<TAB>SHA256` for each File, once the cover is in it. The checksums are of what the
+run wrote, so run-covers.sh --restore can leave alone anything changed since.
 """
 from __future__ import annotations
 
 import fnmatch
+import hashlib
 import io
 import os
 import shutil
@@ -106,7 +117,7 @@ def _cover_in(folder: str) -> str | None:
 class CoversPlugin(BeetsPlugin):
     def __init__(self) -> None:
         super().__init__()
-        self.config.add({"embed_maxwidth": 600, "report": None})
+        self.config.add({"embed_maxwidth": 600, "report": None, "embed": True, "pretend": False, "backup": None})
         self._fetchart: fetchart.FetchArtPlugin | None = None
 
     @property
@@ -124,12 +135,46 @@ class CoversPlugin(BeetsPlugin):
 
     def commands(self) -> list[ui.Subcommand]:
         cmd = ui.Subcommand("covers", help="give each album a cover.jpg, embedded in its Files")
-        cmd.func = lambda lib, opts, args: self.cover_all(lib.albums(args))
+        cmd.parser.add_option("-n", "--pretend", action="store_true", help="only say what it would do")
+        cmd.parser.add_option("-b", "--backup", metavar="DIR",
+                              help="back up each File before embedding, and list what changed, in DIR")
+        cmd.parser.add_option("--no-embed", dest="embed", action="store_false",
+                              help="only write cover.jpg; never touch the Files")
+
+        def func(lib, opts, args) -> None:
+            self.apply_options(opts)
+            self.cover_all(lib.albums(args))
+
+        cmd.func = func
         return [cmd]
+
+    def apply_options(self, opts) -> None:
+        """Let the command's options override the config."""
+        if opts.pretend:
+            self.config["pretend"] = True
+        if opts.backup:
+            self.config["backup"] = opts.backup
+        if opts.embed is False:
+            self.config["embed"] = False
+
+    @property
+    def pretend(self) -> bool:
+        return self.config["pretend"].get(bool)
+
+    @property
+    def embed(self) -> bool:
+        return self.config["embed"].get(bool)
+
+    @property
+    def backup_dir(self) -> str | None:
+        """The backup folder, or None for no backup."""
+        return self.config["backup"].as_filename() if self.config["backup"].get() else None
 
     def cover_all(self, albums) -> None:
         counts: dict[str, int] = {}
         report = self.config["report"].get()
+        if report and self.pretend:
+            report = os.path.splitext(report)[0] + "-dry-run.tsv"
         root = self._root()
         with open(report or os.devnull, "w", encoding="utf-8") as fh:
             fh.write("status\talbum artist\talbum\tfolders\n")
@@ -142,6 +187,8 @@ class CoversPlugin(BeetsPlugin):
                     fh.write(f"{result.status}\t{album.albumartist}\t{album.album}\t{folders}\n")
                     fh.flush()
         ui.print_(", ".join(f"{n} {status}" for status, n in sorted(counts.items())) or "no albums")
+        if self.pretend:
+            ui.print_("dry run: nothing was written")
         if report:
             listed = sum(counts.get(s, 0) for s in REPORTED)
             ui.print_(f"{listed} albums without a good cover listed in {report}")
@@ -165,9 +212,13 @@ class CoversPlugin(BeetsPlugin):
                 source = candidate.path
                 if os.path.dirname(source) not in [os.fsencode(f) for f in folders]:
                     temps.append(source)
+            if self.pretend:
+                return result
             covers = [self._write_cover(f, source) for f in folders]
             album.artpath = os.fsencode(covers[0])
             album.store()
+            if not self.embed:
+                return result
             if failed := self._embed(album, covers[0]):
                 return Result("error", "could not embed the cover in " + ", ".join(failed))
             return result
@@ -203,11 +254,34 @@ class CoversPlugin(BeetsPlugin):
             return existing
         path = os.path.join(folder, COVER)
         data = _jpeg(source, self.fetchart.quality)
+        # Listed first, so a run stopped mid-write still lists it (a restore skips one not there).
+        self._record("cover", path, hashlib.sha256(data).hexdigest())
         temp = path + ".part"
         with open(temp, "wb") as fh:
             fh.write(data)
         shutil.move(temp, path)
         return path
+
+    def _backup(self, path: str) -> None:
+        """Copy the File at `path` into the backup folder, if there is one, before it changes."""
+        if not self.backup_dir:
+            return
+        copy = os.path.join(self.backup_dir, "files", self._path_in_share(path))
+        if not os.path.exists(copy):
+            os.makedirs(os.path.dirname(copy), exist_ok=True)
+            shutil.copy2(path, copy + ".part")
+            os.replace(copy + ".part", copy)
+
+    def _record(self, kind: str, path: str, digest: str) -> None:
+        """Add a line for `path`, as the run wrote it, to the backup folder's manifest, if there is one."""
+        if not self.backup_dir:
+            return
+        os.makedirs(self.backup_dir, exist_ok=True)
+        with open(os.path.join(self.backup_dir, "manifest.tsv"), "a", encoding="utf-8") as fh:
+            fh.write(f"{kind}\t{self._path_in_share(path)}\t{digest}\n")
+
+    def _path_in_share(self, path: str) -> str:
+        return os.path.relpath(os.path.abspath(path), self._root())
 
     def _embed(self, album, cover: str) -> list[str]:
         """Embed `cover` in each of the album's Files with no art; the names of those it couldn't."""
@@ -220,7 +294,11 @@ class CoversPlugin(BeetsPlugin):
                     continue
                 data = data or _jpeg(cover, self.fetchart.quality, self.config["embed_maxwidth"].get(int))
                 mf.images = [mediafile.Image(data, type=mediafile.ImageType.front)]
+                self._backup(path)
                 mf.save()
+                if self.backup_dir:
+                    with open(path, "rb") as fh:
+                        self._record("file", path, hashlib.sha256(fh.read()).hexdigest())
             except (OSError, mediafile.UnreadableFileError) as exc:
                 self._log.warning("could not embed the cover in {}: {}", path, exc)
                 failed.append(os.path.basename(path))
