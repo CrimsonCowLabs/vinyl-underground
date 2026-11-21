@@ -130,6 +130,9 @@ type Options struct {
 	// Proposer works out the tags proposed on the review card (#34), in the background, for each
 	// Track once its File has landed. Nil proposes nothing.
 	Proposer Proposer
+	// PromoteRoot is the promote folder reviewed Files are moved into (see Promote and
+	// CheckPromoteFolder). Empty turns Promote off.
+	PromoteRoot string
 }
 
 // Updater keeps yt-dlp up to date. *Binary implements it.
@@ -177,6 +180,8 @@ type Ripper struct {
 	reviewMu sync.Mutex
 	// proposals are the items waiting for their tag proposal (see runProposals).
 	proposals proposalQueue
+	// promoteFS is the filesystem Promote works on. Nil is the real one; tests set another.
+	promoteFS promoteFS
 }
 
 func New(ds model.DataStore, fetcher Fetcher, scanner FolderScanner, opts Options) *Ripper {
@@ -686,9 +691,14 @@ func (r *Ripper) rip(ctx context.Context, inboxPath string, job *model.RipJob, i
 // scanInbox scans the Inbox library, waiting while another scan runs (often the watcher's, set
 // off by the Rip itself). Any other scan error is returned straight away.
 func (r *Ripper) scanInbox(ctx context.Context, libID int) error {
+	return r.scanWithRetry(ctx, model.ScanTarget{LibraryID: libID})
+}
+
+// scanWithRetry scans the targets, waiting for any other scan to finish first.
+func (r *Ripper) scanWithRetry(ctx context.Context, targets ...model.ScanTarget) error {
 	var err error
 	for range r.opts.ScanAttempts {
-		_, err = r.scanner.ScanFolders(ctx, false, []model.ScanTarget{{LibraryID: libID}})
+		_, err = r.scanner.ScanFolders(ctx, false, targets)
 		if !errors.Is(err, scanner.ErrAlreadyScanning) {
 			return err
 		}

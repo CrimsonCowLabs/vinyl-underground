@@ -277,6 +277,10 @@ type inboxOptions struct {
 	// Path is the Inbox folder. If it is empty or the folder doesn't exist, no Inbox library is
 	// set up.
 	Path string
+	// PromotePath is the folder Promote moves reviewed Inbox Files into: the Library's one
+	// read-write folder (ADR-0008), e.g. /music/Vinyl Underground. It must be inside a library
+	// that isn't the Inbox, and writable. Empty (the default) turns Promote off.
+	PromotePath string
 }
 
 // rippingOptions configures Rips: audio the admin fetches from a web page with yt-dlp into the
@@ -1161,6 +1165,7 @@ func setViperDefaults() {
 	viper.SetDefault("backup.schedule", "")
 	viper.SetDefault("backup.count", 0)
 	viper.SetDefault("inbox.path", "")
+	viper.SetDefault("inbox.promotepath", "")
 	viper.SetDefault("ripping.enabled", false)
 	viper.SetDefault("ripping.timeout", 30*time.Minute)
 	viper.SetDefault("ripping.ytdlpreleaseurl", "https://github.com/yt-dlp/yt-dlp/releases/latest/download")

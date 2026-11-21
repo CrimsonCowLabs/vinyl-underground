@@ -95,4 +95,29 @@ func (m *MockRipItemRepo) Delete(id string) error {
 	return model.ErrNotFound
 }
 
+func (m *MockRipItemRepo) PromotesInterrupted() (model.RipItems, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	res := model.RipItems{}
+	for _, it := range m.items {
+		if it.PromoteDest != "" {
+			res = append(res, it)
+		}
+	}
+	return res, nil
+}
+
+func (m *MockRipItemRepo) MoveMatches(trackID, libraryName string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.items {
+		for j := range m.items[i].AlreadyHave {
+			if m.items[i].AlreadyHave[j].ID == trackID {
+				m.items[i].AlreadyHave[j].Library = libraryName
+			}
+		}
+	}
+	return nil
+}
+
 var _ model.RipItemRepository = (*MockRipItemRepo)(nil)

@@ -507,6 +507,17 @@
         "updated": "yt-dlp updated to %{version}",
         "upToDate": "yt-dlp %{version} is the latest"
       },
+      "promote": {
+        "button": "Promote all",
+        "promoting": "Promoting...",
+        "title": "Promote to the Library?",
+        "confirm": "Move this Rip's File from the Inbox into the Library's Vinyl Underground folder? It becomes visible to every Listener, and keeps its favorites, ratings, plays and Playlist entries. |||| Move all %{smart_count} of this Rip's Files from the Inbox into the Library's Vinyl Underground folder? They become visible to every Listener, and keep their favorites, ratings, plays and Playlist entries.",
+        "unsaved": "Save or undo your changes first: Promote moves the Files with the tags they have now.",
+        "done": "Promoted %{smart_count} Track to the Library |||| Promoted %{smart_count} Tracks to the Library",
+        "failedTitle": "Some Files were not promoted",
+        "failedIntro": "%{smart_count} File stayed in the Inbox. Its error is below; try Promote all again once it is fixed. |||| %{smart_count} Files stayed in the Inbox. Their errors are below; try Promote all again once they are fixed.",
+        "failedTrack": "Track %{position}"
+      },
       "review": {
         "discard": "Discard",
         "discardTrack": "Discard this Track",

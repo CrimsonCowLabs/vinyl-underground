@@ -75,9 +75,12 @@ type RipItem struct {
 	// Proposal is the item's proposed tags (#34), worked out in the background once its File has
 	// landed. Put never writes it (see RipItemRepository.SetProposal), so the Ripper saving an
 	// item can't undo a proposal saved meanwhile.
-	Proposal  RipProposal `structs:"-" json:"proposal"`
-	CreatedAt time.Time   `structs:"created_at" json:"createdAt"`
-	UpdatedAt time.Time   `structs:"updated_at" json:"updatedAt"`
+	Proposal RipProposal `structs:"-" json:"proposal"`
+	// PromoteDest is where a Promote is moving the File (an absolute path), while it does. A
+	// restart finishes or undoes every move it finds here (#36).
+	PromoteDest string    `structs:"promote_dest" json:"-"`
+	CreatedAt   time.Time `structs:"created_at" json:"createdAt"`
+	UpdatedAt   time.Time `structs:"updated_at" json:"updatedAt"`
 }
 
 type RipItems []RipItem
@@ -245,4 +248,10 @@ type RipItemRepository interface {
 	// SetProposal saves an item's tag proposal, and nothing else of it. It returns ErrNotFound
 	// for an item that is gone (discarded meanwhile), and never creates one.
 	SetProposal(id string, p RipProposal) error
+	// PromotesInterrupted returns the items a Promote was moving (PromoteDest set) when the app
+	// stopped.
+	PromotesInterrupted() (RipItems, error)
+	// MoveMatches updates every item's AlreadyHave snapshots of the Track trackID to say it is
+	// now in the library libraryName (a promoted Track, #36).
+	MoveMatches(trackID, libraryName string) error
 }

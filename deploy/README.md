@@ -30,6 +30,7 @@ Nothing is required. With no `.env`, the stack uses these defaults:
 | `VU_INBOX_DIR` | `./inbox` (mounted read-write at `/inbox`; created and handed to `VU_UID` on first start) |
 | `VU_UID` / `VU_GID` | `1000` / `1000` |
 | `VU_PORT` | `4533`, on `127.0.0.1` only |
+| `VU_PROMOTE_DIR` | unset: Promote is off (see section 12) |
 
 If any of those is wrong for your host, or you want another app setting (`ND_*`), make a `.env` and uncomment just those lines:
 
@@ -243,6 +244,89 @@ Without one, Deezer answers instead (`ND_AGENTS`, default `lastfm,deezer,listenb
 If Last.fm is slow or can't be reached, a preview waits at most 4 seconds for it, then carries on from the Library's tags alone. `ND_ENABLEEXTERNALSERVICES=false` turns off every outside lookup.
 
 Nothing is ever scrobbled to Last.fm: the app doesn't offer to link a Last.fm account, so `ND_LASTFM_SECRET` isn't needed.
+
+## 12. Promote Inbox Tracks to the NAS (optional)
+
+Once a Rip is reviewed, **Promote all** on its card moves its Files out of the Inbox into the Library on the NAS, and each Track stays the same Track: its favorites, ratings, play counts, bookmarks, Playlist entries and shares carry over, and every Listener can now see it. The app may write to exactly one folder of the share, `Vinyl Underground/` ([ADR-0008](../docs/adr/0008-app-writes-to-one-dedicated-library-folder.md)); the rest of the Library stays read-only. Promote is off (no button, no endpoint) until that folder is set up as below.
+
+How it fits together:
+
+- On the host, the whole share stays mounted read-only (e.g. at `/mnt/music`), and **just the `Vinyl Underground` folder** gets a second, read-write CIFS mount of its own (e.g. at `/mnt/vinyl-underground`). CIFS can mount a folder of a share: `//nas-host/share/Vinyl Underground`.
+- In the container, the read-only Library is at `/music`, and `docker-compose.promote.yml` binds the read-write mount over `/music/Vinyl Underground`. So promoted Files sit inside the Library at their final path, and the scanner sees them there. Docker allows a read-write bind inside a read-only one, but it can't create the mountpoint folder inside a read-only bind, so the folder must exist on the share first.
+
+### On the NAS: create the folder
+
+The folder must exist before anything is mounted, and the read-only mount can't create it. Make it once from any machine that can write to the share (a desktop file manager, the NAS's web admin, or `smbclient`). For an SMB1-only NAS, `smbclient` needs `-m NT1`:
+
+```bash
+smbclient //nas-host/share -A ~/nas-credentials -m NT1 -c 'mkdir "Vinyl Underground"'
+ls "$VU_LIBRARY_DIR/Vinyl Underground"   # now visible through the read-only mount
+```
+
+### On the host: mount just that folder read-write
+
+1. A credentials file, readable only by root, so the password isn't in `/etc/fstab` (the read-only mount can share it):
+
+   ```bash
+   sudo install -d -m 700 /etc/samba-creds
+   sudo install -m 600 /dev/null /etc/samba-creds/nas
+   sudoedit /etc/samba-creds/nas
+   ```
+
+   with:
+
+   ```
+   username=<nas-user>
+   password=<nas-password>
+   ```
+
+2. The mountpoint, owned by root and **not writable**: if the mount ever fails (`nofail` lets the host boot without it), the app finds a folder it can't write to and turns Promote off, instead of filling a folder on the local disk:
+
+   ```bash
+   sudo install -d -m 555 /mnt/vinyl-underground
+   ```
+
+3. One line in `/etc/fstab`. The space in the folder name is written `\040`:
+
+   ```
+   //nas-host/share/Vinyl\040Underground  /mnt/vinyl-underground  cifs  rw,vers=1.0,credentials=/etc/samba-creds/nas,uid=1000,gid=1000,file_mode=0664,dir_mode=0775,iocharset=utf8,noserverino,_netdev,nofail  0  0
+   ```
+
+   - `vers=1.0` is for an older NAS that speaks only SMB1; leave it out (or use `vers=3.0`) on anything newer. The kernel must allow SMB1 (`CONFIG_CIFS_ALLOW_INSECURE_LEGACY`), as for the read-only mount. Use the same `vers` as that mount.
+   - `uid`/`gid` must be `VU_UID`/`VU_GID`, the user the app runs as: CIFS has no Unix owners of its own, so these and `file_mode`/`dir_mode` decide who may write. `0664`/`0775` let that user write and everyone read.
+   - `iocharset=utf8` keeps accented names intact; `noserverino` avoids the inode-number problems of older SMB servers.
+   - `_netdev` waits for the network at boot; `nofail` lets the host boot when the NAS is away.
+
+4. Mount it and check it, and that the rest of the share is still read-only:
+
+   ```bash
+   sudo mount /mnt/vinyl-underground
+   findmnt -no OPTIONS /mnt/vinyl-underground | tr , '\n' | grep -x rw
+   findmnt -no OPTIONS "$VU_LIBRARY_DIR" | tr , '\n' | grep -x ro
+   sudo -u "#${VU_UID:-1000}" sh -c 'touch /mnt/vinyl-underground/.vu-check && rm /mnt/vinyl-underground/.vu-check' && echo writable
+   ```
+
+### Turn Promote on
+
+Add to `.env`, then `docker compose up -d`:
+
+```bash
+COMPOSE_FILE=docker-compose.yml:docker-compose.promote.yml
+VU_PROMOTE_DIR=/mnt/vinyl-underground
+```
+
+The override sets `ND_INBOX_PROMOTEPATH=/music/Vinyl Underground`. On start the app checks that folder is inside the Library (not the Inbox) and writable, and logs `Promote is enabled`; otherwise it logs why and Promote stays off. Ripping must be on too (section 10), as Promote is part of the Rips page.
+
+Docker binds the host mount as it is when the container starts. Start the container after both mounts are up, and if the NAS mount drops and comes back, `docker compose restart vinyl-underground`. While the read-write mount is missing, the scanner sees an empty `Vinyl Underground/` and marks its Tracks missing; they come back, with everything attached, at the next scan once it is mounted again.
+
+### What Promote does
+
+- **Where Files go:** `Vinyl Underground/<Album Artist>/<Album> (<Year>)/<NN> <Title>.<ext>`, from each File's tags (as saved on the review card; save your edits first). No album artist uses the artist, then "Unknown Artist"; no album is "Unknown Album"; no year leaves out ` (<Year>)`; no track number leaves out `<NN> `. Names lose the characters SMB refuses (`\ / : * ? " < > |` become `_`), leading dots, trailing dots and spaces, and are capped at 120 bytes.
+- **Letter case:** the NAS is case-insensitive, so a folder whose name differs only by letter case (or Unicode composition) is reused rather than made beside it, and a File name counts as taken in any case. A File is never replaced: the new one gets ` (2)`, ` (3)`...
+- **Moving safely:** the Inbox is on local disk and the share is CIFS, so a File can't simply be renamed across. Each File is copied to a hidden temp File beside its destination, flushed to disk, read back and compared with the original (size and SHA-256), and only then put in place; the Track is pointed at it, and the Inbox copy is deleted last.
+- **File by File:** a File that fails stays in the Inbox, with the error shown in the card's dialog and kept on its item; the others carry on. Press **Promote all** again once it is fixed. When no File is left, the job goes, as a Discard does, with its emptied Inbox folder. Both libraries are then rescanned.
+- **Restarts:** the destination is recorded before a File is copied, so if the app stops in the middle, the next start finishes the move (when the copy is complete and matches) or undoes it (removing the temp File; the original never left the Inbox). This waits until the read-write folder is mounted and Promote is on again.
+- **Who:** only the admin can promote. With Promote off, or ripping off, there is nothing to see.
 
 ## Updating
 

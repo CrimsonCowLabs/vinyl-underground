@@ -89,6 +89,7 @@ func runNavidrome(ctx context.Context) {
 	if err != nil {
 		log.Error(ctx, "Could not set up the Inbox library", err)
 	}
+	checkPromoteFolder(ctx)
 
 	g, ctx := errgroup.WithContext(ctx)
 	ripper := startRipper(ctx, g)
@@ -169,6 +170,8 @@ func startRipper(ctx context.Context, g *errgroup.Group) *rip.Ripper {
 	}
 	ripper := rip.NewFromConfig(CreateDataStore(), CreateScanner(ctx))
 	g.Go(func() error {
+		// Before any new Rip or Promote: finish or undo the moves the last stop interrupted.
+		ripper.ResumePromotes(ctx)
 		ripper.Run(ctx)
 		return nil
 	})
@@ -177,6 +180,25 @@ func startRipper(ctx context.Context, g *errgroup.Group) *rip.Ripper {
 	}
 	log.Info(ctx, "Ripping is enabled")
 	return ripper
+}
+
+// checkPromoteFolder checks the promote folder (Inbox.PromotePath) once at startup. When it is
+// unusable (not mounted read-write, or not inside the Library), Promote is turned off for this
+// run, so neither its endpoint nor its button shows.
+func checkPromoteFolder(ctx context.Context) {
+	path, err := rip.CheckPromoteFolder(ctx, CreateDataStore(), conf.Server.Inbox.PromotePath)
+	switch {
+	case err != nil:
+		log.Error(ctx, "Promote is off: the promote folder is not usable", "path", conf.Server.Inbox.PromotePath, err)
+		conf.Server.Inbox.PromotePath = ""
+	case path == "":
+		log.Debug(ctx, "Promote is off (no Inbox.PromotePath set)")
+	default:
+		conf.Server.Inbox.PromotePath = path
+		if conf.Server.Ripping.Enabled {
+			log.Info(ctx, "Promote is enabled", "path", path)
+		}
+	}
 }
 
 // profilerHandler returns the pprof handler. net/http/pprof resolves the profile

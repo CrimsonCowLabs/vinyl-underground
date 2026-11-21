@@ -45,6 +45,7 @@ const defaultConfig = {
   separator: '/',
   enableInspect: true,
   enableRipping: false,
+  enablePromote: false,
   pluginsEnabled: true,
   enableGeneratedPlaylists: false,
 }

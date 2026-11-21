@@ -15,7 +15,7 @@
 //	GET  /api/rip/ytdlp                 the installed yt-dlp's version
 //	POST /api/rip/ytdlp/update          updates yt-dlp
 //
-// Reviewing and discarding a job is in review.go.
+// Reviewing and discarding a job is in review.go, and promoting it in promote.go.
 package ripapi
 
 import (
@@ -42,6 +42,7 @@ type Ripper interface {
 	YtDlpVersion(ctx context.Context) (string, error)
 	UpdateYtDlp(ctx context.Context, wait bool) (rip.UpdateResult, error)
 	Reviewer
+	Promoter
 }
 
 type Router struct {
@@ -69,6 +70,7 @@ func (api *Router) routes() http.Handler {
 	r.Get("/ytdlp", api.ytDlpVersion)
 	r.Post("/ytdlp/update", api.updateYtDlp)
 	api.reviewRoutes(r)
+	api.promoteRoutes(r)
 	return r
 }
 

@@ -21,6 +21,7 @@ import YtDlpControl from './YtDlpControl'
 import { useRipPolling } from './useRipPolling'
 import { ripProgress } from './ripProgress'
 import RipJobPanel from './review/RipJobPanel'
+import PromoteButton from './review/PromoteButton'
 
 const ACTIVE = ['queued', 'downloading']
 
@@ -89,6 +90,9 @@ export const RipItems = ({ record, trackExtra }) => {
 const filePath = (record) =>
   record.folder || (record.items?.length === 1 ? record.items[0].path : '')
 
+// promoteActions puts Promote all in the review card's actions slot.
+const promoteActions = (props) => <PromoteButton {...props} />
+
 const RipDatagrid = (props) => {
   useRipPolling()
   return <Datagrid {...props} />
@@ -112,6 +116,7 @@ const RipList = (props) => {
             <RipJobPanel
               fallback={<RipItems />}
               trackExtra={alreadyHaveExtra}
+              actions={promoteActions}
             />
           }
         >

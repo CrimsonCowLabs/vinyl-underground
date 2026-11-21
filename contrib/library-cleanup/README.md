@@ -12,8 +12,10 @@ Tools for cleaning up a music share before the app scans it. The app itself has 
 | `audio.py` | Finds the audio in an MP3, M4A, AIFF or WAV File, leaving out its tags and embedded art (unit-tested) |
 | `apply.py` | Carries out a plan, checking each step by re-listing both folders |
 | `health.py` | Reports how healthy the Library is, from the app's database, read-only (pure, unit-tested) |
+| `retag.py` | Lists the folders beets should retag, leaving out Quarantine, the recycle bin and `.ndignore` folders (pure, unit-tested) |
+| `beets/` | beets in Docker, set up to retag Files in place from MusicBrainz (`retag.sh`, config, three small plugins) |
 
-Python 3.10+ only, no dependencies. Run the tests with `python3 -m unittest` in this folder.
+Python 3.10+ only, no dependencies. Run the tests with `python3 -m unittest` in this folder. beets runs in Docker, and the tests of its plugins (in `beets/`) run in its image, with `beets/retag.sh test`.
 
 ## Why names that differ only by case need merging
 
@@ -176,6 +178,82 @@ python3 apply.py /mnt/music-rw $PLANS/heldtwice.tsv
 Each File moves to the same path under `_Quarantine/`. Before moving any File of an album, `apply.py` checks that every File it will move, and the File kept in its place, is still listed at the size it had when planned, and moves nothing if not, so a stale plan can't move a File that was retagged or replaced, or one whose Track the copy kept no longer holds. The audio can't be compared, because it differs by definition, and the size check reads no audio, so the run is quick. Each move is checked by re-listing both folders. It is resumable: re-run the same command after a stop, and Files already in Quarantine at their planned size count as moved.
 
 **3. Check.** Unmount the writable mount (`sudo umount /mnt/music-rw`), run a Full Scan in the app, then scan and plan again: `heldtwice.py` must report `0 copies of albums held twice to quarantine`. `health.py`'s `albums-twice` still counts the strays and the albums listed as `not planned`; move or retag those by hand.
+
+## Recipe: retag the Library from MusicBrainz
+
+Most Files have never been matched against a music database, so many lack a year, a track number or MusicBrainz IDs, and some carry wrong disc numbers or albums. [beets](https://beets.io/) matches each album against MusicBrainz, using audio fingerprints (AcoustID) where the tags are too poor to search on, shows you each match to approve, and writes the tags into the Files in place. Run it after the Quarantine recipes above, and after a Full Scan, so no Duplicates (`Song 1.mp3`) or albums held twice are left: beets would take them for extra Tracks, and `retag.py` warns if it finds copy-named Files. Favorites, play counts and Playlist entries may reset for retagged Tracks.
+
+What it does and doesn't do:
+
+- **Runs in Docker only** (`beets/`): beets 2.14.1 with every Python dependency pinned, plus Chromaprint and ffmpeg for the fingerprints. Nothing is installed on the host. The container runs as you, so it leaves no root-owned files.
+- **Tags Files in place.** It writes through the temporary writable mount, and never copies, moves, renames or deletes a File (`copy`, `move`, `link` and `delete` are all off, and beets' own folder layout is never used). Tags it doesn't set, and embedded art, stay. Tags are written as ID3v2.4.
+- **Sets** artist, album artist, album, title, year, track and disc numbers (restarting on each disc), genre, the MusicBrainz IDs (recording, release, release group, artists) and the AcoustID. The year is that of the release matched (The Bends' 1995 CD); the first release's date goes in the original date tags, because MusicBrainz dates some first releases by a promo (The Bends: 1994).
+- **Genre** comes from the `lastgenre` plugin: the album's most popular Last.fm tag that is a known genre, made canonical (e.g. `Alternative Rock`), else the artist's. It replaces the genre the File had (mostly iTunes' broad `Rock` or `Other`). For an album Last.fm knows nothing about, the `keepgenre` plugin puts back the genre each File already had, so no album loses its genre. MusicBrainz genres were the alternative, but many releases have none and beets would write all of a release's genres as a list.
+- **Asks about every album** (`timid`), showing the release matched and each Track's changes. Albums with no match at least 75% similar are skipped without asking, by the `lowconfidence` plugin, and listed in `$RETAG_STATE/import.log` for a later review, as are the albums you skip.
+- **Fingerprints every File** (the `chroma` plugin), reading up to two minutes of each File's audio over the network. beets 2.14.1 ignores fingerprints when pairing Files with Tracks, so for Files without titles it pairs them by length alone and swaps Tracks of similar length; the `fingerprints` plugin fixes that.
+- **Leaves out** Quarantine, the NAS's recycle bin (`trashbox/`) and every folder with a `.ndignore`: `retag.py` never gives beets a folder that holds one, and beets' `ignore` setting skips the first two by name as well. Audio Files loose beside such a folder (or at the share root) can't be given as an album, so `retag.py` lists them on stderr to retag by hand.
+- **Can be stopped and resumed.** beets keeps its own database, resume state and log in `$RETAG_STATE`, a folder outside the share: keep it for re-runs. An album you have decided on (applied or skipped) is not asked about again.
+- **Keeps to the services' rate limits**: beets makes at most one MusicBrainz request a second. Its requests identify beets, the program making them (`beets/2.14.1 https://beets.io/`), never you. MusicBrainz, AcoustID and Last.fm see the names and fingerprints looked up.
+
+**1. Set up** (once), from this folder:
+
+```bash
+beets/retag.sh build                 # build the image
+beets/retag.sh test                  # run its plugins' tests in the image
+export RETAG_STATE=~/retag-state     # any folder outside the share; keep it
+python3 health.py /path/to/navidrome.db > $PLANS/health-before.txt
+```
+
+Then mount the share writable at `/mnt/music-rw`, as in step 1 of the case merge (set `MUSIC_RW` if you mount it elsewhere).
+
+**2. Trial on about 10 albums.** Pick albums with problems, e.g. from `health.py --list suspect-discs` and `--list no-year`, and give their folders relative to the share root:
+
+```bash
+python3 scan.py /mnt/music-rw > $PLANS/scan.tsv
+python3 retag.py $PLANS/scan.tsv "iTunes_Library/Music/Radiohead/The Bends" "ANOTHER/ALBUM" ... > $PLANS/trial.txt
+beets/retag.sh import $PLANS/trial.txt
+```
+
+For each album, beets shows the release it matched and the changes it would make, then asks:
+
+| Key | Does |
+|---|---|
+| `A` (or Enter) | Apply the match: write the tags |
+| `M` | Show more candidates, to pick another release (another country or edition) by number |
+| `S` | Skip the album for now; it is logged for the review |
+| `E` / `I` | Search MusicBrainz for another artist and album / give a release ID or URL from musicbrainz.org |
+| `B` | Stop. Re-run the same command later to resume |
+
+Then unmount the writable mount (`sudo umount /mnt/music-rw`), run a Full Scan in the app, and check the trial albums there: names, years, Track order, one disc each (unless they really have more), genres. If something is wrong, change [`beets/config.yaml`](beets/config.yaml) before going on.
+
+**3. Full run.** Mount the writable mount again, then:
+
+```bash
+python3 scan.py /mnt/music-rw > $PLANS/scan.tsv
+python3 retag.py $PLANS/scan.tsv > $PLANS/retag.txt
+beets/retag.sh import $PLANS/retag.txt
+```
+
+The trial albums aren't asked about again. Expect it to take many hours: each album waits for MusicBrainz, and each File is fingerprinted over SMB1. Stop with `B` (or Ctrl-C) whenever you like, and re-run the same command to carry on; an album stopped halfway is asked about again.
+
+**4. Review the skipped albums.** `grep '^skip ' $RETAG_STATE/import.log` lists every album skipped in steps 2 and 3 (including those you have since applied in a review). Go through them with:
+
+```bash
+beets/retag.sh review
+```
+
+It asks about every skipped album, even those with no good match, so you can pick a candidate by number, search with `E`, give a release with `I`, or skip it again (it then comes up in the next review). An album applied here isn't asked about again. Fix albums that aren't on MusicBrainz by hand.
+
+**5. Check.** Unmount the writable mount (`sudo umount /mnt/music-rw`), run a Full Scan in the app, and compare the health report with step 1's: `no-year`, `no-track-number`, `no-album`, `no-artist` and `no-musicbrainz-id` should be far lower, and `suspect-discs` near 0.
+
+```bash
+python3 health.py /path/to/navidrome.db > $PLANS/health-after.txt
+diff $PLANS/health-before.txt $PLANS/health-after.txt
+```
+
+**Re-running for new music.** Repeat steps 3 and 4 with the same `RETAG_STATE`: only folders beets hasn't seen are asked about. beets remembers folders, not Files, so a File added to a folder already done isn't retagged; fix that one by hand. Deleting `$RETAG_STATE` starts over and asks about every album again.
+
+**Testing on a scratch copy.** `RETAG_QUIET=1 beets/retag.sh import LIST` applies strong matches (at least 96% similar) and skips the rest without asking. Use it only on a copy of a few albums, with `MUSIC_RW` set to the copy and `RETAG_STATE` to a throwaway folder, never on the Library: nothing is approved. `retag.sh` refuses it when `MUSIC_RW` is a mount.
 
 ## Library health report
 
