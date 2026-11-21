@@ -250,7 +250,7 @@ Once a Rip is reviewed, **Promote all** on its card moves its Files out of the I
 
 How it fits together:
 
-- On the host, the whole share stays mounted read-only (e.g. at `/mnt/music`), and **just the `Vinyl Underground` folder** gets a second, read-write CIFS mount of its own (e.g. at `/mnt/vinyl-underground`). CIFS can mount a folder of a share: `//nas-host/music/Vinyl Underground`.
+- On the host, the whole share stays mounted read-only (e.g. at `/mnt/music`), and **just the `Vinyl Underground` folder** gets a second, read-write CIFS mount of its own (e.g. at `/mnt/vinyl-underground`). CIFS can mount a folder of a share: `//nas-host/share/Vinyl Underground`.
 - In the container, the read-only Library is at `/music`, and `docker-compose.promote.yml` binds the read-write mount over `/music/Vinyl Underground`. So promoted Files sit inside the Library at their final path, and the scanner sees them there. Docker allows a read-write bind inside a read-only one, but it can't create the mountpoint folder inside a read-only bind, so the folder must exist on the share first.
 
 ### On the NAS: create the folder
@@ -258,7 +258,7 @@ How it fits together:
 The folder must exist before anything is mounted, and the read-only mount can't create it. Make it once from any machine that can write to the share (a desktop file manager, the NAS's web admin, or `smbclient`). For an SMB1-only NAS, `smbclient` needs `-m NT1`:
 
 ```bash
-smbclient //nas-host/music -A ~/nas-credentials -m NT1 -c 'mkdir "Vinyl Underground"'
+smbclient //nas-host/share -A ~/nas-credentials -m NT1 -c 'mkdir "Vinyl Underground"'
 ls "$VU_LIBRARY_DIR/Vinyl Underground"   # now visible through the read-only mount
 ```
 
@@ -268,8 +268,8 @@ ls "$VU_LIBRARY_DIR/Vinyl Underground"   # now visible through the read-only mou
 
    ```bash
    sudo install -d -m 700 /etc/samba-creds
-   sudo install -m 600 /dev/null /etc/samba-creds/music-nas
-   sudoedit /etc/samba-creds/music-nas
+   sudo install -m 600 /dev/null /etc/samba-creds/nas
+   sudoedit /etc/samba-creds/nas
    ```
 
    with:
@@ -288,7 +288,7 @@ ls "$VU_LIBRARY_DIR/Vinyl Underground"   # now visible through the read-only mou
 3. One line in `/etc/fstab`. The space in the folder name is written `\040`:
 
    ```
-   //nas-host/music/Vinyl\040Underground  /mnt/vinyl-underground  cifs  rw,vers=1.0,credentials=/etc/samba-creds/music-nas,uid=1000,gid=1000,file_mode=0664,dir_mode=0775,iocharset=utf8,noserverino,_netdev,nofail  0  0
+   //nas-host/share/Vinyl\040Underground  /mnt/vinyl-underground  cifs  rw,vers=1.0,credentials=/etc/samba-creds/nas,uid=1000,gid=1000,file_mode=0664,dir_mode=0775,iocharset=utf8,noserverino,_netdev,nofail  0  0
    ```
 
    - `vers=1.0` is for an older NAS that speaks only SMB1; leave it out (or use `vers=3.0`) on anything newer. The kernel must allow SMB1 (`CONFIG_CIFS_ALLOW_INSECURE_LEGACY`), as for the read-only mount. Use the same `vers` as that mount.
