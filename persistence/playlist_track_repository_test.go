@@ -3,6 +3,7 @@ package persistence
 import (
 	"context"
 	"strconv"
+	"time"
 
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
@@ -10,6 +11,7 @@ import (
 	"github.com/navidrome/navidrome/utils/slice"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/pocketbase/dbx"
 )
 
 // sqliteMaxVariables is SQLITE_MAX_VARIABLE_NUMBER as compiled into the driver
@@ -128,12 +130,14 @@ var _ = Describe("PlaylistTrackRepository", func() {
 
 	Describe("Reorder", func() {
 		var tracks model.PlaylistTrackRepository
+		var plsRepo model.PlaylistRepository
+		var pls model.Playlist
 
 		BeforeEach(func() {
 			ctx := log.NewContext(GinkgoT().Context())
 			ctx = request.WithUser(ctx, model.User{ID: "userid", UserName: "userid", IsAdmin: true})
-			plsRepo := NewPlaylistRepository(ctx, GetDBXBuilder())
-			pls := model.Playlist{Name: "Reorder", OwnerID: "userid", OwnerName: "userid"}
+			plsRepo = NewPlaylistRepository(ctx, GetDBXBuilder())
+			pls = model.Playlist{Name: "Reorder", OwnerID: "userid", OwnerName: "userid"}
 			Expect(plsRepo.Put(&pls)).To(Succeed())
 			DeferCleanup(func() { Expect(plsRepo.Delete(pls.ID)).To(Succeed()) })
 
@@ -151,6 +155,21 @@ var _ = Describe("PlaylistTrackRepository", func() {
 			}
 			return ids, songs
 		}
+
+		// Offline Downloads compare updatedAt to tell whether a Playlist changed
+		It("marks the playlist as updated", func() {
+			// A fixed past time, so the check doesn't depend on clock resolution
+			past := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+			_, err := GetDBXBuilder().Update("playlist", dbx.Params{"updated_at": past},
+				dbx.HashExp{"id": pls.ID}).Execute()
+			Expect(err).ToNot(HaveOccurred())
+
+			Expect(tracks.Reorder(1, 3)).To(Succeed())
+
+			after, err := plsRepo.Get(pls.ID)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(after.UpdatedAt).To(BeTemporally(">", past))
+		})
 
 		DescribeTable("clamps the destination to the playlist",
 			func(newPos int, want func() []string) {

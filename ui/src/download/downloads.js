@@ -4,12 +4,16 @@
 //
 // The browser APIs live behind three seams so this logic can be tested:
 //   server.getPlaylist(id) -> { playlist, tracks }
+//   server.getPlaylistInfo(id) -> playlist, or null if it no longer exists
 //   storage: listDownloads, saveDownload, deleteDownload, listTrackIds,
 //            saveTrack(track, { signal }), deleteTrack(trackId)
 //   requestPersistence() -> asks the browser not to evict the Downloads
 //
 // Tracks are stored one at a time. A Track that fails to store leaves its
 // Download interrupted; resume() retries whatever is still missing.
+//
+// refresh() brings Downloads up to date with Playlists changed elsewhere:
+// added Tracks are stored, removed ones deleted, and the new order kept.
 
 export const trackIdOf = (track) => track.mediaFileId || track.id
 
@@ -24,6 +28,7 @@ export const createDownloads = ({
   const failed = new Set() // Track ids that failed during the current run
   const listeners = new Set()
   let running = null
+  let refreshing = null
   let inFlight = null // { trackId, controller }
 
   const notify = () => listeners.forEach((fn) => fn())
@@ -39,6 +44,17 @@ export const createDownloads = ({
     [...records.values()].some((r) =>
       r.tracks.some((t) => trackIdOf(t) === trackId),
     )
+
+  // Deletes those of the given Tracks that no Download uses any more
+  const deleteOrphans = async (trackIds) => {
+    const orphans = trackIds.filter((tid) => !isReferenced(tid))
+    if (inFlight && orphans.includes(inFlight.trackId)) {
+      inFlight.controller.abort()
+    }
+    orphans.forEach((tid) => stored.delete(tid))
+    notify()
+    await Promise.all(orphans.map((tid) => storage.deleteTrack(tid)))
+  }
 
   const nextTrack = () => {
     for (const record of records.values()) {
@@ -98,6 +114,59 @@ export const createDownloads = ({
     return { id, name: record.playlist.name, state, done, total: ids.length }
   }
 
+  const remove = async (playlistId) => {
+    const record = mine(playlistId)
+    if (!record) return
+    records.delete(playlistId)
+    await storage.deleteDownload(playlistId)
+    await deleteOrphans(trackIdsOf(record))
+  }
+
+  // A Smart Playlist's Tracks change when the server re-evaluates its rules,
+  // which doesn't touch its updatedAt
+  const hasChanged = (before, now) =>
+    Boolean(now.rules) || now.updatedAt !== before.updatedAt
+
+  const refreshOne = async (id) => {
+    const before = records.get(id)
+    if (!before) return
+    const info = await server.getPlaylistInfo(id)
+    // Each await below may race a remove or start of the same Download
+    const replaced = () => records.get(id) !== before
+    if (replaced()) return
+    if (!info) return remove(id) // deleted on the server
+    if (!hasChanged(before.playlist, info)) return
+    const { playlist, tracks } = await server.getPlaylist(id)
+    if (replaced()) return
+    const record = { listener: before.listener, playlist, tracks }
+    records.set(id, record)
+    await storage.saveDownload(record)
+    if (!records.has(id)) await storage.deleteDownload(id) // removed meanwhile
+    await deleteOrphans(trackIdsOf(before))
+  }
+
+  const refreshAll = async () => {
+    for (const id of [...records.keys()].filter((id) => mine(id))) {
+      // Unreachable now: the Download stays as it is until the next refresh
+      await refreshOne(id).catch(() => {})
+    }
+  }
+
+  // Brings the current Listener's Downloads up to date with their Playlists,
+  // then stores whatever is missing, including Tracks that failed before.
+  // Concurrent callers share one refresh.
+  const refresh = () => {
+    if (!refreshing) {
+      refreshing = refreshAll().finally(() => {
+        refreshing = null
+      })
+    }
+    return refreshing.then(() => {
+      failed.clear()
+      return drain()
+    })
+  }
+
   return {
     load: async () => {
       const [list, trackIds] = await Promise.all([
@@ -120,24 +189,14 @@ export const createDownloads = ({
       return drain()
     },
 
+    refresh,
+
     resume: () => {
       failed.clear()
       return drain()
     },
 
-    remove: async (playlistId) => {
-      const record = mine(playlistId)
-      if (!record) return
-      records.delete(playlistId)
-      const orphans = trackIdsOf(record).filter((tid) => !isReferenced(tid))
-      if (inFlight && orphans.includes(inFlight.trackId)) {
-        inFlight.controller.abort()
-      }
-      orphans.forEach((tid) => stored.delete(tid))
-      notify()
-      await storage.deleteDownload(playlistId)
-      await Promise.all(orphans.map((tid) => storage.deleteTrack(tid)))
-    },
+    remove,
 
     get,
     list: () =>
