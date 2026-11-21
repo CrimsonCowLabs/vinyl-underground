@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"time"
 	"unicode"
 
@@ -71,7 +72,10 @@ const (
 	// errNestedPlaylist is an item's error when the item is a playlist itself (e.g. in a channel).
 	errNestedPlaylist = "this item is a playlist itself; paste its own link to rip it"
 	errNoItemURL      = "this item has no web page of its own to rip"
-	errEmptyPlaylist  = "this playlist is empty"
+	// errLatePlaylist is the error of a URL queued as one video, as yt-dlp couldn't read it then,
+	// that turned out to be a playlist.
+	errLatePlaylist  = "this is a playlist, which yt-dlp could only read after an update; paste the link again to rip all of it"
+	errEmptyPlaylist = "this playlist is empty"
 )
 
 // workDirName is the hidden Inbox folder each item downloads into, so the scanner never sees a
@@ -100,7 +104,31 @@ type Options struct {
 	// (often the watcher's, set off by the Rip itself) before its own Inbox scan runs.
 	ScanRetryDelay time.Duration
 	ScanAttempts   int
+	// Updater updates yt-dlp, after a failed Rip and on demand. *Binary implements it. Nil turns
+	// updates off.
+	Updater Updater
 }
+
+// Updater keeps yt-dlp up to date. *Binary implements it.
+type Updater interface {
+	Update(ctx context.Context) (UpdateResult, error)
+	Version(ctx context.Context) (string, error)
+}
+
+// Scheduler runs a function on a crontab schedule. scheduler.Scheduler implements it.
+type Scheduler interface {
+	Add(crontab string, cmd func()) (int, error)
+}
+
+var (
+	// ErrRipRunning is returned by UpdateYtDlp, when it isn't to wait, while a Rip is running.
+	ErrRipRunning = errors.New("a Rip is running; update yt-dlp once it has finished")
+	// ErrUpdateRunning is returned by UpdateYtDlp, when it isn't to wait, while another update runs.
+	ErrUpdateRunning = errors.New("yt-dlp is already being updated")
+	// ErrNoUpdater is returned when yt-dlp can't be updated (there is no Updater), as on a platform
+	// with no standalone yt-dlp build.
+	ErrNoUpdater = errors.New("yt-dlp can't be updated here: there is no standalone yt-dlp build for this platform")
+)
 
 // Ripper runs Rip jobs in the background, one at a time, and each job's items one at a time, in
 // order. Jobs and items live in the database, so they keep going when the admin closes the tab.
@@ -112,6 +140,11 @@ type Ripper struct {
 	scanner FolderScanner
 	opts    Options
 	wake    chan struct{}
+	// ytDlp is held while yt-dlp runs a Rip or is being updated, so an update never swaps the
+	// binary under a running Rip.
+	ytDlp chan struct{}
+	// updating is true while UpdateYtDlp holds ytDlp.
+	updating atomic.Bool
 }
 
 func New(ds model.DataStore, fetcher Fetcher, scanner FolderScanner, opts Options) *Ripper {
@@ -121,7 +154,10 @@ func New(ds model.DataStore, fetcher Fetcher, scanner FolderScanner, opts Option
 	if opts.Tagger == nil {
 		opts.Tagger = WriteTags
 	}
-	return &Ripper{ds: ds, fetcher: fetcher, scanner: scanner, opts: opts, wake: make(chan struct{}, 1)}
+	return &Ripper{
+		ds: ds, fetcher: fetcher, scanner: scanner, opts: opts,
+		wake: make(chan struct{}, 1), ytDlp: make(chan struct{}, 1),
+	}
 }
 
 // Enqueue queues a Rip of the page at rawURL for the user in ctx: one job, with one item for a
@@ -148,6 +184,11 @@ func (r *Ripper) Enqueue(ctx context.Context, rawURL string, confirmed bool) (*m
 
 	info, err := r.fetcher.Probe(ctx, rawURL)
 	switch {
+	case err != nil && r.opts.Updater != nil && UpdateMightFix(err):
+		// A newer yt-dlp might read the page. The worker updates it and tries again (see
+		// ripWithRetry), so queue the URL as one item, as if it were a single video.
+		log.Warn(ctx, "Could not look at the page; queuing it as one video to try again after a yt-dlp update", "url", rawURL, err)
+		job.Items = model.RipItems{newItem(1, rawURL, "", "", now)}
 	case err != nil:
 		job.Status, job.Error = model.RipFailed, err.Error()
 	case info.IsPlaylist && info.Count > MaxItems:
@@ -286,8 +327,8 @@ func (r *Ripper) process(ctx context.Context, job *model.RipJob) {
 	if ctx.Err() != nil {
 		return
 	}
-	job.Status = model.RipDownloading
-	r.save(ctx, job)
+	// The job stays queued until its first item gets hold of yt-dlp (see processItem), so it
+	// doesn't show as downloading while a yt-dlp update runs.
 	log.Info(ctx, "Ripping", "id", job.ID, "url", job.URL)
 
 	items, err := r.ds.RipItem(ctx).ForJobs(job.ID)
@@ -399,7 +440,9 @@ func (r *Ripper) claimFolder(ctx context.Context, inboxPath string, job *model.R
 }
 
 // processItem rips one item into the Inbox at inboxPath, and leaves it ready or failed (or, if
-// the app is stopping, downloading).
+// the app is stopping, downloading). It holds yt-dlp for this one item, retry included, so an
+// update (scheduled or from the button) can run between two items of a long playlist. The item,
+// and the job, show as downloading only once they hold it.
 func (r *Ripper) processItem(ctx context.Context, inboxPath string, job *model.RipJob, item *model.RipItem) {
 	if inInbox(inboxPath, item) {
 		// It landed in a run the app stopped before saving the item as ready.
@@ -407,15 +450,18 @@ func (r *Ripper) processItem(ctx context.Context, inboxPath string, job *model.R
 		r.saveItem(ctx, item)
 		return
 	}
+	if err := r.lockYtDlp(ctx, true); err != nil {
+		return // the app is stopping
+	}
+	defer r.unlockYtDlp()
+	if job.Status != model.RipDownloading {
+		job.Status = model.RipDownloading
+		r.save(ctx, job)
+	}
 	item.Status, item.Error = model.RipDownloading, ""
 	r.saveItem(ctx, item)
 
-	itemCtx, cancel := context.WithTimeout(ctx, r.opts.Timeout)
-	err := r.rip(itemCtx, inboxPath, job, item)
-	if err != nil && errors.Is(itemCtx.Err(), context.DeadlineExceeded) {
-		err = fmt.Errorf("the Rip took longer than %s and was stopped", r.opts.Timeout)
-	}
-	cancel()
+	err := r.ripWithRetry(ctx, inboxPath, job, item)
 	switch {
 	case ctx.Err() != nil:
 		return
@@ -437,6 +483,111 @@ func inInbox(inboxPath string, item *model.RipItem) bool {
 	return err == nil
 }
 
+// ripWithRetry rips one item; the caller holds yt-dlp. When yt-dlp fails in a way a newer yt-dlp
+// might fix (see UpdateMightFix), it updates yt-dlp and tries the item once more, even if the
+// update fails or finds yt-dlp already current, as the failure may have been passing. Each try
+// gets its own Options.Timeout.
+func (r *Ripper) ripWithRetry(ctx context.Context, inboxPath string, job *model.RipJob, item *model.RipItem) error {
+	err := r.ripTimed(ctx, inboxPath, job, item)
+	if err == nil || r.opts.Updater == nil || ctx.Err() != nil || !UpdateMightFix(err) {
+		return err
+	}
+	log.Warn(ctx, "Rip failed; updating yt-dlp and trying again", "id", job.ID, "item", item.Position, "error", err)
+	res, updErr := r.opts.Updater.Update(ctx)
+	if updErr != nil {
+		log.Warn(ctx, "Could not update yt-dlp; trying the Rip again with the one installed", "id", job.ID, updErr)
+	} else {
+		log.Info(ctx, "yt-dlp checked before trying the Rip again", "id", job.ID, "version", res.Version, "updated", res.Updated)
+	}
+	if ctx.Err() != nil {
+		return err
+	}
+	err = r.ripTimed(ctx, inboxPath, job, item)
+	if err != nil && updErr != nil {
+		err = fmt.Errorf("%w (updating yt-dlp failed too: %v)", err, updErr)
+	}
+	return err
+}
+
+// ripTimed is rip, bounded by the Rip's timeout.
+func (r *Ripper) ripTimed(ctx context.Context, inboxPath string, job *model.RipJob, item *model.RipItem) error {
+	itemCtx, cancel := context.WithTimeout(ctx, r.opts.Timeout)
+	defer cancel()
+	err := r.rip(itemCtx, inboxPath, job, item)
+	if err != nil && errors.Is(itemCtx.Err(), context.DeadlineExceeded) {
+		err = fmt.Errorf("the Rip took longer than %s and was stopped", r.opts.Timeout)
+	}
+	return err
+}
+
+// UpdateYtDlp updates yt-dlp to its latest release. It waits for a running Rip to finish first,
+// or, if wait is false, returns ErrRipRunning straight away.
+func (r *Ripper) UpdateYtDlp(ctx context.Context, wait bool) (UpdateResult, error) {
+	if r.opts.Updater == nil {
+		return UpdateResult{}, ErrNoUpdater
+	}
+	if err := r.lockYtDlp(ctx, wait); err != nil {
+		return UpdateResult{}, err
+	}
+	defer r.unlockYtDlp()
+	r.updating.Store(true)
+	defer r.updating.Store(false)
+	return r.opts.Updater.Update(ctx)
+}
+
+// YtDlpVersion returns the installed yt-dlp's version, or "" before it is installed.
+func (r *Ripper) YtDlpVersion(ctx context.Context) (string, error) {
+	if r.opts.Updater == nil {
+		return "", ErrNoUpdater
+	}
+	return r.opts.Updater.Version(ctx)
+}
+
+// ScheduleYtDlpUpdates updates yt-dlp on the crontab schedule, waiting for a running Rip each
+// time. An empty schedule schedules nothing.
+func (r *Ripper) ScheduleYtDlpUpdates(ctx context.Context, s Scheduler, schedule string) error {
+	if schedule == "" || r.opts.Updater == nil {
+		log.Info(ctx, "Scheduled yt-dlp updates are DISABLED")
+		return nil
+	}
+	log.Info(ctx, "Scheduling yt-dlp updates", "schedule", schedule)
+	_, err := s.Add(schedule, func() {
+		res, err := r.UpdateYtDlp(ctx, true)
+		switch {
+		case err != nil:
+			log.Error(ctx, "Scheduled yt-dlp update failed; keeping the one installed", "version", res.Version, err)
+		case res.Updated:
+			log.Info(ctx, "Updated yt-dlp", "from", res.Previous, "to", res.Version)
+		default:
+			log.Debug(ctx, "yt-dlp is up to date", "version", res.Version)
+		}
+	})
+	return err
+}
+
+// lockYtDlp takes the yt-dlp lock, waiting for it if wait is true.
+func (r *Ripper) lockYtDlp(ctx context.Context, wait bool) error {
+	if !wait {
+		select {
+		case r.ytDlp <- struct{}{}:
+			return nil
+		default:
+			if r.updating.Load() {
+				return ErrUpdateRunning
+			}
+			return ErrRipRunning
+		}
+	}
+	select {
+	case r.ytDlp <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (r *Ripper) unlockYtDlp() { <-r.ytDlp }
+
 // rip fetches the item's audio into the Inbox folder at inboxPath (inside the job's Folder, if
 // any), and records the File's path in the item as soon as it is there.
 func (r *Ripper) rip(ctx context.Context, inboxPath string, job *model.RipJob, item *model.RipItem) error {
@@ -457,6 +608,10 @@ func (r *Ripper) rip(ctx context.Context, inboxPath string, job *model.RipJob, i
 		return err
 	}
 	if info.IsPlaylist {
+		if job.Folder == "" && item.URL == job.URL {
+			// Queued as one video because the page couldn't be read then (see Enqueue).
+			return errors.New(errLatePlaylist)
+		}
 		return errors.New(errNestedPlaylist)
 	}
 	item.Title, item.Artist = info.Title, info.Artist

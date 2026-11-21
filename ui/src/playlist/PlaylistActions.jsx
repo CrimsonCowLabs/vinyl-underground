@@ -31,6 +31,7 @@ import { formatBytes } from '../utils'
 import config from '../config'
 import { ToggleFieldsMenu } from '../common'
 import { CopyPlaylistButton } from './CopyPlaylistButton'
+import { RegeneratePlaylistButton } from './RegeneratePlaylistButton'
 import { DownloadButton } from '../download/DownloadButton'
 
 const useStyles = makeStyles({
@@ -167,6 +168,7 @@ const PlaylistActions = ({ className, ids, data, record, ...rest }) => {
             <QueueMusicIcon />
           </Button>
           <CopyPlaylistButton record={record} />
+          <RegeneratePlaylistButton record={record} />
         </div>
         <div>{isNotSmall && <ToggleFieldsMenu resource="playlistTrack" />}</div>
       </div>

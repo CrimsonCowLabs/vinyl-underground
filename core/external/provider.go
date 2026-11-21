@@ -33,6 +33,9 @@ const (
 type Provider interface {
 	UpdateAlbumInfo(ctx context.Context, id string) (*model.Album, error)
 	UpdateArtistInfo(ctx context.Context, id string, count int, includeNotPresent bool) (*model.Artist, error)
+	// SimilarArtists returns up to count artists in the Library similar to the named artist,
+	// who needn't be in the Library.
+	SimilarArtists(ctx context.Context, artistName string, count int) (model.Artists, error)
 	SimilarSongs(ctx context.Context, id string, count int) (model.MediaFiles, error)
 	TopSongs(ctx context.Context, artist, artistId string, count int) (model.MediaFiles, error)
 	RefreshInfo(ctx context.Context, kind model.Kind, id string) error
@@ -223,6 +226,37 @@ func (e *provider) UpdateArtistInfo(ctx context.Context, id string, similarCount
 
 	err = e.loadSimilar(ctx, &artist, similarCount, includeNotPresent)
 	return &artist.Artist, err
+}
+
+// likeEscaper makes a string match itself in a LIKE pattern with ESCAPE '\'.
+var likeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+
+// SimilarArtists looks a Library artist up through its cached artist info, like
+// UpdateArtistInfo, and asks the agents by name for any other artist.
+func (e *provider) SimilarArtists(ctx context.Context, artistName string, count int) (model.Artists, error) {
+	// The name may come from an LLM, so it is matched literally (ignoring case), never as a
+	// LIKE pattern.
+	found, err := e.ds.Artist(ctx).GetAll(model.QueryOptions{
+		Filters: squirrel.Expr(`artist.name LIKE ? ESCAPE '\'`, likeEscaper.Replace(artistName)),
+		Max:     1,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(found) > 0 {
+		artist, err := e.refreshArtistInfo(ctx, found[0].ID)
+		if err != nil {
+			return nil, err
+		}
+		err = e.loadSimilar(ctx, &artist, count, false)
+		return artist.SimilarArtists, err
+	}
+	// Ask for as many as for a Library artist's info: most won't be in the Library.
+	artist := auxArtist{Artist: model.Artist{Name: artistName}}
+	if err := e.callGetSimilarArtists(ctx, e.ag, &artist, maxSimilarArtists, false); err != nil {
+		return nil, err
+	}
+	return artist.SimilarArtists[:min(count, len(artist.SimilarArtists))], nil
 }
 
 func (e *provider) refreshArtistInfo(ctx context.Context, id string) (auxArtist, error) {

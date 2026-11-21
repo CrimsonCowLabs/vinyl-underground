@@ -244,6 +244,15 @@ func (y *YtDlp) run(ctx context.Context, args []string, timeout time.Duration) (
 	return stdout.Bytes(), nil
 }
 
+// YtDlpError is a failure yt-dlp itself reported, as opposed to one of the Rip's own (a timeout,
+// a playlist, a disk error...).
+type YtDlpError struct {
+	// Msg is yt-dlp's own error message.
+	Msg string
+}
+
+func (e *YtDlpError) Error() string { return e.Msg }
+
 // ytDlpError turns a failed run into yt-dlp's own error message.
 func ytDlpError(stderr string, runErr error) error {
 	var errs []string
@@ -253,12 +262,47 @@ func ytDlpError(stderr string, runErr error) error {
 		}
 	}
 	if len(errs) > 0 {
-		return errors.New(strings.Join(errs, "\n"))
+		return &YtDlpError{Msg: strings.Join(errs, "\n")}
 	}
 	if l := lastLine([]byte(stderr)); l != "" {
-		return errors.New(l)
+		return &YtDlpError{Msg: l}
 	}
-	return fmt.Errorf("yt-dlp failed: %w", runErr)
+	return &YtDlpError{Msg: fmt.Sprintf("yt-dlp failed: %s", runErr)}
+}
+
+// unfixable are yt-dlp's messages (lowercased) for a page no newer yt-dlp could rip: the URL isn't
+// a video yt-dlp knows, or the video is private, removed or otherwise closed to us.
+var unfixable = []string{
+	"unsupported url",
+	"is not a valid url",
+	"private video",
+	"video is private",
+	"video unavailable",
+	"video is unavailable",
+	"has been removed",
+	"has been terminated",
+	"no longer available",
+	"confirm your age",
+	"members-only",
+	"copyright grounds",
+	"not available in your country",
+}
+
+// UpdateMightFix reports whether a failed Rip is worth an update of yt-dlp and a second try:
+// yt-dlp itself failed, and not because the page is unsupported, private or gone. The Rip's own
+// errors (its timeout, a playlist, a disk error) are never retried.
+func UpdateMightFix(err error) bool {
+	var ye *YtDlpError
+	if !errors.As(err, &ye) {
+		return false
+	}
+	msg := strings.ToLower(ye.Msg)
+	for _, s := range unfixable {
+		if strings.Contains(msg, s) {
+			return false
+		}
+	}
+	return true
 }
 
 // sourceNames maps yt-dlp's extractor keys (lowercased, without a "tab" suffix) to display names.

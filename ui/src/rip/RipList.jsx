@@ -16,6 +16,7 @@ import {
 } from '@material-ui/core'
 import { List, DateField } from '../common'
 import RipForm from './RipForm'
+import YtDlpControl from './YtDlpControl'
 import { useRipPolling } from './useRipPolling'
 import { ripProgress } from './ripProgress'
 
@@ -92,6 +93,7 @@ const RipDatagrid = (props) => {
 const RipList = (props) => {
   return (
     <>
+      <YtDlpControl />
       <RipForm />
       <List
         {...props}

@@ -32,6 +32,7 @@ It is a public, GPL-3.0, hard fork of Navidrome **v0.64.2**, renamed and never r
 - The Listener enters a Prompt and a length (default 25, range 10–100).
 - The LLM turns the Prompt into filters and seed artists. The server builds candidates from the Library, and the LLM ranks or trims them.
 - The result is shown as a preview with a **Save** button. Once saved, it's an ordinary Playlist that remembers its Prompt, so the Listener can regenerate it.
+- **Regenerate** reruns a Generated Playlist's Prompt at its stored length for a fresh preview. Its owner can replace the Playlist's Tracks with it; any Listener who can see it can save the preview as a new Playlist.
 
 ### Stations ([ADR-0005](./adr/0005-stations-are-personal-not-live-broadcast.md))
 - Personal, endless and skippable. The Listener starts a Station with a DJ and an optional Theme.
@@ -78,6 +79,8 @@ The Library keeps growing, and all new music reaches it through one path: the **
   - **Restart:** items that were downloading are queued again and ripped from scratch. Items already in the Inbox are not ripped again.
   - **Files:** a playlist's Files go into an Inbox subfolder named after the playlist or album. The Inbox is scanned once, when the job is done.
 - yt-dlp lives in `/data/bin`, because the container is read-only. The app downloads it, updates it on a schedule and from an "Update yt-dlp" button, and after a failed Rip it updates yt-dlp once and retries.
+  - The schedule is `ND_RIPPING_YTDLPUPDATESCHEDULE` (default `@daily`). An update resolves the latest release to its tag once, fetches the binary and `SHA2-256SUMS` from that tag, and downloads nothing when `yt-dlp --version` is already that tag. A failed update keeps the old binary, and no update replaces it while a Rip runs.
+  - A failed Rip is retried only when yt-dlp itself failed and an update might help. Not retried: unsupported URLs, private, removed, age-restricted, members-only or blocked videos, playlists, the Rip's own timeout, and the app's own errors.
 - Before ripping, the app matches artist and title against the Library and warns "already have: …". It never blocks the Rip.
 
 **Tagging and review**
@@ -110,7 +113,8 @@ The Library keeps growing, and all new music reaches it through one path: the **
   - **Thinking:** turn off any "thinking" mode.
   - **Prompt size:** keep candidate lists to ~100–150 Tracks, one compact line each (artist, title, year, genre), so prompts stay short.
   - **Timeouts:** allow for slow LLM calls.
-- **External metadata.** Last.fm lookups are enabled (`EnableExternalServices`). Scrobbling stays off.
+- **External metadata.** Last.fm lookups are enabled (`EnableExternalServices`, and Last.fm first in the default `Agents`, unlike upstream). They need only an API key. Scrobbling stays off: the Last.fm scrobbler and account linking are removed.
+  - Generated Playlist candidates add Tracks by the LLM's seed artists' similar artists that are in the Library (a Prompt with no seed artists gets none). A preview waits at most ~4 s for those lookups, then carries on from local tags alone.
 - **Duplicates.** A one-time `jdupes` recipe moves Duplicates to a Quarantine folder that carries a `.ndignore` file. The app has no dedupe code ([ADR-0002](./adr/0002-quarantine-duplicates-instead-of-in-app-dedupe.md)).
 
 ## Deployment

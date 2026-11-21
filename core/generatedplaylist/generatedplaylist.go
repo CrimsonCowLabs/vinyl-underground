@@ -6,7 +6,8 @@
 //  1. filters: the Prompt (plus the Library's genres) becomes a title, genres, seed artists and
 //     a year range.
 //  2. ranking: the server builds up to MaxCandidates Tracks from the Library matching those
-//     filters, one compact line each, and the LLM picks and orders them by number.
+//     filters and the seed artists' similar artists (from Last.fm), one compact line each, and
+//     the LLM picks and orders them by number.
 //
 // Every Track returned is one of the candidates, so it exists in the Library and is visible to
 // the Listener.
@@ -47,11 +48,13 @@ var (
 	ErrInvalidPrompt = errors.New("the Prompt must be 1 to 500 characters")
 	ErrInvalidLength = fmt.Errorf("the length must be from %d to %d Tracks", MinLength, MaxLength)
 	ErrNoTracks      = errors.New("no Tracks in the Library to choose from")
+	ErrNotGenerated  = errors.New("the Playlist is not a Generated Playlist")
 )
 
 // Preview is a Generated Playlist before it is saved.
 type Preview struct {
 	Prompt string           `json:"prompt"`
+	Length int              `json:"length"`
 	Name   string           `json:"name"`
 	Tracks model.MediaFiles `json:"tracks"`
 }
@@ -61,19 +64,28 @@ type Service interface {
 	Enabled() bool
 	// Preview picks length Tracks (DefaultLength when 0) from the Library for the Prompt.
 	Preview(ctx context.Context, prompt string, length int) (*Preview, error)
-	// Save creates the Listener's Playlist holding trackIDs in order, remembering its Prompt.
-	// IDs that aren't Tracks the Listener can see are dropped.
-	Save(ctx context.Context, name, prompt string, trackIDs []string) (string, error)
+	// Save creates the Listener's Playlist holding trackIDs in order, remembering its Prompt and
+	// the length asked for (DefaultLength when 0). IDs that aren't Tracks the Listener can see are
+	// dropped.
+	Save(ctx context.Context, name, prompt string, length int, trackIDs []string) (string, error)
+	// Regenerate previews the Generated Playlist playlistID again, from its stored Prompt and
+	// length. Any Generated Playlist the Listener can see may be regenerated.
+	Regenerate(ctx context.Context, playlistID string) (*Preview, error)
+	// Replace swaps the Tracks of the Listener's own Generated Playlist for trackIDs, in order,
+	// keeping its name and Prompt. IDs that aren't Tracks the Listener can see are dropped.
+	Replace(ctx context.Context, playlistID string, trackIDs []string) error
 }
 
-// New returns the Service. A nil client means no LLM is configured.
-func New(ds model.DataStore, client llm.Client) Service {
-	return &service{ds: ds, llm: client}
+// New returns the Service. A nil client means no LLM is configured. A nil similar means
+// candidates come from local tags alone.
+func New(ds model.DataStore, client llm.Client, similar SimilarArtists) Service {
+	return &service{ds: ds, llm: client, similar: similar}
 }
 
 type service struct {
-	ds  model.DataStore
-	llm llm.Client
+	ds      model.DataStore
+	llm     llm.Client
+	similar SimilarArtists
 }
 
 func (s *service) Enabled() bool {
@@ -88,16 +100,25 @@ func cleanPrompt(prompt string) (string, error) {
 	return prompt, nil
 }
 
+// cleanLength returns the length asked for, DefaultLength when 0.
+func cleanLength(length int) (int, error) {
+	if length == 0 {
+		return DefaultLength, nil
+	}
+	if length < MinLength || length > MaxLength {
+		return 0, ErrInvalidLength
+	}
+	return length, nil
+}
+
 func (s *service) Preview(ctx context.Context, prompt string, length int) (*Preview, error) {
 	prompt, err := cleanPrompt(prompt)
 	if err != nil {
 		return nil, err
 	}
-	if length == 0 {
-		length = DefaultLength
-	}
-	if length < MinLength || length > MaxLength {
-		return nil, ErrInvalidLength
+	length, err = cleanLength(length)
+	if err != nil {
+		return nil, err
 	}
 
 	genres, err := s.libraryGenres(ctx)
@@ -129,7 +150,7 @@ func (s *service) Preview(ctx context.Context, prompt string, length int) (*Prev
 	tracks, picked := pickTracks(candidates, picks, length)
 	log.Info(ctx, "Generated Playlist preview", "length", length, "candidates", len(candidates),
 		"llmPicks", len(picks), "validPicks", picked, "tracks", len(tracks))
-	return &Preview{Prompt: prompt, Name: name, Tracks: tracks}, nil
+	return &Preview{Prompt: prompt, Length: length, Name: name, Tracks: tracks}, nil
 }
 
 // candidateTarget is how many candidates to offer the LLM for a Playlist of length Tracks.
@@ -191,20 +212,18 @@ func (s *service) libraryGenres(ctx context.Context) ([]string, error) {
 	return names, nil
 }
 
-func (s *service) Save(ctx context.Context, name, prompt string, trackIDs []string) (string, error) {
+func (s *service) Save(ctx context.Context, name, prompt string, length int, trackIDs []string) (string, error) {
 	prompt, err := cleanPrompt(prompt)
 	if err != nil {
 		return "", err
 	}
-	if len(trackIDs) > MaxLength {
-		return "", ErrInvalidLength
-	}
-	ids, err := s.existingTracks(ctx, trackIDs)
+	length, err = cleanLength(length)
 	if err != nil {
 		return "", err
 	}
-	if len(ids) == 0 {
-		return "", ErrNoTracks
+	ids, err := s.playlistTracks(ctx, trackIDs)
+	if err != nil {
+		return "", err
 	}
 	name = strings.TrimSpace(name)
 	if name == "" {
@@ -212,12 +231,69 @@ func (s *service) Save(ctx context.Context, name, prompt string, trackIDs []stri
 	}
 
 	usr, _ := request.UserFrom(ctx)
-	pls := &model.Playlist{Name: name, OwnerID: usr.ID, Prompt: prompt}
+	pls := &model.Playlist{Name: name, OwnerID: usr.ID, Prompt: prompt, GeneratedLength: length}
 	pls.AddMediaFilesByID(ids)
 	if err := s.ds.Playlist(ctx).Put(pls); err != nil {
 		return "", fmt.Errorf("saving Generated Playlist: %w", err)
 	}
 	return pls.ID, nil
+}
+
+func (s *service) Regenerate(ctx context.Context, playlistID string) (*Preview, error) {
+	pls, err := s.generatedPlaylist(ctx, playlistID)
+	if err != nil {
+		return nil, err
+	}
+	return s.Preview(ctx, pls.Prompt, pls.GeneratedLength)
+}
+
+func (s *service) Replace(ctx context.Context, playlistID string, trackIDs []string) error {
+	pls, err := s.generatedPlaylist(ctx, playlistID)
+	if err != nil {
+		return err
+	}
+	usr, _ := request.UserFrom(ctx)
+	if usr.ID == "" || pls.OwnerID != usr.ID {
+		return model.ErrNotAuthorized
+	}
+	ids, err := s.playlistTracks(ctx, trackIDs)
+	if err != nil {
+		return err
+	}
+	pls.Tracks = nil // Put replaces every Track with these
+	pls.AddMediaFilesByID(ids)
+	if err := s.ds.Playlist(ctx).Put(pls); err != nil {
+		return fmt.Errorf("replacing Generated Playlist Tracks: %w", err)
+	}
+	return nil
+}
+
+// generatedPlaylist returns the Generated Playlist playlistID, if the Listener can see it.
+func (s *service) generatedPlaylist(ctx context.Context, playlistID string) (*model.Playlist, error) {
+	pls, err := s.ds.Playlist(ctx).Get(playlistID)
+	if err != nil {
+		return nil, err
+	}
+	if pls.Prompt == "" {
+		return nil, ErrNotGenerated
+	}
+	return pls, nil
+}
+
+// playlistTracks returns the Tracks for a Generated Playlist from trackIDs: at most MaxLength,
+// and at least one the Listener can see.
+func (s *service) playlistTracks(ctx context.Context, trackIDs []string) ([]string, error) {
+	if len(trackIDs) > MaxLength {
+		return nil, ErrInvalidLength
+	}
+	ids, err := s.existingTracks(ctx, trackIDs)
+	if err != nil {
+		return nil, err
+	}
+	if len(ids) == 0 {
+		return nil, ErrNoTracks
+	}
+	return ids, nil
 }
 
 // existingTracks returns the ids, in order and without repeats, that are Tracks the Listener can

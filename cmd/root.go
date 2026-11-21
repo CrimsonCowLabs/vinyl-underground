@@ -137,9 +137,8 @@ func startServer(ctx context.Context, ripper *rip.Ripper) func() error {
 		}
 		a.MountRouter("Subsonic API", consts.URLPathSubsonicAPI, CreateSubsonicAPIRouter(ctx))
 		a.MountRouter("Public Endpoints", consts.URLPathPublic, CreatePublicRouter())
-		if conf.Server.LastFM.Enabled {
-			a.MountRouter("LastFM Auth", consts.URLPathNativeAPI+"/lastfm", CreateLastFMRouter())
-		}
+		// No "LastFM Auth" router: Last.fm is used for metadata only, so Listeners can't link
+		// their accounts and nothing is scrobbled to it.
 		if conf.Server.ListenBrainz.Enabled {
 			a.MountRouter("ListenBrainz Auth", consts.URLPathNativeAPI+"/listenbrainz", CreateListenBrainzRouter())
 		}
@@ -173,6 +172,9 @@ func startRipper(ctx context.Context, g *errgroup.Group) *rip.Ripper {
 		ripper.Run(ctx)
 		return nil
 	})
+	if err := ripper.ScheduleYtDlpUpdates(ctx, scheduler.GetInstance(), conf.Server.Ripping.YtDlpUpdateSchedule); err != nil {
+		log.Error(ctx, "Could not schedule yt-dlp updates", err)
+	}
 	log.Info(ctx, "Ripping is enabled")
 	return ripper
 }

@@ -166,13 +166,19 @@ A playlist or album is one job with one item per Track, ripped one at a time, in
 
 If the app stops in the middle of a Rip, the Track it was on starts again from scratch on the next start. Tracks already in the Inbox are not ripped again, and a job whose Files had all landed is only scanned.
 
-- **yt-dlp** is not in the image. The first Rip downloads the standalone build for the host (amd64 or arm64) from yt-dlp's latest GitHub release into `$VU_DATA_DIR/bin`, and checks it against the release's `SHA2-256SUMS`. To update it, delete `$VU_DATA_DIR/bin/yt-dlp`; the next Rip downloads the latest one. It never reads a yt-dlp config file. The image includes [deno](https://deno.com) (Alpine's package), the JavaScript runtime yt-dlp needs to read YouTube pages fully; its cache is `$VU_DATA_DIR/cache/deno`.
+- **yt-dlp** is not in the image. The first Rip downloads the standalone build for the host (amd64 or arm64) from yt-dlp's latest GitHub release into `$VU_DATA_DIR/bin`, and checks it against the release's `SHA2-256SUMS`. It never reads a yt-dlp config file. The image includes [deno](https://deno.com) (Alpine's package), the JavaScript runtime yt-dlp needs to read YouTube pages fully; its cache is `$VU_DATA_DIR/cache/deno`.
 - **Audio** is the page's best Opus stream, else its best AAC stream, saved as `.opus` or `.m4a` as it is, never re-encoded. A page with neither fails.
 - **Tags:** the File gets `SOURCE` (the site, e.g. `YouTube`), `SOURCEURL` (the page), and the title and artist the site gives.
 - **File name:** `<Artist> - <Title> [<video id>].<ext>`, at the top of the Inbox for a video, and in a folder named after the playlist or album for a playlist (`<Album>/<Artist> - <Title> [<video id>].<ext>`). Each job gets a folder of its own: ripping the same album again makes `<Album> (2)`. A File already there is never replaced; the new one gets ` (2)`. While downloading, the File is in the hidden `.rips` folder, which the scanner skips.
 - **Scan:** the Inbox is scanned once, when the whole job is done. (The library watcher may pick Files up sooner.)
 - **Playlist links:** a video link that also names a playlist (`watch?v=...&list=...`) rips just that video. Paste the playlist's own link (`playlist?list=...`) to rip all of it.
-- **Time limit:** a Track that takes longer than `ND_RIPPING_TIMEOUT` (default `30m`) is stopped and marked failed. The limit is per Track, not per job.
+- **Time limit:** a Track that takes longer than `ND_RIPPING_TIMEOUT` (default `30m`) is stopped and marked failed. The limit is per Track, not per job. When a failed Track is tried again after a yt-dlp update (below), the second try gets its own time limit.
+- **Keeping yt-dlp working:** sites like YouTube change often, and only a newer yt-dlp keeps up. The app updates yt-dlp in `$VU_DATA_DIR/bin` three ways, without rebuilding the image:
+  - **On a schedule:** `ND_RIPPING_YTDLPUPDATESCHEDULE` (default `@daily`; a cron expression or `@every 24h` also works, and `0` turns it off).
+  - **On demand:** the **Update yt-dlp** button on the Rips page, next to the installed version. It refuses while a Track is being ripped or another update is running; press it again once that has finished. On a platform with no standalone yt-dlp build (anything but Linux amd64 and arm64), the app can't update a yt-dlp you put in place yourself.
+  - **After a failed Track:** the app updates yt-dlp once and tries that Track once more before marking it failed. It skips this when no update could help: an unsupported URL, a private, removed, age-restricted, members-only or blocked video, a playlist, the Rip's own time limit, or an error of the app's (such as a full disk).
+
+  Each update looks up the latest release's tag first, and downloads nothing when `yt-dlp --version` already shows that tag. Otherwise it fetches both the binary and `SHA2-256SUMS` from that tag, checks the checksum, and checks the new binary runs before it replaces the old one. A failed update leaves the old binary in place. An update never replaces yt-dlp while a Track is being ripped: it waits for that Track to finish, so in a playlist it runs between two Tracks.
 
 ## 11. Generated Playlists (optional LLM)
 
@@ -222,6 +228,20 @@ and in `.env`: `ND_LLM_BASEURL=http://ollama:11434`, `ND_LLM_MODEL=qwen3.5:4b-q4
 | rainy Sunday 90s indie | 50 | 150 | 8–13 s | 35–40 s | 46–53 s |
 
 Both gave fitting Playlists of real Tracks (Cyndi Lauper, The B-52's, Thompson Twins; Radiohead, Smashing Pumpkins, Blur, Nirvana). The first request after the model was unloaded also pays its load time, so `ND_LLM_TIMEOUT` allows minutes.
+
+### Similar artists from Last.fm
+
+When the Library's genre tags are sparse, the genres alone find few Tracks. So the app also asks Last.fm for artists similar to the LLM's seed artists, and offers Tracks by those that are in the Library, after the seed artists' own Tracks. Set a Last.fm API key (free, from <https://www.last.fm/api/account/create>) in `.env`:
+
+```bash
+ND_LASTFM_APIKEY=<your-api-key>
+```
+
+Without one, Deezer answers instead (`ND_AGENTS`, default `lastfm,deezer,listenbrainz`, sets the order). For a seed artist in the Library, the answer is cached with its artist info. **This sends the seed artists' names to Last.fm (and Deezer)**, like the artist and album pages already do.
+
+If Last.fm is slow or can't be reached, a preview waits at most 4 seconds for it, then carries on from the Library's tags alone. `ND_ENABLEEXTERNALSERVICES=false` turns off every outside lookup.
+
+Nothing is ever scrobbled to Last.fm: the app doesn't offer to link a Last.fm account, so `ND_LASTFM_SECRET` isn't needed.
 
 ## Updating
 

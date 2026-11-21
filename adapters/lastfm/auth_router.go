@@ -34,6 +34,8 @@ type Router struct {
 	secret      string
 }
 
+// NewRouter is upstream's account-linking router. Vinyl Underground doesn't mount it (no
+// scrobbling to Last.fm, see register in agent.go); it is kept to stay close to upstream.
 func NewRouter(ds model.DataStore) *Router {
 	r := &Router{
 		ds:          ds,

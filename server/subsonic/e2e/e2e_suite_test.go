@@ -353,6 +353,10 @@ func (n noopProvider) SimilarSongs(context.Context, string, int) (model.MediaFil
 	return nil, nil
 }
 
+func (n noopProvider) SimilarArtists(context.Context, string, int) (model.Artists, error) {
+	return nil, nil
+}
+
 func (n noopProvider) TopSongs(context.Context, string, string, int) (model.MediaFiles, error) {
 	return nil, nil
 }

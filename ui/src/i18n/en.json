@@ -231,6 +231,9 @@
         "generate": "Generate",
         "generatePreview": "Preview",
         "regenerate": "Try again",
+        "regeneratePlaylist": "Regenerate",
+        "replaceTracks": "Replace Tracks",
+        "saveAsNew": "Save as new",
         "selectPlaylist": "Select a playlist:",
         "addNewPlaylist": "Create \"%{name}\"",
         "export": "Export",
@@ -259,6 +262,10 @@
         "invalidLength": "The length must be from 10 to 100 Tracks.",
         "generateFailed": "Could not generate a Playlist. Check your connection and try again.",
         "generatedSaved": "Playlist saved",
+        "generatedReplaced": "Playlist updated",
+        "notGenerated": "This Playlist wasn't generated from a Prompt.",
+        "generatedNotFound": "This Playlist no longer exists.",
+        "notAuthorized": "Only the Listener who owns this Playlist can change it.",
         "generatedFrom": "Generated from: \"%{prompt}\""
       }
     },
@@ -273,6 +280,18 @@
       },
       "actions": {
         "playNow": "Play Now"
+      }
+    },
+    "station": {
+      "name": "Station |||| Stations",
+      "onAir": "On air",
+      "actions": {
+        "start": "Start"
+      },
+      "errors": {
+        "noTracks": "There are no Tracks in your Library to play",
+        "unknownDJ": "That DJ isn't available",
+        "unavailable": "Stations are unavailable right now"
       }
     },
     "share": {
@@ -474,6 +493,15 @@
         "progress": "%{status} (%{done} of %{total})",
         "readyWithFailures": "Ready for review (%{smart_count} failed) |||| Ready for review (%{smart_count} failed)",
         "responsibility": "You are responsible for what you download: only rip what you have the right to."
+      },
+      "ytdlp": {
+        "version": "yt-dlp %{version}",
+        "notInstalled": "yt-dlp is not installed yet",
+        "unknown": "yt-dlp's version is unknown (%{error})",
+        "update": "Update yt-dlp",
+        "updating": "Updating yt-dlp...",
+        "updated": "yt-dlp updated to %{version}",
+        "upToDate": "yt-dlp %{version} is the latest"
       }
     }
   },

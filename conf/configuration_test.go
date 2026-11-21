@@ -83,6 +83,32 @@ var _ = Describe("Configuration", func() {
 		})
 	})
 
+	Describe("scheduled yt-dlp updates", func() {
+		It("run daily when ripping is on", func() {
+			viper.Set("ripping.enabled", true)
+			conf.Load(true)
+			Expect(conf.Server.Ripping.YtDlpUpdateSchedule).To(Equal("@daily"))
+		})
+
+		It("are off when ripping is off", func() {
+			conf.Load(true)
+			Expect(conf.Server.Ripping.YtDlpUpdateSchedule).To(BeEmpty())
+		})
+
+		It("can be turned off with 0", func() {
+			viper.Set("ripping.enabled", true)
+			viper.Set("ripping.ytdlpupdateschedule", "0")
+			conf.Load(true)
+			Expect(conf.Server.Ripping.YtDlpUpdateSchedule).To(BeEmpty())
+		})
+
+		It("refuses a schedule that isn't one", func() {
+			viper.Set("ripping.enabled", true)
+			viper.Set("ripping.ytdlpupdateschedule", "every tuesday")
+			Expect(func() { conf.Load(true) }).To(PanicWith(ContainSubstring("Ripping.YtDlpUpdateSchedule")))
+		})
+	})
+
 	Describe("ValidateURL", func() {
 		It("accepts a valid http URL", func() {
 			fn := conf.ValidateURL("TestOption", "http://example.com/path")

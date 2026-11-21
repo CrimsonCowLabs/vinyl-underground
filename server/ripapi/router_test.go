@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -60,6 +62,7 @@ var _ = Describe("Rip API", func() {
 		admin    model.User
 		listener model.User
 		fetcher  *fakeFetcher
+		updater  *fakeUpdater
 	)
 
 	BeforeEach(func() {
@@ -88,17 +91,18 @@ var _ = Describe("Rip API", func() {
 		Expect(users.Put(&listener)).To(Succeed())
 
 		fetcher = &fakeFetcher{n: 3}
+		updater = &fakeUpdater{}
 		ripper := rip.New(ds, fetcher, nil, rip.Options{})
 		router = server.JWTVerifier(New(ds, ripper))
 	})
 
-	do := func(user *model.User, method, body string) *httptest.ResponseRecorder {
+	send := func(user *model.User, method, path, body string) *httptest.ResponseRecorder {
 		var req *http.Request
 		if body != "" {
-			req = httptest.NewRequest(method, "/", bytes.NewBufferString(body))
+			req = httptest.NewRequest(method, path, bytes.NewBufferString(body))
 			req.Header.Set("Content-Type", "application/json")
 		} else {
-			req = httptest.NewRequest(method, "/", nil)
+			req = httptest.NewRequest(method, path, nil)
 		}
 		if user != nil {
 			token, err := auth.CreateToken(user)
@@ -108,6 +112,12 @@ var _ = Describe("Rip API", func() {
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
 		return w
+	}
+	do := func(user *model.User, method, body string) *httptest.ResponseRecorder {
+		return send(user, method, "/", body)
+	}
+	doPath := func(user *model.User, method, path string) *httptest.ResponseRecorder {
+		return send(user, method, path, "")
 	}
 
 	It("lets the admin start a Rip and see it in the job list", func() {
@@ -208,4 +218,96 @@ var _ = Describe("Rip API", func() {
 		Expect(do(&admin, http.MethodGet, "").Code).To(Equal(http.StatusNotFound))
 		Expect(do(&admin, http.MethodPost, `{"url":"https://www.youtube.com/watch?v=abc"}`).Code).To(Equal(http.StatusNotFound))
 	})
+
+	Describe("yt-dlp", func() {
+		BeforeEach(func() {
+			ripper := rip.New(ds, nil, nil, rip.Options{Updater: updater})
+			router = server.JWTVerifier(New(ds, ripper))
+		})
+
+		It("shows the admin the installed version", func() {
+			w := doPath(&admin, http.MethodGet, "/ytdlp")
+			Expect(w.Code).To(Equal(http.StatusOK))
+			Expect(w.Body.String()).To(MatchJSON(`{"version":"2026.01.01"}`))
+		})
+
+		It("updates yt-dlp for the admin and says what changed", func() {
+			w := doPath(&admin, http.MethodPost, "/ytdlp/update")
+			Expect(w.Code).To(Equal(http.StatusOK))
+			Expect(w.Body.String()).To(MatchJSON(`{"previous":"2026.01.01","version":"2026.11.01","updated":true}`))
+			Expect(updater.updates()).To(Equal(1))
+		})
+
+		It("reports a failed update, and the version kept", func() {
+			updater.err = errors.New("GitHub is down")
+			w := doPath(&admin, http.MethodPost, "/ytdlp/update")
+			Expect(w.Code).To(Equal(http.StatusBadGateway))
+			Expect(w.Body.String()).To(ContainSubstring("GitHub is down"))
+			Expect(w.Body.String()).To(ContainSubstring("2026.01.01"))
+		})
+
+		It("refuses to update while yt-dlp is busy", func() {
+			updater.block = make(chan struct{})
+			first := make(chan int)
+			go func() {
+				defer GinkgoRecover()
+				first <- doPath(&admin, http.MethodPost, "/ytdlp/update").Code
+			}()
+			Eventually(updater.updates).Should(Equal(1))
+			Expect(doPath(&admin, http.MethodPost, "/ytdlp/update").Code).To(Equal(http.StatusConflict))
+			close(updater.block)
+			Eventually(first).Should(Receive(Equal(http.StatusOK)))
+		})
+
+		It("doesn't let a Listener see or update yt-dlp", func() {
+			Expect(doPath(&listener, http.MethodGet, "/ytdlp").Code).To(Equal(http.StatusForbidden))
+			Expect(doPath(&listener, http.MethodPost, "/ytdlp/update").Code).To(Equal(http.StatusForbidden))
+			Expect(updater.updates()).To(BeZero())
+		})
+
+		It("says so when yt-dlp can't be updated on this platform", func() {
+			router = server.JWTVerifier(New(ds, rip.New(ds, nil, nil, rip.Options{})))
+			Expect(doPath(&admin, http.MethodGet, "/ytdlp").Code).To(Equal(http.StatusNotImplemented))
+			w := doPath(&admin, http.MethodPost, "/ytdlp/update")
+			Expect(w.Code).To(Equal(http.StatusNotImplemented))
+			Expect(w.Body.String()).To(ContainSubstring("no standalone yt-dlp build"))
+		})
+
+		It("exposes nothing when ripping is off", func() {
+			conf.Server.Ripping.Enabled = false
+			Expect(doPath(&admin, http.MethodGet, "/ytdlp").Code).To(Equal(http.StatusNotFound))
+			Expect(doPath(&admin, http.MethodPost, "/ytdlp/update").Code).To(Equal(http.StatusNotFound))
+			Expect(updater.updates()).To(BeZero())
+		})
+	})
 })
+
+// fakeUpdater stands in for yt-dlp's updates. When block is set, an update waits for it to close.
+type fakeUpdater struct {
+	mu    sync.Mutex
+	calls int
+	err   error
+	block chan struct{}
+}
+
+func (u *fakeUpdater) Update(context.Context) (rip.UpdateResult, error) {
+	u.mu.Lock()
+	u.calls++
+	block, err := u.block, u.err
+	u.mu.Unlock()
+	if block != nil {
+		<-block
+	}
+	if err != nil {
+		return rip.UpdateResult{Previous: "2026.01.01", Version: "2026.01.01"}, err
+	}
+	return rip.UpdateResult{Previous: "2026.01.01", Version: "2026.11.01", Updated: true}, nil
+}
+
+func (u *fakeUpdater) Version(context.Context) (string, error) { return "2026.01.01", nil }
+
+func (u *fakeUpdater) updates() int {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	return u.calls
+}

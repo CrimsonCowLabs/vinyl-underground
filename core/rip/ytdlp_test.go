@@ -239,6 +239,23 @@ printf 'audio' > "$dir/abc.mp3"; echo "$dir/abc.mp3"`)
 			_, err := (&YtDlp{Binary: fixedBinary(bin), TempDir: tmp}).Download(ctx, "https://example.com/v", GinkgoT().TempDir())
 			Expect(err).To(MatchError(ContainSubstring("no Opus or AAC audio")))
 			Expect(err).To(MatchError(ContainSubstring("Requested format is not available")))
+			Expect(UpdateMightFix(err)).To(BeTrue(), "a newer yt-dlp often finds the formats again")
+		})
+
+		It("reports a page yt-dlp can't rip as one no update would fix", func(ctx SpecContext) {
+			bin, _, _ := fakeYtDlp(`echo "ERROR: [youtube] v: Private video. Sign in if you've been granted access to this video" >&2; exit 1`)
+			_, err := (&YtDlp{Binary: fixedBinary(bin), TempDir: tmp}).Download(ctx, "https://example.com/v", GinkgoT().TempDir())
+			Expect(err).To(MatchError(ContainSubstring("Private video")))
+			Expect(UpdateMightFix(err)).To(BeFalse())
+		})
+
+		It("doesn't count its own timeout as yt-dlp's failure", func(ctx SpecContext) {
+			bin, _, _ := fakeYtDlp(`sleep 30`)
+			c, cancel := context.WithTimeout(ctx, 200*time.Millisecond)
+			defer cancel()
+			_, err := (&YtDlp{Binary: fixedBinary(bin), TempDir: tmp}).Download(c, "https://example.com/v", GinkgoT().TempDir())
+			Expect(err).To(HaveOccurred())
+			Expect(UpdateMightFix(err)).To(BeFalse())
 		})
 
 		It("gives each yt-dlp its own temp folder, so a probe never clears a running download's", func(ctx SpecContext) {

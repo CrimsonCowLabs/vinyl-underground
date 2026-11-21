@@ -38,6 +38,9 @@ type Playlist struct {
 	ImportedHash     string         `structs:"imported_hash" json:"-"`
 	// Prompt is the Prompt a Generated Playlist was made from; empty for other Playlists.
 	Prompt string `structs:"prompt" json:"prompt,omitempty"`
+	// GeneratedLength is how many Tracks were asked for when a Generated Playlist was made, so
+	// regenerating it asks for the same; 0 for other Playlists.
+	GeneratedLength int `structs:"generated_length" json:"generatedLength,omitempty"`
 
 	// SmartPlaylist attributes
 	Rules       *criteria.Criteria `structs:"rules" json:"rules"`
