@@ -134,7 +134,9 @@ export const createDownloads = ({
     const pending = ids.some((tid) => !stored.has(tid) && !failed.has(tid))
     let state = 'interrupted'
     if (done === ids.length) state = 'downloaded'
-    else if (running && pending) state = 'downloading'
+    // A Download counts as downloading while a refresh checks every
+    // Playlist, before it stores the Tracks it finds missing
+    else if ((running || refreshing) && pending) state = 'downloading'
     const { name } = itemOf(record)
     return { id, kind, name, state, done, total: ids.length }
   }
@@ -196,6 +198,8 @@ export const createDownloads = ({
       refreshing = refreshAll().finally(() => {
         refreshing = null
       })
+      // Downloads with Tracks still to store now count as downloading
+      notify()
     }
     return refreshing.then(() => {
       failed.clear()
