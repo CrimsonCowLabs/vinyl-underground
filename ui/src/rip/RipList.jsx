@@ -16,6 +16,7 @@ import {
 } from '@material-ui/core'
 import { List, DateField } from '../common'
 import RipForm from './RipForm'
+import { AlreadyHave } from './AlreadyHave'
 import YtDlpControl from './YtDlpControl'
 import { useRipPolling } from './useRipPolling'
 import { ripProgress } from './ripProgress'
@@ -62,6 +63,7 @@ export const RipItems = ({ record }) => {
             <TableCell>{it.position}</TableCell>
             <TableCell>
               {it.artist ? `${it.artist} - ${it.title}` : it.title}
+              <AlreadyHave tracks={it.alreadyHave} />
             </TableCell>
             <TableCell>
               {translate(`resources.rip.status.${it.status}`, {

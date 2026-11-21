@@ -63,6 +63,32 @@ describe('RipItems', () => {
     expect(rows[2].textContent).toContain('Third')
     expect(rows[2].textContent).toContain('resources.rip.status.downloading')
   })
+
+  it('still says "already have" on an item after it was queued', () => {
+    const items = album.items.map((it, i) =>
+      i === 1
+        ? {
+            ...it,
+            alreadyHave: [
+              {
+                id: 'mf-1',
+                title: 'Second',
+                artist: 'Band',
+                album: 'Debut',
+                libraryName: 'Music Library',
+              },
+            ],
+          }
+        : { ...it, alreadyHave: [] },
+    )
+    const { getAllByRole } = render(<RipItems record={{ ...album, items }} />)
+    const rows = getAllByRole('row').slice(1)
+    expect(rows[1].textContent).toContain('resources.rip.messages.alreadyHave')
+    expect(rows[1].textContent).toContain(
+      'Band - Second · Debut · Music Library',
+    )
+    expect(rows[0].textContent).not.toContain('alreadyHave')
+  })
 })
 
 describe('RipStatusField', () => {
