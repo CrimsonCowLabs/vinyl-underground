@@ -110,6 +110,10 @@ func (s *SQLStore) RipJob(ctx context.Context) model.RipJobRepository {
 	return NewRipJobRepository(ctx, s.getDBXBuilder())
 }
 
+func (s *SQLStore) StationTrack(ctx context.Context) model.StationTrackRepository {
+	return NewStationTrackRepository(ctx, s.getDBXBuilder())
+}
+
 func (s *SQLStore) Resource(ctx context.Context, m any) model.ResourceRepository {
 	switch m.(type) {
 	case model.User:

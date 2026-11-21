@@ -43,6 +43,7 @@ type DataStore interface {
 	Artwork(ctx context.Context) ArtworkRepository
 	ArtworkQueue(ctx context.Context) ArtworkQueueRepository
 	RipJob(ctx context.Context) RipJobRepository
+	StationTrack(ctx context.Context) StationTrackRepository
 
 	Resource(ctx context.Context, model any) ResourceRepository
 

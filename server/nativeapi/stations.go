@@ -1,0 +1,76 @@
+package nativeapi
+
+import (
+	"encoding/json"
+	"errors"
+	"net/http"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/navidrome/navidrome/core/stations"
+	"github.com/navidrome/navidrome/log"
+)
+
+// addStationRoute exposes Stations: GET /station/dj lists the DJs, and POST /station/next
+// serves the logged-in Listener's next Station Tracks. Stations need no LLM.
+func (api *Router) addStationRoute(r chi.Router) {
+	svc := stations.New(api.ds)
+	r.Route("/station", func(r chi.Router) {
+		r.Get("/dj", listDJs(svc))
+		r.Post("/next", nextStationTracks(svc))
+	})
+}
+
+type nextStationRequest struct {
+	DJ    string `json:"dj"`
+	Count int    `json:"count"`
+}
+
+func listDJs(svc stations.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		writeStationJSON(w, r, svc.DJs())
+	}
+}
+
+func nextStationTracks(svc stations.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var body nextStationRequest
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeStationError(w, r, http.StatusBadRequest, "badRequest", err)
+			return
+		}
+		tracks, err := svc.Next(r.Context(), body.DJ, body.Count)
+		switch {
+		case err == nil:
+			writeStationJSON(w, r, map[string]any{"tracks": tracks})
+		case errors.Is(err, stations.ErrUnknownDJ):
+			writeStationError(w, r, http.StatusNotFound, "unknownDJ", err)
+		case errors.Is(err, stations.ErrInvalidCount):
+			writeStationError(w, r, http.StatusBadRequest, "invalidCount", err)
+		case errors.Is(err, stations.ErrNoTracks):
+			writeStationError(w, r, http.StatusUnprocessableEntity, "noTracks", err)
+		default:
+			writeStationError(w, r, http.StatusInternalServerError, "internal", err)
+		}
+	}
+}
+
+// writeStationError answers with {"error": code}, which the UI translates.
+func writeStationError(w http.ResponseWriter, r *http.Request, status int, code string, err error) {
+	if status >= http.StatusInternalServerError {
+		log.Error(r.Context(), "Station failed", "code", code, err)
+	} else {
+		log.Warn(r.Context(), "Station request rejected", "code", code, err)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	if err := json.NewEncoder(w).Encode(map[string]string{"error": code}); err != nil {
+		log.Error(r.Context(), "Error writing Station error", err)
+	}
+}
+
+func writeStationJSON(w http.ResponseWriter, r *http.Request, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(v); err != nil {
+		log.Error(r.Context(), "Error writing Station response", err)
+	}
+}

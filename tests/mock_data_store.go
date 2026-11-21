@@ -31,6 +31,7 @@ type MockDataStore struct {
 	MockedArtwork        model.ArtworkRepository
 	MockedArtworkQueue   model.ArtworkQueueRepository
 	MockedRipJob         model.RipJobRepository
+	MockedStationTrack   model.StationTrackRepository
 	scrobbleBufferMu     sync.Mutex
 	repoMu               sync.Mutex
 
@@ -333,6 +334,19 @@ func (db *MockDataStore) RipJob(ctx context.Context) model.RipJobRepository {
 	}
 	db.MockedRipJob = CreateMockRipJobRepo()
 	return db.MockedRipJob
+}
+
+func (db *MockDataStore) StationTrack(ctx context.Context) model.StationTrackRepository {
+	db.repoMu.Lock()
+	defer db.repoMu.Unlock()
+	if db.MockedStationTrack != nil {
+		return db.MockedStationTrack
+	}
+	if db.RealDS != nil {
+		return db.RealDS.StationTrack(ctx)
+	}
+	db.MockedStationTrack = CreateMockStationTrackRepo()
+	return db.MockedStationTrack
 }
 
 func (db *MockDataStore) WithTx(block func(tx model.DataStore) error, label ...string) error {
