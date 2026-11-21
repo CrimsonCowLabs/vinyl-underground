@@ -67,3 +67,17 @@ _Avoid_: Query, theme
 **Download**:
 A Playlist or album stored on a Listener's device for playback without a network connection.
 _Avoid_: Offline cache, sync
+
+### New music
+
+**Inbox**:
+The writable folder where all new music arrives (Rips, uploads and Files dropped in) before it joins the Library. The app scans it as a second library, visible only to the admin, and Tracks in it can be played straight away.
+_Avoid_: Staging, downloads (a Download is offline storage on a device), import folder
+
+**Rip**:
+A File the app fetched from a web page with yt-dlp (usually YouTube), keeping the original audio stream. A Rip carries a `SOURCE` tag naming the site and the source URL, and is shown with a "Ripped" badge, because it is lower quality than most of the Library.
+_Avoid_: Download (taken: offline storage on a device), import
+
+**Promote**:
+To move reviewed Files from the Inbox into the Library's dedicated writable folder on the NAS. The Track stays the same Track, so favorites, Playlist entries and play counts carry over.
+_Avoid_: Import, publish, approve
