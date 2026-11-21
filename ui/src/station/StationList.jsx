@@ -14,6 +14,7 @@ import { makeStyles } from '@material-ui/core/styles'
 import PlayArrowIcon from '@material-ui/icons/PlayArrow'
 import { httpClient } from '../dataProvider'
 import { REST_URL } from '../consts'
+import { setPlayMode } from '../actions'
 import { startStation } from './stationState'
 import { fetchStationTracks } from './useStationRefill'
 
@@ -56,7 +57,11 @@ const StationList = () => {
   const start = (dj) => {
     setStarting(dj.id)
     fetchStationTracks(dj.id, START_COUNT)
-      .then((tracks) => dispatch(startStation(dj.id, tracks)))
+      .then((tracks) => {
+        // Shuffle or repeat would replay Tracks and break the DJ's order.
+        dispatch(setPlayMode('order'))
+        dispatch(startStation(dj.id, tracks))
+      })
       .catch((err) => notify(errorKey(err), { type: 'warning' }))
       .finally(() => setStarting(null))
   }

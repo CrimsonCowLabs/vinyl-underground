@@ -55,7 +55,7 @@ func New(ds model.DataStore) Service {
 
 type service struct {
 	ds    model.DataStore
-	locks sync.Map // user ID -> *sync.Mutex, so one Listener's refills don't race each other
+	locks sync.Map // Listener ID -> *sync.Mutex, so one Listener's refills don't race; a household has few
 }
 
 func (s *service) DJs() []DJ {
@@ -73,7 +73,10 @@ func (s *service) Next(ctx context.Context, djID string, count int) (model.Media
 	if count < 1 || count > MaxCount {
 		return nil, ErrInvalidCount
 	}
-	usr, _ := request.UserFrom(ctx)
+	usr, ok := request.UserFrom(ctx)
+	if !ok {
+		return nil, errors.New("a Station needs a logged-in Listener")
+	}
 	lock, _ := s.locks.LoadOrStore(usr.ID, &sync.Mutex{})
 	lock.(*sync.Mutex).Lock()
 	defer lock.(*sync.Mutex).Unlock()

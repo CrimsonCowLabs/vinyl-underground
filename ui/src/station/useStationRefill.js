@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import { httpClient } from '../dataProvider'
 import { REST_URL } from '../consts'
@@ -8,6 +8,9 @@ import { addStationTracks, upcomingTracks } from './stationState'
 // one playing, REFILL_COUNT at a time, so a skip always has a Track to go to.
 export const REFILL_BELOW = 3
 export const REFILL_COUNT = 3
+// A failed refill is tried again after RETRY_MS, or sooner if the next Track
+// starts.
+export const RETRY_MS = 15000
 
 export const fetchStationTracks = (djId, count) =>
   httpClient(`${REST_URL}/station/next`, {
@@ -17,12 +20,12 @@ export const fetchStationTracks = (djId, count) =>
 
 // useStationRefill keeps the Station on air endless: while a DJ is on air and
 // the queue runs low, it asks the server for the next Tracks and queues them.
-// A failed refill is tried again when the next Track starts.
 export const useStationRefill = () => {
   const dispatch = useDispatch()
   const djId = useSelector((state) => state.station?.djId)
   const session = useSelector((state) => state.station?.session)
   const upcoming = useSelector((state) => upcomingTracks(state.player))
+  const [retries, setRetries] = useState(0)
   const onAir = useRef()
   const inFlight = useRef(null) // the session a refill is pending for
   onAir.current = djId && session
@@ -32,6 +35,7 @@ export const useStationRefill = () => {
       return
     }
     inFlight.current = session
+    let retry
     fetchStationTracks(djId, REFILL_COUNT)
       .then((tracks) => {
         // The Listener may have stopped or changed Station meanwhile.
@@ -42,9 +46,11 @@ export const useStationRefill = () => {
       .catch((e) => {
         // eslint-disable-next-line no-console
         console.warn('Station refill failed:', e)
+        retry = setTimeout(() => setRetries((n) => n + 1), RETRY_MS)
       })
       .finally(() => {
         if (inFlight.current === session) inFlight.current = null
       })
-  }, [djId, session, upcoming, dispatch])
+    return () => clearTimeout(retry)
+  }, [djId, session, upcoming, retries, dispatch])
 }

@@ -11,6 +11,7 @@ import {
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { ThemeProvider, createTheme } from '@material-ui/core/styles'
 import { playerReducer } from '../reducers'
+import { setPlayMode } from '../actions'
 import { stationReducer } from './stationState'
 import StationList from './StationList'
 
@@ -94,6 +95,21 @@ describe('StationList', () => {
       'mf-2',
     ])
     expect(screen.getByText('resources.station.onAir')).toBeInTheDocument()
+  })
+
+  it('plays the Station in order, as shuffle or repeat would replay Tracks', async () => {
+    const store = renderPage()
+    store.dispatch(setPlayMode('shufflePlay'))
+    await screen.findByText('Sunny')
+
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'resources.station.actions.start Sunny',
+      }),
+    )
+
+    await waitFor(() => expect(store.getState().station.djId).toBe('sunny'))
+    expect(store.getState().player.mode).toBe('order')
   })
 
   it('says so when the Library has nothing to play', async () => {

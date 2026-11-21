@@ -5,7 +5,6 @@ import DynamicMenuIcon from '../layout/DynamicMenuIcon'
 import StationList from './StationList'
 
 export { stationReducer } from './stationState'
-export { useStationRefill } from './useStationRefill'
 
 export default {
   list: StationList,

@@ -6,7 +6,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { playerReducer } from '../reducers'
 import { clearQueue, currentPlaying } from '../actions'
 import { startStation, stationReducer } from './stationState'
-import { useStationRefill, REFILL_COUNT } from './useStationRefill'
+import { useStationRefill, REFILL_COUNT, RETRY_MS } from './useStationRefill'
 
 const httpClient = vi.fn()
 vi.mock('../dataProvider', () => ({
@@ -134,5 +134,31 @@ describe('useStationRefill', () => {
 
     await waitFor(() => expect(queuedIds(store)).toHaveLength(6))
     expect(httpClient).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps trying after a failed refill while the last Track plays', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      httpClient
+        .mockRejectedValueOnce(new Error('offline'))
+        .mockResolvedValue({ json: { tracks: tracks('b', 'c', 'd') } })
+      const store = newStore()
+      store.dispatch(startStation('sunny', tracks('a')))
+      render(
+        <Provider store={store}>
+          <Refill />
+        </Provider>,
+      )
+      await waitFor(() => expect(httpClient).toHaveBeenCalledTimes(1))
+
+      await act(async () => {
+        vi.advanceTimersByTime(RETRY_MS)
+      })
+
+      await waitFor(() => expect(queuedIds(store)).toHaveLength(4))
+      expect(httpClient).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

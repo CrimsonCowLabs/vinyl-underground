@@ -5,10 +5,11 @@ import {
   addTracks,
 } from '../actions'
 
-// Station Tracks keyed for the player queue. The "_" keeps the server's
-// order: object keys that look like numbers would otherwise sort first.
+// Station Tracks keyed for the player queue. Keys hold the position, so a
+// Track served twice (a tiny Library) is queued twice, and the "_" keeps the
+// server's order: keys that look like numbers would otherwise sort first.
 const toQueueData = (tracks) =>
-  Object.fromEntries(tracks.map((track) => ['_' + track.id, track]))
+  Object.fromEntries(tracks.map((track, i) => [`_${i}_${track.id}`, track]))
 
 // startStation replaces the play queue with a Station's first Tracks and puts
 // its DJ on air, so the queue keeps being refilled from the server.

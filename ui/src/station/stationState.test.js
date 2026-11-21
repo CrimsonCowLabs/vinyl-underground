@@ -2,7 +2,12 @@ import { describe, it, expect } from 'vitest'
 import { combineReducers, legacy_createStore as createStore } from 'redux'
 import { playerReducer } from '../reducers'
 import { addTracks, clearQueue, playTracks, setTrack } from '../actions'
-import { startStation, stationReducer, upcomingTracks } from './stationState'
+import {
+  addStationTracks,
+  startStation,
+  stationReducer,
+  upcomingTracks,
+} from './stationState'
 
 const tracks = [
   { id: 'mf-1', title: 'Blue in Green', artist: 'Miles Davis' },
@@ -45,6 +50,19 @@ describe('startStation', () => {
     store.dispatch(startStation('sunny', tracks))
     store.dispatch(addTracks({ x: { id: 'x', title: 'X' } }))
     expect(store.getState().station.djId).toBe('sunny')
+  })
+
+  it('queues a Track the server served twice, as a tiny Library must', () => {
+    const store = newStore()
+    const solo = { id: 'mf-1', title: 'Solo', artist: 'Solo' }
+    store.dispatch(startStation('sunny', [solo, solo]))
+    store.dispatch(addStationTracks([solo, solo]))
+    expect(store.getState().player.queue.map((i) => i.trackId)).toEqual([
+      'mf-1',
+      'mf-1',
+      'mf-1',
+      'mf-1',
+    ])
   })
 })
 
