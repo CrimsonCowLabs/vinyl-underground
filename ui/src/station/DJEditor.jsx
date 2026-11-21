@@ -10,17 +10,11 @@ import {
 } from '@material-ui/core'
 import { httpClient } from '../dataProvider'
 import { REST_URL } from '../consts'
+import { stationErrorKey } from './stationErrors'
 
 // The longest DJ name and personality description the server accepts.
 export const MAX_DJ_NAME_LENGTH = 60
 export const MAX_DJ_DESCRIPTION_LENGTH = 1000
-
-const errorKey = (err) => {
-  const code = err?.body?.error
-  return ['invalidDJName', 'invalidDJDescription', 'unknownDJ'].includes(code)
-    ? `resources.station.errors.${code}`
-    : 'resources.station.errors.unavailable'
-}
 
 // saveDJ creates the Listener's DJ, or edits it when it has an id.
 const saveDJ = (id, name, description) =>
@@ -58,7 +52,7 @@ const DJEditor = ({ open, dj, onClose, onSaved }) => {
       })
       .catch((err) => {
         setSaving(false)
-        notify(errorKey(err), { type: 'warning' })
+        notify(stationErrorKey(err), { type: 'warning' })
       })
   }
 

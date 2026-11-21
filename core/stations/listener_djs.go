@@ -79,11 +79,8 @@ func (s *service) CreateDJ(ctx context.Context, name, description string) (DJ, e
 }
 
 func (s *service) UpdateDJ(ctx context.Context, id, name, description string) (DJ, error) {
-	if _, ok := FindDJ(id); ok {
-		return DJ{}, ErrBuiltInDJ
-	}
-	if id == "" {
-		return DJ{}, ErrUnknownDJ
+	if err := editable(id); err != nil {
+		return DJ{}, err
 	}
 	dj, err := cleanDJ(name, description)
 	if err != nil {
@@ -101,8 +98,8 @@ func (s *service) UpdateDJ(ctx context.Context, id, name, description string) (D
 }
 
 func (s *service) DeleteDJ(ctx context.Context, id string) error {
-	if _, ok := FindDJ(id); ok {
-		return ErrBuiltInDJ
+	if err := editable(id); err != nil {
+		return err
 	}
 	err := s.ds.DJ(ctx).Delete(id)
 	if errors.Is(err, model.ErrNotFound) {
@@ -110,6 +107,17 @@ func (s *service) DeleteDJ(ctx context.Context, id string) error {
 	}
 	if err != nil {
 		return fmt.Errorf("deleting the DJ: %w", err)
+	}
+	return nil
+}
+
+// editable refuses ids no Listener DJ can have: a built-in DJ's, or none.
+func editable(id string) error {
+	if _, ok := FindDJ(id); ok {
+		return ErrBuiltInDJ
+	}
+	if id == "" {
+		return ErrUnknownDJ
 	}
 	return nil
 }

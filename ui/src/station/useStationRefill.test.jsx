@@ -66,6 +66,26 @@ describe('useStationRefill', () => {
     expect(queuedIds(store).slice(5)).toEqual(['d', 'e', 'f'])
   })
 
+  it('ends the Station when its DJ is gone (deleted elsewhere), leaving the queue to play out', async () => {
+    httpClient.mockRejectedValue(
+      Object.assign(new Error('unknownDJ'), {
+        status: 404,
+        body: { error: 'unknownDJ' },
+      }),
+    )
+    const store = newStore()
+    store.dispatch(startStation('dj-1', tracks('a', 'b')))
+    render(
+      <Provider store={store}>
+        <Refill />
+      </Provider>,
+    )
+
+    await waitFor(() => expect(store.getState().station.djId).toBeNull())
+    expect(queuedIds(store)).toEqual(['a', 'b'])
+    expect(httpClient).toHaveBeenCalledTimes(1)
+  })
+
   it("asks for the Station's Theme on every refill", async () => {
     httpClient.mockResolvedValue({ json: { tracks: tracks('d', 'e', 'f') } })
     const store = newStore()

@@ -103,12 +103,13 @@ var builtIn = []DJ{
 	},
 }
 
-// DJs returns the built-in DJs.
+// DJs returns the built-in DJs. Service.DJs also lists the Listener's own.
 func DJs() []DJ {
 	return append([]DJ(nil), builtIn...)
 }
 
-// FindDJ returns the built-in DJ with the id.
+// FindDJ returns the built-in DJ with the id. Use Service.DJ to find any DJ a Listener can
+// start a Station with, their own included.
 func FindDJ(id string) (DJ, bool) {
 	for _, dj := range builtIn {
 		if dj.ID == id {

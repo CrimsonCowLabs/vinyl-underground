@@ -29,6 +29,7 @@ import { setPlayMode } from '../actions'
 import { startStation, stopStation } from './stationState'
 import { fetchStationTracks } from './useStationRefill'
 import DJEditor from './DJEditor'
+import { stationErrorKey } from './stationErrors'
 
 // How many Tracks a Station starts with: the one to play and a few queued.
 export const START_COUNT = 5
@@ -44,13 +45,6 @@ const useStyles = makeStyles((theme) => ({
   toolbar: { marginBottom: theme.spacing(2) },
   spacer: { flexGrow: 1 },
 }))
-
-const errorKey = (err) => {
-  const code = err?.body?.error
-  return ['noTracks', 'unknownDJ', 'invalidTheme'].includes(code)
-    ? `resources.station.errors.${code}`
-    : 'resources.station.errors.unavailable'
-}
 
 // StationList shows the DJs: the built-in ones, then the Listener's own, which
 // they can create, edit and delete here (built-in DJs are read-only). Starting
@@ -96,11 +90,9 @@ const StationList = () => {
       .then(() => {
         // Its Station can't refill any more; what's queued plays out.
         if (onAir === dj.id) dispatch(stopStation())
-        loadDJs()
       })
-      .catch(() =>
-        notify('resources.station.errors.unavailable', { type: 'warning' }),
-      )
+      .catch((err) => notify(stationErrorKey(err), { type: 'warning' }))
+      .finally(loadDJs)
   }
 
   const start = (dj) => {
@@ -112,7 +104,7 @@ const StationList = () => {
         dispatch(setPlayMode('order'))
         dispatch(startStation(dj.id, tracks, theme))
       })
-      .catch((err) => notify(errorKey(err), { type: 'warning' }))
+      .catch((err) => notify(stationErrorKey(err), { type: 'warning' }))
       .finally(() => setStarting(null))
   }
 

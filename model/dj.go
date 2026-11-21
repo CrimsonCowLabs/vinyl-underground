@@ -2,7 +2,7 @@ package model
 
 import "time"
 
-// DJ is a persona a Listener created to host their Stations (#17), from a name and a
+// DJ is a persona a Listener created to shape their Stations (#17), from a name and a
 // personality description. Built-in DJs aren't stored; they live in core/stations. A
 // Listener's DJs are private to them.
 type DJ struct {
@@ -10,8 +10,8 @@ type DJ struct {
 	UserID      string    `structs:"user_id" json:"-"`
 	Name        string    `structs:"name" json:"name"`
 	Description string    `structs:"description" json:"description"`
-	CreatedAt   time.Time `structs:"created_at" json:"createdAt"`
-	UpdatedAt   time.Time `structs:"updated_at" json:"updatedAt"`
+	CreatedAt   time.Time `structs:"created_at" json:"-"`
+	UpdatedAt   time.Time `structs:"updated_at" json:"-"`
 }
 
 type DJs []DJ

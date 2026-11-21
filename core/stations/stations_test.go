@@ -165,7 +165,7 @@ var _ = Describe("Stations", Ordered, func() {
 			Expect(owl.Name).To(Equal("Night Owl"))
 		})
 
-		It("host Stations, with skips, for their Listener only", func() {
+		It("shape Stations, with skips, for their Listener only", func() {
 			tracks := addTracks(6)
 			mine, err := svc.CreateDJ(aliceCtx, "Mr. Mellow", mellow)
 			Expect(err).ToNot(HaveOccurred())

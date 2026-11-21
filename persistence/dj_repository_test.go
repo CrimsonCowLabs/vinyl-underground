@@ -73,6 +73,19 @@ var _ = Describe("DJRepository", func() {
 			Expect(err).To(MatchError(model.ErrNotFound))
 		})
 
+		It("keeps the admin's DJ from them, and theirs from the admin", func() {
+			own := &model.DJ{Name: "Bossa Bea", Description: "Bossa nova only."}
+			Expect(theirs.Put(own)).To(Succeed())
+
+			got, err := mine.GetAll()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(got).To(HaveLen(1))
+			Expect(got[0].ID).To(Equal(dj.ID))
+			_, err = mine.Get(own.ID)
+			Expect(err).To(MatchError(model.ErrNotFound))
+			Expect(mine.Delete(own.ID)).To(MatchError(model.ErrNotFound))
+		})
+
 		It("can't change or delete it", func() {
 			Expect(theirs.Put(&model.DJ{ID: dj.ID, Name: "Hijacked"})).To(MatchError(model.ErrNotFound))
 			Expect(theirs.Delete(dj.ID)).To(MatchError(model.ErrNotFound))
