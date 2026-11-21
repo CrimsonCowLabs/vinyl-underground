@@ -9,6 +9,7 @@ import Notification from './Notification'
 import useCurrentTheme from '../themes/useCurrentTheme'
 import { useSearchRefocus } from '../common'
 import { useResumeDownloads } from '../download'
+import { OfflineGate } from '../download/OfflineGate'
 
 const useStyles = makeStyles({
   root: { paddingBottom: (props) => (props.addPadding ? '80px' : 0) },
@@ -35,7 +36,9 @@ const Layout = (props) => {
         appBar={AppBar}
         theme={theme}
         notification={Notification}
-      />
+      >
+        <OfflineGate>{props.children}</OfflineGate>
+      </RALayout>
     </HotKeys>
   )
 }

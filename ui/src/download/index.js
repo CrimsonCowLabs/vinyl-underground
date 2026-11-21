@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import dataProvider from '../dataProvider/wrapperDataProvider'
-import { PLAYLIST, createDownloads } from './downloads'
+import { PLAYLIST, createDownloads, trackIdOf } from './downloads'
 import { browserStorage } from './browserStorage'
 import { withDownloads } from './offlineDataProvider'
 
@@ -162,6 +162,15 @@ export const useDownloadUsage = () => {
   return usage
 }
 
+// Every downloaded Track once, keyed by Track id, ready for the player's
+// shuffleTracks action: what "Shuffle all Downloads" plays
+export const downloadedTracksForPlayer = async () => {
+  await loadOnce().catch(() => {})
+  return Object.fromEntries(
+    downloads.downloadedTracks().map((t) => [trackIdOf(t), t]),
+  )
+}
+
 // Whether the device has lost its network connection, kept up to date.
 // Anything that needs the server (e.g. Stations, Generated Playlists) can use
 // it to show itself as unavailable offline rather than fail.
@@ -178,5 +187,7 @@ export const useIsOffline = () => {
   }, [])
   return offline
 }
+
+export { isAvailableOffline } from './offline'
 
 export const downloadsSupported = supported

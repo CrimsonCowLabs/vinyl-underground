@@ -22,6 +22,7 @@ import ActivityPanel from './ActivityPanel'
 import NowPlayingPanel from './NowPlayingPanel'
 import UserMenu from './UserMenu'
 import config from '../config'
+import { OfflineIndicator } from '../download/OfflineIndicator'
 
 const useStyles = makeStyles(
   (theme) => ({
@@ -126,6 +127,7 @@ const CustomUserMenu = ({ onClick, ...rest }) => {
 
   return (
     <>
+      <OfflineIndicator />
       {config.devActivityPanel &&
         permissions === 'admin' &&
         config.enableNowPlaying && <NowPlayingPanel />}
