@@ -33,10 +33,19 @@ import FavoriteIcon from '@material-ui/icons/Favorite'
 import config from '../config'
 import PlaylistListActions from './PlaylistListActions'
 import ChangePublicStatusButton from './ChangePublicStatusButton'
+import { DownloadBadge } from '../download/DownloadBadge'
 
 const useStyles = makeStyles((theme) => ({
   button: {
     color: theme.palette.type === 'dark' ? 'white' : undefined,
+  },
+  name: {
+    display: 'inline-flex',
+    alignItems: 'center',
+  },
+  badge: {
+    flexShrink: 0,
+    marginLeft: theme.spacing(1),
   },
 }))
 
@@ -156,6 +165,20 @@ export const PlaylistLove = ({ record, className }) => (
 )
 PlaylistLove.defaultProps = { source: 'starred', sortable: false }
 
+// The Playlist's name, with the Download badge beside it when it has a
+// Download on this device. Datagrid reads `source` off this element to sort
+// and label the column as it does a plain name column.
+export const PlaylistName = ({ record }) => {
+  const classes = useStyles()
+  return (
+    <span className={classes.name}>
+      <TextField record={record} source="name" />
+      <DownloadBadge id={record.id} kind="playlist" className={classes.badge} />
+    </span>
+  )
+}
+PlaylistName.defaultProps = { source: 'name' }
+
 const PlaylistList = (props) => {
   const isXsmall = useMediaQuery((theme) => theme.breakpoints.down('xs'))
   const isDesktop = useMediaQuery((theme) => theme.breakpoints.up('md'))
@@ -198,7 +221,7 @@ const PlaylistList = (props) => {
     >
       <Datagrid rowClick="show" isRowSelectable={(r) => isWritable(r?.ownerId)}>
         <ArtworkAvatar source="id" variant="square" />
-        <TextField source="name" />
+        <PlaylistName />
         {columns}
         <Writable>
           <EditButton />

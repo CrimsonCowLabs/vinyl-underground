@@ -298,4 +298,40 @@ describe('refreshing Downloads', () => {
     expect(server.getPlaylistInfo).toHaveBeenCalledTimes(1)
     expect(storage.saved).toEqual(['t1', 't2'])
   })
+  it('shows a downloaded Playlist changed on another device as downloading until it is up to date', async () => {
+    const { downloads, server } = setup()
+    server.setTracks('pl1', 1)
+    server.setTracks('pl2', 5)
+    await downloads.start('pl1')
+    await downloads.start('pl2')
+
+    server.setTracks('pl1', 1, 2, 3)
+    const seen = []
+    downloads.subscribe(() => seen.push(downloads.get('pl1').state))
+    await downloads.refresh()
+
+    expect(seen).toContain('downloading')
+    expect(seen).not.toContain('interrupted')
+    expect(downloads.get('pl1')).toMatchObject({ state: 'downloaded', done: 3 })
+  })
+
+  it('shows a Download left unfinished earlier as downloading as soon as a refresh starts', async () => {
+    const { downloads, server, storage } = setup()
+    server.setTracks('pl1', 1, 2)
+    storage.records.set('pl1', {
+      listener: 'ana',
+      kind: 'playlist',
+      ...structuredClone(server.playlists.pl1),
+    })
+    await downloads.load()
+    expect(downloads.get('pl1').state).toBe('interrupted')
+
+    const seen = []
+    downloads.subscribe(() => seen.push(downloads.get('pl1').state))
+    const refreshed = downloads.refresh()
+
+    expect(seen).toEqual(['downloading'])
+    await refreshed
+    expect(downloads.get('pl1').state).toBe('downloaded')
+  })
 })
