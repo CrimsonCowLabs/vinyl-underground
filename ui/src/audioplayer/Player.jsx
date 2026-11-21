@@ -36,6 +36,7 @@ import { calculateGain } from '../utils/calculateReplayGain'
 import { detectBrowserProfile, decisionService } from '../transcode'
 import { APP_NAME } from '../consts'
 import { useStationRefill } from '../station/useStationRefill'
+import { useStationSkips } from '../station/useStationSkips'
 
 const Player = () => {
   const theme = useCurrentTheme()
@@ -58,6 +59,7 @@ const Player = () => {
 
   const { authenticated } = useAuthState()
   useStationRefill()
+  const stationSkips = useStationSkips()
 
   // Keep a ref to playerState so the mount effect can read the latest value
   // without re-triggering on every queue/position change
@@ -302,6 +304,7 @@ const Player = () => {
                 subsonic.reportPlayback(info.trackId, posMs, 'playing'),
               )
             setCurrentTrackId(info.trackId)
+            stationSkips.trackStarted(info.trackId, info.duration)
           } else {
             subsonic.reportPlayback(info.trackId, posMs, 'playing')
           }
@@ -323,11 +326,12 @@ const Player = () => {
         }
       }
     },
-    [context, dispatch, showNotifications, currentTrackId],
+    [context, dispatch, showNotifications, currentTrackId, stationSkips],
   )
 
   const onAudioPlayTrackChange = useCallback(() => {
     if (currentTrackId) {
+      stationSkips.trackLeft(currentTrackId, lastPositionMsRef.current)
       subsonic.reportPlayback(
         currentTrackId,
         lastPositionMsRef.current,
@@ -336,7 +340,7 @@ const Player = () => {
     }
     setHeartbeatTrackId(null)
     setCurrentTrackId(null)
-  }, [currentTrackId])
+  }, [currentTrackId, stationSkips])
 
   const onAudioPause = useCallback(
     (info) => {
