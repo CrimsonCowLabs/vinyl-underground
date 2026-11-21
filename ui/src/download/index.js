@@ -3,6 +3,7 @@ import dataProvider from '../dataProvider/wrapperDataProvider'
 import { PLAYLIST, createDownloads, trackIdOf } from './downloads'
 import { browserStorage } from './browserStorage'
 import { withDownloads } from './offlineDataProvider'
+import { createStoredTracks } from './storedTracks'
 import { createReachability } from './offline'
 import { baseUrl } from '../utils'
 
@@ -121,6 +122,25 @@ export const useDownload = (id, kind = PLAYLIST) =>
 // All of the current Listener's Downloads, kept up to date
 export const useDownloadList = () =>
   useDownloadsState(() => downloads.list(), [])
+
+// Which Tracks are stored on this device, shared by every song on screen
+const storedTracks = createStoredTracks(downloads)
+
+// Whether a song's Track is stored on this device in one of the current
+// Listener's Downloads, kept up to date. Cheap enough for every row of a long
+// list: it answers from memory, and a row re-renders only when its own answer
+// changes.
+export const useTrackStored = (trackId) => {
+  const [stored, setStored] = useState(() => storedTracks.has(trackId))
+  useEffect(() => {
+    if (!supported() || !trackId) return undefined
+    const update = () => setStored(storedTracks.has(trackId))
+    update()
+    loadOnce().then(update, () => {})
+    return storedTracks.subscribe(trackId, update)
+  }, [trackId])
+  return stored
+}
 
 // What the browser reports for the whole app (Downloads, app shell and
 // anything else it stores), or undefined if it can't tell
