@@ -67,4 +67,16 @@ func (m *MockRipItemRepo) RequeueInterrupted() (int64, error) {
 	return n, nil
 }
 
+func (m *MockRipItemRepo) Delete(id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.items {
+		if m.items[i].ID == id {
+			m.items = slices.Delete(m.items, i, i+1)
+			return nil
+		}
+	}
+	return model.ErrNotFound
+}
+
 var _ model.RipItemRepository = (*MockRipItemRepo)(nil)

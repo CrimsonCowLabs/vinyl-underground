@@ -145,6 +145,8 @@ type Ripper struct {
 	ytDlp chan struct{}
 	// updating is true while UpdateYtDlp holds ytDlp.
 	updating atomic.Bool
+	// writeTags writes the review card's edits into a File (see editTags). Nil uses TagLib.
+	writeTags tagWriter
 }
 
 func New(ds model.DataStore, fetcher Fetcher, scanner FolderScanner, opts Options) *Ripper {
