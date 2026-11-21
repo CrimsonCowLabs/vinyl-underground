@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/navidrome/navidrome/model"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -71,6 +73,7 @@ EOF`)
 			Expect(info).To(Equal(&Info{
 				ID: "abc", Title: "Song Title", Artist: "Some Channel",
 				Source: "YouTube", SourceURL: "https://www.youtube.com/watch?v=abc", Count: 1,
+				Origin: model.RipOrigin{Title: "Song Title", Uploader: "Some Channel"},
 			}))
 
 			a := args()
@@ -84,6 +87,21 @@ EOF`)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(info.Title).To(Equal("Song"))
 			Expect(info.Artist).To(Equal("Artist, Guest"))
+		})
+
+		It("keeps YouTube Music's Topic metadata, and the video's own title, for tag proposals", func(ctx SpecContext) {
+			bin, _, _ := fakeYtDlp(`echo '{"id":"x","title":"Song","track":"Song","artists":["Artist","Guest"],"artist":"Artist, Guest","album":"Record","release_year":1999,"duration":201.5,"uploader":"Artist - Topic","channel":"Artist - Topic","extractor_key":"Youtube"}'`)
+			info, err := (&YtDlp{Binary: fixedBinary(bin), TempDir: tmp}).Probe(ctx, "https://music.youtube.com/watch?v=x")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(info.Origin).To(Equal(model.RipOrigin{Title: "Song", Uploader: "Artist - Topic", Duration: 201.5,
+				Artist: "Artist, Guest", Artists: []string{"Artist", "Guest"}, Track: "Song", Album: "Record", ReleaseYear: 1999}))
+		})
+
+		It("keeps only the video's own title and channel for an ordinary upload", func(ctx SpecContext) {
+			bin, _, _ := fakeYtDlp(`echo '{"id":"x","title":"Band - Song (Official Video)","channel":"BandVEVO","duration":180,"extractor_key":"Youtube"}'`)
+			info, err := (&YtDlp{Binary: fixedBinary(bin), TempDir: tmp}).Probe(ctx, "https://www.youtube.com/watch?v=x")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(info.Origin).To(Equal(model.RipOrigin{Title: "Band - Song (Official Video)", Uploader: "BandVEVO", Duration: 180}))
 		})
 
 		It("tells a playlist apart from a single video", func(ctx SpecContext) {

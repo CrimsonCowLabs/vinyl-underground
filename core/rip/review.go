@@ -28,6 +28,19 @@ type Review struct {
 	AlbumArtist string        `json:"albumArtist"`
 	Year        string        `json:"year"`
 	Tracks      []ReviewTrack `json:"tracks"`
+	// Proposal is the album-level tags proposed (#34): each field only when every Track with a
+	// proposal agrees on it, as album-level edits go into every File. Nil when no Track has a
+	// proposal worked out.
+	Proposal *AlbumProposal `json:"proposal,omitempty"`
+	// ProposalsPending is true while some Track's proposal is still being worked out.
+	ProposalsPending bool `json:"proposalsPending"`
+}
+
+// AlbumProposal is the album-level part of the Tracks' proposals. An empty field has none.
+type AlbumProposal struct {
+	Album       string `json:"album,omitempty"`
+	AlbumArtist string `json:"albumArtist,omitempty"`
+	Year        string `json:"year,omitempty"`
 }
 
 // ReviewTrack is one item of a job on its review card. Only a ready item has a File, and so tags.
@@ -42,6 +55,9 @@ type ReviewTrack struct {
 	MediaFileID string `json:"mediaFileId,omitempty"`
 	// AlreadyHave are the Tracks the Library already seemed to have when the item was queued.
 	AlreadyHave model.RipMatches `json:"alreadyHave"`
+	// Proposal is the tags proposed for the Track (#34), nil when it has none. Only the admin's
+	// save writes anything into the File.
+	Proposal *model.RipProposal `json:"proposal,omitempty"`
 	FileTags
 }
 
@@ -115,6 +131,9 @@ func (r *Ripper) review(ctx context.Context, job *model.RipJob, inbox *model.Lib
 			}
 			t.Path, t.FileTags = it.Path, tags
 			t.MediaFileID = tracks[it.Path]
+			if it.Proposal.Status != model.RipProposalNone {
+				t.Proposal = &it.Proposal
+			}
 			if first {
 				rev.Album, rev.AlbumArtist, rev.Year = t.Album, t.AlbumArtist, t.Year
 				first = false
@@ -122,7 +141,34 @@ func (r *Ripper) review(ctx context.Context, job *model.RipJob, inbox *model.Lib
 		}
 		rev.Tracks = append(rev.Tracks, t)
 	}
+	rev.Proposal, rev.ProposalsPending = albumProposal(rev.Tracks)
 	return rev, nil
+}
+
+// albumProposal is the album-level proposal of the Tracks: each field the one value all the
+// Tracks' proposals agree on, if they do.
+func albumProposal(tracks []ReviewTrack) (*AlbumProposal, bool) {
+	var res *AlbumProposal
+	pending := false
+	agree := func(have *string, v string) {
+		if *have != v {
+			*have = ""
+		}
+	}
+	for _, t := range tracks {
+		switch {
+		case t.Proposal == nil:
+		case t.Proposal.Status == model.RipProposalPending:
+			pending = true
+		case res == nil:
+			res = &AlbumProposal{Album: t.Proposal.Album, AlbumArtist: t.Proposal.AlbumArtist, Year: t.Proposal.Year}
+		default:
+			agree(&res.Album, t.Proposal.Album)
+			agree(&res.AlbumArtist, t.Proposal.AlbumArtist)
+			agree(&res.Year, t.Proposal.Year)
+		}
+	}
+	return res, pending
 }
 
 // errFileUnreadable is a ready Track's error when its File can't be read (gone, or no longer

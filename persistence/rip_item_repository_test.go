@@ -81,6 +81,43 @@ var _ = Describe("RipItemRepository", func() {
 		Expect(got[0].AlreadyHave).To(Equal(have))
 	})
 
+	It("keeps what the site said about an item's video", func() {
+		it := newItem(newJob("https://example.com/a"), 1, model.RipQueued)
+		it.Origin = model.RipOrigin{Title: "Song (Official Video)", Uploader: "Band - Topic", Duration: 201.5,
+			Artist: "Band", Track: "Song", Album: "Record", ReleaseYear: 1999}
+		Expect(items.Put(it)).To(Succeed())
+
+		got, err := items.ForJobs(it.JobID)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(got[0].Origin).To(Equal(it.Origin))
+	})
+
+	It("saves an item's proposal on its own, and Put never undoes it", func() {
+		it := newItem(newJob("https://example.com/a"), 1, model.RipReady)
+		Expect(items.ForJobs(it.JobID)).To(HaveEach(HaveField("Proposal.Status", model.RipProposalNone)))
+
+		p := model.RipProposal{Status: model.RipProposalReady, Title: "Song", Artist: "Band", Album: "Record",
+			AlbumArtist: "Band", Year: "1999", From: "title", AlbumFrom: "musicbrainz", ReleaseType: "Album",
+			ReleaseGroupID: "rg-1", UpdatedAt: time.Date(2026, 11, 21, 8, 0, 0, 0, time.UTC)}
+		Expect(items.SetProposal(it.ID, p)).To(Succeed())
+
+		// The Ripper saving its own copy of the item, without the proposal, keeps it.
+		it.Title = "Song (Official Video)"
+		Expect(items.Put(it)).To(Succeed())
+
+		got, err := items.ForJobs(it.JobID)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(got[0].Title).To(Equal("Song (Official Video)"))
+		Expect(got[0].Proposal).To(Equal(p))
+	})
+
+	It("doesn't bring back a discarded item when saving its proposal", func() {
+		it := newItem(newJob("https://example.com/a"), 1, model.RipReady)
+		Expect(items.Delete(it.ID)).To(Succeed())
+		Expect(items.SetProposal(it.ID, model.RipProposal{Status: model.RipProposalReady})).To(MatchError(model.ErrNotFound))
+		Expect(items.ForJobs(it.JobID)).To(BeEmpty())
+	})
+
 	It("puts interrupted items back in the queue, and leaves the rest alone", func() {
 		j := newJob("https://example.com/a")
 		newItem(j, 1, model.RipReady)

@@ -2,8 +2,8 @@
 // about to be ripped, from the video's artist and title. It only warns: a likely match may be
 // another recording, and it is never a Duplicate (see GLOSSARY.md), which is about Files.
 //
-// The normaliser here is deliberately small: it strips the usual YouTube noise so a video's
-// title can be compared with a Track's. Proper title cleanup for tag proposals is #34's.
+// The normaliser here strips the usual YouTube noise so a video's title can be compared with a
+// Track's. Tag proposals (#34, core/rip/propose) use the same Guesses as their cleaned-up title.
 package match
 
 import (
@@ -88,7 +88,30 @@ func cleanTitle(s string) string {
 		}
 		return group
 	})
-	return strings.TrimSpace(songPart(s))
+	return strings.TrimSpace(trimTrailingNoise(songPart(s)))
+}
+
+// strongNoise are the noise words that, at the end of a title without brackets ("Song Lyrics",
+// "Song Official Music Video"), mark what follows the song's name as noise. "Music", "Video" and
+// "Audio" alone don't, so "Pop Music" stays as it is.
+var strongNoise = map[string]bool{
+	"official": true, "lyric": true, "lyrics": true, "visualizer": true, "visualiser": true,
+	"hd": true, "hq": true, "4k": true, "1080p": true, "720p": true,
+}
+
+// trimTrailingNoise drops a run of noise words at the end of s, when it holds a strongNoise word
+// and leaves something before it.
+func trimTrailingNoise(s string) string {
+	words := strings.Fields(s)
+	cut, strong := len(words), false
+	for cut > 1 && isNoise(words[cut-1]) {
+		cut--
+		strong = strong || strongNoise[strings.ToLower(strings.Trim(words[cut], ".,!:;-–—"))]
+	}
+	if !strong {
+		return s
+	}
+	return strings.Join(words[:cut], " ")
 }
 
 // songPart picks, of a title in " | " parts ("KEXP | Artist - Title | Live Session",

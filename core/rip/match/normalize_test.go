@@ -35,6 +35,9 @@ var _ = Describe("Guesses", func() {
 		Entry("a VEVO channel alone", "TaylorSwiftVEVO", "Shake It Off", "taylorswift", "shake it off"),
 		Entry("a hyphen inside a name is no split", "JAY-Z", "Empire State Of Mind", "jay z", "empire state of mind"),
 		Entry("the artist's feat. credit", "Calvin Harris feat. Rihanna", "This Is What You Came For", "calvin harris", "this is what you came for"),
+		Entry("a bare trailing Lyrics", "7clouds", "Hozier - Take Me To Church Lyrics", "hozier", "take me to church"),
+		Entry("a bare trailing Official Music Video", "Adele", "Adele - Hello Official Music Video", "adele", "hello"),
+		Entry("a bare Music or Video alone is kept", "M", "M - Pop Music", "m", "pop music"),
 	)
 
 	It("keeps a remaster or live version apart: it is another recording", func() {

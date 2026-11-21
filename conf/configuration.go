@@ -292,6 +292,10 @@ type rippingOptions struct {
 	// YtDlpUpdateSchedule is when yt-dlp is updated (a crontab or a duration such as "24h").
 	// Empty or "0" turns the scheduled updates off.
 	YtDlpUpdateSchedule string
+	// MusicBrainz turns on the MusicBrainz lookups that set the album and year of tag proposals
+	// (#34). Off, or with EnableExternalServices off, proposals come from YouTube Music's metadata
+	// or the video's title alone.
+	MusicBrainz bool
 }
 
 // llmOptions configures the local LLM behind Generated Playlists (ADR-0004): any
@@ -851,6 +855,7 @@ func disableExternalServices() {
 	Server.LastFM.Enabled = false
 	Server.Deezer.Enabled = false
 	Server.ListenBrainz.Enabled = false
+	Server.Ripping.MusicBrainz = false
 	Server.Agents = ""
 	if Server.UILoginBackgroundURL == consts.DefaultUILoginBackgroundURL {
 		Server.UILoginBackgroundURL = consts.DefaultUILoginBackgroundURLOffline
@@ -1160,6 +1165,7 @@ func setViperDefaults() {
 	viper.SetDefault("ripping.timeout", 30*time.Minute)
 	viper.SetDefault("ripping.ytdlpreleaseurl", "https://github.com/yt-dlp/yt-dlp/releases/latest/download")
 	viper.SetDefault("ripping.ytdlpupdateschedule", "@daily")
+	viper.SetDefault("ripping.musicbrainz", true)
 	viper.SetDefault("llm.baseurl", "")
 	viper.SetDefault("llm.model", "")
 	viper.SetDefault("llm.apikey", "")

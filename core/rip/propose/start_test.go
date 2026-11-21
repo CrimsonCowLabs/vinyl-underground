@@ -1,0 +1,66 @@
+package propose_test
+
+import (
+	"github.com/navidrome/navidrome/core/rip/propose"
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
+)
+
+var _ = Describe("StartFrom", func() {
+	DescribeTable("cleans up a video's title when there is no YouTube Music metadata",
+		func(uploader, title, wantArtist, wantTitle string) {
+			s := propose.StartFrom(propose.Input{Artist: uploader, Title: title})
+			Expect(s.From).To(Equal(propose.FromTitle))
+			Expect(s.Artist).To(Equal(wantArtist))
+			Expect(s.Title).To(Equal(wantTitle))
+		},
+		Entry("(Official Video)", "Daft Punk", "Daft Punk - One More Time (Official Video)", "Daft Punk", "One More Time"),
+		Entry("[HD] and a VEVO channel", "BeyonceVEVO", "Beyoncé - Halo [HD]", "Beyoncé", "Halo"),
+		Entry("(Lyrics)", "Some Lyrics Channel", "Hozier - Take Me To Church (Lyrics)", "Hozier", "Take Me To Church"),
+		Entry("a bare trailing Lyrics", "7clouds", "Hozier - Take Me To Church Lyrics", "Hozier", "Take Me To Church"),
+		Entry("a bare trailing Official Music Video", "Adele", "Adele - Hello Official Music Video", "Adele", "Hello"),
+		Entry("an en dash and [Official Visualizer]", "Some Channel", "Phoebe Bridgers – Kyoto [Official Visualizer]", "Phoebe Bridgers", "Kyoto"),
+		Entry("a | suffix", "Adele", "Adele - Hello | Official Music Video", "Adele", "Hello"),
+		Entry("a Topic channel and no dash", "Daft Punk - Topic", "Get Lucky", "Daft Punk", "Get Lucky"),
+		Entry("no dash: the channel is the artist", "Hozier", "Too Sweet (Official Video)", "Hozier", "Too Sweet"),
+		Entry("a hyphen in a name is no split", "JAY-Z", "Empire State Of Mind", "JAY-Z", "Empire State Of Mind"),
+		Entry("a live version keeps its Live", "Nirvana", "Nirvana - Lithium (Live)", "Nirvana", "Lithium (Live)"),
+		Entry("a song called Music is kept", "Madonna", "Madonna - Music", "Madonna", "Music"),
+		Entry("Pop Music keeps its Music", "M", "M - Pop Music", "M", "Pop Music"),
+	)
+
+	It("starts from YouTube Music's own metadata when the upload is a Topic one", func() {
+		s := propose.StartFrom(propose.Input{
+			Artist: "Daft Punk - Topic", Title: "Get Lucky (feat. Pharrell Williams & Nile Rodgers)",
+			YouTubeMusic: &propose.YouTubeMusic{
+				Artists: []string{"Daft Punk", "Pharrell Williams", "Nile Rodgers"},
+				Artist:  "Daft Punk, Pharrell Williams, Nile Rodgers", Track: "Get Lucky (feat. Pharrell Williams & Nile Rodgers)",
+				Album: "Random Access Memories", Year: 2013,
+			},
+		})
+		Expect(s).To(Equal(propose.Start{
+			Artist: "Daft Punk, Pharrell Williams, Nile Rodgers", Title: "Get Lucky (feat. Pharrell Williams & Nile Rodgers)",
+			AlbumArtist: "Daft Punk", Album: "Random Access Memories", Year: 2013, From: propose.FromYouTubeMusic,
+		}))
+	})
+
+	It("falls back to the title when YouTube Music gives no artist or track", func() {
+		s := propose.StartFrom(propose.Input{
+			Artist: "Adele", Title: "Adele - Hello (Official Video)",
+			YouTubeMusic: &propose.YouTubeMusic{Album: "25"},
+		})
+		Expect(s.From).To(Equal(propose.FromTitle))
+		Expect(s.Title).To(Equal("Hello"))
+	})
+
+	It("keeps an upload's own album and year (for Files that already have tags)", func() {
+		s := propose.StartFrom(propose.Input{Artist: "Adele", Title: "Hello", Album: "25", Year: 2015})
+		Expect(s.Album).To(Equal("25"))
+		Expect(s.Year).To(Equal(2015))
+	})
+
+	It("keeps a title that is all noise as it is, rather than proposing nothing", func() {
+		s := propose.StartFrom(propose.Input{Artist: "Someone", Title: "(Official Video)"})
+		Expect(s.Title).To(Equal("(Official Video)"))
+	})
+})

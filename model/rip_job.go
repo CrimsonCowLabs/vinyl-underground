@@ -70,8 +70,14 @@ type RipItem struct {
 	// AlreadyHave are the Tracks the Library or the Inbox already seemed to have for this item
 	// when it was queued ("already have: …"). They are only a warning: the item is ripped anyway.
 	AlreadyHave RipMatches `structs:"already_have,omitnested" json:"alreadyHave"`
-	CreatedAt   time.Time  `structs:"created_at" json:"createdAt"`
-	UpdatedAt   time.Time  `structs:"updated_at" json:"updatedAt"`
+	// Origin is what the site said about the video when it was ripped, kept for its tag proposal.
+	Origin RipOrigin `structs:"origin,omitnested" json:"-"`
+	// Proposal is the item's proposed tags (#34), worked out in the background once its File has
+	// landed. Put never writes it (see RipItemRepository.SetProposal), so the Ripper saving an
+	// item can't undo a proposal saved meanwhile.
+	Proposal  RipProposal `structs:"-" json:"proposal"`
+	CreatedAt time.Time   `structs:"created_at" json:"createdAt"`
+	UpdatedAt time.Time   `structs:"updated_at" json:"updatedAt"`
 }
 
 type RipItems []RipItem
@@ -127,6 +133,87 @@ func (m *RipMatches) Scan(src any) error {
 	return json.Unmarshal(b, m)
 }
 
+// RipOrigin is what the site said about a Rip's video, as yt-dlp read it: the starting point of
+// its tag proposal. Stored as JSON.
+type RipOrigin struct {
+	// Title is the video's own title, and Uploader its uploader or channel.
+	Title    string `json:"title,omitempty"`
+	Uploader string `json:"uploader,omitempty"`
+	// Duration is in seconds, 0 when unknown.
+	Duration float64 `json:"duration,omitempty"`
+	// Artist (the whole credit), Artists (the main one first), Track, Album and ReleaseYear are
+	// YouTube Music's own metadata, which yt-dlp reads for auto-generated "Topic" uploads (and
+	// leaves empty otherwise).
+	Artist      string   `json:"artist,omitempty"`
+	Artists     []string `json:"artists,omitempty"`
+	Track       string   `json:"track,omitempty"`
+	Album       string   `json:"album,omitempty"`
+	ReleaseYear int      `json:"releaseYear,omitempty"`
+}
+
+func (o RipOrigin) Value() (driver.Value, error) { return jsonValue(o) }
+func (o *RipOrigin) Scan(src any) error          { *o = RipOrigin{}; return jsonScan(src, o) }
+
+// RipProposalStatus is where an item's tag proposal is.
+type RipProposalStatus string
+
+const (
+	// RipProposalNone is an item with no proposal yet (its File hasn't landed).
+	RipProposalNone RipProposalStatus = ""
+	// RipProposalPending is a proposal waiting for its lookups, in the background.
+	RipProposalPending RipProposalStatus = "pending"
+	// RipProposalReady is a proposal worked out. Note says if a lookup failed.
+	RipProposalReady RipProposalStatus = "ready"
+)
+
+// RipProposal is the tags proposed for an item's File (#34). It is only a proposal: nothing is
+// written to the File until the admin saves the review card. Stored as JSON.
+type RipProposal struct {
+	Status      RipProposalStatus `json:"status"`
+	Title       string            `json:"title,omitempty"`
+	Artist      string            `json:"artist,omitempty"`
+	Album       string            `json:"album,omitempty"`
+	AlbumArtist string            `json:"albumArtist,omitempty"`
+	Year        string            `json:"year,omitempty"`
+	// From is where the title and artist came from: "youtube-music" or "title".
+	From string `json:"from,omitempty"`
+	// AlbumFrom is where the album came from: "musicbrainz", "youtube-music", "tags" (the File's
+	// own) or "title" (the Track's own title, when nothing was found).
+	AlbumFrom string `json:"albumFrom,omitempty"`
+	// ReleaseType is the MusicBrainz release group's type ("Album", "EP", "Single"), and
+	// ReleaseGroupID its id, when MusicBrainz set the album.
+	ReleaseType    string `json:"releaseType,omitempty"`
+	ReleaseGroupID string `json:"releaseGroupId,omitempty"`
+	// Note says why MusicBrainz didn't set the album, when it was off or couldn't be reached.
+	Note      string    `json:"note,omitempty"`
+	UpdatedAt time.Time `json:"updatedAt,omitzero"`
+}
+
+func (p RipProposal) Value() (driver.Value, error) { return jsonValue(p) }
+func (p *RipProposal) Scan(src any) error          { *p = RipProposal{}; return jsonScan(src, p) }
+
+func jsonValue(v any) (driver.Value, error) {
+	b, err := json.Marshal(v)
+	return string(b), err
+}
+
+func jsonScan(src, into any) error {
+	var b []byte
+	switch v := src.(type) {
+	case nil:
+	case string:
+		b = []byte(v)
+	case []byte:
+		b = v
+	default:
+		return fmt.Errorf("can't read %T from %T", into, src)
+	}
+	if len(b) == 0 {
+		return nil
+	}
+	return json.Unmarshal(b, into)
+}
+
 type RipJobRepository interface {
 	// Put inserts the job (giving it an ID if it has none) or updates it. It doesn't save Items.
 	Put(job *RipJob) error
@@ -152,4 +239,7 @@ type RipItemRepository interface {
 	RequeueInterrupted() (int64, error)
 	// Delete deletes one item (a single Track's Discard, #33), or returns ErrNotFound.
 	Delete(id string) error
+	// SetProposal saves an item's tag proposal, and nothing else of it. It returns ErrNotFound
+	// for an item that is gone (discarded meanwhile), and never creates one.
+	SetProposal(id string, p RipProposal) error
 }
