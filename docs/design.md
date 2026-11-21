@@ -88,6 +88,12 @@ The Library keeps growing, and all new music reaches it through one path: the **
 - MusicBrainz then sets the album and year. It picks the earliest official studio album by the main artist, else the single, never a compilation, live or remix release. Uploads get the same proposal.
 - Review is one card per job, with editable album tags and an editable Track list. It offers **Promote all** and **Discard**, and single Tracks can also be discarded.
 - Discard deletes the File permanently. Quarantine stays reserved for Duplicates.
+- How review and Discard work (#33):
+  - **Card:** a job's card appears once the job is ready, including ready with failures. It is driven by the job and its items, not by yt-dlp, so uploads and dropped Files (#35) can use it too. Its fields come from the Files' own tags (`GET /api/rip/{jobId}/tags`), and the album-level ones from the first Track.
+  - **Saving** (`PUT /api/rip/{jobId}/tags`) sends only the fields the admin changed. The server writes only tags whose values differ, and keeps every other tag, including `SOURCE`/`SOURCEURL`. Each File is copied to a hidden temp File beside it, the copy is written and read back, and only then is it renamed over the File. A failed write never touches the original. The Inbox is then rescanned in the background.
+  - **Discard** (`DELETE /api/rip/{jobId}`) deletes the job's Files and its subfolder if that is left empty, then deletes the job's `rip_job` and `rip_item` rows. There is no "discarded" status: a discarded job has nothing left to show. The rescan marks the Tracks missing, and they are then deleted, so they don't linger under Missing Files.
+  - **Discarding one Track** (`DELETE /api/rip/{jobId}/items/{itemId}`) deletes its File and its item row. When the job has no Files left, the job goes too.
+  - **Safety:** every path must resolve inside the Inbox. Absolute paths, `..`, symlinked Files and folders that lead out are refused before anything is written or deleted. Nothing can be edited or discarded while the job is queued or downloading (409). Only the admin can do any of this (403 for Listeners, 404 with ripping off).
 
 **Promote** (Phase 2, after the case-name merge in #2; [ADR-0008](./adr/0008-app-writes-to-one-dedicated-library-folder.md))
 - Promote moves Files to `Vinyl Underground/<Album Artist>/<Album> (<Year>)/<NN> <Title>.<ext>`, a NAS folder with its own read-write mount.
