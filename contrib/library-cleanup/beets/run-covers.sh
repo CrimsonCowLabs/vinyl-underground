@@ -123,8 +123,9 @@ mount_share() {
     return 0
   fi
   [[ -n $credentials ]] || die "--mount needs --credentials FILE"
-  [[ -r $credentials ]] || die "can't read the credentials file $credentials"
   echo "Mounting $share writable at $music (sudo)"
+  # mount reads the file as root, and it is usually readable by root only (e.g. /etc/samba-creds).
+  sudo test -r "$credentials" || die "can't read the credentials file $credentials, even with sudo"
   sudo mkdir -p "$music"
   sudo mount -t cifs "$share" "$music" \
     -o "rw,vers=$smb_version,credentials=$credentials,uid=$(id -u),gid=$(id -g),file_mode=0644,dir_mode=0755,iocharset=utf8,noserverino"
