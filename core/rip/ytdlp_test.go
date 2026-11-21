@@ -121,6 +121,29 @@ echo "$dir/abc.opus"`
 			Expect(tmpdir()).To(Equal(tmp))
 		})
 
+		It("points yt-dlp at deno for YouTube's JavaScript, with a writable deno cache", func(ctx SpecContext) {
+			bin, args, _ := fakeYtDlp(`printf '%s' "$DENO_DIR" > "$0.denodir"
+` + writesFile)
+			denoDir := filepath.Join(tmp, "deno-cache")
+			y := &YtDlp{Binary: fixedBinary(bin), TempDir: tmp, DenoPath: "/usr/bin/deno", DenoDir: denoDir}
+
+			_, err := y.Download(ctx, "https://example.com/v", GinkgoT().TempDir())
+			Expect(err).ToNot(HaveOccurred())
+			Expect(args()).To(ContainElements("--js-runtimes", "deno:/usr/bin/deno"))
+			Expect(os.ReadFile(bin + ".denodir")).To(Equal([]byte(denoDir)))
+
+			_, err = y.Probe(ctx, "https://example.com/v")
+			Expect(err).To(HaveOccurred()) // the fake prints no JSON; only the argv matters here
+			Expect(args()).To(ContainElements("--js-runtimes", "deno:/usr/bin/deno"))
+		})
+
+		It("leaves the JavaScript runtime to yt-dlp when there is no deno", func(ctx SpecContext) {
+			bin, args, _ := fakeYtDlp(writesFile)
+			_, err := (&YtDlp{Binary: fixedBinary(bin), TempDir: tmp}).Download(ctx, "https://example.com/v", GinkgoT().TempDir())
+			Expect(err).ToNot(HaveOccurred())
+			Expect(args()).ToNot(ContainElement("--js-runtimes"))
+		})
+
 		It("clears what a killed yt-dlp left in its temp folder", func(ctx SpecContext) {
 			stale := filepath.Join(tmp, "_MEI12345")
 			Expect(os.MkdirAll(stale, 0o755)).To(Succeed())
