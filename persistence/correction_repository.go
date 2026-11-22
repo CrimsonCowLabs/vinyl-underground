@@ -30,9 +30,16 @@ const trackCounts = `(select je.value as correction_id, count(*) as track_count
 	where media_file.missing = 0
 	group by je.value) tc`
 
+// albumFolderTrackCount counts the present Tracks of the albums in a Correction's folder (an album
+// Correction's MatchKey, see model.AlbumFolderKey), whichever of their folders they are in.
+const albumFolderTrackCount = `(select count(*) from media_file
+	where media_file.missing = 0 and media_file.album_id in
+		(select album.id from album, json_each(album.folder_ids) af where af.value = correction.match_key))`
+
 func (r *correctionRepository) GetAll() (model.Corrections, error) {
 	var res model.Corrections
-	sq := Select("correction.*", "coalesce(tc.track_count, 0) as track_count").From(r.tableName).
+	sq := Select("correction.*", "case correction.kind when '"+string(model.CorrectionAlbumCover)+"' then "+
+		albumFolderTrackCount+" else coalesce(tc.track_count, 0) end as track_count").From(r.tableName).
 		LeftJoin(trackCounts+" on tc.correction_id = correction.id").
 		OrderBy("correction.created_at desc", "correction.rowid desc")
 	err := r.queryAll(sq, &res)
@@ -60,8 +67,9 @@ func (r *correctionRepository) Add(c *model.Correction) error {
 	c.CreatedAt = time.Now()
 	c.CreatedBy = loggedUser(r.ctx).UserName
 	ins := Insert(r.tableName).
-		Columns("id", "kind", "match_key", "from_value", "to_value", "created_by", "created_at", "undoing").
-		Values(c.ID, c.Kind, c.MatchKey, c.From, c.To, c.CreatedBy, c.CreatedAt, false).
+		Columns("id", "kind", "match_key", "from_value", "to_value", "created_by", "created_at", "undoing",
+			"image_hash", "image_mime").
+		Values(c.ID, c.Kind, c.MatchKey, c.From, c.To, c.CreatedBy, c.CreatedAt, false, c.ImageHash, c.ImageMime).
 		Suffix("ON CONFLICT (kind, match_key) DO NOTHING")
 	count, err := r.executeSQL(ins)
 	if err != nil {

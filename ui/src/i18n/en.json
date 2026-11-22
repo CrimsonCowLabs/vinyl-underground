@@ -104,7 +104,8 @@
         "download": "Download",
         "info": "Get Info",
         "refresh": "Refresh Metadata",
-        "saveFiles": "Save Files"
+        "saveFiles": "Save Files",
+        "chooseCover": "Choose Cover"
       },
       "lists": {
         "all": "All",
@@ -114,6 +115,27 @@
         "mostPlayed": "Most Played",
         "starred": "Favourites",
         "topRated": "Top Rated"
+      },
+      "coverPicker": {
+        "title": "Choose a cover for %{name}",
+        "help": "The chosen cover is used everywhere, over the usual cover order, until it is undone on the Corrections page.",
+        "sources": {
+          "local": "Album folder",
+          "external": "Last.fm",
+          "coverartarchive": "Cover Art Archive"
+        },
+        "candidateSources": {
+          "folder": "Folder image",
+          "embedded": "Embedded art",
+          "coverartarchive": "Cover Art Archive",
+          "lastfm": "Last.fm"
+        },
+        "exactRelease": "This release",
+        "empty": "No covers found",
+        "failed": "Couldn't reach this source",
+        "partial": "Some covers couldn't be loaded",
+        "use": "Use this cover",
+        "chosen": "Cover chosen. It shows once it has been processed"
       }
     },
     "artist": {
@@ -390,7 +412,8 @@
       },
       "kinds": {
         "artistRename": "Artist rename",
-        "artistMerge": "Artist merge"
+        "artistMerge": "Artist merge",
+        "albumCover": "Album cover"
       },
       "status": {
         "tracks": "1 Track |||| %{smart_count} Tracks",
@@ -402,7 +425,8 @@
       },
       "message": {
         "undoTitle": "Undo Correction",
-        "undoContent": "Undo \"%{from} → %{to}\"? The original names come back once the affected folders are rescanned."
+        "undoContent": "Undo \"%{from} → %{to}\"? The original names come back once the affected folders are rescanned.",
+        "undoContentAlbumCover": "Undo the cover choice for \"%{from}\"? The album goes back to its usual cover."
       },
       "notifications": {
         "undone": "Correction undone",
@@ -415,7 +439,9 @@
         "alreadyCorrected": "This Artist already has a Correction.",
         "invalid": "Enter a new, different name.",
         "notFound": "This Artist no longer exists.",
-        "unknown": "Could not save the rename. Try again later."
+        "unknown": "Could not save the rename. Try again later.",
+        "unavailable": "Couldn't fetch that cover. Try again, or choose another.",
+        "coverNotFound": "That cover is no longer on offer. Close the picker and open it again."
       }
     },
     "library": {

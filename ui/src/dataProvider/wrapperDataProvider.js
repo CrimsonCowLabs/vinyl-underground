@@ -254,6 +254,17 @@ const wrapperDataProvider = {
       method: 'POST',
       body: JSON.stringify({ artistId, name }),
     }).then(({ json }) => ({ data: { id: json.correction.id, ...json } })),
+  // The cover picker (admin only): one source's candidates, { candidates, failed }, and choosing
+  // one, which saves an album cover Correction.
+  getCoverCandidates: (albumId, source) =>
+    httpClient(
+      `${REST_URL}/albumCover/${albumId}/candidates?source=${encodeURIComponent(source)}`,
+    ).then(({ json }) => ({ data: json })),
+  chooseAlbumCover: (albumId, candidateId) =>
+    httpClient(`${REST_URL}/correction/albumCover`, {
+      method: 'POST',
+      body: JSON.stringify({ albumId, candidateId }),
+    }).then(({ json }) => ({ data: { id: json.correction.id, ...json } })),
   mergeArtist: (artistId, intoId) =>
     httpClient(`${REST_URL}/correction/artistMerge`, {
       method: 'POST',

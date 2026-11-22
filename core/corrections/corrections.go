@@ -13,7 +13,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Masterminds/squirrel"
 	"github.com/navidrome/navidrome/consts"
+	"github.com/navidrome/navidrome/core/artwork"
 	"github.com/navidrome/navidrome/core/refresh"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
@@ -48,6 +50,11 @@ type Corrections interface {
 	// RenameArtist saves a Correction renaming the Artist everywhere in the Library, then rescans
 	// the folders of the albums it is album artist or Track artist on, and refreshes it.
 	RenameArtist(ctx context.Context, artistID, name string) (*Applied, error)
+	// ChooseAlbumCover makes the image the album's cover, over every source in CoverArtPriority,
+	// replacing an earlier choice, and refreshes the album's artwork. The Correction is keyed by
+	// the album's folder (see model.AlbumFolderKey). The image must already be in the
+	// chosen-cover store (see artwork.ChosenCoverStore).
+	ChooseAlbumCover(ctx context.Context, albumID string, cover AlbumCover) (*Applied, error)
 	// MergeArtist saves a Correction renaming the Artist to the name of the Artist intoID, merging
 	// them: their stars, ratings and play counts are joined (see
 	// model.CorrectionRepository.MergeArtistAnnotations). It rescans like RenameArtist.
@@ -55,6 +62,13 @@ type Corrections interface {
 	// Undo stops applying the Correction, rescans the folders of the Tracks it applied to, and
 	// then deletes it. If the rescan fails, it stays marked as undoing, and Undo can be retried.
 	Undo(ctx context.Context, id string) (*Applied, error)
+}
+
+// AlbumCover is a stored image to make an album's cover, and where it came from, as shown to the
+// admin ("Cover Art Archive: Record (GB, CD, 1999)").
+type AlbumCover struct {
+	artwork.StoredCover
+	Source string
 }
 
 // Options: Wait is how long saving or undoing waits for its rescan before returning and letting
@@ -154,6 +168,72 @@ func (c *corrections) saveArtistRename(ctx context.Context, ar *model.Artist, ki
 	return &Applied{Correction: cr, ArtistID: newID, Done: done}, nil
 }
 
+func (c *corrections) ChooseAlbumCover(ctx context.Context, albumID string, cover AlbumCover) (*Applied, error) {
+	if cover.Hash == "" || cover.Mime == "" || cover.Source == "" {
+		return nil, fmt.Errorf("%w: no cover image", model.ErrValidation)
+	}
+	al, err := c.ds.Album(ctx).Get(albumID)
+	if err != nil {
+		return nil, err
+	}
+	key := model.AlbumFolderKey(*al)
+	if key == "" {
+		return nil, fmt.Errorf("%w: the album has no folder", model.ErrValidation)
+	}
+	cr := model.Correction{Kind: model.CorrectionAlbumCover, MatchKey: key, From: albumLabel(*al), To: cover.Source,
+		ImageHash: cover.Hash, ImageMime: cover.Mime}
+	err = c.ds.WithTx(func(tx model.DataStore) error {
+		repo := tx.Correction(ctx)
+		if old, err := model.AlbumCorrection(repo, model.CorrectionAlbumCover, *al); err == nil {
+			if err := repo.Delete(old.ID); err != nil {
+				return err
+			}
+		} else if !errors.Is(err, model.ErrNotFound) {
+			return err
+		}
+		return repo.Add(&cr)
+	})
+	if err != nil {
+		return nil, err
+	}
+	log.Info(ctx, "Corrections: choosing an album cover", "album", al.Name, "source", cover.Source, "hash", cover.Hash)
+	// A cover is no tag: nothing to rescan, only the album's artwork to resolve again. The choice
+	// is saved either way, and wins whenever the album is next resolved.
+	if err := artwork.Refresh(ctx, c.ds, model.KindAlbumArtwork, al.ID); err != nil {
+		log.Warn(ctx, "Corrections: could not refresh the album's cover", "album", al.Name, err)
+	}
+	return &Applied{Correction: cr, Done: true}, nil
+}
+
+// albumLabel names an album for the Corrections page: "Band – Record".
+func albumLabel(al model.Album) string {
+	if al.AlbumArtist == "" {
+		return al.Name
+	}
+	return al.AlbumArtist + " – " + al.Name
+}
+
+// undoAlbumCover deletes a cover choice and refreshes the albums in its folder, which go back to
+// the default cover order.
+func (c *corrections) undoAlbumCover(ctx context.Context, cr *model.Correction) (*Applied, error) {
+	if err := c.ds.Correction(ctx).Delete(cr.ID); err != nil {
+		return nil, err
+	}
+	albums, err := c.ds.Album(ctx).GetAll(model.QueryOptions{
+		Filters: squirrel.Expr("exists (select 1 from json_each(album.folder_ids) af where af.value = ?)", cr.MatchKey),
+	})
+	if err != nil {
+		return nil, err
+	}
+	log.Info(ctx, "Corrections: undoing an album cover choice", "album", cr.From, "source", cr.To, "albums", len(albums))
+	for _, al := range albums {
+		if err := artwork.Refresh(ctx, c.ds, model.KindAlbumArtwork, al.ID); err != nil {
+			log.Warn(ctx, "Corrections: could not refresh the album's cover", "album", al.Name, err)
+		}
+	}
+	return &Applied{Correction: *cr, Done: true}, nil
+}
+
 // artistCorrection returns the artist rename or merge matching the name key, or ErrNotFound.
 func (c *corrections) artistCorrection(ctx context.Context, key string) (*model.Correction, error) {
 	cr, err := c.ds.Correction(ctx).GetByMatchKey(model.CorrectionArtistRename, key)
@@ -196,6 +276,9 @@ func (c *corrections) Undo(ctx context.Context, id string) (*Applied, error) {
 	cr, err := repo.Get(id)
 	if err != nil {
 		return nil, err
+	}
+	if cr.Kind == model.CorrectionAlbumCover {
+		return c.undoAlbumCover(ctx, cr)
 	}
 	if err := c.checkUndoOrder(ctx, cr); err != nil {
 		return nil, err

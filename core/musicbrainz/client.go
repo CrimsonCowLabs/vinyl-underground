@@ -99,6 +99,17 @@ func (c *Client) SearchRecordings(ctx context.Context, query string) ([]Recordin
 	return res.Recordings, err
 }
 
+// ReleaseGroupReleases browses the releases (editions) of a release group: up to 100, with their
+// media and whether the Cover Art Archive holds a front cover for each.
+func (c *Client) ReleaseGroupReleases(ctx context.Context, releaseGroupID string) ([]Release, error) {
+	var res struct {
+		Releases []Release `json:"releases"`
+	}
+	params := url.Values{"release-group": {releaseGroupID}, "inc": {"media"}, "limit": {"100"}}
+	err := c.get(ctx, "release", params, &res)
+	return res.Releases, err
+}
+
 func (c *Client) get(ctx context.Context, path string, params url.Values, into any) error {
 	params.Set("fmt", "json")
 	u := c.base + path + "?" + params.Encode()

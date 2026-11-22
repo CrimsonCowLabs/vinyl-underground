@@ -1,6 +1,8 @@
 package model
 
 import (
+	"errors"
+	"slices"
 	"strings"
 	"time"
 
@@ -14,6 +16,10 @@ const (
 	// CorrectionArtistRename renames an Artist everywhere in the Library: a Track artist or album
 	// artist whose name has the Correction's MatchKey (see ArtistNameKey) gets its To name.
 	CorrectionArtistRename CorrectionKind = "artistRename"
+	// CorrectionAlbumCover makes a chosen image the cover of the album in a folder, over every
+	// source in CoverArtPriority. Its MatchKey is one of the album's folder IDs (see
+	// AlbumFolderKey), and its ImageHash and ImageMime name the image in the chosen-cover store.
+	CorrectionAlbumCover CorrectionKind = "albumCover"
 	// CorrectionArtistMerge renames an Artist to the name of another, existing Artist, merging
 	// them. It matches like CorrectionArtistRename, but its stars, ratings and play counts join
 	// the other Artist's, and undoing it moves only those back (see
@@ -42,6 +48,10 @@ type Correction struct {
 	// Undoing marks a Correction being undone: the scanner no longer applies it, but moves what
 	// followed it (e.g. an Artist's stars) back. It is deleted once its folders are rescanned.
 	Undoing bool `structs:"undoing" json:"undoing"`
+	// ImageHash and ImageMime name the image a cover Correction makes the album's cover; empty
+	// for other kinds.
+	ImageHash string `structs:"image_hash" json:"-"`
+	ImageMime string `structs:"image_mime" json:"-"`
 
 	// TrackCount is how many Tracks in the Library the Correction applies to now. Zero means it
 	// is orphaned: it matches nothing.
@@ -54,6 +64,30 @@ type Corrections []Correction
 // capitals and typographic quotes and dashes, and also of extra spaces.
 func ArtistNameKey(name string) string {
 	return str.Clear(strings.ToLower(strings.Join(strings.Fields(name), " ")))
+}
+
+// AlbumFolderKey is how a Correction of an album matches it: by its folder, not by its tag values,
+// which may be what is wrong. An album on several folders (one per disc) is keyed by the first of
+// its folder IDs in sort order, and matched by any of them, so adding a disc keeps it matching.
+// "" when the album has no folder.
+func AlbumFolderKey(al Album) string {
+	if len(al.FolderIDs) == 0 {
+		return ""
+	}
+	return slices.Min(al.FolderIDs)
+}
+
+// AlbumCorrection returns the Correction of the kind keyed by any of the album's folders, skipping
+// one being undone, or ErrNotFound.
+func AlbumCorrection(repo CorrectionRepository, kind CorrectionKind, al Album) (*Correction, error) {
+	for _, folderID := range al.FolderIDs {
+		c, err := repo.GetByMatchKey(kind, folderID)
+		if errors.Is(err, ErrNotFound) || (err == nil && c.Undoing) {
+			continue
+		}
+		return c, err
+	}
+	return nil, ErrNotFound
 }
 
 type CorrectionRepository interface {

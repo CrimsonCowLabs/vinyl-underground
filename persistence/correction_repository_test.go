@@ -84,6 +84,57 @@ var _ = Describe("CorrectionRepository", func() {
 		Expect(all[0].TrackCount).To(BeZero())
 	})
 
+	Describe("album cover choices", func() {
+		putAlbumTrack := func(id, albumID, folderID string, missing bool) {
+			t := mf(model.MediaFile{ID: id, Path: "/corrections/" + id + ".mp3", FolderID: folderID, Title: id,
+				AlbumID: albumID, Missing: missing})
+			Expect(mfRepo.Put(&t)).To(Succeed())
+			DeferCleanup(func() { _, _ = GetDBXBuilder().NewQuery("DELETE FROM media_file WHERE id = '" + id + "'").Execute() })
+		}
+		putAlbum := func(id string, folderIDs ...string) {
+			ctx := request.WithUser(log.NewContext(context.TODO()), adminUser)
+			al := model.Album{ID: id, Name: id, LibraryID: 1, FolderIDs: folderIDs}
+			Expect(NewAlbumRepository(ctx, GetDBXBuilder()).Put(&al)).To(Succeed())
+			DeferCleanup(func() { _, _ = GetDBXBuilder().NewQuery("DELETE FROM album WHERE id = '" + id + "'").Execute() })
+		}
+		choice := func(folderID string) *model.Correction {
+			return &model.Correction{Kind: model.CorrectionAlbumCover, MatchKey: folderID, From: "Album", To: "cover.jpg",
+				ImageHash: "0123456789abcdef", ImageMime: "image/jpeg"}
+		}
+
+		It("keeps the chosen image", func() {
+			c := choice("cover-folder-a")
+			Expect(repo.Add(c)).To(Succeed())
+			got, err := repo.GetByMatchKey(model.CorrectionAlbumCover, "cover-folder-a")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(got.ImageHash).To(Equal("0123456789abcdef"))
+			Expect(got.ImageMime).To(Equal("image/jpeg"))
+		})
+
+		It("counts the Tracks of the album in the chosen folder, all its discs included", func() {
+			putAlbum("cover-album", "cover-cd1", "cover-cd2")
+			putAlbumTrack("cv-1", "cover-album", "cover-cd1", false)
+			putAlbumTrack("cv-2", "cover-album", "cover-cd2", false)
+			putAlbumTrack("cv-3", "cover-album", "cover-cd2", true) // missing Files don't count
+			Expect(repo.Add(choice("cover-cd1"))).To(Succeed())
+
+			all, err := repo.GetAll()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(all).To(HaveLen(1))
+			Expect(all[0].TrackCount).To(Equal(2))
+		})
+
+		It("is orphaned once no album is in the folder", func() {
+			putAlbum("cover-album", "cover-elsewhere")
+			putAlbumTrack("cv-1", "cover-album", "cover-elsewhere", false)
+			Expect(repo.Add(choice("cover-moved-away"))).To(Succeed())
+
+			all, err := repo.GetAll()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(all[0].TrackCount).To(BeZero())
+		})
+	})
+
 	It("returns the folders of the Tracks a Correction applies to", func() {
 		c := rename("Greatful Dead", "Grateful Dead")
 		Expect(repo.Add(c)).To(Succeed())

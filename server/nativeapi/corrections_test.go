@@ -24,6 +24,7 @@ type fakeCorrections struct {
 	renamed []string
 	merged  []string
 	undone  []string
+	covers  []string
 }
 
 func (f *fakeCorrections) GetAll(context.Context) (model.Corrections, error) { return f.all, f.err }
@@ -34,6 +35,14 @@ func (f *fakeCorrections) RenameArtist(_ context.Context, artistID, name string)
 	}
 	f.renamed = append(f.renamed, artistID+"->"+name)
 	return &corrections.Applied{Correction: model.Correction{ID: "c1", To: name}, ArtistID: "new-id", Done: true}, nil
+}
+
+func (f *fakeCorrections) ChooseAlbumCover(_ context.Context, albumID string, cover corrections.AlbumCover) (*corrections.Applied, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	f.covers = append(f.covers, albumID+"->"+cover.Hash+" "+cover.Source)
+	return &corrections.Applied{Correction: model.Correction{ID: "c2", To: cover.Source}, Done: true}, nil
 }
 
 func (f *fakeCorrections) MergeArtist(_ context.Context, artistID, intoID string) (*corrections.Applied, error) {
@@ -62,7 +71,7 @@ var _ = Describe("Corrections API", func() {
 		conf.Server.EnableSharing = false
 		ds := &tests.MockDataStore{}
 		auth.Init(ds)
-		nativeRouter := New(ds, nil, nil, nil, tests.NewMockLibraryService(), tests.NewMockUserService(), nil, nil, nil, nil, nil, nil)
+		nativeRouter := New(ds, nil, nil, nil, tests.NewMockLibraryService(), tests.NewMockUserService(), nil, nil, nil, nil, nil, nil, nil)
 		svc = &fakeCorrections{}
 		nativeRouter.corrections = svc
 		router = server.JWTVerifier(nativeRouter)

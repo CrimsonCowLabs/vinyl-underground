@@ -122,7 +122,11 @@ export const UndoCorrectionButton = ({ record }) => {
       <Confirm
         isOpen={open}
         title="resources.correction.message.undoTitle"
-        content="resources.correction.message.undoContent"
+        content={
+          record.kind === 'albumCover'
+            ? 'resources.correction.message.undoContentAlbumCover'
+            : 'resources.correction.message.undoContent'
+        }
         translateOptions={{ from: record.from, to: record.to }}
         onConfirm={handleConfirm}
         onClose={() => setOpen(false)}

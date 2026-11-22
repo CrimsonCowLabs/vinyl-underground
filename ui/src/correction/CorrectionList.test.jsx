@@ -92,6 +92,20 @@ describe('Corrections page', () => {
     )
   })
 
+  it('says undoing a cover choice brings back the usual cover', () => {
+    render(
+      <UndoCorrectionButton
+        record={{ ...rename, kind: 'albumCover', from: 'Band – Record' }}
+      />,
+    )
+    fireEvent.click(screen.getByText('resources.correction.actions.undo'))
+    expect(
+      screen.getByText(
+        /resources.correction.message.undoContentAlbumCover .*Band – Record/,
+      ),
+    ).toBeTruthy()
+  })
+
   it('says when an undo carries on in the background', async () => {
     mockUndo.mockResolvedValue({ data: { id: 'c1', done: false } })
     render(<UndoCorrectionButton record={rename} />)
