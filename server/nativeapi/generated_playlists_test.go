@@ -258,7 +258,7 @@ var _ = Describe("Generated Playlist endpoints", func() {
 			conf.Server.LLM.Model = "m"
 			conf.Server.EnableSharing = false
 			ds := &tests.MockDataStore{}
-			router := New(ds, nil, nil, nil, tests.NewMockLibraryService(), core.NewUser(ds, noopPluginUnloader{}), nil, nil, nil, nil, nil)
+			router := New(ds, nil, nil, nil, tests.NewMockLibraryService(), core.NewUser(ds, noopPluginUnloader{}), nil, nil, nil, nil, nil, nil)
 			w := httptest.NewRecorder()
 			router.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/generatedPlaylist/preview", strings.NewReader(`{"prompt":"indie"}`)))
 			Expect(w.Code).To(Equal(http.StatusUnauthorized))

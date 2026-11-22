@@ -1,5 +1,6 @@
-import React, { useCallback } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import PropTypes from 'prop-types'
+import CircularProgress from '@material-ui/core/CircularProgress'
 import Tooltip from '@material-ui/core/Tooltip'
 import { makeStyles } from '@material-ui/core/styles'
 import { Button, usePermissions, useTranslate } from 'react-admin'
@@ -25,10 +26,17 @@ export const RefreshMetadataButton = ({
   const refreshMetadata = useRefreshMetadata()
   const classes = useStyles()
 
-  const handleClick = useCallback(
-    () => refreshMetadata(resource, record?.id),
-    [refreshMetadata, resource, record],
-  )
+  // The request answers once the rescan is done, so the button spins until then.
+  const [running, setRunning] = useState(false)
+  const mounted = useRef(true)
+  useEffect(() => () => (mounted.current = false), [])
+
+  const handleClick = useCallback(() => {
+    setRunning(true)
+    refreshMetadata(resource, record?.id).finally(
+      () => mounted.current && setRunning(false),
+    )
+  }, [refreshMetadata, resource, record])
 
   if (permissions !== 'admin' || !record?.id) return null
 
@@ -42,8 +50,9 @@ export const RefreshMetadataButton = ({
           classes={{ button: classes.button }}
           size={size}
           onClick={handleClick}
+          disabled={running}
         >
-          <MdRefresh />
+          {running ? <CircularProgress size={18} /> : <MdRefresh />}
         </Button>
       </span>
     </Tooltip>

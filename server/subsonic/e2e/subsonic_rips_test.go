@@ -96,7 +96,7 @@ var _ = Describe("Rips", Ordered, func() {
 		admin = *loaded
 
 		native = server.JWTVerifier(nativeapi.New(ds, core.NewShare(ds), playlists.NewPlaylists(ds, artwork.NewUploader(ds)), nil,
-			tests.NewMockLibraryService(), tests.NewMockUserService(), nil, nil, nil, nil, nil))
+			tests.NewMockLibraryService(), tests.NewMockUserService(), nil, nil, nil, nil, nil, nil))
 	})
 
 	DescribeTable("a hand-tagged File dropped into the Inbox scans in with its source",

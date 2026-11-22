@@ -71,7 +71,7 @@ describe('RefreshMetadataButton', () => {
     expect(container).toBeEmptyDOMElement()
   })
 
-  it('requests a refresh for the record and notifies success', async () => {
+  it('requests a refresh for the record and notifies once it is done', async () => {
     renderButton()
     fireEvent.click(screen.getByRole('button'))
 
@@ -79,7 +79,44 @@ describe('RefreshMetadataButton', () => {
       expect(mockRefreshMetadata).toHaveBeenCalledWith('album', 'al-1'),
     )
     await waitFor(() =>
-      expect(mockNotify).toHaveBeenCalledWith('message.metadataRefreshStarted'),
+      expect(mockNotify).toHaveBeenCalledWith('message.metadataRefreshed'),
+    )
+  })
+
+  it('shows the refresh running, and blocks another click, until the scan is done', async () => {
+    let finish
+    mockRefreshMetadata.mockReturnValue(
+      new Promise((resolve) => {
+        finish = resolve
+      }),
+    )
+    renderButton()
+    const button = screen.getByRole('button', {
+      name: 'resources.album.actions.refresh',
+    })
+    fireEvent.click(button)
+
+    await waitFor(() => expect(button).toBeDisabled())
+    expect(screen.getByRole('progressbar')).toBeInTheDocument()
+    expect(mockNotify).not.toHaveBeenCalled()
+
+    finish({ data: { id: 'al-1' } })
+
+    await waitFor(() => expect(button).not.toBeDisabled())
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
+    expect(mockRefreshMetadata).toHaveBeenCalledTimes(1)
+  })
+
+  it('says so when another scan is running', async () => {
+    mockRefreshMetadata.mockRejectedValue({ status: 409 })
+    renderButton()
+    fireEvent.click(screen.getByRole('button'))
+
+    await waitFor(() =>
+      expect(mockNotify).toHaveBeenCalledWith(
+        'message.metadataRefreshBusy',
+        'warning',
+      ),
     )
   })
 
