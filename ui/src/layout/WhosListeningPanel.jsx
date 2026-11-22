@@ -302,7 +302,10 @@ const WhosListeningList = React.memo(
         transformOrigin={{ vertical: 'top', horizontal: 'right' }}
         open={open}
         onClose={onClose}
-        aria-labelledby="now-playing-title"
+        PaperProps={{
+          role: 'dialog',
+          'aria-label': translate('whosListening.title'),
+        }}
       >
         <Card className={classes.card}>
           <CardContent className={classes.cardContent}>

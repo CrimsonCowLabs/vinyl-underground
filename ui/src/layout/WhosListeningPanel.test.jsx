@@ -125,6 +125,25 @@ describe('<WhosListeningPanel />', () => {
     })
   })
 
+  it("names the open panel Who's Listening while someone is listening", async () => {
+    const store = createMockStore()
+    render(
+      <Provider store={store}>
+        <WhosListeningPanel />
+      </Provider>,
+    )
+
+    await vi.advanceTimersByTimeAsync(500)
+
+    fireEvent.click(screen.getByRole('button'))
+    await waitFor(() => {
+      expect(screen.getByRole('link', { name: 'Artist' })).toBeInTheDocument()
+    })
+    expect(
+      screen.getByRole('dialog', { name: 'whosListening.title' }),
+    ).toBeInTheDocument()
+  })
+
   it('fetches and displays entries when opened', async () => {
     const store = createMockStore()
     render(
@@ -218,6 +237,9 @@ describe('<WhosListeningPanel />', () => {
     await waitFor(() => {
       expect(screen.getByText('whosListening.empty')).toBeInTheDocument()
     })
+    expect(
+      screen.getByRole('dialog', { name: 'whosListening.title' }),
+    ).toBeInTheDocument()
   })
 
   it('does not close panel when artist link is clicked on large screens', async () => {
