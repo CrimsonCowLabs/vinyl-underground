@@ -105,16 +105,11 @@ func (s *service) OpenDJ(ctx context.Context, id string) (DJ, error) {
 	if dj, err = s.fillUnsetGenres(ctx, dj); err != nil || !s.needsMapping(dj) {
 		return dj, err
 	}
-	library, err := s.libraryGenres(ctx)
-	if err != nil {
-		return DJ{}, err
+	genres, source, err := s.deriveGenres(ctx, dj.Name, dj.Description)
+	if err != nil || source != model.DJGenresFromLLM {
+		return dj, err
 	}
-	mapCtx, cancel := context.WithTimeout(ctx, genreMapTimeout)
-	defer cancel()
-	if genres, ok := s.llmGenres(mapCtx, dj.Name, dj.Description, library); ok {
-		return s.storeGenres(ctx, dj, genres, model.DJGenresFromLLM)
-	}
-	return dj, nil
+	return s.storeGenres(ctx, dj, genres, source)
 }
 
 func (s *service) CreateDJ(ctx context.Context, edit DJEdit) (DJ, error) {
@@ -155,11 +150,7 @@ func (s *service) UpdateDJ(ctx context.Context, id string, edit DJEdit) (DJ, err
 	} else if err := s.setGenres(ctx, &dj, edit.picked()); err != nil {
 		return DJ{}, err
 	}
-	// The lock keeps a background mapping of the DJ's old description from saving over this.
-	usr, _ := request.UserFrom(ctx)
-	unlock := s.lock(usr.ID)
-	err = s.ds.DJ(ctx).Put(&dj)
-	unlock()
+	err = s.putDJ(ctx, &dj)
 	if errors.Is(err, model.ErrNotFound) {
 		return DJ{}, ErrUnknownDJ
 	}
@@ -167,6 +158,17 @@ func (s *service) UpdateDJ(ctx context.Context, id string, edit DJEdit) (DJ, err
 		return DJ{}, fmt.Errorf("saving the DJ: %w", err)
 	}
 	return listenerDJ(dj), nil
+}
+
+// putDJ saves the Listener's edited DJ, holding their lock so a background mapping of the DJ's
+// old description can't save over it (see storeGenres).
+func (s *service) putDJ(ctx context.Context, dj *model.DJ) error {
+	usr, ok := request.UserFrom(ctx)
+	if !ok {
+		return errors.New("editing a DJ needs a logged-in Listener")
+	}
+	defer s.lock(usr.ID)()
+	return s.ds.DJ(ctx).Put(dj)
 }
 
 func (s *service) DeleteDJ(ctx context.Context, id string) error {

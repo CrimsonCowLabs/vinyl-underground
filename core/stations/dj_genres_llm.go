@@ -22,9 +22,11 @@ import (
 // time it plays, in the background so the Station never waits on it, or is opened in the form.
 // Genres picked by hand are never mapped again, unless the Listener asks for a new suggestion.
 //
-// The LLM's host is slow, so each Listener has one mapping running at a time, and their
-// answers are kept a while: saving the name and description the form just previewed reuses
-// the preview's answer.
+// The LLM's host is slow, so each Listener has one mapping running at a time, a background one
+// waits for their Station selection under way, and their answers are kept a while: saving the
+// name and description the form just previewed reuses the preview's answer, and a DJ the LLM
+// found nothing for isn't asked about at every play. Blurbs are written alongside, as they are
+// alongside selections.
 
 const (
 	// genreMapTimeout bounds a mapping the Listener waits for (saving or opening a DJ, or the
@@ -32,9 +34,9 @@ const (
 	genreMapTimeout = 30 * time.Second
 	// genreBackfillTimeout bounds a mapping in the background, as a backstop.
 	genreBackfillTimeout = 3 * time.Minute
-	// promptGenres is how many of the Library's genres, the most common, the LLM chooses from,
-	// so the prompt stays short for a small model.
-	promptGenres = 150
+	// maxPromptGenres is how many of the Library's genres, the most common, the LLM chooses
+	// from, so the prompt stays short for a small model.
+	maxPromptGenres = 150
 	// maxMappedGenres is the most genres the LLM gives a DJ.
 	maxMappedGenres = 12
 	// keptGenreAnswers is how many of the LLM's answers each Listener keeps, and genreAnswerAge
@@ -43,9 +45,9 @@ const (
 	genreAnswerAge   = time.Hour
 )
 
-const genreSystem = `You match a music Station's DJ to genres from a listener's music library.
+var genreSystem = fmt.Sprintf(`You match a music Station's DJ to genres from a listener's music library.
 From the library's genre list, pick the genres whose music fits the DJ's name and description, broader ones included (a house DJ also fits "Dance" and "Electronica").
-Use the list's exact names. Pick at most 12, best first. Answer an empty list if none fit.`
+Use the list's exact names. Pick at most %d, best first. Answer an empty list if none fit.`, maxMappedGenres)
 
 var genreSchema = map[string]any{
 	"type": "object",
@@ -91,8 +93,8 @@ type genreAnswer struct {
 	at     time.Time
 }
 
-// init makes the maps. m.mu must be held.
-func (m *genreMapper) init() {
+// initMaps makes the maps. m.mu must be held.
+func (m *genreMapper) initMaps() {
 	if m.answers == nil {
 		m.answers = map[string][]genreAnswer{}
 		m.failedAt = map[string]time.Time{}
@@ -165,7 +167,7 @@ func (m *genreMapper) mapGenres(ctx context.Context, userID, name, description s
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.init()
+	m.initMaps()
 	if err != nil {
 		// A Listener who left isn't an LLM that failed.
 		if !errors.Is(ctx.Err(), context.Canceled) {
@@ -187,9 +189,9 @@ func limitGenres(genres model.DJGenres) model.DJGenres {
 	return genres[:min(len(genres), maxMappedGenres)]
 }
 
-// promptGenres returns the names of the Library's most common genres, for the LLM to choose from.
-func (s *service) promptGenres(ctx context.Context) ([]string, error) {
-	genres, err := s.ds.Genre(ctx).GetAll(model.QueryOptions{Sort: "song_count", Order: "desc", Max: promptGenres})
+// commonGenres returns the names of the Library's most common genres, for the LLM to choose from.
+func (s *service) commonGenres(ctx context.Context) ([]string, error) {
+	genres, err := s.ds.Genre(ctx).GetAll(model.QueryOptions{Sort: "song_count", Order: "desc", Max: maxPromptGenres})
 	if err != nil {
 		return nil, fmt.Errorf("listing the Library's genres: %w", err)
 	}
@@ -209,7 +211,7 @@ func (s *service) llmGenres(ctx context.Context, name, description string, libra
 	if s.genreLLM == nil || !ok || len(library) == 0 {
 		return nil, false
 	}
-	prompt, err := s.promptGenres(ctx)
+	prompt, err := s.commonGenres(ctx)
 	if err != nil {
 		log.Warn(ctx, "Mapping a DJ to genres failed; matching words for now", "dj", name, err)
 		return nil, false
@@ -248,7 +250,7 @@ func (s *service) mapGenresAhead(ctx context.Context, userID string, dj DJ) {
 	m := s.genreLLM
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.init()
+	m.initMaps()
 	if m.backfilling[userID] || m.failedRecently(userID, time.Now()) {
 		return
 	}
@@ -298,7 +300,10 @@ func (s *service) selectionUnderWay(userID string) <-chan struct{} {
 // storeGenres stores genres worked out for the Listener's DJ as it was, and returns the DJ as
 // it is now: unchanged when it was edited meanwhile, or its genres picked by hand.
 func (s *service) storeGenres(ctx context.Context, dj DJ, genres model.DJGenres, source model.DJGenreSource) (DJ, error) {
-	usr, _ := request.UserFrom(ctx)
+	usr, ok := request.UserFrom(ctx)
+	if !ok {
+		return DJ{}, errors.New("storing a DJ's genres needs a logged-in Listener")
+	}
 	defer s.lock(usr.ID)()
 	stored, err := s.ds.DJ(ctx).Get(dj.ID)
 	if err != nil {
