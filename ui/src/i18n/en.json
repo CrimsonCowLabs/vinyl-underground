@@ -125,6 +125,7 @@
         "find": "Find on MusicBrainz",
         "picked": "MusicBrainz release: %{release}. Saving makes its Cover Art Archive cover the album's cover, over the album's own images (a cover chosen with Choose Cover still wins), and brings in its info.",
         "noCover": "Album corrected. The Cover Art Archive has no cover for this release, so the album keeps its cover.",
+        "coverDisabled": "Album corrected. External services are turned off, so the release's Cover Art Archive cover wasn't fetched.",
         "coverFailed": "Album corrected, but the Cover Art Archive couldn't be reached. Pick the release again later to bring in its cover.",
         "clear": "Remove",
         "noResults": "MusicBrainz has no release with this album artist and title.",

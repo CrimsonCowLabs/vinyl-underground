@@ -182,8 +182,8 @@ var _ = Describe("CorrectAlbum", func() {
 			Expect(archive.asked).To(Equal([]string{release + "|" + group}))
 			Expect(res.Correction.ImageHash).To(Equal("aaaaaaaaaaaaaaaa"))
 			Expect(res.Correction.ImageMime).To(Equal("image/png"))
-			Eventually(func() bool { return queued(model.KindAlbumArtwork, al.ID) }).Should(BeTrue())
-			Expect(queued(model.KindMediaFileArtwork, "mf-1")).To(BeTrue())
+			Eventually(func() bool { return queued(model.KindMediaFileArtwork, "mf-1") }).Should(BeTrue())
+			Expect(queued(model.KindAlbumArtwork, al.ID)).To(BeTrue())
 		})
 
 		It("saves the pick without a cover when the archive has none, or can't be reached", func() {
@@ -215,6 +215,16 @@ var _ = Describe("CorrectAlbum", func() {
 
 			_, err = svc.CorrectAlbum(ctx, al.ID, picked)
 			Expect(err).To(MatchError(ContainSubstring("nothing changed")), "once it has its cover")
+		})
+
+		It("doesn't ask the archive again for an edit that picks nothing", func() {
+			archive.covers = nil
+			_, err := svc.CorrectAlbum(ctx, al.ID, picked)
+			Expect(err).ToNot(HaveOccurred())
+			res, err := svc.CorrectAlbum(ctx, al.ID, corrections.AlbumFix{Name: "Record", AlbumArtist: "Band", Year: 1998})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(res.PickCover).To(BeEmpty())
+			Expect(archive.asked).To(HaveLen(1))
 		})
 
 		It("brings forward the cover of the release the album is already tagged with", func() {

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Masterminds/squirrel"
+	"github.com/navidrome/navidrome/core/artwork"
 	"github.com/navidrome/navidrome/core/musicbrainz"
 	"github.com/navidrome/navidrome/core/refresh"
 	"github.com/navidrome/navidrome/log"
@@ -107,7 +108,10 @@ func (c *corrections) CorrectAlbum(ctx context.Context, albumID string, fix Albu
 			cr.To += old.To[i:]
 		}
 	}
-	if !changed && (cr.MbzAlbumID == "" || cr.ImageHash != "" || fix.MbzAlbumID == "") {
+	// Only picking a release asks the archive for its cover: a new pick, or picking the same release
+	// again while it has none (the archive failed, or had none then). Other edits leave it be.
+	fetchCover := fix.MbzAlbumID != "" && cr.ImageHash == "" && c.opts.PickedCover != nil
+	if !changed && !fetchCover {
 		return nil, fmt.Errorf("%w: nothing changed", model.ErrValidation)
 	}
 	if shared, err := c.ds.MediaFile(ctx).CountAll(model.QueryOptions{Filters: squirrel.And{
@@ -117,10 +121,9 @@ func (c *corrections) CorrectAlbum(ctx context.Context, albumID string, fix Albu
 	} else if shared > 0 {
 		return nil, ErrSharedFolder
 	}
-	// A pick with no cover yet (just picked, or picked again after the archive failed) asks the
-	// archive for it. Whatever the archive answers, the rest of the Correction is saved.
+	// Whatever the archive answers, the rest of the Correction is saved
 	var pickCover PickCover
-	if cr.MbzAlbumID != "" && cr.ImageHash == "" && c.opts.PickedCover != nil {
+	if fetchCover {
 		pickCover = c.fetchPickedCover(ctx, &cr)
 	}
 	var oldCover string
@@ -230,6 +233,8 @@ const (
 	PickCoverNone PickCover = "none"
 	// PickCoverFailed: the archive could not be asked; picking the release again tries it again.
 	PickCoverFailed PickCover = "failed"
+	// PickCoverDisabled: EnableExternalServices is off, so the archive was not asked.
+	PickCoverDisabled PickCover = "disabled"
 )
 
 // pickedCoverTimeout is how long saving waits for the archive before saving the pick without it.
@@ -242,6 +247,8 @@ func (c *corrections) fetchPickedCover(ctx context.Context, cr *model.Correction
 	defer cancel()
 	stored, err := c.opts.PickedCover(ctx, cr.MbzAlbumID, cr.MbzReleaseGroupID)
 	switch {
+	case errors.Is(err, artwork.ErrExternalServicesOff):
+		return PickCoverDisabled
 	case errors.Is(err, musicbrainz.ErrNoCover):
 		log.Info(ctx, "Corrections: the Cover Art Archive has no cover for the picked release", "release", cr.MbzAlbumID)
 		return PickCoverNone

@@ -36,6 +36,7 @@ const knownErrors = [
 const pickCoverNotes = {
   none: 'resources.album.musicbrainz.noCover',
   failed: 'resources.album.musicbrainz.coverFailed',
+  disabled: 'resources.album.musicbrainz.coverDisabled',
 }
 
 // The year clients show for the album: its original year when it has one, as the server

@@ -39,6 +39,7 @@ var _ = Describe("FetchPickedCover", func() {
 	BeforeEach(func() {
 		DeferCleanup(configtest.SetupConfig())
 		conf.Server.DataFolder = conf.NewDir(GinkgoT().TempDir())
+		conf.Server.EnableExternalServices = true
 		image = pngOf(color.RGBA{G: 200, A: 255})
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			switch r.URL.Path {
@@ -71,6 +72,13 @@ var _ = Describe("FetchPickedCover", func() {
 		archive.err = musicbrainz.ErrNoCover
 		_, err := FetchPickedCover(context.Background(), "rel-1", "rg-1")
 		Expect(err).To(MatchError(musicbrainz.ErrNoCover))
+	})
+
+	It("asks nothing when external services are off", func() {
+		conf.Server.EnableExternalServices = false
+		_, err := FetchPickedCover(context.Background(), "rel-1", "rg-1")
+		Expect(err).To(MatchError(ErrExternalServicesOff))
+		Expect(archive.asked).To(BeEmpty())
 	})
 
 	It("refuses what is no image", func() {
