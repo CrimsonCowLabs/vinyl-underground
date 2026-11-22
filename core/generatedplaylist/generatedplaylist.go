@@ -78,13 +78,15 @@ type Service interface {
 }
 
 // Selector is the candidate approach behind Generated Playlists, for other features to use:
-// Stations make their request from the DJ's persona and the Theme.
+// Stations make their request from the DJ's persona and the Theme, and limit it to the DJ's
+// genres.
 type Selector interface {
 	// Select returns up to length Tracks (1 to MaxLength) from the Listener's Library for a
 	// free-text request, in the LLM's order: the LLM turns the request into filters, the server
 	// builds candidates from the Library, and the LLM picks among them. Tracks with IDs in
-	// exclude are never candidates.
-	Select(ctx context.Context, request string, length int, exclude []string) (model.MediaFiles, error)
+	// exclude are never candidates. When genres (the Library's exact genre names) are given,
+	// only Tracks tagged with one of them are, and the LLM's filters can only narrow them.
+	Select(ctx context.Context, request string, genres []string, length int, exclude []string) (model.MediaFiles, error)
 }
 
 // New returns the Service. A nil client means no LLM is configured. A nil similar means
@@ -138,7 +140,7 @@ func (s *service) Preview(ctx context.Context, prompt string, length int) (*Prev
 		return nil, err
 	}
 
-	f, tracks, err := s.generate(ctx, prompt, length, nil)
+	f, tracks, err := s.generate(ctx, prompt, length, pool{})
 	if err != nil {
 		return nil, err
 	}
@@ -149,20 +151,24 @@ func (s *service) Preview(ctx context.Context, prompt string, length int) (*Prev
 	return &Preview{Prompt: prompt, Length: length, Name: name, Tracks: tracks}, nil
 }
 
-func (s *service) Select(ctx context.Context, request string, length int, exclude []string) (model.MediaFiles, error) {
+func (s *service) Select(ctx context.Context, request string, genres []string, length int, exclude []string) (model.MediaFiles, error) {
 	if length < 1 || length > MaxLength {
 		return nil, ErrInvalidLength
 	}
-	_, tracks, err := s.generate(ctx, strings.TrimSpace(request), length, exclude)
+	_, tracks, err := s.generate(ctx, strings.TrimSpace(request), length, pool{exclude: exclude, genres: genres})
 	return tracks, err
 }
 
-// generate asks the LLM for filters for the request, builds candidates from the Library
-// (leaving out the exclude IDs) and has the LLM pick length of them.
-func (s *service) generate(ctx context.Context, request string, length int, exclude []string) (filters, model.MediaFiles, error) {
-	genres, err := s.libraryGenres(ctx)
-	if err != nil {
-		return filters{}, nil, err
+// generate asks the LLM for filters for the request, builds candidates from the pool and has
+// the LLM pick length of them. When the pool has genres, the LLM chooses its filters' genres
+// from them alone, so they can only narrow it.
+func (s *service) generate(ctx context.Context, request string, length int, p pool) (filters, model.MediaFiles, error) {
+	genres := p.genres
+	if len(genres) == 0 {
+		var err error
+		if genres, err = s.libraryGenres(ctx); err != nil {
+			return filters{}, nil, err
+		}
 	}
 	f, err := s.askFilters(ctx, request, genres)
 	if err != nil {
@@ -170,7 +176,7 @@ func (s *service) generate(ctx context.Context, request string, length int, excl
 	}
 	log.Debug(ctx, "LLM candidate filters", "request", request, "filters", f)
 
-	candidates, err := s.candidates(ctx, f, candidateTarget(length), excludeFilter(exclude))
+	candidates, err := s.candidates(ctx, f, candidateTarget(length), p)
 	if err != nil {
 		return filters{}, nil, err
 	}
@@ -189,7 +195,7 @@ func (s *service) generate(ctx context.Context, request string, length int, excl
 	}
 	// The request stays out: a Station's holds the persona of a Listener's private DJ. The
 	// debug line above has it.
-	log.Info(ctx, "LLM picked Tracks", "genres", f.Genres, "seedArtists", f.SeedArtists,
+	log.Info(ctx, "LLM picked Tracks", "withinGenres", p.genres, "genres", f.Genres, "seedArtists", f.SeedArtists,
 		"years", yearRange(f), "length", length, "candidates", len(candidates),
 		"llmPicks", len(picks), "validPicks", picked, "picked", described)
 	return f, tracks, nil

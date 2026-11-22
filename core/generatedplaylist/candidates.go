@@ -9,8 +9,9 @@ import (
 	"github.com/navidrome/navidrome/model"
 )
 
-// candidates returns up to target Tracks from the Listener's Library for the filters, best
-// matches first. It goes through looser and looser searches until it has enough:
+// candidates returns up to target Tracks from the pool for the filters, best matches first.
+// Every search keeps to the pool, so a Station's DJ's genres hold however loose it gets. It goes
+// through looser and looser searches until it has enough:
 //  1. the seed artists, then their similar artists in the Library, then the genres, within the
 //     years;
 //  2. the same, ignoring the years;
@@ -22,7 +23,7 @@ import (
 // maxPerArtistSearch each. Their similar artists take at most another third, in the same way. No
 // artist gets more than a tenth (at least 5), so a few prolific artists can't crowd out the rest.
 // Only a Library too small for that ignores the artist limit.
-func (s *service) candidates(ctx context.Context, f filters, target int, exclude Sqlizer) (model.MediaFiles, error) {
+func (s *service) candidates(ctx context.Context, f filters, target int, p pool) (model.MediaFiles, error) {
 	c := &collector{target: target, artistCap: max(5, target/10),
 		seen: map[string]bool{}, seenSong: map[string]bool{}, perArtist: map[string]int{}}
 	type search struct {
@@ -42,7 +43,7 @@ func (s *service) candidates(ctx context.Context, f filters, target int, exclude
 			break
 		}
 		if !search.matching {
-			mfs, err := s.search(ctx, c.room(), exclude, search.years)
+			mfs, err := s.search(ctx, p, c.room(), search.years)
 			if err != nil {
 				return nil, err
 			}
@@ -50,12 +51,12 @@ func (s *service) candidates(ctx context.Context, f filters, target int, exclude
 			continue
 		}
 		for _, artists := range [][]string{f.SeedArtists, similar} {
-			if err := s.addArtists(ctx, c, artists, exclude, search.years); err != nil {
+			if err := s.addArtists(ctx, c, p, artists, search.years); err != nil {
 				return nil, err
 			}
 		}
 		if len(f.Genres) > 0 && !c.full() {
-			mfs, err := s.searchGenres(ctx, f.Genres, c.room(), exclude, search.years)
+			mfs, err := s.search(ctx, p.in(f.Genres), c.room(), search.years)
 			if err != nil {
 				return nil, err
 			}
@@ -64,7 +65,7 @@ func (s *service) candidates(ctx context.Context, f filters, target int, exclude
 	}
 	if !c.full() {
 		c.artistCap = 0
-		mfs, err := s.search(ctx, c.room(), exclude)
+		mfs, err := s.search(ctx, p, c.room())
 		if err != nil {
 			return nil, err
 		}
@@ -77,7 +78,7 @@ const maxPerArtistSearch = 6
 
 // addArtists adds Tracks by the artists, sharing a third of the candidates between them, at most
 // maxPerArtistSearch each.
-func (s *service) addArtists(ctx context.Context, c *collector, artists []string, exclude, years Sqlizer) error {
+func (s *service) addArtists(ctx context.Context, c *collector, p pool, artists []string, years Sqlizer) error {
 	if len(artists) == 0 {
 		return nil
 	}
@@ -86,7 +87,7 @@ func (s *service) addArtists(ctx context.Context, c *collector, artists []string
 		if c.full() {
 			return nil
 		}
-		mfs, err := s.search(ctx, perArtist, artistFilter(artist), exclude, years)
+		mfs, err := s.search(ctx, p, perArtist, artistFilter(artist), years)
 		if err != nil {
 			return err
 		}
@@ -141,12 +142,16 @@ func yearsFilter(f filters) Sqlizer {
 	return and
 }
 
-// excludeFilter leaves out the Tracks with the ids, or is nil for none.
-func excludeFilter(ids []string) Sqlizer {
-	if len(ids) == 0 {
-		return nil
-	}
-	return NotEq{"media_file.id": ids}
+// pool is the Library Tracks that may be candidates: none with an ID in exclude, and when there
+// are genres (the Library's exact names), only Tracks with a genre tag among them.
+type pool struct {
+	exclude []string
+	genres  []string
+}
+
+// in is the pool's Tracks in the genres, which must be some of the pool's own when it has any.
+func (p pool) in(genres []string) pool {
+	return pool{exclude: p.exclude, genres: genres}
 }
 
 func artistFilter(name string) Sqlizer {
@@ -169,18 +174,22 @@ func searchOptions(max int, filters ...Sqlizer) model.QueryOptions {
 	return model.QueryOptions{Filters: and, Sort: "random", Max: max * 3}
 }
 
-func (s *service) search(ctx context.Context, max int, filters ...Sqlizer) (model.MediaFiles, error) {
-	mfs, err := s.ds.MediaFile(ctx).GetAll(searchOptions(max, filters...))
+// search picks random Tracks from the pool matching every filter given (see searchOptions).
+func (s *service) search(ctx context.Context, p pool, max int, filters ...Sqlizer) (model.MediaFiles, error) {
+	if len(p.exclude) > 0 {
+		filters = append(filters, NotEq{"media_file.id": p.exclude})
+	}
+	opts := searchOptions(max, filters...)
+	repo := s.ds.MediaFile(ctx)
+	var mfs model.MediaFiles
+	var err error
+	if len(p.genres) > 0 {
+		mfs, err = repo.GetAllByTags(model.TagGenre, p.genres, opts)
+	} else {
+		mfs, err = repo.GetAll(opts)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("finding candidates: %w", err)
-	}
-	return mfs, nil
-}
-
-func (s *service) searchGenres(ctx context.Context, genres []string, max int, filters ...Sqlizer) (model.MediaFiles, error) {
-	mfs, err := s.ds.MediaFile(ctx).GetAllByTags(model.TagGenre, genres, searchOptions(max, filters...))
-	if err != nil {
-		return nil, fmt.Errorf("finding candidates by genre: %w", err)
 	}
 	return mfs, nil
 }
