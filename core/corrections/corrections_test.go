@@ -126,7 +126,7 @@ var _ = Describe("Corrections", func() {
 			Expect(res.ArtistID).To(Equal(dead.ID))
 		})
 
-		It("rejects a name an Artist already has, as merging Artists is not supported yet", func() {
+		It("rejects a name an Artist already has: that is a merge", func() {
 			dead := addArtist("Greatful Dead")
 			addArtist("Grateful Dead")
 			_, err := svc.RenameArtist(ctx, dead.ID, "grateful dead")
@@ -161,6 +161,115 @@ var _ = Describe("Corrections", func() {
 		It("returns not found for an unknown Artist", func() {
 			_, err := svc.RenameArtist(ctx, "nope", "Somebody")
 			Expect(err).To(MatchError(model.ErrNotFound))
+		})
+	})
+
+	Describe("MergeArtist", func() {
+		It("saves a merge Correction to the other Artist's name, and rescans the merged Artist's folders", func() {
+			dupe := addArtist("The Grateful Dead")
+			dead := addArtist("Grateful Dead")
+			refresher.targets[dupe.ID] = deadTargets
+
+			res, err := svc.MergeArtist(ctx, dupe.ID, dead.ID)
+			Expect(err).ToNot(HaveOccurred())
+
+			Expect(res.Done).To(BeTrue())
+			Expect(res.ArtistID).To(Equal(dead.ID))
+			Expect(res.Correction.Kind).To(Equal(model.CorrectionArtistMerge))
+			Expect(res.Correction.From).To(Equal("The Grateful Dead"))
+			Expect(res.Correction.To).To(Equal("Grateful Dead"))
+			Expect(refresher.scanned()).To(Equal([][]model.ScanTarget{deadTargets}))
+			Expect(refresher.items).To(Equal([][]refresh.Item{{{Kind: model.KindArtistArtwork, ID: dead.ID}}}))
+		})
+
+		It("rejects merging an Artist into itself, or into or from the placeholder Artists", func() {
+			dead := addArtist("Grateful Dead")
+			various := addArtist("Various Artists")
+			_, err := svc.MergeArtist(ctx, dead.ID, dead.ID)
+			Expect(err).To(MatchError(model.ErrValidation))
+			_, err = svc.MergeArtist(ctx, dead.ID, various.ID)
+			Expect(err).To(MatchError(model.ErrValidation))
+			_, err = svc.MergeArtist(ctx, various.ID, dead.ID)
+			Expect(err).To(MatchError(model.ErrValidation))
+			Expect(svc.GetAll(ctx)).To(BeEmpty())
+		})
+
+		It("returns not found for an unknown Artist", func() {
+			dead := addArtist("Grateful Dead")
+			_, err := svc.MergeArtist(ctx, dead.ID, "nope")
+			Expect(err).To(MatchError(model.ErrNotFound))
+			_, err = svc.MergeArtist(ctx, "nope", dead.ID)
+			Expect(err).To(MatchError(model.ErrNotFound))
+		})
+
+		It("rejects an Artist that already has a Correction, of either kind", func() {
+			dupe := addArtist("The Grateful Dead")
+			dead := addArtist("Grateful Dead")
+			_, err := svc.MergeArtist(ctx, dupe.ID, dead.ID)
+			Expect(err).ToNot(HaveOccurred())
+			// As if the Artist were still there, e.g. as a composer
+			_, err = svc.RenameArtist(ctx, dupe.ID, "Dead, The Grateful")
+			Expect(err).To(MatchError(model.ErrAlreadyExists))
+			_, err = svc.MergeArtist(ctx, dupe.ID, dead.ID)
+			Expect(err).To(MatchError(model.ErrAlreadyExists))
+		})
+
+		It("rejects renaming back to a name a merge renamed away", func() {
+			dupe := addArtist("The Grateful Dead")
+			dead := addArtist("Grateful Dead")
+			_, err := svc.MergeArtist(ctx, dupe.ID, dead.ID)
+			Expect(err).ToNot(HaveOccurred())
+			_, err = db.Db().Exec("delete from artist where id = ?", dupe.ID) // as the rescan would
+			Expect(err).ToNot(HaveOccurred())
+			_, err = svc.RenameArtist(ctx, dead.ID, "The Grateful Dead")
+			Expect(err).To(MatchError(corrections.ErrRenamedAway))
+		})
+	})
+
+	Describe("Undo order", func() {
+		correct := func(cr model.Correction) model.Correction {
+			GinkgoHelper()
+			cr.MatchKey = model.ArtistNameKey(cr.From)
+			Expect(ds.Correction(ctx).Add(&cr)).To(Succeed())
+			return cr
+		}
+		rename := func(from, to string) model.Correction {
+			return correct(model.Correction{Kind: model.CorrectionArtistRename, From: from, To: to})
+		}
+		merge := func(from, to string) model.Correction {
+			return correct(model.Correction{Kind: model.CorrectionArtistMerge, From: from, To: to})
+		}
+
+		It("refuses to undo a rename that a later Correction continues, until that one is undone", func() {
+			first := rename("Greatful Dead", "Grateful Dead")
+			then := merge("Grateful Dead", "The Dead")
+
+			_, err := svc.Undo(ctx, first.ID)
+			Expect(err).To(MatchError(corrections.ErrUndoLaterFirst))
+			Expect(svc.Undo(ctx, then.ID)).ToNot(BeNil())
+			Expect(svc.Undo(ctx, first.ID)).ToNot(BeNil())
+		})
+
+		It("refuses to undo a rename that another Artist was merged into since", func() {
+			first := rename("Greatful Dead", "Grateful Dead")
+			time.Sleep(10 * time.Millisecond)
+			then := merge("The Grateful Dead", "grateful dead")
+
+			_, err := svc.Undo(ctx, first.ID)
+			Expect(err).To(MatchError(corrections.ErrUndoLaterFirst))
+			Expect(svc.Undo(ctx, then.ID)).ToNot(BeNil())
+			Expect(svc.Undo(ctx, first.ID)).ToNot(BeNil())
+		})
+
+		It("undoes merges into the same Artist latest first", func() {
+			first := merge("The Grateful Dead", "Grateful Dead")
+			time.Sleep(10 * time.Millisecond)
+			then := merge("Grateful Dead, The", "Grateful Dead")
+
+			_, err := svc.Undo(ctx, first.ID)
+			Expect(err).To(MatchError(corrections.ErrUndoLaterFirst))
+			Expect(svc.Undo(ctx, then.ID)).ToNot(BeNil())
+			Expect(svc.Undo(ctx, first.ID)).ToNot(BeNil())
 		})
 	})
 

@@ -416,7 +416,7 @@ func (p *phaseFolders) persistFolder(ctx context.Context, tx model.DataStore, en
 		}
 	}
 
-	if err := p.moveArtistAnnotations(artistRepo, entry); err != nil {
+	if err := p.moveArtistAnnotations(artistRepo, tx.Correction(ctx), entry); err != nil {
 		return err
 	}
 
@@ -485,12 +485,22 @@ func (p *phaseFolders) persistFolder(ctx context.Context, tx model.DataStore, en
 // no longer does) to Tracks already in the Library. That is before GC deletes the annotations of
 // the old, now empty Artist, and only then: an Artist kept under the old name (e.g. as a composer)
 // keeps what it gets later. Album annotations follow their albums in persistAlbum.
-func (p *phaseFolders) moveArtistAnnotations(repo model.ArtistRepository, entry *folderEntry) error {
+// An artist merge joins them to the other Artist's instead, and its undo moves back only those.
+func (p *phaseFolders) moveArtistAnnotations(repo model.ArtistRepository, corrections model.CorrectionRepository, entry *folderEntry) error {
 	for _, m := range p.artistIDMoves {
 		if _, changed := entry.correctionChanges[m.CorrectionID]; !changed {
 			continue
 		}
-		if err := repo.ReassignAnnotation(m.From, m.To); err != nil {
+		var err error
+		switch {
+		case m.Merge && m.Undo:
+			err = corrections.SplitArtistAnnotations(m.CorrectionID, m.From, m.To)
+		case m.Merge:
+			err = corrections.MergeArtistAnnotations(m.CorrectionID, m.From, m.To)
+		default:
+			err = repo.ReassignAnnotation(m.From, m.To)
+		}
+		if err != nil {
 			return fmt.Errorf("moving artist annotations from %s to %s: %w", m.From, m.To, err)
 		}
 	}

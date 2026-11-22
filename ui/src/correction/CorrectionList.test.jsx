@@ -132,4 +132,21 @@ describe('Corrections page', () => {
       }),
     )
   })
+
+  it('says to undo a later Correction first when one builds on this one', async () => {
+    mockUndo.mockRejectedValue({
+      status: 400,
+      body: { error: 'undoLaterFirst' },
+    })
+    render(<UndoCorrectionButton record={rename} />)
+    fireEvent.click(screen.getByText('resources.correction.actions.undo'))
+    fireEvent.click(screen.getByText('confirm'))
+
+    await waitFor(() =>
+      expect(mockNotify).toHaveBeenCalledWith(
+        'resources.correction.errors.undoLaterFirst',
+        { type: 'warning' },
+      ),
+    )
+  })
 })

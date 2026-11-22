@@ -24,11 +24,15 @@ import (
 
 var (
 	// ErrArtistExists is returned when renaming an Artist to the name of another Artist: that
-	// would merge them, which is not supported yet.
+	// merges them, which MergeArtist does.
 	ErrArtistExists = fmt.Errorf("%w: an Artist with that name already exists", model.ErrAlreadyExists)
 	// ErrRenamedAway is returned when renaming an Artist to a name a Correction renames away:
 	// undoing that Correction is the way to get it back.
 	ErrRenamedAway = fmt.Errorf("%w: a Correction renames that name away; undo it instead", model.ErrValidation)
+	// ErrUndoLaterFirst is returned when undoing an artist rename or merge that a later Correction
+	// builds on: one renaming its new name onward (A→B, then B→C), or merging another Artist into
+	// its new name. Undoing that one first keeps the Artists' stars and play counts apart.
+	ErrUndoLaterFirst = fmt.Errorf("%w: a later Correction builds on this one; undo it first", model.ErrValidation)
 )
 
 // Applied is the outcome of saving or undoing a Correction.
@@ -51,6 +55,10 @@ type Corrections interface {
 	// the album's folder (see model.AlbumFolderKey). The image must already be in the
 	// chosen-cover store (see artwork.ChosenCoverStore).
 	ChooseAlbumCover(ctx context.Context, albumID string, cover AlbumCover) (*Applied, error)
+	// MergeArtist saves a Correction renaming the Artist to the name of the Artist intoID, merging
+	// them: their stars, ratings and play counts are joined (see
+	// model.CorrectionRepository.MergeArtistAnnotations). It rescans like RenameArtist.
+	MergeArtist(ctx context.Context, artistID, intoID string) (*Applied, error)
 	// Undo stops applying the Correction, rescans the folders of the Tracks it applied to, and
 	// then deletes it. If the rescan fails, it stays marked as undoing, and Undo can be retried.
 	Undo(ctx context.Context, id string) (*Applied, error)
@@ -99,7 +107,7 @@ func (c *corrections) RenameArtist(ctx context.Context, artistID, name string) (
 		return nil, fmt.Errorf("%w: the new name is empty", model.ErrValidation)
 	case name == ar.Name:
 		return nil, fmt.Errorf("%w: the name is unchanged", model.ErrValidation)
-	case ar.Name == consts.UnknownArtist || ar.Name == consts.VariousArtists:
+	case isPlaceholder(ar.Name):
 		return nil, fmt.Errorf("%w: %s can't be renamed", model.ErrValidation, ar.Name)
 	}
 	newID := metadata.ArtistID(name)
@@ -110,8 +118,38 @@ func (c *corrections) RenameArtist(ctx context.Context, artistID, name string) (
 			return nil, err
 		}
 	}
-	if _, err := c.ds.Correction(ctx).GetByMatchKey(model.CorrectionArtistRename, model.ArtistNameKey(name)); err == nil {
+	return c.saveArtistRename(ctx, ar, model.CorrectionArtistRename, name)
+}
+
+func (c *corrections) MergeArtist(ctx context.Context, artistID, intoID string) (*Applied, error) {
+	ar, err := c.ds.Artist(ctx).Get(artistID)
+	if err != nil {
+		return nil, err
+	}
+	into, err := c.ds.Artist(ctx).Get(intoID)
+	if err != nil {
+		return nil, err
+	}
+	switch {
+	case ar.ID == into.ID:
+		return nil, fmt.Errorf("%w: an Artist can't be merged into itself", model.ErrValidation)
+	case isPlaceholder(ar.Name) || isPlaceholder(into.Name):
+		return nil, fmt.Errorf("%w: %s and %s can't be merged", model.ErrValidation, ar.Name, into.Name)
+	}
+	return c.saveArtistRename(ctx, ar, model.CorrectionArtistMerge, into.Name)
+}
+
+// saveArtistRename saves the Correction renaming (or merging) the Artist to name, and rescans the
+// Artist's folders.
+func (c *corrections) saveArtistRename(ctx context.Context, ar *model.Artist, kind model.CorrectionKind, name string) (*Applied, error) {
+	if _, err := c.artistCorrection(ctx, model.ArtistNameKey(name)); err == nil {
 		return nil, ErrRenamedAway
+	} else if !errors.Is(err, model.ErrNotFound) {
+		return nil, err
+	}
+	// The repository only refuses a second Correction of the same kind
+	if _, err := c.artistCorrection(ctx, model.ArtistNameKey(ar.Name)); err == nil {
+		return nil, model.ErrAlreadyExists
 	} else if !errors.Is(err, model.ErrNotFound) {
 		return nil, err
 	}
@@ -120,11 +158,12 @@ func (c *corrections) RenameArtist(ctx context.Context, artistID, name string) (
 	if err != nil {
 		return nil, err
 	}
-	cr := model.Correction{Kind: model.CorrectionArtistRename, MatchKey: model.ArtistNameKey(ar.Name), From: ar.Name, To: name}
+	cr := model.Correction{Kind: kind, MatchKey: model.ArtistNameKey(ar.Name), From: ar.Name, To: name}
 	if err := c.ds.Correction(ctx).Add(&cr); err != nil {
 		return nil, err
 	}
-	log.Info(ctx, "Corrections: renaming Artist", "from", ar.Name, "to", name, "folders", len(targets))
+	newID := metadata.ArtistID(name)
+	log.Info(ctx, "Corrections: renaming Artist", "kind", kind, "from", ar.Name, "to", name, "folders", len(targets))
 	done := c.rescan(ctx, targets, refresh.Item{Kind: model.KindArtistArtwork, ID: newID}, nil)
 	return &Applied{Correction: cr, ArtistID: newID, Done: done}, nil
 }
@@ -195,6 +234,43 @@ func (c *corrections) undoAlbumCover(ctx context.Context, cr *model.Correction) 
 	return &Applied{Correction: *cr, Done: true}, nil
 }
 
+// artistCorrection returns the artist rename or merge matching the name key, or ErrNotFound.
+func (c *corrections) artistCorrection(ctx context.Context, key string) (*model.Correction, error) {
+	cr, err := c.ds.Correction(ctx).GetByMatchKey(model.CorrectionArtistRename, key)
+	if errors.Is(err, model.ErrNotFound) {
+		return c.ds.Correction(ctx).GetByMatchKey(model.CorrectionArtistMerge, key)
+	}
+	return cr, err
+}
+
+func isPlaceholder(name string) bool {
+	return name == consts.UnknownArtist || name == consts.VariousArtists
+}
+
+// checkUndoOrder returns ErrUndoLaterFirst if another artist Correction builds on cr: it renames
+// cr's new name onward, or it merges another Artist into cr's new name later. A plain rename's
+// undo moves all of the new name's stars back, and a merge's undo the star the target took from
+// it, which a later merge may rely on.
+func (c *corrections) checkUndoOrder(ctx context.Context, cr *model.Correction) error {
+	if !cr.Kind.IsArtistRename() {
+		return nil
+	}
+	all, err := c.ds.Correction(ctx).GetAll()
+	if err != nil {
+		return err
+	}
+	to := model.ArtistNameKey(cr.To)
+	for _, o := range all {
+		if o.ID == cr.ID || o.Undoing || !o.Kind.IsArtistRename() {
+			continue
+		}
+		if o.MatchKey == to || (model.ArtistNameKey(o.To) == to && o.CreatedAt.After(cr.CreatedAt)) {
+			return ErrUndoLaterFirst
+		}
+	}
+	return nil
+}
+
 func (c *corrections) Undo(ctx context.Context, id string) (*Applied, error) {
 	repo := c.ds.Correction(ctx)
 	cr, err := repo.Get(id)
@@ -204,6 +280,9 @@ func (c *corrections) Undo(ctx context.Context, id string) (*Applied, error) {
 	if cr.Kind == model.CorrectionAlbumCover {
 		return c.undoAlbumCover(ctx, cr)
 	}
+	if err := c.checkUndoOrder(ctx, cr); err != nil {
+		return nil, err
+	}
 	folderIDs, err := repo.FolderIDs(id)
 	if err != nil {
 		return nil, err
@@ -212,7 +291,8 @@ func (c *corrections) Undo(ctx context.Context, id string) (*Applied, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Artist renames are the only kind so far: undoing one restores, and refreshes, the old name
+	// Artist renames and merges are the only kinds so far: undoing one restores, and refreshes,
+	// the old name
 	res := &Applied{Correction: *cr, ArtistID: metadata.ArtistID(cr.From), Done: true}
 	// Folders still holding the old name too: a rename whose own rescan is still running, or
 	// failed, has not reached its Tracks yet
