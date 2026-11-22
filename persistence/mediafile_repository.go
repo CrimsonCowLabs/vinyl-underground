@@ -2,6 +2,7 @@ package persistence
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"iter"
 	"maps"
@@ -30,6 +31,7 @@ type dbMediaFile struct {
 	*model.MediaFile `structs:",flatten"`
 	Participants     string `structs:"-" json:"-"`
 	Tags             string `structs:"-" json:"-"`
+	CorrectionIDs    string `structs:"-" json:"-"`
 	// These are necessary to map the correct names (rg_*) to the correct fields (RG*)
 	// without using `db` struct tags in the model.MediaFile struct
 	RgAlbumGain *float64 `structs:"-" json:"-"`
@@ -63,6 +65,11 @@ func (m *dbMediaFile) PostScan() error {
 		}
 		m.Genre, m.Genres = m.MediaFile.Tags.ToGenres()
 	}
+	if m.CorrectionIDs != "" {
+		if err := json.Unmarshal([]byte(m.CorrectionIDs), &m.MediaFile.CorrectionIDs); err != nil {
+			return fmt.Errorf("parsing media_file correction_ids from db: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -76,6 +83,11 @@ func (m *dbMediaFile) PostMapArgs(args map[string]any) error {
 	args["search_normalized"] = str.NormalizeForFTS(m.FullTitle(), m.Album, m.Artist, m.AlbumArtist)
 	args["tags"] = marshalTags(m.MediaFile.Tags)
 	args["participants"] = marshalParticipants(m.MediaFile.Participants)
+	args["correction_ids"] = ""
+	if len(m.MediaFile.CorrectionIDs) > 0 {
+		ids, _ := json.Marshal(m.MediaFile.CorrectionIDs)
+		args["correction_ids"] = string(ids)
+	}
 	return nil
 }
 

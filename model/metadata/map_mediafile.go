@@ -14,7 +14,14 @@ import (
 	"github.com/navidrome/navidrome/utils/str"
 )
 
+// ToMediaFile maps the File's tags to a Track, as tagged.
 func (md Metadata) ToMediaFile(libID int, folderID string) model.MediaFile {
+	return md.ToCorrectedMediaFile(libID, folderID, Corrections{})
+}
+
+// ToCorrectedMediaFile maps the File's tags to a Track, with the Corrections applied. The Track's
+// persistent ID comes from the tags as tagged, so a Correction never makes it a different Track.
+func (md Metadata) ToCorrectedMediaFile(libID int, folderID string, corrections Corrections) model.MediaFile {
 	mf := model.MediaFile{
 		LibraryID: libID,
 		FolderID:  folderID,
@@ -85,8 +92,10 @@ func (md Metadata) ToMediaFile(libID int, folderID string) model.MediaFile {
 	mf.Artist = md.mapDisplayArtist()
 	mf.AlbumArtist = md.mapDisplayAlbumArtist(mf)
 
-	// Persistent IDs
+	// Persistent IDs: the Track's from the tags as tagged, the album's from the corrected ones, so
+	// a renamed album artist's albums join any the new name already has.
 	mf.PID = md.trackPID(mf)
+	corrections.renameArtists(&mf)
 	mf.AlbumID = md.albumID(mf, conf.Server.PID.Album)
 
 	// BFR These IDs will go away once the UI handle multiple participants.

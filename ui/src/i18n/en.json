@@ -148,7 +148,15 @@
       "actions": {
         "topSongs": "Top Songs",
         "shuffle": "Shuffle",
-        "radio": "Radio"
+        "radio": "Radio",
+        "rename": "Rename"
+      },
+      "message": {
+        "renameHelp": "The new name is used everywhere in the library, also for files added later, in every app. The files are not changed. You can undo it on the Corrections page."
+      },
+      "notifications": {
+        "renamed": "Artist renamed",
+        "renaming": "Rename saved. The library is being updated in the background"
       }
     },
     "user": {
@@ -364,6 +372,44 @@
       },
       "notifications": {
         "removed": "Missing file(s) removed"
+      }
+    },
+    "correction": {
+      "name": "Correction |||| Corrections",
+      "empty": "No Corrections",
+      "fields": {
+        "kind": "Kind",
+        "change": "Change",
+        "createdBy": "By",
+        "createdAt": "When",
+        "status": "Applies to"
+      },
+      "kinds": {
+        "artistRename": "Artist rename"
+      },
+      "status": {
+        "tracks": "1 track |||| %{smart_count} tracks",
+        "orphaned": "Matches nothing",
+        "undoing": "Undoing…"
+      },
+      "actions": {
+        "undo": "Undo"
+      },
+      "message": {
+        "undoTitle": "Undo Correction",
+        "undoContent": "Undo \"%{from} → %{to}\"? The original names come back once the affected folders are rescanned."
+      },
+      "notifications": {
+        "undone": "Correction undone",
+        "undoing": "Undoing. The library is being updated in the background"
+      },
+      "errors": {
+        "artistExists": "An Artist named \"%{name}\" already exists. Merging Artists is not supported yet.",
+        "renamedAway": "A Correction renames \"%{name}\" away. Undo it on the Corrections page instead.",
+        "alreadyCorrected": "This Artist already has a Correction.",
+        "invalid": "Enter a new, different name.",
+        "notFound": "This Artist no longer exists.",
+        "unknown": "Could not save the rename. Try again later."
       }
     },
     "library": {

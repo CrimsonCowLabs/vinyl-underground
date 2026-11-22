@@ -222,10 +222,15 @@ func (r *refresher) ScanTargets(ctx context.Context, kind model.Kind, id string)
 	for _, al := range albums {
 		folderIDs = append(folderIDs, al.FolderIDs...)
 	}
+	return FolderTargets(ctx, r.ds, folderIDs)
+}
+
+// FolderTargets returns the scan targets for the given folders, skipping missing ones.
+func FolderTargets(ctx context.Context, ds model.DataStore, folderIDs []string) ([]model.ScanTarget, error) {
 	if len(folderIDs) == 0 {
 		return nil, nil
 	}
-	folders, err := r.ds.Folder(ctx).GetAll(model.QueryOptions{
+	folders, err := ds.Folder(ctx).GetAll(model.QueryOptions{
 		Filters: squirrel.Eq{"folder.id": slices.Compact(slices.Sorted(slices.Values(folderIDs))), "missing": false},
 	})
 	if err != nil {

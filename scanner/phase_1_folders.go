@@ -130,6 +130,10 @@ type phaseFolders struct {
 	state            *scanState
 	prevAlbumPIDConf string
 	imageChanges     *imageChangeCollector
+	// corrections are the admins' Corrections, applied to every File read in this scan
+	corrections metadata.Corrections
+	// artistIDMoves are where renamed Artists' stars and play counts go (see persistFolder)
+	artistIDMoves []metadata.IDMove
 }
 
 func (p *phaseFolders) description() string {
@@ -143,6 +147,12 @@ func (p *phaseFolders) producer() ppl.Producer[*folderEntry] {
 		if err != nil {
 			return fmt.Errorf("getting album PID conf: %w", err)
 		}
+		corrections, err := p.ds.Correction(p.ctx).GetAll()
+		if err != nil {
+			return fmt.Errorf("loading corrections: %w", err)
+		}
+		p.corrections = metadata.NewCorrections(corrections)
+		p.artistIDMoves = p.corrections.ArtistIDMoves()
 
 		// TODO Parallelize multiple job when we have multiple libraries
 		var total int64
@@ -289,7 +299,7 @@ func (p *phaseFolders) loadTagsFromFiles(entry *folderEntry, toImport map[string
 		}
 		for filePath, info := range allInfo {
 			md := metadata.New(filePath, info)
-			track := md.ToMediaFile(entry.job.lib.ID, entry.id)
+			track := md.ToCorrectedMediaFile(entry.job.lib.ID, entry.id, p.corrections)
 			tracks = append(tracks, track)
 			for _, t := range track.Tags.FlattenAll() {
 				uniqueTags[t.ID] = t
@@ -403,6 +413,10 @@ func (p *phaseFolders) persistFolder(ctx context.Context, tx model.DataStore, en
 		}
 	}
 
+	if err := p.moveArtistAnnotations(artistRepo, entry); err != nil {
+		return err
+	}
+
 	// Save all new/modified albums to DB. Their information will be incomplete, but they will be refreshed later
 	for i := range entry.albums {
 		err = p.persistAlbum(albumRepo, &entry.albums[i], albumIDMap)
@@ -458,6 +472,22 @@ func (p *phaseFolders) persistFolder(ctx context.Context, tx model.DataStore, en
 		}
 		if err := enqueue(queueItems...); err != nil {
 			log.Warn(ctx, "Scanner: could not enqueue artwork resolution", err)
+		}
+	}
+	return nil
+}
+
+// moveArtistAnnotations moves the stars, ratings and play counts of a renamed Artist (or of a
+// rename being undone) to the Artist's new ID, once a folder holds that Artist. It runs before GC
+// deletes the annotations of the old, now empty Artist. Moving is idempotent: later scans find
+// nothing left to move. Album annotations follow their albums in persistAlbum.
+func (p *phaseFolders) moveArtistAnnotations(repo model.ArtistRepository, entry *folderEntry) error {
+	for _, m := range p.artistIDMoves {
+		if !slices.ContainsFunc(entry.artists, func(a model.Artist) bool { return a.ID == m.To }) {
+			continue
+		}
+		if err := repo.ReassignAnnotation(m.From, m.To); err != nil {
+			return fmt.Errorf("moving artist annotations from %s to %s: %w", m.From, m.To, err)
 		}
 	}
 	return nil

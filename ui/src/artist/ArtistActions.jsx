@@ -27,6 +27,7 @@ import config from '../config'
 import { formatBytes } from '../utils'
 import { artistDownloadSize } from '../common/artist'
 import { RefreshMetadataButton } from '../common/RefreshMetadataButton'
+import { RenameArtistButton } from './RenameArtistButton'
 
 const useStyles = makeStyles((theme) => ({
   toolbar: {
@@ -176,6 +177,11 @@ const ArtistActions = ({ className, record, ...rest }) => {
           icon={<CloudDownloadOutlinedIcon />}
         />
       )}
+      <RenameArtistButton
+        record={record}
+        className={classes.button}
+        size={isMobile ? 'small' : 'medium'}
+      />
       <RefreshMetadataButton
         resource="artist"
         record={record}
