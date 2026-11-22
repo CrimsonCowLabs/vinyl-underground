@@ -737,8 +737,7 @@
       "current_song": "Ga naar huidig nummer"
     }
   },
-  "nowPlaying": {
-    "title": "Speelt nu",
+  "whosListening": {
     "empty": "Er wordt niets afgespeed",
     "minutesAgo": "%{smart_count} minuut geleden |||| %{smart_count} minuten geleden"
   }

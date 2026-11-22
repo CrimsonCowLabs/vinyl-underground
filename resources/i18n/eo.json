@@ -713,8 +713,7 @@
       "current_song": "Iri al Nuna Kanto"
     }
   },
-  "nowPlaying": {
-    "title": "Nun Ludanta",
+  "whosListening": {
     "empty": "Nenio ludas",
     "minutesAgo": "Antaŭ %{smart_count} minuto |||| Antaŭ %{smart_count} minutoj"
   }

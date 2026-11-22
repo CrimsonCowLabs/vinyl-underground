@@ -737,8 +737,7 @@
       "current_song": "Vai para música atual"
     }
   },
-  "nowPlaying": {
-    "title": "Tocando agora",
+  "whosListening": {
     "empty": "Nada tocando",
     "minutesAgo": "%{smart_count} minuto atrás |||| %{smart_count} minutos atrás"
   }

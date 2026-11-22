@@ -739,8 +739,7 @@
       "current_song": "Gå till aktuell låt"
     }
   },
-  "nowPlaying": {
-    "title": "Spelas nu",
+  "whosListening": {
     "empty": "Inget spelas",
     "minutesAgo": "%{smart_count} minut sedan |||| %{smart_count} minuter sedan"
   }

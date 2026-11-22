@@ -726,8 +726,7 @@
       "current_song": "Перейти до поточної пісні"
     }
   },
-  "nowPlaying": {
-    "title": "Зараз грає",
+  "whosListening": {
     "empty": "Нічого не грає",
     "minutesAgo": "%{smart_count} хвилин тому |||| %{smart_count} хвилин тому"
   }

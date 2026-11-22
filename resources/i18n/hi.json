@@ -608,8 +608,7 @@
     "status": "स्कैन त्रुटि",
     "elapsedTime": "बीता समय"
   },
-  "nowPlaying": {
-    "title": "अभी चल रहा है",
+  "whosListening": {
     "empty": "कुछ नहीं चल रहा",
     "minutesAgo": "%{smart_count} मिनट पहले |||| %{smart_count} मिनट पहले"
   },

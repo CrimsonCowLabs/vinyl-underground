@@ -696,8 +696,7 @@
     "status": "Szkennelési hiba",
     "elapsedTime": "Eltelt idő"
   },
-  "nowPlaying": {
-    "title": "Most megy",
+  "whosListening": {
     "empty": "Nem hallgatsz semmit",
     "minutesAgo": "%{smart_count} perce |||| %{smart_count} perce"
   },

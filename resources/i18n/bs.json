@@ -620,8 +620,7 @@
       "current_song": "Prikaži trenutnu pjesmu"
     }
   },
-  "nowPlaying": {
-    "title": "Trenutna reprodukcija",
+  "whosListening": {
     "empty": "Nema reprodukcije",
     "minutesAgo": "Prije %{smart_count} minute |||| Prije %{smart_count} minuta"
   }

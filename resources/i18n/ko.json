@@ -607,8 +607,7 @@
     "status": "스캔 오류",
     "elapsedTime": "경과 시간"
   },
-  "nowPlaying": {
-    "title": "현재 재생 중",
+  "whosListening": {
     "empty": "재생 중인 콘텐츠 없음",
     "minutesAgo": "%{smart_count} 분 전"
   },

@@ -726,8 +726,7 @@
       "current_song": "Ir á Canción actual "
     }
   },
-  "nowPlaying": {
-    "title": "En reprodución",
+  "whosListening": {
     "empty": "Sen reprodución",
     "minutesAgo": "hai %{smart_count} minuto |||| hai %{smart_count} minutos"
   }

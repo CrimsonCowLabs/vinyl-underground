@@ -148,17 +148,17 @@ const useStyles = makeStyles((theme) => ({
   },
 }))
 
-// NowPlayingButton component - handles the button with badge
-const NowPlayingButton = React.memo(({ count, onClick }) => {
+// WhosListeningButton component - handles the button with badge
+const WhosListeningButton = React.memo(({ count, onClick }) => {
   const classes = useStyles()
   const translate = useTranslate()
 
   return (
-    <Tooltip title={translate('nowPlaying.title')}>
+    <Tooltip title={translate('whosListening.title')}>
       <IconButton
         className={classes.button}
         onClick={onClick}
-        aria-label={translate('nowPlaying.title')}
+        aria-label={translate('whosListening.title')}
         aria-haspopup="true"
       >
         <Badge
@@ -174,48 +174,43 @@ const NowPlayingButton = React.memo(({ count, onClick }) => {
   )
 })
 
-NowPlayingButton.displayName = 'NowPlayingButton'
+WhosListeningButton.displayName = 'WhosListeningButton'
 
-NowPlayingButton.propTypes = {
+WhosListeningButton.propTypes = {
   count: PropTypes.number.isRequired,
   onClick: PropTypes.func.isRequired,
 }
 
-const NowPlayingItem = React.memo(
-  ({ nowPlayingEntry, onLinkClick, getArtistLink, now }) => {
+const WhosListeningItem = React.memo(
+  ({ entry, onLinkClick, getArtistLink, now }) => {
     const classes = useStyles()
-    const isPaused = nowPlayingEntry.state === 'paused'
-    const isPlaying =
-      nowPlayingEntry.state === 'playing' ||
-      nowPlayingEntry.state === 'starting'
-    const basePositionMs = nowPlayingEntry.positionMs || 0
-    const rate = nowPlayingEntry.playbackRate || 1
-    const elapsedSinceFetch = now - (nowPlayingEntry._fetchedAt || now)
+    const isPaused = entry.state === 'paused'
+    const isPlaying = entry.state === 'playing' || entry.state === 'starting'
+    const basePositionMs = entry.positionMs || 0
+    const rate = entry.playbackRate || 1
+    const elapsedSinceFetch = now - (entry._fetchedAt || now)
     const interpolatedMs = isPlaying
       ? basePositionMs + elapsedSinceFetch * rate
       : basePositionMs
-    const durationMs = (nowPlayingEntry.duration || 0) * 1000
+    const durationMs = (entry.duration || 0) * 1000
     const clampedMs = Math.max(0, interpolatedMs)
     const positionMs =
       durationMs > 0 ? Math.min(clampedMs, durationMs) : clampedMs
     const positionSec = positionMs / 1000
-    const durationSec = nowPlayingEntry.duration || 0
+    const durationSec = entry.duration || 0
     const progress = durationSec > 0 ? (positionSec / durationSec) * 100 : 0
-    const artistId = nowPlayingEntry.albumArtistId || nowPlayingEntry.artistId
-    const artistName = nowPlayingEntry.albumArtist || nowPlayingEntry.artist
+    const artistId = entry.albumArtistId || entry.artistId
+    const artistName = entry.albumArtist || entry.artist
 
     return (
       <ListItem className={classes.listItem}>
         <div className={classes.avatarContainer}>
-          <Link
-            to={`/album/${nowPlayingEntry.albumId}/show`}
-            onClick={onLinkClick}
-          >
+          <Link to={`/album/${entry.albumId}/show`} onClick={onLinkClick}>
             <Avatar
               className={classes.avatar}
-              src={subsonic.getCoverArtUrl(nowPlayingEntry, 80)}
+              src={subsonic.getCoverArtUrl(entry, 80)}
               variant="square"
-              alt={`${nowPlayingEntry.album} cover art`}
+              alt={`${entry.album} cover art`}
               loading="lazy"
             />
           </Link>
@@ -226,11 +221,8 @@ const NowPlayingItem = React.memo(
           )}
         </div>
         <div className={classes.entryContent}>
-          <Typography
-            className={classes.trackTitle}
-            title={nowPlayingEntry.title}
-          >
-            {nowPlayingEntry.title}
+          <Typography className={classes.trackTitle} title={entry.title}>
+            {entry.title}
           </Typography>
           {artistId ? (
             <Link
@@ -245,11 +237,8 @@ const NowPlayingItem = React.memo(
               {artistName}
             </Typography>
           )}
-          <Typography
-            className={classes.trackDetail}
-            title={nowPlayingEntry.album}
-          >
-            {nowPlayingEntry.album}
+          <Typography className={classes.trackDetail} title={entry.album}>
+            {entry.album}
           </Typography>
           <div className={classes.progressRow}>
             <span className={classes.progressTime}>
@@ -265,10 +254,8 @@ const NowPlayingItem = React.memo(
             </span>
           </div>
           <Typography className={classes.userInfo}>
-            {nowPlayingEntry.username}
-            {nowPlayingEntry.playerName
-              ? ` (${nowPlayingEntry.playerName})`
-              : ''}
+            {entry.username}
+            {entry.playerName ? ` (${entry.playerName})` : ''}
           </Typography>
         </div>
       </ListItem>
@@ -276,10 +263,10 @@ const NowPlayingItem = React.memo(
   },
 )
 
-NowPlayingItem.displayName = 'NowPlayingItem'
+WhosListeningItem.displayName = 'WhosListeningItem'
 
-NowPlayingItem.propTypes = {
-  nowPlayingEntry: PropTypes.shape({
+WhosListeningItem.propTypes = {
+  entry: PropTypes.shape({
     playerId: PropTypes.oneOfType([PropTypes.string, PropTypes.number])
       .isRequired,
     albumId: PropTypes.oneOfType([PropTypes.string, PropTypes.number])
@@ -301,8 +288,8 @@ NowPlayingItem.propTypes = {
   now: PropTypes.number.isRequired,
 }
 
-// NowPlayingList component - handles the popover content
-const NowPlayingList = React.memo(
+// WhosListeningList component - handles the popover content
+const WhosListeningList = React.memo(
   ({ anchorEl, open, onClose, entries, onLinkClick, getArtistLink, now }) => {
     const classes = useStyles({ entryCount: entries.length })
     const translate = useTranslate()
@@ -315,24 +302,27 @@ const NowPlayingList = React.memo(
         transformOrigin={{ vertical: 'top', horizontal: 'right' }}
         open={open}
         onClose={onClose}
-        aria-labelledby="now-playing-title"
+        PaperProps={{
+          role: 'dialog',
+          'aria-label': translate('whosListening.title'),
+        }}
       >
         <Card className={classes.card}>
           <CardContent className={classes.cardContent}>
             {entries.length === 0 ? (
               <Typography id="now-playing-title">
-                {translate('nowPlaying.empty')}
+                {translate('whosListening.empty')}
               </Typography>
             ) : (
               <List
                 className={classes.list}
                 dense
-                aria-label={translate('nowPlaying.title')}
+                aria-label={translate('whosListening.title')}
               >
-                {entries.map((nowPlayingEntry) => (
-                  <NowPlayingItem
-                    key={`${nowPlayingEntry.username}-${nowPlayingEntry.playerName}`}
-                    nowPlayingEntry={nowPlayingEntry}
+                {entries.map((entry) => (
+                  <WhosListeningItem
+                    key={`${entry.username}-${entry.playerName}`}
+                    entry={entry}
                     onLinkClick={onLinkClick}
                     getArtistLink={getArtistLink}
                     now={now}
@@ -347,9 +337,9 @@ const NowPlayingList = React.memo(
   },
 )
 
-NowPlayingList.displayName = 'NowPlayingList'
+WhosListeningList.displayName = 'WhosListeningList'
 
-NowPlayingList.propTypes = {
+WhosListeningList.propTypes = {
   anchorEl: PropTypes.object,
   open: PropTypes.bool.isRequired,
   onClose: PropTypes.func.isRequired,
@@ -359,8 +349,8 @@ NowPlayingList.propTypes = {
   now: PropTypes.number.isRequired,
 }
 
-// Main NowPlayingPanel component
-const NowPlayingPanel = () => {
+// Main WhosListeningPanel component
+const WhosListeningPanel = () => {
   const dispatch = useDispatch()
   const count = useSelector((state) => state.activity.nowPlayingCount)
   const lastUpdate = useSelector((state) => state.activity.nowPlayingLastUpdate)
@@ -410,15 +400,15 @@ const NowPlayingPanel = () => {
       .then((resp) => resp.json['subsonic-response'])
       .then((data) => {
         if (data.status === 'ok') {
-          const nowPlayingEntries = data.nowPlaying?.entry || []
+          const fetchedEntries = data.nowPlaying?.entry || []
           const fetchTime = Date.now()
           setEntries(
-            nowPlayingEntries.map((e) => ({ ...e, _fetchedAt: fetchTime })),
+            fetchedEntries.map((e) => ({ ...e, _fetchedAt: fetchTime })),
           )
-          dispatch(nowPlayingCountSync({ count: nowPlayingEntries.length }))
+          dispatch(nowPlayingCountSync({ count: fetchedEntries.length }))
         } else {
           throw new Error(
-            data.error?.message || 'Failed to fetch now playing data',
+            data.error?.message || "Failed to fetch Who's Listening",
           )
         }
       })
@@ -446,7 +436,7 @@ const NowPlayingPanel = () => {
     if (serverUp) fetchList()
   }, [fetchList, serverUp, streamReconnected])
 
-  // Refresh when NowPlaying updates from SSE events (if panel is open)
+  // Refresh when Who's Listening updates from SSE events (if panel is open)
   useEffect(() => {
     if (open && serverUp) fetchList()
   }, [lastUpdate, open, fetchList, serverUp])
@@ -472,8 +462,8 @@ const NowPlayingPanel = () => {
 
   return (
     <div>
-      <NowPlayingButton count={count} onClick={handleMenuOpen} />
-      <NowPlayingList
+      <WhosListeningButton count={count} onClick={handleMenuOpen} />
+      <WhosListeningList
         anchorEl={anchorEl}
         open={open}
         onClose={handleMenuClose}
@@ -486,6 +476,6 @@ const NowPlayingPanel = () => {
   )
 }
 
-NowPlayingPanel.propTypes = {}
+WhosListeningPanel.propTypes = {}
 
-export default NowPlayingPanel
+export default WhosListeningPanel

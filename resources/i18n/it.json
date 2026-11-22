@@ -705,8 +705,7 @@
         "status": "Errore di scansione",
         "elapsedTime": "Tempo trascorso"
     },
-    "nowPlaying": {
-        "title": "In riproduzione",
+    "whosListening": {
         "empty": "Nessuna riproduzione in corso",
         "minutesAgo": "%{smart_count} minuto fa |||| %{smart_count} minuti fa"
     },

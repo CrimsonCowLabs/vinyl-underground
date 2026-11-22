@@ -714,8 +714,7 @@
     "status": "扫描错误",
     "elapsedTime": "用时"
   },
-  "nowPlaying": {
-    "title": "正在播放",
+  "whosListening": {
     "empty": "无播放内容",
     "minutesAgo": "%{smart_count} 分钟前"
   },

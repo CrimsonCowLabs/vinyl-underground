@@ -709,8 +709,7 @@
       "current_song": "Перейти к текущему треку"
     }
   },
-  "nowPlaying": {
-    "title": "Сейчас играет",
+  "whosListening": {
     "empty": "Ничего не играет",
     "minutesAgo": "%{smart_count} минуту назад |||| %{smart_count} минуты назад |||| %{smart_count} минут назад"
   }

@@ -726,8 +726,7 @@
       "current_song": "Aktuellen Titel Anzeigen"
     }
   },
-  "nowPlaying": {
-    "title": "Aktuelle Wiedergabe",
+  "whosListening": {
     "empty": "Keine Wiedergabe",
     "minutesAgo": "Vor %{smart_count} Minute |||| Vor %{smart_count} Minuten"
   }

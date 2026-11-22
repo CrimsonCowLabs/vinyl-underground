@@ -713,8 +713,7 @@
       "current_song": "Aller au titre en cours"
     }
   },
-  "nowPlaying": {
-    "title": "En cours de lecture",
+  "whosListening": {
     "empty": "Aucun titre en cours de lecture",
     "minutesAgo": "Il y a %{smart_count} minute |||| Il y a %{smart_count} minutes"
   }

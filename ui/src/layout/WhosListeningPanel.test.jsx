@@ -4,7 +4,7 @@ import { describe, it, beforeEach, vi } from 'vitest'
 import { Provider } from 'react-redux'
 import { createStore, combineReducers } from 'redux'
 import { activityReducer } from '../reducers'
-import NowPlayingPanel from './NowPlayingPanel'
+import WhosListeningPanel from './WhosListeningPanel'
 import subsonic from '../subsonic'
 
 vi.mock('../subsonic', () => ({
@@ -54,7 +54,7 @@ vi.mock('@material-ui/core/styles/useTheme', () => ({
   }),
 }))
 
-describe('<NowPlayingPanel />', () => {
+describe('<WhosListeningPanel />', () => {
   const createMockStore = (overrides = {}) => {
     const defaultState = {
       activity: {
@@ -102,11 +102,53 @@ describe('<NowPlayingPanel />', () => {
     })
   })
 
+  it("labels the button and its list Who's Listening", async () => {
+    const store = createMockStore()
+    render(
+      <Provider store={store}>
+        <WhosListeningPanel />
+      </Provider>,
+    )
+
+    await vi.advanceTimersByTimeAsync(500)
+
+    const button = screen.getByRole('button', { name: 'whosListening.title' })
+    fireEvent.mouseOver(button)
+    await vi.advanceTimersByTimeAsync(500)
+    expect(screen.getByRole('tooltip')).toHaveTextContent('whosListening.title')
+
+    fireEvent.click(button)
+    await waitFor(() => {
+      expect(
+        screen.getByRole('list', { name: 'whosListening.title' }),
+      ).toBeInTheDocument()
+    })
+  })
+
+  it("names the open panel Who's Listening while someone is listening", async () => {
+    const store = createMockStore()
+    render(
+      <Provider store={store}>
+        <WhosListeningPanel />
+      </Provider>,
+    )
+
+    await vi.advanceTimersByTimeAsync(500)
+
+    fireEvent.click(screen.getByRole('button'))
+    await waitFor(() => {
+      expect(screen.getByRole('link', { name: 'Artist' })).toBeInTheDocument()
+    })
+    expect(
+      screen.getByRole('dialog', { name: 'whosListening.title' }),
+    ).toBeInTheDocument()
+  })
+
   it('fetches and displays entries when opened', async () => {
     const store = createMockStore()
     render(
       <Provider store={store}>
-        <NowPlayingPanel />
+        <WhosListeningPanel />
       </Provider>,
     )
 
@@ -127,7 +169,7 @@ describe('<NowPlayingPanel />', () => {
     const store = createMockStore()
     render(
       <Provider store={store}>
-        <NowPlayingPanel />
+        <WhosListeningPanel />
       </Provider>,
     )
 
@@ -164,7 +206,7 @@ describe('<NowPlayingPanel />', () => {
     const store = createMockStore()
     render(
       <Provider store={store}>
-        <NowPlayingPanel />
+        <WhosListeningPanel />
       </Provider>,
     )
 
@@ -185,7 +227,7 @@ describe('<NowPlayingPanel />', () => {
     const store = createMockStore({ nowPlayingCount: 0 })
     render(
       <Provider store={store}>
-        <NowPlayingPanel />
+        <WhosListeningPanel />
       </Provider>,
     )
 
@@ -193,8 +235,11 @@ describe('<NowPlayingPanel />', () => {
 
     fireEvent.click(screen.getByRole('button'))
     await waitFor(() => {
-      expect(screen.getByText('nowPlaying.empty')).toBeInTheDocument()
+      expect(screen.getByText('whosListening.empty')).toBeInTheDocument()
     })
+    expect(
+      screen.getByRole('dialog', { name: 'whosListening.title' }),
+    ).toBeInTheDocument()
   })
 
   it('does not close panel when artist link is clicked on large screens', async () => {
@@ -203,7 +248,7 @@ describe('<NowPlayingPanel />', () => {
     const store = createMockStore()
     render(
       <Provider store={store}>
-        <NowPlayingPanel />
+        <WhosListeningPanel />
       </Provider>,
     )
 
@@ -233,7 +278,7 @@ describe('<NowPlayingPanel />', () => {
     })
     render(
       <Provider store={store}>
-        <NowPlayingPanel />
+        <WhosListeningPanel />
       </Provider>,
     )
 
@@ -249,7 +294,7 @@ describe('<NowPlayingPanel />', () => {
     })
     render(
       <Provider store={store}>
-        <NowPlayingPanel />
+        <WhosListeningPanel />
       </Provider>,
     )
 
@@ -267,7 +312,7 @@ describe('<NowPlayingPanel />', () => {
     })
     const { rerender } = render(
       <Provider store={initialStore}>
-        <NowPlayingPanel />
+        <WhosListeningPanel />
       </Provider>,
     )
 
@@ -282,7 +327,7 @@ describe('<NowPlayingPanel />', () => {
     })
     rerender(
       <Provider store={reconnectedStore}>
-        <NowPlayingPanel />
+        <WhosListeningPanel />
       </Provider>,
     )
 
@@ -304,7 +349,7 @@ describe('<NowPlayingPanel />', () => {
     })
     render(
       <Provider store={store}>
-        <NowPlayingPanel />
+        <WhosListeningPanel />
       </Provider>,
     )
 
@@ -329,7 +374,7 @@ describe('<NowPlayingPanel />', () => {
     })
     const { rerender } = render(
       <Provider store={store}>
-        <NowPlayingPanel />
+        <WhosListeningPanel />
       </Provider>,
     )
 
@@ -347,7 +392,7 @@ describe('<NowPlayingPanel />', () => {
     })
     rerender(
       <Provider store={updatedStore}>
-        <NowPlayingPanel />
+        <WhosListeningPanel />
       </Provider>,
     )
 

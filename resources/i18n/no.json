@@ -626,8 +626,7 @@
       "current_song": "Gå til Nåværende Sang"
     }
   },
-  "nowPlaying": {
-    "title": "",
+  "whosListening": {
     "empty": "",
     "minutesAgo": ""
   }
