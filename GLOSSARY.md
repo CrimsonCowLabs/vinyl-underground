@@ -26,6 +26,10 @@ _Avoid_: Copy, version (a live or remastered recording is a different Track, not
 An album (with its album artist) kept on the drive as two separate copies in different folders, so the app lists every Track twice. Their audio differs, so they are not Duplicates; the songs the weaker copy shares with the other are moved to Quarantine. One stray Track of an album in another folder (e.g. a mix) doesn't make it held twice, and neither does a multi-disc album with one folder per disc.
 _Avoid_: Duplicate album (its Files are not Duplicates), double album (an album of two discs)
 
+**Correction**:
+An admin's fix to a wrong tag value (e.g. renaming the Artist "Greatful Dead" to "Grateful Dead"), kept in the app and applied whenever a File's tags are read. It is never written to the File, and it never changes a Track's identity.
+_Avoid_: Edit, override, retag (that writes the Files)
+
 **Quarantine**:
 The folder on the drive holding Files removed from the Library (Duplicates, and the weaker copy of each album held twice), kept until they are permanently deleted.
 _Avoid_: Trash, recycle bin

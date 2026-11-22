@@ -94,6 +94,9 @@ Everything below is done and merged. Each item links to its issue, where the det
 - Review each batch's tags, with MusicBrainz proposals for album and year, then Discard or Promote ([#33](https://github.com/CrimsonCowLabs/vinyl-underground/issues/33), [#34](https://github.com/CrimsonCowLabs/vinyl-underground/issues/34)).
 - Promote moves reviewed Files onto the NAS, keeping each Track's favorites, play counts and Playlist entries ([#36](https://github.com/CrimsonCowLabs/vinyl-underground/issues/36)).
 
+**Corrections, fixing tags in the app** (the share stays read-only)
+- Admins rename a misspelled Artist from its page. The fix is kept in the app, applies in every client and to Files added later, keeps favorites, play counts and Playlists, and can be undone from the Corrections page ([#122](https://github.com/CrimsonCowLabs/vinyl-underground/issues/122)).
+
 **Library cleanup** (tools run by hand, in [`contrib/library-cleanup`](contrib/library-cleanup/README.md))
 - Merge folder names that differ only by letter case, which confuse case-insensitive SMB1 NAS devices, and move Duplicates into Quarantine ([#2](https://github.com/CrimsonCowLabs/vinyl-underground/issues/2)).
 - Also quarantine audio-identical Duplicates whose tags differ ([#53](https://github.com/CrimsonCowLabs/vinyl-underground/issues/53)), and the weaker copy of albums held twice ([#54](https://github.com/CrimsonCowLabs/vinyl-underground/issues/54)).

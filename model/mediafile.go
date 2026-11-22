@@ -101,6 +101,8 @@ type MediaFile struct {
 
 	Tags         Tags         `structs:"tags" json:"tags,omitempty" hash:"ignore"`       // All imported tags from the original file
 	Participants Participants `structs:"participants" json:"participants" hash:"ignore"` // All artists that participated in this track
+	// CorrectionIDs are the Corrections the scanner applied to this Track's tags.
+	CorrectionIDs []string `structs:"-" json:"-" hash:"ignore"`
 
 	Missing   bool      `structs:"missing" json:"missing" hash:"ignore"`      // If the file is not found in the library's FS
 	BirthTime time.Time `structs:"birth_time" json:"birthTime" hash:"ignore"` // Time of file creation (ctime)

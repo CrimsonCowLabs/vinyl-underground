@@ -126,6 +126,10 @@ func (s *SQLStore) DJ(ctx context.Context) model.DJRepository {
 	return NewDJRepository(ctx, s.getDBXBuilder())
 }
 
+func (s *SQLStore) Correction(ctx context.Context) model.CorrectionRepository {
+	return NewCorrectionRepository(ctx, s.getDBXBuilder())
+}
+
 func (s *SQLStore) Resource(ctx context.Context, m any) model.ResourceRepository {
 	switch m.(type) {
 	case model.User:

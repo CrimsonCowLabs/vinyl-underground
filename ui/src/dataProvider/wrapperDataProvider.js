@@ -247,6 +247,17 @@ const wrapperDataProvider = {
     httpClient(`${REST_URL}/metadata/${REFRESH_KIND[resource]}/${id}/refresh`, {
       method: 'POST',
     }).then(() => ({ data: { id } })),
+  // Corrections (admin only). Both answer { correction, artistId, done }: done is false while
+  // the rescan carries on in the background. A failure's body has an `error` code to translate.
+  renameArtist: (artistId, name) =>
+    httpClient(`${REST_URL}/correction/artistRename`, {
+      method: 'POST',
+      body: JSON.stringify({ artistId, name }),
+    }).then(({ json }) => ({ data: { id: json.correction.id, ...json } })),
+  undoCorrection: (id) =>
+    httpClient(`${REST_URL}/correction/${id}/undo`, { method: 'POST' }).then(
+      ({ json }) => ({ data: { id, ...json } }),
+    ),
 }
 
 export default wrapperDataProvider
