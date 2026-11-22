@@ -11,17 +11,14 @@ import { useBackToClose } from './useBackToClose'
 import { useSwipeDown } from './useSwipeDown'
 import NowPlayingContent from './NowPlayingContent'
 import NowPlayingPanel from './NowPlayingPanel'
-import { vuPalette } from './vuPalette'
+import { nowPlayingBackground } from './vuPalette'
 
 const useStyles = makeStyles(
   (theme) => {
-    const vu = vuPalette(theme)
     return {
       paper: {
         backgroundColor: theme.palette.background.default,
-        backgroundImage: `linear-gradient(180deg, ${vu.accentGlow}, transparent 58%)${
-          vu.grain ? `, ${vu.grain}` : ''
-        }`,
+        backgroundImage: nowPlayingBackground(theme),
         border: 'none',
         boxShadow: 'none',
         // Follows a down drag; springs back if it doesn't close

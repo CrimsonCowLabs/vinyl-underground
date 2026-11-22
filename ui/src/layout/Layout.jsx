@@ -11,7 +11,7 @@ import { useSearchRefocus } from '../common'
 import { useResumeDownloads } from '../download'
 import { OfflineGate } from '../download/OfflineGate'
 import { PANEL_WIDTH } from '../nowPlaying/nowPlayingState'
-import { useNowPlayingPanel } from '../nowPlaying/useNowPlayingPanel'
+import { useNowPlayingPanelShown } from '../nowPlaying/useNowPlayingPanel'
 
 const useStyles = makeStyles({
   root: {
@@ -27,7 +27,7 @@ const useStyles = makeStyles({
 const Layout = (props) => {
   const theme = useCurrentTheme()
   const queue = useSelector((state) => state.player?.queue)
-  const nowPlayingPanel = useNowPlayingPanel()
+  const nowPlayingPanel = useNowPlayingPanelShown()
   const classes = useStyles({
     addPadding: queue.length > 0,
     nowPlayingPanel: nowPlayingPanel && queue.length > 0,

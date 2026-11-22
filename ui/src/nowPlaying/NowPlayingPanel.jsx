@@ -7,7 +7,7 @@ import { makeStyles } from '@material-ui/core/styles'
 import CloseIcon from '@material-ui/icons/Close'
 import { closeNowPlaying, PANEL_WIDTH } from './nowPlayingState'
 import NowPlayingContent from './NowPlayingContent'
-import { vuPalette } from './vuPalette'
+import { nowPlayingBackground } from './vuPalette'
 
 // The app bar's height on desktop (react-admin's dense toolbar), and the
 // player bar's, which the panel sits between
@@ -16,7 +16,6 @@ const PLAYER_BAR_HEIGHT = 80
 
 const useStyles = makeStyles(
   (theme) => {
-    const vu = vuPalette(theme)
     return {
       root: {
         position: 'fixed',
@@ -32,9 +31,7 @@ const useStyles = makeStyles(
         containerType: 'inline-size',
         borderLeft: `1px solid ${theme.palette.divider}`,
         backgroundColor: theme.palette.background.paper,
-        backgroundImage: `linear-gradient(180deg, ${vu.accentGlow}, transparent 58%)${
-          vu.grain ? `, ${vu.grain}` : ''
-        }`,
+        backgroundImage: nowPlayingBackground(theme),
       },
     }
   },

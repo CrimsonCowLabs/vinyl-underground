@@ -8,8 +8,8 @@ import { isNowPlayingOpen, PANEL_QUERY } from './nowPlayingState'
 export const useWideEnoughForPanel = () =>
   useMediaQuery(PANEL_QUERY, { noSsr: true })
 
-// useNowPlayingPanel is whether the Now Playing side panel is showing.
-export const useNowPlayingPanel = () => {
+// useNowPlayingPanelShown is whether the Now Playing side panel is showing.
+export const useNowPlayingPanelShown = () => {
   const open = useSelector(isNowPlayingOpen)
   const wide = useWideEnoughForPanel()
   return open && wide

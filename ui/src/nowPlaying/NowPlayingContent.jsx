@@ -142,7 +142,7 @@ const trackShown = (state) => {
 }
 
 // NowPlayingContent is what Now Playing shows: the full-screen view on
-// phones, and the desktop side panel (#91). closeButton is the host's own.
+// phones, and the side panel on desktop. closeButton is the host's own.
 const NowPlayingContent = ({ audioInstance, onNavigate, closeButton }) => {
   const classes = useStyles()
   const translate = useTranslate()
