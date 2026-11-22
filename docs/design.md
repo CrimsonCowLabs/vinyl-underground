@@ -162,6 +162,55 @@ The Library keeps growing, and all new music reaches it through one path: the **
 - The 68 Files already tagged for the 2026-11 intake.
 - The 73 YouTube-quality Files excluded then, marked as Rips.
 
+### UI refresh (designed 2026-11-22)
+A better player and a look of our own, built into the existing web UI ([ADR-0003](./adr/0003-extend-legacy-navidrome-ui.md) still holds).
+
+**Direction**
+- Improve our own web UI rather than adopt a Subsonic client. Vibrdrome (an MIT Subsonic client) is inspiration only: a Subsonic client never shows Stations, Blurbs, Generated Playlists or our Downloads.
+- The player stays `navidrome-music-player` 4.25.4 (Navidrome's fork of react-jinke-music-player), which is built around one audio element. Our views sit on top of it; it keeps doing playback and the queue.
+- Order of work: Now Playing, then the equalizer, then visuals, then the look.
+- A prototype (#88) settles the look and the Now Playing layout on a real phone and desktop before they are built.
+- Gapless playback and crossfade are deferred: both need two audio elements ([ADR-0009](./adr/0009-defer-gapless-playback-and-crossfade.md)).
+
+**Now Playing** (#90, #91, #92)
+- The inherited panel showing what other Listeners are playing is renamed **Who's Listening** (#89), freeing the name.
+- Phone: tapping the mini player opens Now Playing full screen, in place of the player package's own mobile panel. A down gesture, a button, Esc or back closes it; playback carries on.
+- Desktop: the cover in the player bar (or an expand button) opens a side panel docked on the right, fixed at about 400px and not resizable. It pushes the page content over rather than covering it, stays open as the Listener navigates, and whether it was open is remembered per device. Below about 1000px wide it falls back to full screen.
+- Content: large album art; title, artist and album, each a link; seek bar with elapsed and remaining time; previous, play/pause and next; star and rating.
+- Toolbar: Lyrics, Queue, EQ, Visuals, Sleep timer and Speed. A slot whose feature isn't built yet is hidden.
+- The art area has **Art · Lyrics · Queue** tabs (Art becomes Art/Visuals once visuals land). The selected tab is remembered per device. On desktop, the player package's own queue pop-up is hidden.
+- Lyrics: synced lyrics highlight the current line, and tapping a line seeks to it. Unsynced lyrics are shown as plain scrollable text instead of being dropped.
+- Queue: tap to play, drag to reorder, remove.
+- On a Station: the DJ's name and the latest Blurb (when Blurbs are enabled), updating as Tracks change.
+- A Download plays and shows the same way offline.
+
+**Sleep timer and playback speed** (#93)
+- Sleep timer: 15, 30, 45 or 60 minutes, or "End of this Track". Playback fades out briefly and pauses; the remaining time shows in Now Playing. Not kept across reloads.
+- Speed: 0.75×, 1×, 1.25×, 1.5×, 2×, keeping pitch where the browser supports it.
+
+**Equalizer** (#94, #95; [ADR-0010](./adr/0010-one-shared-web-audio-chain.md))
+- 10 bands (about 31 Hz to 16 kHz, ±12 dB), a preamp, an on/off toggle, built-in presets (Flat, Bass boost, Treble boost, Vocal, Loudness, Late night) and named custom presets.
+- One shared Web Audio chain: source → equalizer → analyser for visuals → ReplayGain gain → output. ReplayGain already builds AudioContext → MediaElementSource → GainNode, lazily and only when it is on (`ui/src/audioplayer/Player.jsx`), and `createMediaElementSource` can be called only once per element, so every feature plugs into that one chain.
+- All Library audio is same-origin, including Downloads (answered by the service worker from Cache Storage), so it all runs through the chain. Building the chain sets `crossOrigin='anonymous'` on the element (for Internet Radio in Firefox), so a radio stream plays through it only when its host allows CORS.
+- iPhone: the equalizer and visuals sit behind an **Audio effects** switch in Settings, off by default, with a warning that playback may stop when the screen is locked. Android and desktop always have them, with no switch.
+
+**Visuals** (#96, #97)
+- Lightweight: spectrum bars, a waveform, and a glow coloured from the album art. Shown in the Art/Visuals tab, with a Full screen button.
+- Milkdrop mode through butterchurn (MIT), loaded only when chosen, with a preset picker.
+- A photosensitivity warning the first time visuals are turned on, and a setting that turns them off entirely. They stop drawing when hidden or in the background.
+
+**The look** (#98, #99, #100, #101)
+- A new **Vinyl Underground** colour theme (not a Station's Theme), dark and light: warm record-shop, near-black and warm-grey surfaces, one strong accent. It is the default, and "Auto" maps to it, following the system's light or dark mode. The 27 inherited colour themes are kept, and a Listener who picked one keeps it.
+- Accents: about 8 fixed colours plus "From album art", which colours Now Playing and the mini player from the current cover, adjusted to stay readable. Only offered with the Vinyl Underground theme.
+- The mini player is restyled: cover, title and artist, play/pause and next, a thin progress line, and a hint of the DJ's name on a Station. Tapping it opens Now Playing.
+- Phones get a bottom tab bar in place of the side drawer: **Library · Playlists · Stations · Downloads · More**, with the mini player just above it. "More" holds Generated Playlists, the Inbox and Rips, settings and the admin pages. Desktop keeps its sidebar.
+
+**Palette** (from the prototype, #88)
+- To be decided: the palette values (dark and light) and the fixed accents are settled by the prototype in #88 and recorded here.
+
+**Settings are per device**
+- Like the colour theme and the existing player settings, the new ones are kept per device in `localStorage`: the panel's open state, the selected tab, speed, the equalizer and its custom presets, the chosen visual, the accent and the Audio effects switch. Nothing new is stored on the server.
+
 ## Architecture
 
 - **One codebase.** All new backend features (Generated Playlists, Stations, DJs, Blurbs) live in the Go server: new tables through Navidrome's migrations, and new endpoints next to its native `/api`, reusing its auth.

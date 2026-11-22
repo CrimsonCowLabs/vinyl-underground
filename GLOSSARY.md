@@ -48,11 +48,19 @@ _Avoid_: Host, presenter, bot
 
 **Theme**:
 An optional free-text mood or idea a Listener gives when starting a Station (e.g. "late-night drive").
-_Avoid_: Prompt (reserved for Generated Playlists), genre, seed
+_Avoid_: Prompt (reserved for Generated Playlists), genre, seed, colour theme (the app's look)
 
 **Blurb**:
 The short on-screen text a DJ shows between two Tracks on a Station.
 _Avoid_: Intro, voiceover, caption
+
+**Now Playing**:
+A Listener's own view of what they are playing: full screen on a phone, or a side panel docked on the right on desktop. It holds the album art, lyrics, the queue and the player's controls.
+_Avoid_: Mini player (the bar along the bottom), full-screen player, Who's Listening (what other Listeners are playing)
+
+**Who's Listening**:
+The panel showing what other Listeners are playing right now. Navidrome called it "Now Playing".
+_Avoid_: Now Playing (the Listener's own view), activity
 
 ### Playlists and offline
 
