@@ -30,6 +30,11 @@ const (
 	// CorrectionAlbumCover's, and its ImageHash is the blocked image's content hash. An album can
 	// have several.
 	CorrectionAlbumCoverBlock CorrectionKind = "albumCoverBlock"
+	// CorrectionAlbum corrects an album's title, album artist and year (its AlbumName,
+	// AlbumArtist and Year; an empty one keeps the tagged value). Like CorrectionAlbumCover it is
+	// keyed by the album's folder (see AlbumFolderKey), as the tag values are what is wrong and
+	// two albums can share them, and it applies to every File in the album's folders.
+	CorrectionAlbum CorrectionKind = "album"
 )
 
 // IsAlbumCover says whether the Correction is about an album's cover (a choice or a block). It
@@ -63,6 +68,12 @@ type Correction struct {
 	// block has only the ImageHash of the image it blocks. Empty for other kinds.
 	ImageHash string `structs:"image_hash" json:"-"`
 	ImageMime string `structs:"image_mime" json:"-"`
+	// AlbumName, AlbumArtist and Year are what an album Correction sets (see CorrectionAlbum):
+	// empty or zero for what it leaves as tagged, and for other kinds. The album's MusicBrainz
+	// IDs (#125) belong here too.
+	AlbumName   string `structs:"album_name" json:"albumName,omitempty"`
+	AlbumArtist string `structs:"album_artist" json:"albumArtist,omitempty"`
+	Year        int    `structs:"year" json:"year,omitempty"`
 
 	// TrackCount is how many Tracks in the Library the Correction applies to now. Zero means it
 	// is orphaned: it matches nothing.
@@ -129,6 +140,10 @@ type CorrectionRepository interface {
 	Delete(id string) error
 	// FolderIDs returns the folders of the Tracks the Correction applies to now.
 	FolderIDs(id string) ([]string, error)
+	// AlbumFolderIDs returns the folders an album Correction keyed by key matches (see
+	// AlbumFolderKey): key itself, and every folder of the albums in it, e.g. the album's
+	// other discs.
+	AlbumFolderIDs(key string) ([]string, error)
 
 	// MergeArtistAnnotations merges every Listener's star, rating and play count of Artist fromID into
 	// Artist toID's, for the artist merge Correction with correctionID: play counts are added

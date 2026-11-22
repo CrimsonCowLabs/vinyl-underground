@@ -95,6 +95,7 @@
         "download": "Download"
       },
       "actions": {
+        "edit": "Edit",
         "playAll": "Play",
         "playNext": "Play Next",
         "addToQueue": "Play Later",
@@ -106,6 +107,19 @@
         "refresh": "Refresh Metadata",
         "saveFiles": "Save Files",
         "chooseCover": "Choose Cover"
+      },
+      "editor": {
+        "help": "Corrects the album in every client, without changing its Files. Tracks keep their IDs, and the album keeps its stars and play counts. Undo it on the Corrections page.",
+        "corrected": "Album corrected",
+        "correcting": "Saved. The album is being updated in the background",
+        "errors": {
+          "sharedFolder": "Another album shares this album's folder, so it can't be corrected on its own.",
+          "renamedAway": "A Correction renames \"%{name}\" away. Pick the Artist it is renamed to.",
+          "alreadyCorrected": "This album's Correction is being undone. Try again once that is done.",
+          "invalid": "Enter a title, an album artist and a four-digit year, changing at least one.",
+          "notFound": "This album no longer exists.",
+          "unknown": "Could not save the Correction. Try again later."
+        }
       },
       "lists": {
         "all": "All",
@@ -420,7 +434,8 @@
         "artistRename": "Artist rename",
         "artistMerge": "Artist merge",
         "albumCover": "Album cover",
-        "albumCoverBlock": "Cover marked wrong"
+        "albumCoverBlock": "Cover marked wrong",
+        "album": "Album"
       },
       "status": {
         "tracks": "1 Track |||| %{smart_count} Tracks",

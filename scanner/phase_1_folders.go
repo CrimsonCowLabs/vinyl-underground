@@ -152,6 +152,16 @@ func (p *phaseFolders) producer() ppl.Producer[*folderEntry] {
 			return fmt.Errorf("loading corrections: %w", err)
 		}
 		p.corrections = metadata.NewCorrections(corrections)
+		for _, c := range corrections {
+			if c.Kind != model.CorrectionAlbum || c.Undoing {
+				continue
+			}
+			folderIDs, err := p.ds.Correction(p.ctx).AlbumFolderIDs(c.MatchKey)
+			if err != nil {
+				return fmt.Errorf("loading the folders of an album correction: %w", err)
+			}
+			p.corrections.MatchAlbumFolders(c.MatchKey, folderIDs)
+		}
 		p.artistIDMoves = p.corrections.ArtistIDMoves()
 
 		// TODO Parallelize multiple job when we have multiple libraries

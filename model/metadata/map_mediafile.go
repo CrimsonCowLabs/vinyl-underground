@@ -22,6 +22,48 @@ func (md Metadata) ToMediaFile(libID int, folderID string) model.MediaFile {
 // ToCorrectedMediaFile maps the File's tags to a Track, with the Corrections applied. The Track's
 // persistent ID comes from the tags as tagged, so a Correction never makes it a different Track.
 func (md Metadata) ToCorrectedMediaFile(libID int, folderID string, corrections Corrections) model.MediaFile {
+	mf := md.mapMediaFile(libID, folderID)
+
+	// Persistent IDs: the Track's from the tags as tagged, the album's from the corrected ones, so
+	// a renamed album artist's albums join any the new name already has. An album Correction
+	// corrects the tags themselves, before the artist renames, which then apply to the album
+	// artist it sets rather than to the tagged one: the album Correction wins.
+	mf.PID = md.trackPID(mf)
+	if corrected, id, ok := corrections.correctAlbum(md, folderID); ok {
+		pid := mf.PID
+		md, mf = corrected, corrected.mapMediaFile(libID, folderID)
+		mf.PID = pid
+		mf.CorrectionIDs = []string{id}
+	}
+	corrections.renameArtists(&mf)
+	mf.AlbumID = md.albumID(mf, conf.Server.PID.Album)
+
+	// BFR These IDs will go away once the UI handle multiple participants.
+	// BFR For Legacy Subsonic compatibility, we will set them in the API handlers
+	mf.ArtistID = mf.Participants.First(model.RoleArtist).ID
+	mf.AlbumArtistID = mf.Participants.First(model.RoleAlbumArtist).ID
+
+	// BFR What to do with sort/order artist names?
+	mf.OrderArtistName = mf.Participants.First(model.RoleArtist).OrderArtistName
+	mf.OrderAlbumArtistName = mf.Participants.First(model.RoleAlbumArtist).OrderArtistName
+	mf.SortArtistName = mf.Participants.First(model.RoleArtist).SortArtistName
+	mf.SortAlbumArtistName = mf.Participants.First(model.RoleAlbumArtist).SortArtistName
+
+	// Don't store tags that are first-class fields (and are not album-level tags) in the
+	// MediaFile struct. This is to avoid redundancy in the DB
+	//
+	// Remove all tags from the main section that are not flagged as album tags
+	for tag, conf := range model.TagMainMappings() {
+		if !conf.Album {
+			delete(mf.Tags, tag)
+		}
+	}
+
+	return mf
+}
+
+// mapMediaFile maps the File's tags to the Track's fields, but not to its IDs.
+func (md Metadata) mapMediaFile(libID int, folderID string) model.MediaFile {
 	mf := model.MediaFile{
 		LibraryID: libID,
 		FolderID:  folderID,
@@ -91,34 +133,6 @@ func (md Metadata) ToCorrectedMediaFile(libID int, folderID string, corrections 
 	mf.Participants = md.mapParticipants()
 	mf.Artist = md.mapDisplayArtist()
 	mf.AlbumArtist = md.mapDisplayAlbumArtist(mf)
-
-	// Persistent IDs: the Track's from the tags as tagged, the album's from the corrected ones, so
-	// a renamed album artist's albums join any the new name already has.
-	mf.PID = md.trackPID(mf)
-	corrections.renameArtists(&mf)
-	mf.AlbumID = md.albumID(mf, conf.Server.PID.Album)
-
-	// BFR These IDs will go away once the UI handle multiple participants.
-	// BFR For Legacy Subsonic compatibility, we will set them in the API handlers
-	mf.ArtistID = mf.Participants.First(model.RoleArtist).ID
-	mf.AlbumArtistID = mf.Participants.First(model.RoleAlbumArtist).ID
-
-	// BFR What to do with sort/order artist names?
-	mf.OrderArtistName = mf.Participants.First(model.RoleArtist).OrderArtistName
-	mf.OrderAlbumArtistName = mf.Participants.First(model.RoleAlbumArtist).OrderArtistName
-	mf.SortArtistName = mf.Participants.First(model.RoleArtist).SortArtistName
-	mf.SortAlbumArtistName = mf.Participants.First(model.RoleAlbumArtist).SortArtistName
-
-	// Don't store tags that are first-class fields (and are not album-level tags) in the
-	// MediaFile struct. This is to avoid redundancy in the DB
-	//
-	// Remove all tags from the main section that are not flagged as album tags
-	for tag, conf := range model.TagMainMappings() {
-		if !conf.Album {
-			delete(mf.Tags, tag)
-		}
-	}
-
 	return mf
 }
 

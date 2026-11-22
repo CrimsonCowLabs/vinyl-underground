@@ -286,6 +286,12 @@ const wrapperDataProvider = {
       method: 'POST',
       body: JSON.stringify({ artistId, intoId }),
     }).then(({ json }) => ({ data: { id: json.correction.id, ...json } })),
+  // An album Correction of its title, album artist and year: { correction, albumId, done }.
+  correctAlbum: (albumId, { name, albumArtist, year }) =>
+    httpClient(`${REST_URL}/correction/album`, {
+      method: 'POST',
+      body: JSON.stringify({ albumId, name, albumArtist, year }),
+    }).then(({ json }) => ({ data: { id: json.correction.id, ...json } })),
   undoCorrection: (id) =>
     httpClient(`${REST_URL}/correction/${id}/undo`, { method: 'POST' }).then(
       ({ json }) => ({ data: { id, ...json } }),

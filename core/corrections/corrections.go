@@ -44,6 +44,8 @@ type Applied struct {
 	Correction model.Correction `json:"correction"`
 	// ArtistID is the ID the Artist has once its folders are rescanned.
 	ArtistID string `json:"artistId,omitempty"`
+	// AlbumID is the ID a corrected album has once its folders are rescanned (if Done).
+	AlbumID string `json:"albumId,omitempty"`
 	// Done is false when the rescan outlasted Options.Wait and carries on in the background.
 	Done bool `json:"done"`
 }
@@ -69,6 +71,10 @@ type Corrections interface {
 	// them: their stars, ratings and play counts are joined (see
 	// model.CorrectionRepository.MergeArtistAnnotations). It rescans like RenameArtist.
 	MergeArtist(ctx context.Context, artistID, intoID string) (*Applied, error)
+	// CorrectAlbum saves a Correction of the album's title, album artist and year, keyed by its
+	// folder (see model.AlbumFolderKey) and replacing an earlier one, then rescans the album's
+	// folders and refreshes it. Only what differs from the album now is corrected.
+	CorrectAlbum(ctx context.Context, albumID string, fix AlbumFix) (*Applied, error)
 	// Undo stops applying the Correction, rescans the folders of the Tracks it applied to, and
 	// then deletes it. If the rescan fails, it stays marked as undoing, and Undo can be retried.
 	Undo(ctx context.Context, id string) (*Applied, error)
@@ -373,7 +379,8 @@ func isPlaceholder(name string) bool {
 // checkUndoOrder returns ErrUndoLaterFirst if another artist Correction builds on cr: it renames
 // cr's new name onward, or it merges another Artist into cr's new name later. A plain rename's
 // undo moves all of the new name's stars back, and a merge's undo the star the target took from
-// it, which a later merge may rely on.
+// it, which a later merge may rely on. An album Correction setting a rename's new name as its album
+// artist builds on it too: undone first, the rename would leave that album alone under the new name.
 func (c *corrections) checkUndoOrder(ctx context.Context, cr *model.Correction) error {
 	if !cr.Kind.IsArtistRename() {
 		return nil
@@ -384,6 +391,10 @@ func (c *corrections) checkUndoOrder(ctx context.Context, cr *model.Correction) 
 	}
 	to := model.ArtistNameKey(cr.To)
 	for _, o := range all {
+		if cr.Kind == model.CorrectionArtistRename && o.Kind == model.CorrectionAlbum && !o.Undoing &&
+			o.AlbumArtist != "" && model.ArtistNameKey(o.AlbumArtist) == to {
+			return ErrUndoLaterFirst
+		}
 		if o.ID == cr.ID || o.Undoing || !o.Kind.IsArtistRename() {
 			continue
 		}
@@ -402,6 +413,9 @@ func (c *corrections) Undo(ctx context.Context, id string) (*Applied, error) {
 	}
 	if cr.Kind.IsAlbumCover() {
 		return c.undoAlbumCover(ctx, cr)
+	}
+	if cr.Kind == model.CorrectionAlbum {
+		return c.undoAlbum(ctx, cr)
 	}
 	if err := c.checkUndoOrder(ctx, cr); err != nil {
 		return nil, err
