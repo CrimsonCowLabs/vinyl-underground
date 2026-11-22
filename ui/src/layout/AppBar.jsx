@@ -6,14 +6,15 @@ import {
   usePermissions,
   getResources,
 } from 'react-admin'
-import {
-  MdInfo,
-  MdPerson,
-  MdPhonelink,
-  MdSupervisorAccount,
-} from 'react-icons/md'
+import { MdInfo, MdPhonelink } from 'react-icons/md'
 import { useSelector } from 'react-redux'
-import { makeStyles, MenuItem, ListItemIcon, Divider } from '@material-ui/core'
+import {
+  makeStyles,
+  MenuItem,
+  ListItemIcon,
+  Divider,
+  useMediaQuery,
+} from '@material-ui/core'
 import ViewListIcon from '@material-ui/icons/ViewList'
 import { Dialogs } from '../dialogs/Dialogs'
 import { AboutDialog, QuickConnectDialog } from '../dialogs'
@@ -23,6 +24,7 @@ import WhosListeningPanel from './WhosListeningPanel'
 import UserMenu from './UserMenu'
 import config from '../config'
 import { OfflineIndicator } from '../download/OfflineIndicator'
+import { settingsResources, userSettingsLink } from './navItems'
 
 const useStyles = makeStyles(
   (theme) => ({
@@ -68,56 +70,35 @@ const DialogMenuItem = forwardRef(
 
 DialogMenuItem.displayName = 'DialogMenuItem'
 
-const settingsResources = (resource) =>
-  resource.name !== 'user' &&
-  resource.hasList &&
-  resource.options &&
-  resource.options.subMenu === 'settings'
-
 const CustomUserMenu = ({ onClick, ...rest }) => {
   const translate = useTranslate()
   const resources = useSelector(getResources)
   const classes = useStyles(rest)
   const { permissions } = usePermissions()
 
-  const resourceDefinition = (resourceName) =>
-    resources.find((r) => r?.name === resourceName)
-
   const renderUserMenuItemLink = () => {
-    const userResource = resourceDefinition('user')
-    if (!userResource) {
-      return null
-    }
-    if (permissions !== 'admin') {
-      if (!config.enableUserEditing) {
-        return null
-      }
-      userResource.icon = MdPerson
-    } else {
-      userResource.icon = MdSupervisorAccount
-    }
-    return renderSettingsMenuItemLink(
-      userResource,
-      permissions !== 'admin' ? localStorage.getItem('userId') : null,
-    )
+    const link = userSettingsLink(resources, permissions)
+    return link && renderSettingsMenuItemLink({ name: 'user', ...link })
   }
 
-  const renderSettingsMenuItemLink = (resource, id) => {
-    const label = translate(`resources.${resource.name}.name`, {
-      smart_count: id ? 1 : 2,
+  const renderSettingsMenuItemLink = ({
+    name,
+    icon,
+    to = `/${name}`,
+    smartCount = 2,
+  }) => {
+    const label = translate(`resources.${name}.name`, {
+      smart_count: smartCount,
     })
-    const link = id ? `/${resource.name}/${id}` : `/${resource.name}`
     return (
       <MenuItemLink
         className={classes.root}
         activeClassName={classes.active}
-        key={resource.name}
-        to={link}
+        key={name}
+        to={to}
         primaryText={label}
         leftIcon={
-          (resource.icon && createElement(resource.icon, { size: 24 })) || (
-            <ViewListIcon />
-          )
+          (icon && createElement(icon, { size: 24 })) || <ViewListIcon />
         }
         onClick={onClick}
         sidebarIsOpen={true}
@@ -143,9 +124,7 @@ const CustomUserMenu = ({ onClick, ...rest }) => {
         )}
         <Divider />
         {renderUserMenuItemLink()}
-        {resources
-          .filter(settingsResources)
-          .map((r) => renderSettingsMenuItemLink(r))}
+        {settingsResources(resources).map(renderSettingsMenuItemLink)}
         <Divider />
         <DialogMenuItem
           label={translate('menu.about')}
@@ -158,8 +137,29 @@ const CustomUserMenu = ({ onClick, ...rest }) => {
   )
 }
 
-const AppBar = (props) => (
-  <RAAppBar {...props} container={Fragment} userMenu={<CustomUserMenu />} />
-)
+const usePhoneStyles = makeStyles((theme) => ({
+  noMenuButton: { display: 'none' },
+  // Off the edge, where the button was
+  title: { paddingLeft: theme.spacing(2) },
+}))
+
+// On a phone the tab bar replaces the side drawer (Layout), so the button
+// that opens the drawer goes too
+const AppBar = (props) => {
+  const isDesktop = useMediaQuery('(min-width:810px)')
+  const classes = usePhoneStyles()
+  return (
+    <RAAppBar
+      {...props}
+      classes={
+        isDesktop
+          ? undefined
+          : { menuButton: classes.noMenuButton, title: classes.title }
+      }
+      container={Fragment}
+      userMenu={<CustomUserMenu />}
+    />
+  )
+}
 
 export default AppBar

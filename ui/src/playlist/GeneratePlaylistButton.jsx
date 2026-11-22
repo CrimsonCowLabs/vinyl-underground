@@ -46,7 +46,7 @@ const validLength = (value) => {
   return Number.isInteger(n) && n >= MIN_LENGTH && n <= MAX_LENGTH
 }
 
-const GeneratePlaylistDialog = ({ open, onClose }) => {
+export const GeneratePlaylistDialog = ({ open, onClose }) => {
   const translate = useTranslate()
   const notify = useNotify()
   const redirect = useRedirect()

@@ -10,6 +10,7 @@ describe('isAvailableOffline', () => {
     '/playlist',
     '/playlist/pl1/show',
     '/personal',
+    '/downloads',
   ])('opens %s, which Downloads can answer', (path) => {
     expect(isAvailableOffline(path)).toBe(true)
   })

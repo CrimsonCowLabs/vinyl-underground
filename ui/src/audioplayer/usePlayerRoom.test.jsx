@@ -33,18 +33,23 @@ const room = ({ desktop, queued }) => {
 }
 
 describe('usePlayerRoom, the room page content leaves below it for the player', () => {
-  it('leaves none with nothing queued', () => {
-    expect(room({ desktop: false, queued: false })).toBe(0)
+  it('leaves none on desktop with nothing queued', () => {
     expect(room({ desktop: true, queued: false })).toBe(0)
+  })
+
+  it("clears a phone's tab bar, above the home indicator, with nothing queued", () => {
+    expect(room({ desktop: false, queued: false })).toBe(
+      'calc(env(safe-area-inset-bottom) + 60px)',
+    )
   })
 
   it("clears the desktop player bar's 80px", () => {
     expect(room({ desktop: true, queued: true })).toBe('80px')
   })
 
-  it("clears a phone's mini player, above the home indicator", () => {
+  it("clears a phone's mini player and the tab bar below it", () => {
     expect(room({ desktop: false, queued: true })).toBe(
-      'calc(env(safe-area-inset-bottom) + 76px)',
+      'calc(env(safe-area-inset-bottom) + 136px)',
     )
   })
 })

@@ -6,12 +6,12 @@ import { useTranslate, MenuItemLink, getResources } from 'react-admin'
 import ViewListIcon from '@material-ui/icons/ViewList'
 import AlbumIcon from '@material-ui/icons/Album'
 import SubMenu from './SubMenu'
-import { humanize, pluralize } from 'inflection'
 import albumLists from '../album/albumLists'
 import PlaylistsSubMenu from './PlaylistsSubMenu'
 import LibrarySelector from '../common/LibrarySelector'
 import config from '../config'
 import { isAvailableOffline, useIsOffline } from '../download'
+import { subMenuResources, translatedResourceName } from './navItems'
 
 const useStyles = makeStyles((theme) => ({
   root: {
@@ -34,18 +34,6 @@ const useStyles = makeStyles((theme) => ({
     fontWeight: 'bold',
   },
 }))
-
-const translatedResourceName = (resource, translate) =>
-  translate(`resources.${resource.name}.name`, {
-    smart_count: 2,
-    _:
-      resource.options && resource.options.label
-        ? translate(resource.options.label, {
-            smart_count: 2,
-            _: resource.options.label,
-          })
-        : humanize(pluralize(resource.name)),
-  })
 
 const Menu = ({ dense = false }) => {
   const open = useSelector((state) => state.admin.ui.sidebarOpen)
@@ -106,9 +94,6 @@ const Menu = ({ dense = false }) => {
     )
   }
 
-  const subItems = (subMenu) => (resource) =>
-    resource.hasList && resource.options && resource.options.subMenu === subMenu
-
   return (
     <div
       className={clsx(classes.root, {
@@ -129,7 +114,7 @@ const Menu = ({ dense = false }) => {
           renderAlbumMenuItemLink(type, albumLists[type]),
         )}
       </SubMenu>
-      {resources.filter(subItems(undefined)).map(renderResourceMenuItemLink)}
+      {subMenuResources(resources, undefined).map(renderResourceMenuItemLink)}
       {config.devSidebarPlaylists && open ? (
         <>
           <Divider />
@@ -141,7 +126,7 @@ const Menu = ({ dense = false }) => {
           />
         </>
       ) : (
-        resources.filter(subItems('playlist')).map(renderResourceMenuItemLink)
+        subMenuResources(resources, 'playlist').map(renderResourceMenuItemLink)
       )}
     </div>
   )
