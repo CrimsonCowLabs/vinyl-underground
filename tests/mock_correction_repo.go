@@ -10,12 +10,14 @@ import (
 )
 
 // MockCorrectionRepo keeps Corrections in memory. Folders maps a Correction ID to the folders
-// FolderIDs returns.
+// FolderIDs returns, and AlbumFolders an album Correction's key to the folders AlbumFolderIDs
+// returns.
 type MockCorrectionRepo struct {
-	mu      sync.Mutex
-	All     model.Corrections
-	Folders map[string][]string
-	Err     error
+	mu           sync.Mutex
+	All          model.Corrections
+	Folders      map[string][]string
+	AlbumFolders map[string][]string
+	Err          error
 }
 
 func (m *MockCorrectionRepo) GetAll() (model.Corrections, error) {
@@ -93,6 +95,16 @@ func (m *MockCorrectionRepo) FolderIDs(id string) ([]string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.Folders[id], m.Err
+}
+
+// AlbumFolderIDs returns AlbumFolders[key], or just key.
+func (m *MockCorrectionRepo) AlbumFolderIDs(key string) ([]string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if f, ok := m.AlbumFolders[key]; ok {
+		return f, m.Err
+	}
+	return []string{key}, m.Err
 }
 
 var _ model.CorrectionRepository = (*MockCorrectionRepo)(nil)

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useState } from 'react'
 import PropTypes from 'prop-types'
 import {
   Button,
@@ -20,6 +20,7 @@ import {
 } from '@material-ui/core'
 import { Alert, Autocomplete } from '@material-ui/lab'
 import EditIcon from '@material-ui/icons/Edit'
+import { nameKey, useArtistSuggestions } from './useArtistSuggestions'
 
 // The server answers a refused Correction with a code; anything else is a generic error.
 const knownErrors = [
@@ -29,51 +30,6 @@ const knownErrors = [
   'invalid',
   'notFound',
 ]
-
-// How the server matches Artist names (model.ArtistNameKey): regardless of capitals, extra
-// spaces, and typographic quotes and dashes.
-const nameKey = (name) =>
-  name
-    .toLowerCase()
-    .replace(/[‘’‛′]/g, "'")
-    .replace(/[＂〃ˮײ᳓″‶˶ʺ“”˝‟]/g, '"')
-    .replace(/[‐–—−―]/g, '-')
-    .split(/\s+/)
-    .filter(Boolean)
-    .join(' ')
-
-// useArtistSuggestions offers the other Artists whose name matches what is typed.
-const useArtistSuggestions = (name, artistId) => {
-  const dataProvider = useDataProvider()
-  const [artists, setArtists] = useState([])
-  useEffect(() => {
-    const q = name.trim()
-    if (!q) {
-      setArtists([])
-      return
-    }
-    let stale = false
-    const timer = setTimeout(() => {
-      dataProvider
-        .getList('artist', {
-          pagination: { page: 1, perPage: 10 },
-          sort: { field: 'name', order: 'ASC' },
-          filter: { name: q },
-        })
-        .then(({ data }) => {
-          if (!stale) setArtists(data.filter((a) => a.id !== artistId))
-        })
-        .catch(() => {
-          if (!stale) setArtists([])
-        })
-    }, 250)
-    return () => {
-      stale = true
-      clearTimeout(timer)
-    }
-  }, [dataProvider, name, artistId])
-  return artists
-}
 
 const RenameArtistDialog = ({ record, onClose }) => {
   const translate = useTranslate()
