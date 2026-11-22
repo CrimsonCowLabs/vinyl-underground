@@ -2,71 +2,47 @@ package nativeapi
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"slices"
-	"sync"
 
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/conf/configtest"
 	"github.com/navidrome/navidrome/core/auth"
-	"github.com/navidrome/navidrome/core/external"
+	"github.com/navidrome/navidrome/core/refresh"
 	"github.com/navidrome/navidrome/model"
+	"github.com/navidrome/navidrome/scanner"
 	"github.com/navidrome/navidrome/server"
 	"github.com/navidrome/navidrome/tests"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
 
-type fakeProvider struct {
-	external.Provider
-	mu     sync.Mutex
+type fakeRefresher struct {
+	refresh.Refresher
+	err    error
 	called []string
 }
 
-func (f *fakeProvider) RefreshInfo(_ context.Context, kind model.Kind, id string) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
+func (f *fakeRefresher) Refresh(_ context.Context, kind model.Kind, id string) error {
 	f.called = append(f.called, kind.Prefix()+"/"+id)
-	return nil
-}
-
-func (f *fakeProvider) calls() []string {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return slices.Clone(f.called)
+	return f.err
 }
 
 var _ = Describe("Metadata API", func() {
 	var ds *tests.MockDataStore
-	var artRepo *tests.MockArtworkRepo
-	var queueRepo *tests.MockArtworkQueueRepo
-	var albumRepo *tests.MockAlbumRepo
-	var provider *fakeProvider
+	var refresher *fakeRefresher
 	var router http.Handler
 	var adminToken, userToken string
 
 	BeforeEach(func() {
 		DeferCleanup(configtest.SetupConfig())
 		conf.Server.EnableSharing = false
-		artRepo = tests.CreateMockArtworkRepo()
-		queueRepo = tests.CreateMockArtworkQueueRepo()
-		albumRepo = tests.CreateMockAlbumRepo()
-		artistRepo := tests.CreateMockArtistRepo()
-		playlistRepo := tests.CreateMockPlaylistRepo()
-		Expect(albumRepo.Put(&model.Album{ID: "al-1", Name: "Kid A"})).To(Succeed())
-		Expect(artistRepo.Put(&model.Artist{ID: "ar-1", Name: "Radiohead"})).To(Succeed())
-		Expect(playlistRepo.Put(&model.Playlist{ID: "pl-1", Name: "My Playlist"})).To(Succeed())
-		ds = &tests.MockDataStore{
-			MockedArtwork:      artRepo,
-			MockedArtworkQueue: queueRepo,
-			MockedAlbum:        albumRepo,
-			MockedArtist:       artistRepo,
-			MockedPlaylist:     playlistRepo,
-		}
+		ds = &tests.MockDataStore{}
 		auth.Init(ds)
-		provider = &fakeProvider{}
-		nativeRouter := New(ds, nil, nil, nil, tests.NewMockLibraryService(), tests.NewMockUserService(), nil, nil, nil, provider, nil)
+		refresher = &fakeRefresher{}
+		nativeRouter := New(ds, nil, nil, nil, tests.NewMockLibraryService(), tests.NewMockUserService(), nil, nil, nil, nil, nil, refresher)
 		router = server.JWTVerifier(nativeRouter)
 
 		adminUser := model.User{ID: "admin-1", UserName: "admin", IsAdmin: true, NewPassword: "adminpass"}
@@ -81,44 +57,32 @@ var _ = Describe("Metadata API", func() {
 		Expect(err).ToNot(HaveOccurred())
 	})
 
+	post := func(path, token string) int {
+		req := createAuthenticatedRequest("POST", path, nil, token)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		return w.Code
+	}
+
 	Describe("POST /api/metadata/{kind}/{id}/refresh", func() {
-		It("clears state and enqueues a Bump for admins", func() {
-			Expect(artRepo.PutItemArtwork(&model.ItemArtwork{
-				ItemKind: "al", ItemID: "al-1", Hash: "oldhash", Source: "external",
-			})).To(Succeed())
+		It("rescans and refreshes an album, answering once that is done", func() {
+			Expect(post("/metadata/al/al-1/refresh", adminToken)).To(Equal(http.StatusNoContent))
+			Expect(refresher.called).To(Equal([]string{"al/al-1"}))
+		})
 
-			req := createAuthenticatedRequest("POST", "/metadata/al/al-1/refresh", nil, adminToken)
-			w := httptest.NewRecorder()
-			router.ServeHTTP(w, req)
-
-			Expect(w.Code).To(Equal(http.StatusNoContent))
-
-			_, err := artRepo.GetItemArtwork(model.KindAlbumArtwork, "al-1", model.ImageTypePrimary)
-			Expect(err).To(MatchError(model.ErrNotFound))
-
-			queued, err := queueRepo.DequeueBatch(1000)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(queued).To(ContainElement(SatisfyAll(
-				HaveField("ItemKind", "al"),
-				HaveField("ItemID", "al-1"),
-				HaveField("Priority", model.ArtworkPriorityBump),
-			)))
+		It("rescans and refreshes an Artist", func() {
+			Expect(post("/metadata/ar/ar-1/refresh", adminToken)).To(Equal(http.StatusNoContent))
+			Expect(refresher.called).To(Equal([]string{"ar/ar-1"}))
 		})
 
 		It("returns 400 for an invalid kind", func() {
-			req := createAuthenticatedRequest("POST", "/metadata/xx/id-1/refresh", nil, adminToken)
-			w := httptest.NewRecorder()
-			router.ServeHTTP(w, req)
-
-			Expect(w.Code).To(Equal(http.StatusBadRequest))
+			Expect(post("/metadata/xx/id-1/refresh", adminToken)).To(Equal(http.StatusBadRequest))
+			Expect(refresher.called).To(BeEmpty())
 		})
 
 		It("denies access to regular users", func() {
-			req := createAuthenticatedRequest("POST", "/metadata/al/al-1/refresh", nil, userToken)
-			w := httptest.NewRecorder()
-			router.ServeHTTP(w, req)
-
-			Expect(w.Code).To(Equal(http.StatusForbidden))
+			Expect(post("/metadata/al/al-1/refresh", userToken)).To(Equal(http.StatusForbidden))
+			Expect(refresher.called).To(BeEmpty())
 		})
 
 		It("denies access without authentication", func() {
@@ -127,51 +91,22 @@ var _ = Describe("Metadata API", func() {
 			router.ServeHTTP(w, req)
 
 			Expect(w.Code).To(Equal(http.StatusUnauthorized))
-		})
-
-		It("triggers an external info refresh for albums", func() {
-			req := createAuthenticatedRequest("POST", "/metadata/al/al-1/refresh", nil, adminToken)
-			w := httptest.NewRecorder()
-			router.ServeHTTP(w, req)
-
-			Expect(w.Code).To(Equal(http.StatusNoContent))
-			Eventually(provider.calls).Should(ContainElement("al/al-1"))
-		})
-
-		It("triggers an external info refresh for artists", func() {
-			req := createAuthenticatedRequest("POST", "/metadata/ar/ar-1/refresh", nil, adminToken)
-			w := httptest.NewRecorder()
-			router.ServeHTTP(w, req)
-
-			Expect(w.Code).To(Equal(http.StatusNoContent))
-			Eventually(provider.calls).Should(ContainElement("ar/ar-1"))
-		})
-
-		It("skips the external info refresh for kinds without external info", func() {
-			req := createAuthenticatedRequest("POST", "/metadata/pl/pl-1/refresh", nil, adminToken)
-			w := httptest.NewRecorder()
-			router.ServeHTTP(w, req)
-
-			Expect(w.Code).To(Equal(http.StatusNoContent))
-			Consistently(provider.calls).ShouldNot(ContainElement("pl/pl-1"))
+			Expect(refresher.called).To(BeEmpty())
 		})
 
 		It("returns 404 for an unknown id", func() {
-			req := createAuthenticatedRequest("POST", "/metadata/al/nope/refresh", nil, adminToken)
-			w := httptest.NewRecorder()
-			router.ServeHTTP(w, req)
-
-			Expect(w.Code).To(Equal(http.StatusNotFound))
+			refresher.err = model.ErrNotFound
+			Expect(post("/metadata/al/nope/refresh", adminToken)).To(Equal(http.StatusNotFound))
 		})
 
-		It("returns 500 when the lookup fails for a reason other than not-found", func() {
-			albumRepo.SetError(true)
+		It("returns 409 when another scan keeps running", func() {
+			refresher.err = fmt.Errorf("scanning folders: %w", scanner.ErrAlreadyScanning)
+			Expect(post("/metadata/al/al-1/refresh", adminToken)).To(Equal(http.StatusConflict))
+		})
 
-			req := createAuthenticatedRequest("POST", "/metadata/al/al-1/refresh", nil, adminToken)
-			w := httptest.NewRecorder()
-			router.ServeHTTP(w, req)
-
-			Expect(w.Code).To(Equal(http.StatusInternalServerError))
+		It("returns 500 when the refresh fails for another reason", func() {
+			refresher.err = errors.New("boom")
+			Expect(post("/metadata/al/al-1/refresh", adminToken)).To(Equal(http.StatusInternalServerError))
 		})
 	})
 })

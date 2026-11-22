@@ -10,10 +10,12 @@ import (
 	"github.com/navidrome/navidrome/core"
 	"github.com/navidrome/navidrome/core/agents"
 	"github.com/navidrome/navidrome/core/artwork"
+	"github.com/navidrome/navidrome/core/external"
 	"github.com/navidrome/navidrome/core/lyrics"
 	"github.com/navidrome/navidrome/core/metrics"
 	"github.com/navidrome/navidrome/core/playback"
 	"github.com/navidrome/navidrome/core/playlists"
+	"github.com/navidrome/navidrome/core/refresh"
 	"github.com/navidrome/navidrome/core/scrobbler"
 	"github.com/navidrome/navidrome/core/sonic"
 	"github.com/navidrome/navidrome/db"
@@ -47,6 +49,9 @@ var allProviders = wire.NewSet(
 	db.Db,
 	plugins.GetManager,
 	sonic.New,
+	refresh.New,
+	wire.Bind(new(refresh.Scanner), new(model.Scanner)),
+	wire.Bind(new(refresh.InfoRefresher), new(external.Provider)),
 	wire.Bind(new(agents.PluginLoader), new(*plugins.Manager)),
 	wire.Bind(new(scrobbler.PluginLoader), new(*plugins.Manager)),
 	wire.Bind(new(lyrics.PluginLoader), new(*plugins.Manager)),

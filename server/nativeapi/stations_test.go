@@ -207,7 +207,7 @@ var _ = Describe("Station endpoints", func() {
 		DeferCleanup(configtest.SetupConfig())
 		conf.Server.EnableSharing = false
 		ds := &tests.MockDataStore{}
-		router := New(ds, nil, nil, nil, tests.NewMockLibraryService(), core.NewUser(ds, noopPluginUnloader{}), nil, nil, nil, nil, nil)
+		router := New(ds, nil, nil, nil, tests.NewMockLibraryService(), core.NewUser(ds, noopPluginUnloader{}), nil, nil, nil, nil, nil, nil)
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/station/dj", nil))
 		Expect(w.Code).To(Equal(http.StatusUnauthorized))

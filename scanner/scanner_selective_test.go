@@ -13,6 +13,7 @@ import (
 	"github.com/navidrome/navidrome/core/artwork"
 	"github.com/navidrome/navidrome/core/metrics"
 	"github.com/navidrome/navidrome/core/playlists"
+	"github.com/navidrome/navidrome/core/refresh"
 	"github.com/navidrome/navidrome/core/storage/storagetest"
 	"github.com/navidrome/navidrome/db"
 	"github.com/navidrome/navidrome/log"
@@ -124,6 +125,73 @@ var _ = Describe("ScanFolders", Ordered, func() {
 			// Verify files in the pop folder were NOT scanned
 			Expect(paths).ToNot(ContainElement("pop/track6.mp3"))
 			Expect(ds.Property(ctx).Get(consts.DBAnalyzePendingKey)).To(Equal("1"))
+		})
+	})
+
+	Describe("Refreshing an album or Artist", func() {
+		var refresher refresh.Refresher
+
+		BeforeEach(func() {
+			refresher = refresh.New(ds, s, noopInfo{})
+			rock := template(_t{"albumartist": "Rock Artist", "album": "Rock Album"})
+			rockLive := template(_t{"albumartist": "Rock Artist", "album": "Rock Live"})
+			pop := template(_t{"albumartist": "Pop Artist", "album": "Pop Album"})
+			fsys = createFS(fstest.MapFS{
+				"rock/album/track1.mp3": rock(track(1, "Rock Track 1")),
+				"rock/live/track2.mp3":  rockLive(track(1, "Rock Live Track")),
+				"pop/track3.mp3":        pop(track(1, "Pop Track 1")),
+			})
+			_, err := s.ScanAll(ctx, false)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Tags edited in place, keeping each File's time, so only a full read finds them.
+			for _, p := range []string{"rock/album/track1.mp3", "rock/live/track2.mp3", "pop/track3.mp3"} {
+				fsys.UpdateTags(p, _t{"comment": "edited"}, fsys.MapFS[p].ModTime)
+			}
+		})
+
+		comments := func() map[string]string {
+			mfs, err := ds.MediaFile(ctx).GetAll()
+			Expect(err).ToNot(HaveOccurred())
+			res := map[string]string{}
+			for _, mf := range mfs {
+				res[mf.Title] = mf.Comment
+			}
+			return res
+		}
+
+		findID := func(get func() (string, error)) string {
+			id, err := get()
+			Expect(err).ToNot(HaveOccurred())
+			return id
+		}
+
+		It("picks up the tag changes in the album's folder, and no other", func() {
+			id := findID(func() (string, error) {
+				als, err := ds.Album(ctx).GetAll(model.QueryOptions{Filters: squirrel.Eq{"album.name": "Rock Album"}})
+				if err != nil || len(als) != 1 {
+					return "", err
+				}
+				return als[0].ID, nil
+			})
+
+			Expect(refresher.Refresh(ctx, model.KindAlbumArtwork, id)).To(Succeed())
+
+			Expect(comments()).To(Equal(map[string]string{"Rock Track 1": "edited", "Rock Live Track": "", "Pop Track 1": ""}))
+		})
+
+		It("picks up the tag changes in the folders of all an Artist's albums, and no other", func() {
+			id := findID(func() (string, error) {
+				ars, err := ds.Artist(ctx).GetAll(model.QueryOptions{Filters: squirrel.Eq{"artist.name": "Rock Artist"}})
+				if err != nil || len(ars) != 1 {
+					return "", err
+				}
+				return ars[0].ID, nil
+			})
+
+			Expect(refresher.Refresh(ctx, model.KindArtistArtwork, id)).To(Succeed())
+
+			Expect(comments()).To(Equal(map[string]string{"Rock Track 1": "edited", "Rock Live Track": "edited", "Pop Track 1": ""}))
 		})
 	})
 
@@ -326,3 +394,7 @@ var _ = Describe("ScanFolders", Ordered, func() {
 		})
 	})
 })
+
+type noopInfo struct{}
+
+func (noopInfo) RefreshInfo(context.Context, model.Kind, string) error { return nil }
