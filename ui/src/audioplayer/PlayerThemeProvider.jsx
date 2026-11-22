@@ -3,9 +3,9 @@ import { useSelector } from 'react-redux'
 import { ThemeProvider } from '@material-ui/core/styles'
 import { createMuiTheme } from 'react-admin'
 import { currentAccentId } from '../reducers/themeReducer'
-import { coverColour, readableAccent } from '../themes/artAccent'
+import { coverColour, mixHex, readableAccent } from '../themes/artAccent'
 import { readCoverPixels } from '../themes/coverPixels'
-import { withAccent } from '../themes/vinylUnderground'
+import { isVinylUnderground, withAccent } from '../themes/vinylUnderground'
 import {
   accents,
   ART_ACCENT,
@@ -39,7 +39,7 @@ const readColour = (cover) => {
 
 // useCoverColour is the colour taken from the cover, or null for no cover
 // or one that is grey or fails to load, and whether it's the first cover read
-// since the player appeared. While the next cover is being read, it stays on
+// since the player appeared (`isFirstRead`). While the next cover is being read, it stays on
 // the last one's, so the fade starts once it's known.
 const useCoverColour = (cover, enabled) => {
   const [read, setRead] = useState({ colour: null, count: 0 })
@@ -56,32 +56,19 @@ const useCoverColour = (cover, enabled) => {
       live = false
     }
   }, [cover, enabled])
-  return { colour: enabled ? read.colour : null, first: read.count <= 1 }
-}
-
-const rgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16))
-const mix = (from, to, t) => {
-  const a = rgb(from)
-  const b = rgb(to)
-  return (
-    '#' +
-    a
-      .map((v, i) =>
-        Math.round(v + (b[i] - v) * t)
-          .toString(16)
-          .padStart(2, '0'),
-      )
-      .join('')
-      .toUpperCase()
-  )
+  return {
+    colour: enabled ? read.colour : null,
+    isFirstRead: read.count <= 1,
+  }
 }
 
 const reducedMotion = () =>
   !!window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches
 
-// useFade follows `target` (a #RRGGBB colour), fading from the colour shown
-// over FADE_MS, unless `instant` or motion is reduced.
-const useFade = (target, instant) => {
+// useFade follows `target`, an accent for the variant `mode`, fading from the
+// colour shown over FADE_MS, unless `instant` or motion is reduced. Each step
+// is made readable too, so the accent never drops below AA mid-fade.
+const useFade = (target, mode, instant) => {
   const [shown, setShown] = useState(target)
   const shownRef = useRef(target)
   const instantRef = useRef(instant)
@@ -103,16 +90,18 @@ const useFade = (target, instant) => {
     const tick = (now) => {
       if (start === undefined) start = now
       const t = Math.min(1, (now - start) / FADE_MS)
-      if (t === 1 || now - last >= FADE_STEP_MS) {
+      if (t === 1) {
+        show(target)
+      } else if (now - last >= FADE_STEP_MS) {
         last = now
-        // ease in and out
-        show(mix(from, target, t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2))
+        const eased = t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2
+        show(readableAccent(mixHex(from, target, eased), mode).main)
       }
       if (t < 1) frame = requestAnimationFrame(tick)
     }
     frame = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(frame)
-  }, [target])
+  }, [target, mode])
   return shown
 }
 
@@ -121,16 +110,16 @@ const useFade = (target, instant) => {
 // other theme or accent as it is. A grey, missing or failed cover gets the
 // default accent.
 const useArtAccentTheme = (theme, cover) => {
-  const mode = theme.palette?.vu ? theme.palette.type : null
+  const mode = isVinylUnderground(theme) ? theme.palette.type : null
   const enabled = useSelector(currentAccentId) === ART_ACCENT && !!mode
-  const { colour, first } = useCoverColour(cover, enabled)
+  const { colour, isFirstRead } = useCoverColour(cover, enabled)
   const fallback = mode ? accents[DEFAULT_ACCENT][mode] : null
   const target = colour ? readableAccent(colour, mode) : fallback
   // The first cover read after a load shows at once, rather than fading in
-  const main = useFade(target?.main, first)
+  const main = useFade(target?.main, mode, isFirstRead)
   return useMemo(
     () =>
-      !enabled || main === fallback.main
+      !enabled || main === fallback?.main
         ? theme
         : withAccent(theme, { main, contrastText: target.contrastText }),
     [theme, enabled, main, fallback, target?.contrastText],

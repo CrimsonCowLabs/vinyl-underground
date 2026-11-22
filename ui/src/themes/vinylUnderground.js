@@ -279,11 +279,15 @@ export const VinylUndergroundLightTheme = createVinylUndergroundTheme({
   mode: 'light',
 })
 
+// isVinylUnderground is whether a theme (in either variant) is the Vinyl
+// Underground theme, the only one whose accent can be chosen
+export const isVinylUnderground = (theme) => !!theme?.palette?.vu
+
 // withAccent is the theme with another accent ({ main, contrastText }) if it
 // is the Vinyl Underground theme, and any other theme as it is. Whatever else
 // the theme carries (e.g. its props) is kept.
 export const withAccent = (theme, accent) =>
-  theme.palette?.vu
+  isVinylUnderground(theme)
     ? {
         ...theme,
         ...createVinylUndergroundTheme({ mode: theme.palette.type, accent }),

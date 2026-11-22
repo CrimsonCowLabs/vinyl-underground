@@ -14,6 +14,8 @@ import {
   VinylUndergroundLightTheme,
 } from '../themes/vinylUnderground'
 import NordTheme from '../themes/nord'
+import { contrastRatio } from '../themes/contrast'
+import { surfaces } from '../themes/vinylUndergroundPalette'
 
 // Reading a cover needs a real canvas, which jsdom lacks
 vi.mock('../themes/coverPixels', () => ({ readCoverPixels: vi.fn() }))
@@ -100,6 +102,29 @@ describe('PlayerThemeProvider', () => {
       expect(accentOf('player')).not.toBe('#6D83E9')
       await waitFor(() => expect(accentOf('player')).toBe('#6D83E9'), {
         timeout: 2000,
+      })
+    })
+
+    it('stays readable (AA) all through the fade', async () => {
+      const app = renderApp(VinylUndergroundDarkTheme, 'red.jpg')
+      await waitFor(() => expect(accentOf('player')).toBe('#E76060'))
+      app.rerender('blue.jpg')
+      const seen = new Set()
+      await waitFor(
+        () => {
+          seen.add(accentOf('player'))
+          expect(accentOf('player')).toBe('#6D83E9')
+        },
+        { timeout: 2000, interval: 10 },
+      )
+      expect(seen.size).toBeGreaterThan(2)
+      seen.forEach((hex) => {
+        expect(
+          contrastRatio(hex, surfaces.dark.background),
+        ).toBeGreaterThanOrEqual(4.5)
+        expect(
+          contrastRatio(hex, surfaces.dark.surface2),
+        ).toBeGreaterThanOrEqual(4.5)
       })
     })
 

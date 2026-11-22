@@ -16,9 +16,17 @@ import {
   currentAccentId,
   showsVinylUnderground,
 } from '../reducers/themeReducer'
-import { accents, ART_ACCENT } from '../themes/vinylUndergroundPalette'
+import {
+  accents,
+  ART_ACCENT,
+  ON_ACCENT,
+} from '../themes/vinylUndergroundPalette'
 
 const SWATCH = 32
+
+// "From album art" is drawn as every fixed accent round a wheel
+const wheel = Object.values(accents).map((a) => a.dark.main)
+const rainbow = `conic-gradient(${[...wheel, wheel[0]].join(', ')})`
 
 const useStyles = makeStyles(
   (theme) => ({
@@ -39,8 +47,7 @@ const useStyles = makeStyles(
       boxShadow: `0 0 0 2px ${theme.palette.background.paper}, 0 0 0 4px ${theme.palette.text.primary}`,
     },
     art: {
-      background:
-        'conic-gradient(#FF5B2E, #FF9A1F, #E2B53A, #9DBB4E, #3EC1B0, #6FA3F0, #C08BF0, #FF6F91, #FF5B2E)',
+      background: rainbow,
     },
     check: { fontSize: 18 },
   }),
@@ -60,7 +67,7 @@ const Swatch = ({ id, checked }) => {
       {checked && (
         <CheckIcon
           className={classes.check}
-          style={{ color: accent ? accent.contrastText : '#0F1216' }}
+          style={{ color: accent ? accent.contrastText : ON_ACCENT.dark }}
         />
       )}
     </span>
@@ -74,9 +81,9 @@ export const SelectAccent = () => {
   const classes = useStyles()
   const translate = useTranslate()
   const dispatch = useDispatch()
-  const shown = useSelector(showsVinylUnderground)
+  const offered = useSelector(showsVinylUnderground)
   const current = useSelector(currentAccentId)
-  if (!shown) return null
+  if (!offered) return null
 
   const name = (id) => translate(`menu.personal.options.accents.${id}`)
   const ids = [...Object.keys(accents), ART_ACCENT]

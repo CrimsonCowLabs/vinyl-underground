@@ -52,9 +52,11 @@ export const effects = {
 // Each accent has a value per variant: the light one is darker so it still
 // reads on cream. Text on an accent is Slate in dark and white in light. The
 // order is the picker's. "From album art" is in artAccent.js.
+export const ON_ACCENT = { dark: '#0F1216', light: '#FFFFFF' }
+
 const accent = (dark, light) => ({
-  dark: { main: dark, contrastText: '#0F1216' },
-  light: { main: light, contrastText: '#FFFFFF' },
+  dark: { main: dark, contrastText: ON_ACCENT.dark },
+  light: { main: light, contrastText: ON_ACCENT.light },
 })
 
 export const accents = {

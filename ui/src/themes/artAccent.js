@@ -3,21 +3,22 @@
 // ("UI refresh", "Palette") describes it.
 
 import { contrastRatio } from './contrast'
-import { surfaces } from './vinylUndergroundPalette'
+import { ON_ACCENT, surfaces } from './vinylUndergroundPalette'
 
 const HUE_BINS = 12
 // The heaviest hue bin must weigh this much per pixel, or the cover counts as
 // grey: 2 in the prototype's 32×32 sample
 const MIN_WEIGHT_PER_PIXEL = 2 / (32 * 32)
 
-const toHex = (rgb) =>
+export const toHex = (rgb) =>
   '#' +
   rgb
     .map((v) => Math.round(v).toString(16).padStart(2, '0'))
     .join('')
     .toUpperCase()
 
-const fromHex = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16))
+export const fromHex = (hex) =>
+  [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16))
 
 const hslToRgb = ([h, s, l]) => {
   if (!s) return [l * 255, l * 255, l * 255]
@@ -84,8 +85,6 @@ export const coverColour = (data) => {
 
 const MIN_SATURATION = 0.45
 const AA = 4.5
-// Text on an accent, as on the fixed accents
-const ON_ACCENT = { dark: '#0F1216', light: '#FFFFFF' }
 
 // readableAccent turns a cover colour into an accent for the variant ('dark'
 // or 'light'): it keeps the hue, raises the saturation to at least 45%, and
@@ -106,4 +105,12 @@ export const readableAccent = (hex, mode) => {
     main = toHex(hslToRgb([h, sat, l]))
   }
   return { main, contrastText: ON_ACCENT[mode] }
+}
+
+// mixHex is the colour `t` (0 to 1) of the way from one #RRGGBB colour to
+// another
+export const mixHex = (from, to, t) => {
+  const a = fromHex(from)
+  const b = fromHex(to)
+  return toHex(a.map((v, i) => v + (b[i] - v) * t))
 }

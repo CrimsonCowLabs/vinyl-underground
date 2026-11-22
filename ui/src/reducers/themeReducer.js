@@ -2,6 +2,7 @@ import { CHANGE_ACCENT, CHANGE_THEME } from '../actions'
 import { AUTO_THEME_ID, AUTO_THEME_CONFIG_VALUE } from '../consts'
 import config from '../config'
 import themes from '../themes'
+import { isVinylUnderground } from '../themes/vinylUnderground'
 import {
   accents,
   ART_ACCENT,
@@ -49,7 +50,7 @@ export const currentThemeId = (state) => {
 // only theme whose accent can be chosen
 export const showsVinylUnderground = (state) => {
   const id = currentThemeId(state)
-  return id === AUTO_THEME_ID || !!themes[id].palette.vu
+  return id === AUTO_THEME_ID || isVinylUnderground(themes[id])
 }
 
 // The id of the Vinyl Underground theme's accent: a key of its accents, or
