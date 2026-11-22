@@ -134,8 +134,8 @@ The accent fades over 0.7s between Tracks (CSS `@property` transitions here; in 
 - **Type:** the system font stack (`system-ui`, then Roboto, which MUI already uses). Titles 800 weight with -0.02em
   tracking; small uppercase labels at 11px, 700 weight, 0.14em tracking (`typography.overline`).
 - **Icons:** the Material icon paths that `@material-ui/icons` already ships. The Star toggle is
-  a heart, as the app's `LoveButton` draws it today; whether it should become a star is a question
-  for the review.
+  a star (`Star` / `StarBorder`), chosen in review over the heart the app's `LoveButton` draws
+  today.
 - **Sizes:** the desktop side panel is 400px; it falls back to full screen below 1000px. The play
   button is 68px in Now Playing and 40px in the player bar.
 
