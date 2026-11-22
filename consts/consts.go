@@ -27,6 +27,8 @@ const (
 	// ArtConfFingerprintPropertyKey is the model.PropertyRepository key the artwork config check
 	// compares against to detect artwork-affecting config changes across restarts.
 	ArtConfFingerprintPropertyKey = "ArtConfFingerprint"
+	// CoverArtArchivePriority is the CoverArtPriority token that asks the Cover Art Archive.
+	CoverArtArchivePriority = "coverartarchive"
 
 	UIAuthorizationHeader  = "X-ND-Authorization"
 	UIClientUniqueIDHeader = "X-ND-Client-Unique-Id"

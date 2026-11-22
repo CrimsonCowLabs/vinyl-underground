@@ -127,9 +127,9 @@ func MayFetchExternal(kind model.Kind) bool {
 	case model.KindArtistArtwork:
 		return chainFetchesExternal(conf.Server.ArtistArtPriority)
 	case model.KindAlbumArtwork:
-		return chainFetchesExternal(conf.Server.CoverArtPriority)
+		return albumChainLookups(ImageAgentCount{}) > 0
 	case model.KindPlaylistArtwork:
-		return conf.Server.EnableM3UExternalAlbumArt || chainFetchesExternal(conf.Server.CoverArtPriority)
+		return conf.Server.EnableM3UExternalAlbumArt || albumChainLookups(ImageAgentCount{}) > 0
 	default:
 		return false
 	}
@@ -148,7 +148,8 @@ func NewImageAgentCount(ag *agents.Agents) ImageAgentCount {
 }
 
 // ExternalLookupsPerItem reports what resolving one item of this kind can cost: every image agent is
-// tried, and a zero count still bills one, so agents the caller cannot see never read as free.
+// tried, and a zero count still bills one, so agents the caller cannot see never read as free. The
+// Cover Art Archive bills one more for an album chain that asks it.
 func ExternalLookupsPerItem(kind model.Kind, agents ImageAgentCount) int64 {
 	if !MayFetchExternal(kind) {
 		return 0
@@ -157,23 +158,36 @@ func ExternalLookupsPerItem(kind model.Kind, agents ImageAgentCount) int64 {
 	case model.KindArtistArtwork:
 		return int64(max(agents.Artist, 1))
 	case model.KindAlbumArtwork:
-		return int64(max(agents.Album, 1))
+		return albumChainLookups(agents)
 	case model.KindPlaylistArtwork:
 		var n int64
 		if conf.Server.EnableM3UExternalAlbumArt {
 			n++
 		}
-		if chainFetchesExternal(conf.Server.CoverArtPriority) {
-			n += PlaylistGridSamples * int64(max(agents.Album, 1))
-		}
-		return n
+		return n + PlaylistGridSamples*albumChainLookups(agents)
 	}
 	return 0
 }
 
+// albumChainLookups is what one album's walk of CoverArtPriority can cost in external calls.
+func albumChainLookups(agents ImageAgentCount) int64 {
+	var n int64
+	if chainHas(conf.Server.CoverArtPriority, coverArtArchiveCandidate) {
+		n++
+	}
+	if chainFetchesExternal(conf.Server.CoverArtPriority) {
+		n += int64(max(agents.Album, 1))
+	}
+	return n
+}
+
 func chainFetchesExternal(priority string) bool {
+	return chainHas(priority, externalCandidate)
+}
+
+func chainHas(priority, candidate string) bool {
 	for pattern := range strings.SplitSeq(strings.ToLower(priority), ",") {
-		if strings.TrimSpace(pattern) == externalCandidate {
+		if strings.TrimSpace(pattern) == candidate {
 			return true
 		}
 	}
@@ -226,6 +240,15 @@ func (r *resolver) resolveAlbum(ctx context.Context, albumID string) (resolution
 		case pattern == externalCandidate:
 			if rd, name, err := r.fetchExternalAlbum(ctx, *al); rd != nil {
 				return resolution{reader: rd, source: ExternalPrefix + name}, nil
+			} else if err != nil {
+				chain.extErr = longerRetry(chain.extErr, err)
+			}
+		case pattern == coverArtArchiveCandidate:
+			if r.ext == nil {
+				continue
+			}
+			if rd, err := fetchCoverArtArchive(ctx, r.ext.gate, *al); rd != nil {
+				return resolution{reader: rd, source: ExternalPrefix + coverArtArchiveCandidate}, nil
 			} else if err != nil {
 				chain.extErr = longerRetry(chain.extErr, err)
 			}

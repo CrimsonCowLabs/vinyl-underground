@@ -242,6 +242,7 @@ A better player and a look of our own, built into the existing web UI ([ADR-0003
   - **Timeouts:** allow for slow LLM calls.
 - **External metadata.** Last.fm lookups are enabled (`EnableExternalServices`, and Last.fm first in the default `Agents`, unlike upstream). They need only an API key. Scrobbling stays off: the Last.fm scrobbler and account linking are removed.
   - Generated Playlist candidates add Tracks by the LLM's seed artists' similar artists that are in the Library (a Prompt with no seed artists gets none). A preview waits at most ~4 s for those lookups, then carries on from local tags alone.
+  - Album covers ask the Cover Art Archive before Last.fm (#121): `coverartarchive` is a `CoverArtPriority` token, default `cover.*, folder.*, front.*, embedded, coverartarchive, external`. It is a token, not an agent, because it is cover-only and keyed by the release and release group IDs, which the agents' name-based image lookup can't carry. It takes the exact release's front cover, else the release group's, at most one request a second (`core/musicbrainz/coverart.go`). Last.fm album lookups send the release MBID too, falling back to name+artist when Last.fm doesn't know it or answers with a differently named album.
 - **Duplicates.** A one-time `jdupes` recipe moves Duplicates to a Quarantine folder that carries a `.ndignore` file. The app has no dedupe code ([ADR-0002](./adr/0002-quarantine-duplicates-instead-of-in-app-dedupe.md)).
 
 ## Deployment

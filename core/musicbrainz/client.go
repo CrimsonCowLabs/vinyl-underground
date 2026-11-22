@@ -50,11 +50,15 @@ var ErrBusy = errors.New("MusicBrainz is busy; try again later")
 // UserAgent names the app, its version and its repo, as MusicBrainz asks, with no personal
 // contact details.
 func UserAgent() string {
-	version := "dev"
+	return fmt.Sprintf("VinylUnderground/%s ( %s )", appVersion(), RepoURL)
+}
+
+// appVersion is the app's version without its build details, "dev" when unknown.
+func appVersion() string {
 	if f := strings.Fields(consts.Version); len(f) > 0 {
-		version = f[0]
+		return f[0]
 	}
-	return fmt.Sprintf("VinylUnderground/%s ( %s )", version, RepoURL)
+	return "dev"
 }
 
 // Options set up a Client. Every field is optional.
