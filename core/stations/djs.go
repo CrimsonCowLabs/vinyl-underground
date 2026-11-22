@@ -25,7 +25,8 @@ type DJ struct {
 // can still play. A Track the Listener rated 1 or 2 keeps only a quarter of its score.
 type Taste struct {
 	// Genres are words that suit the DJ, matched within a Track's genres ("jazz" matches
-	// "Cool Jazz").
+	// "Cool Jazz"). When the Library has enough Tracks in them, rule-based selection plays only
+	// those, leaving out Tracks with no genre (see strictGenreTracks).
 	Genres      []string
 	GenreWeight float64
 	// MinBPM and MaxBPM are the tempo the DJ likes. Only Tracks tagged with a BPM are weighed.
