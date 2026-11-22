@@ -115,11 +115,37 @@ func AlbumCorrection(repo CorrectionRepository, kind CorrectionKind, al Album) (
 // AlbumCorrections returns every Correction of the kind keyed by any of the album's folders,
 // skipping those being undone.
 func AlbumCorrections(repo CorrectionRepository, kind CorrectionKind, al Album) (Corrections, error) {
-	all, err := repo.FindByMatchKeys(kind, al.FolderIDs)
+	return albumCorrections(repo, al, kind)
+}
+
+func albumCorrections(repo CorrectionRepository, al Album, kinds ...CorrectionKind) (Corrections, error) {
+	all, err := repo.FindByMatchKeys(al.FolderIDs, kinds...)
 	if err != nil {
 		return nil, err
 	}
 	return slices.DeleteFunc(all, func(c Correction) bool { return c.Undoing }), nil
+}
+
+// AlbumCoverCorrections returns the album's cover choice (nil when it has none) and its cover
+// blocks, with one query, skipping those being undone. Like AlbumCorrection, the choice keyed by
+// the album's earliest folder wins.
+func AlbumCoverCorrections(repo CorrectionRepository, al Album) (choice *Correction, blocks Corrections, _ error) {
+	all, err := albumCorrections(repo, al, CorrectionAlbumCover, CorrectionAlbumCoverBlock)
+	if err != nil {
+		return nil, nil, err
+	}
+	choiceAt := len(al.FolderIDs)
+	for _, c := range all {
+		switch c.Kind {
+		case CorrectionAlbumCoverBlock:
+			blocks = append(blocks, c)
+		case CorrectionAlbumCover:
+			if at := slices.Index(al.FolderIDs, c.MatchKey); at >= 0 && at < choiceAt {
+				choiceAt, choice = at, &c
+			}
+		}
+	}
+	return choice, blocks, nil
 }
 
 type CorrectionRepository interface {
@@ -128,9 +154,9 @@ type CorrectionRepository interface {
 	Get(id string) (*Correction, error)
 	// GetByMatchKey returns the Correction of the kind matching key, or ErrNotFound.
 	GetByMatchKey(kind CorrectionKind, key string) (*Correction, error)
-	// FindByMatchKeys returns every Correction of the kind matching any of the keys, oldest first,
-	// for kinds with several per key (CorrectionAlbumCoverBlock).
-	FindByMatchKeys(kind CorrectionKind, keys []string) (Corrections, error)
+	// FindByMatchKeys returns every Correction of the kinds matching any of the keys, oldest first,
+	// for kinds with several per key (CorrectionAlbumCoverBlock), or several kinds in one query.
+	FindByMatchKeys(keys []string, kinds ...CorrectionKind) (Corrections, error)
 	// Add stores a new Correction, setting its ID and CreatedAt. It returns ErrAlreadyExists if a
 	// Correction of the same Kind already has its MatchKey (for CorrectionAlbumCoverBlock: its
 	// MatchKey and ImageHash).

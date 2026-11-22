@@ -6,13 +6,16 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"io"
 	"os"
+	"time"
 
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/conf/configtest"
 	"github.com/navidrome/navidrome/core/agents"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/tests"
+	"github.com/navidrome/navidrome/utils/cache"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -119,5 +122,138 @@ var _ = Describe("Chosen album covers", func() {
 		choose("elsewhere", pngOf(color.RGBA{R: 255, A: 255}))
 		res := resolve("al1")
 		Expect(res.source).To(Equal("embedded"))
+	})
+})
+
+var _ = Describe("Chosen album covers on disc and Track art", func() {
+	const embedPath = "tests/fixtures/artist/an-album/test.mp3"
+	var (
+		ctx         context.Context
+		ds          *tests.MockDataStore
+		corrections *tests.MockCorrectionRepo
+		r           *resolver
+		red         []byte
+	)
+
+	BeforeEach(func() {
+		DeferCleanup(configtest.SetupConfig())
+		conf.Server.DataFolder = conf.NewDir(GinkgoT().TempDir())
+		conf.Server.CoverArtPriority = "cover.*, embedded"
+		conf.Server.DiscArtPriority = "cover.*, embedded"
+		conf.Server.EnableMediaFileCoverArt = true
+		ctx = withTrace(context.Background(), &ChainTrace{})
+		repoRoot, err := os.Getwd()
+		Expect(err).ToNot(HaveOccurred())
+		libRepo := &tests.MockLibraryRepo{}
+		libRepo.SetData(model.Libraries{{ID: 0, Path: testFileLibPath(repoRoot)}})
+		corrections = &tests.MockCorrectionRepo{}
+		folders := &fakeFolderRepo{result: []model.Folder{{ID: "cd1", Path: "tests/fixtures/artist/an-album", ImageFiles: []string{"cover.jpg"}}}}
+		ds = &tests.MockDataStore{MockedFolder: folders, MockedLibrary: libRepo, MockedCorrection: corrections}
+		ds.Album(ctx).(*tests.MockAlbumRepo).SetData(model.Albums{
+			{ID: "al1", Name: "Record", FolderIDs: []string{"cd1"}, EmbedArtPath: embedPath},
+		})
+		ds.MediaFile(ctx).(*tests.MockMediaFileRepo).SetData(model.MediaFiles{
+			{ID: "mf1", AlbumID: "al1", DiscNumber: 1, FolderID: "cd1", Path: embedPath, HasCoverArt: true},
+			{ID: "mf2", AlbumID: "al1", DiscNumber: 1, FolderID: "cd1", Path: embedPath},
+		})
+		r = newResolver(ds, agents.GetAgents(&tests.MockDataStore{}, nil), tests.NewMockFFmpeg(""), nil)
+		red = pngOf(color.RGBA{R: 255, A: 255})
+	})
+
+	choose := func(data []byte) StoredCover {
+		GinkgoHelper()
+		stored, err := StoreChosenCover(data)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(corrections.Add(&model.Correction{Kind: model.CorrectionAlbumCover, MatchKey: "cd1",
+			ImageHash: stored.Hash, ImageMime: stored.Mime})).To(Succeed())
+		return stored
+	}
+	resolveDisc := func() resolution {
+		GinkgoHelper()
+		res, err := r.resolveDisc(ctx, model.DiscArtworkID("al1", 1))
+		Expect(err).ToNot(HaveOccurred())
+		return res
+	}
+	resolveTrack := func(id string) resolution {
+		GinkgoHelper()
+		res, err := r.resolve(ctx, model.ArtworkQueueItem{ItemKind: "mf", ItemID: id})
+		Expect(err).ToNot(HaveOccurred())
+		return res
+	}
+
+	It("shows the chosen image as the album's disc art, over DiscArtPriority", func() {
+		Expect(resolveDisc().source).To(Equal("folder"))
+		choose(red)
+
+		res := resolveDisc()
+		Expect(res.source).To(Equal(ChosenSource))
+		Expect(readAll(res.reader)).To(Equal(string(red)))
+	})
+
+	It("shows the chosen image as a Track's own art, over its embedded art, until undone", func() {
+		Expect(resolveTrack("mf1").source).To(Equal("embedded"))
+		choose(red)
+
+		res := resolveTrack("mf1")
+		Expect(res.source).To(Equal(ChosenSource))
+		Expect(readAll(res.reader)).To(Equal(string(red)))
+
+		corrections.All = nil
+		Expect(resolveTrack("mf1").source).To(Equal("embedded"))
+		Expect(resolveDisc().source).To(Equal("folder"))
+	})
+
+	It("passes over a chosen image that is blocked, in disc and track art alike", func() {
+		stored := choose(red)
+		Expect(corrections.Add(&model.Correction{Kind: model.CorrectionAlbumCoverBlock, MatchKey: "cd1",
+			ImageHash: stored.Hash})).To(Succeed())
+
+		Expect(resolveTrack("mf1").source).To(Equal("embedded"))
+		Expect(resolveDisc().source).To(Equal("folder"))
+	})
+
+	Describe("serving", func() {
+		var svc Artwork
+
+		BeforeEach(func() {
+			conf.Server.CacheFolder = conf.NewDir(GinkgoT().TempDir())
+			imgCache := cache.NewFileCache("ChosenServingTest", "100MB", "images", 0,
+				func(ctx context.Context, arg cache.Item) (io.Reader, error) {
+					return arg.(artworkReader).Reader(ctx)
+				})
+			Eventually(func() bool { return imgCache.Available(ctx) }, 10*time.Second).Should(BeTrue())
+			svc = NewArtwork(ds, imgCache, NewImageStore(GinkgoT().TempDir()), tests.NewMockFFmpeg(""))
+		})
+
+		get := func(id string, size int) []byte {
+			GinkgoHelper()
+			img, err := svc.Get(ctx, model.MustParseArtworkID(id), size, false)
+			Expect(err).ToNot(HaveOccurred())
+			defer img.Close()
+			data, err := io.ReadAll(img)
+			Expect(err).ToNot(HaveOccurred())
+			return data
+		}
+		isRed := func(data []byte) bool {
+			GinkgoHelper()
+			img, _, err := image.Decode(bytes.NewReader(data))
+			Expect(err).ToNot(HaveOccurred())
+			red, green, blue, _ := img.At(0, 0).RGBA()
+			return red > 0xe000 && green < 0x2000 && blue < 0x2000
+		}
+
+		It("serves a track with embedded art and no state row yet the chosen image", func() {
+			choose(red)
+			Expect(get("mf-mf1", 0)).To(Equal(red))
+		})
+
+		It("serves a track without embedded art the chosen image through its disc art, past a warm cache", func() {
+			Expect(isRed(get("mf-mf2", 64))).To(BeFalse())
+			choose(red)
+			Expect(isRed(get("mf-mf2", 64))).To(BeTrue())
+
+			corrections.All = nil
+			Expect(isRed(get("mf-mf2", 64))).To(BeFalse())
+		})
 	})
 })

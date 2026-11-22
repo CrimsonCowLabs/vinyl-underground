@@ -373,10 +373,21 @@ var _ = Describe("Corrections", func() {
 			Expect(err).ToNot(HaveOccurred())
 		}
 
+		addTrack := func(id, albumID string) {
+			GinkgoHelper()
+			mf := model.MediaFile{ID: id, AlbumID: albumID, LibraryID: 1, Path: id + ".mp3", HasCoverArt: true}
+			Expect(ds.MediaFile(ctx).Put(&mf)).To(Succeed())
+		}
+		trackQueued := func(id string) bool {
+			_, err := ds.ArtworkQueue(ctx).Get(model.KindMediaFileArtwork, id, model.ImageTypePrimary)
+			return err == nil
+		}
+
 		BeforeEach(clearQueue)
 
-		It("saves the choice, keyed by the album's folder, and refreshes the album's cover", func() {
+		It("saves the choice, keyed by the album's folder, and refreshes the album's cover and its tracks' art", func() {
 			al := addAlbum("al-1", "folder-cd2", "folder-cd1")
+			addTrack("t-1", al.ID)
 
 			res, err := svc.ChooseAlbumCover(ctx, al.ID, cover)
 			Expect(err).ToNot(HaveOccurred())
@@ -391,13 +402,16 @@ var _ = Describe("Corrections", func() {
 			Expect(got.ImageHash).To(Equal(cover.Hash))
 			Expect(got.ImageMime).To(Equal(cover.Mime))
 			Expect(queued(al.ID)).To(BeTrue())
+			Expect(trackQueued("t-1")).To(BeTrue())   // the choice is the Tracks' art too
 			Expect(refresher.scanned()).To(BeEmpty()) // a cover is no tag: nothing to rescan
 		})
 
-		It("replaces the album's earlier choice", func() {
+		It("replaces the album's earlier choice, refreshing its tracks' art again", func() {
 			al := addAlbum("al-1", "folder-cd1")
+			addTrack("t-1", al.ID)
 			_, err := svc.ChooseAlbumCover(ctx, al.ID, cover)
 			Expect(err).ToNot(HaveOccurred())
+			clearQueue()
 			other := corrections.AlbumCover{StoredCover: artwork.StoredCover{Hash: "fedcba9876543210", Mime: "image/png"}, Source: "cover.png"}
 			_, err = svc.ChooseAlbumCover(ctx, al.ID, other)
 			Expect(err).ToNot(HaveOccurred())
@@ -406,6 +420,7 @@ var _ = Describe("Corrections", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(all).To(HaveLen(1))
 			Expect(all[0].To).To(Equal("cover.png"))
+			Expect(trackQueued("t-1")).To(BeTrue())
 		})
 
 		It("rejects an incomplete choice, and an unknown album", func() {
@@ -416,8 +431,9 @@ var _ = Describe("Corrections", func() {
 			Expect(err).To(MatchError(model.ErrNotFound))
 		})
 
-		It("undoes a choice at once, refreshing the album back to its default cover order", func() {
+		It("undoes a choice at once, refreshing the album and its tracks' art back to the default cover order", func() {
 			al := addAlbum("al-1", "folder-cd1")
+			addTrack("t-1", al.ID)
 			res, err := svc.ChooseAlbumCover(ctx, al.ID, cover)
 			Expect(err).ToNot(HaveOccurred())
 			clearQueue()
@@ -428,6 +444,7 @@ var _ = Describe("Corrections", func() {
 			_, err = ds.Correction(ctx).Get(res.Correction.ID)
 			Expect(err).To(MatchError(model.ErrNotFound))
 			Expect(queued(al.ID)).To(BeTrue())
+			Expect(trackQueued("t-1")).To(BeTrue())
 			Expect(refresher.scanned()).To(BeEmpty())
 		})
 
@@ -461,15 +478,6 @@ var _ = Describe("Corrections", func() {
 					ItemID: albumID, ImageType: model.ImageTypePrimary, Hash: hash, Source: source, SourcePath: path,
 					AttemptedAt: time.Now()})).To(Succeed())
 				DeferCleanup(func() { _, _ = db.Db().Exec("delete from item_artwork") })
-			}
-			addTrack := func(id, albumID string) {
-				GinkgoHelper()
-				mf := model.MediaFile{ID: id, AlbumID: albumID, LibraryID: 1, Path: id + ".mp3", HasCoverArt: true}
-				Expect(ds.MediaFile(ctx).Put(&mf)).To(Succeed())
-			}
-			trackQueued := func(id string) bool {
-				_, err := ds.ArtworkQueue(ctx).Get(model.KindMediaFileArtwork, id, model.ImageTypePrimary)
-				return err == nil
 			}
 
 			It("blocks the image the album shows, and refreshes the album and its tracks' art", func() {

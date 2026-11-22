@@ -3,7 +3,6 @@ package artwork
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -55,19 +54,66 @@ func StoreChosenCover(data []byte) (StoredCover, error) {
 	return stored, store.Write(hash, stored.Mime, bytes.NewReader(data))
 }
 
-// resolveChosenCover opens the album's chosen cover, if an admin chose one. A choice whose image is
-// gone is a miss, so the album falls back to its default cover order.
-func resolveChosenCover(ctx context.Context, ds model.DataStore, al model.Album) (resolution, bool, error) {
-	cr, err := model.AlbumCorrection(ds.Correction(ctx), model.CorrectionAlbumCover, al)
-	if errors.Is(err, model.ErrNotFound) {
-		return resolution{}, false, nil
-	}
+// albumCovers is what admins decided about an album's cover: the image they chose or uploaded, if
+// any, and the images they marked wrong. The album's cover, its disc art and its Tracks' own art
+// all follow it: the choice is tried before their priority order, and the blocks are skipped.
+type albumCovers struct {
+	choice *model.Correction // nil when the album has none
+	blocks coverBlocks
+}
+
+// loadAlbumCovers loads both with one indexed query on the album's folders (see
+// model.AlbumCoverCorrections), so it costs a Track's own art no more than the blocks alone did.
+func loadAlbumCovers(ctx context.Context, ds model.DataStore, al model.Album) (albumCovers, error) {
+	choice, blocks, err := model.AlbumCoverCorrections(ds.Correction(ctx), al)
 	if err != nil {
-		return resolution{}, false, err
+		return albumCovers{}, err
 	}
-	if !validHash(cr.ImageHash) {
-		return resolution{}, false, nil
+	covers := albumCovers{choice: choice}
+	if len(blocks) > 0 {
+		covers.blocks = make(coverBlocks, len(blocks))
+		for _, b := range blocks {
+			covers.blocks[b.ImageHash] = struct{}{}
+		}
 	}
-	res, ok := resolveLocalFile(ChosenCoverStore().path(cr.ImageHash, cr.ImageMime), ChosenSource)
-	return res, ok, nil
+	return covers, nil
+}
+
+// openChoice opens the chosen image. A choice whose image is gone is a miss, so the item falls
+// back to its default order; one with no choice has no source at all.
+func (a albumCovers) openChoice() (resolution, bool) {
+	if a.choice == nil || !validHash(a.choice.ImageHash) {
+		return resolution{}, false
+	}
+	return resolveLocalFile(ChosenCoverStore().path(a.choice.ImageHash, a.choice.ImageMime), ChosenSource)
+}
+
+// key names the choice and the blocks, for a cache key of an image resolved under them.
+func (a albumCovers) key() string {
+	var choice string
+	if a.choice != nil {
+		choice = a.choice.ImageHash
+	}
+	return choice + ";" + a.blocks.key()
+}
+
+// tryCovers starts a priority walk under the album's covers: the walk skips its blocks from here
+// on, and its choice is tried first. decided means the walk is over: the choice won, or its image
+// could not be read, as falling through would show (and persist) a lower-priority image as if the
+// choice were gone. A blocked choice is gone.
+func (c *chainState) tryCovers(covers albumCovers) (_ resolution, decided bool) {
+	c.blocks = covers.blocks
+	chosen, opened := covers.openChoice()
+	switch {
+	case opened || chosen.localError:
+		if res, ok := c.try(ChosenSource, chosen, opened); ok {
+			return res, true
+		}
+		if c.localErr {
+			return c.exhausted(), true
+		}
+	case chosen.source != "":
+		c.record(ChosenSource, OutcomeMiss, "")
+	}
+	return resolution{}, false
 }

@@ -64,12 +64,12 @@ func (r *correctionRepository) GetByMatchKey(kind model.CorrectionKind, key stri
 	return &res, nil
 }
 
-func (r *correctionRepository) FindByMatchKeys(kind model.CorrectionKind, keys []string) (model.Corrections, error) {
+func (r *correctionRepository) FindByMatchKeys(keys []string, kinds ...model.CorrectionKind) (model.Corrections, error) {
 	res := model.Corrections{}
 	if len(keys) == 0 {
 		return res, nil
 	}
-	sq := Select("*").From(r.tableName).Where(Eq{"kind": kind, "match_key": keys}).OrderBy("created_at", "rowid")
+	sq := Select("*").From(r.tableName).Where(Eq{"kind": kinds, "match_key": keys}).OrderBy("created_at", "rowid")
 	err := r.queryAll(sq, &res)
 	return res, err
 }

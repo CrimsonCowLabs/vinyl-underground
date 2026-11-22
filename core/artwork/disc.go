@@ -31,7 +31,7 @@ type discArtworkReader struct {
 	// Newest ImagesUpdatedAt across the album's and this disc's folders: an image can be
 	// replaced without the album row changing, so this is what makes a cache key notice it.
 	imagesUpdatedAt time.Time
-	blocks          coverBlocks // images blocked for the album, which its disc art skips too
+	covers          albumCovers // the album's choice, which its disc art shows too, and its blocks
 }
 
 // cacheTime is the disc image's validity stamp: any of these moving means the selection may
@@ -75,7 +75,7 @@ func newDiscArtworkReader(ctx context.Context, ds model.DataStore, artID model.A
 	if err != nil {
 		return nil, err
 	}
-	blocks, err := loadCoverBlocks(ctx, ds, *al)
+	covers, err := loadAlbumCovers(ctx, ds, *al)
 	if err != nil {
 		return nil, err
 	}
@@ -115,7 +115,7 @@ func newDiscArtworkReader(ctx context.Context, ds model.DataStore, artID model.A
 		firstTrackRel:   firstTrackRel,
 		lib:             lib,
 		imagesUpdatedAt: imagesUpdatedAt,
-		blocks:          blocks,
+		covers:          covers,
 	}, nil
 }
 
@@ -162,11 +162,14 @@ func (d *discArtworkReader) discCandidates(ctx context.Context, ffmpeg ffmpeg.FF
 	return cc
 }
 
-// selectImage walks the DiscArtPriority entries and returns the first that yields an image.
-// chain records the walk; the serving path passes an untraced one and pays nothing for it.
+// selectImage tries the album's chosen cover, then walks the DiscArtPriority entries and returns
+// the first that yields an image. chain records the walk; the serving path passes an untraced one
+// and pays nothing for it.
 func (d *discArtworkReader) selectImage(ctx context.Context, ffmpeg ffmpeg.FFmpeg, priority string,
 	chain *chainState) (resolution, error) {
-	chain.blocks = d.blocks
+	if res, decided := chain.tryCovers(d.covers); decided {
+		return res, nil
+	}
 	for _, c := range d.discCandidates(ctx, ffmpeg, priority) {
 		if err := ctx.Err(); err != nil {
 			return resolution{}, err

@@ -175,12 +175,12 @@ var _ = Describe("CorrectionRepository", func() {
 			Expect(repo.Add(block("block-cd2", "fedcba9876543210"))).To(Succeed())
 			Expect(repo.Add(block("block-other", "00000000000000aa"))).To(Succeed())
 
-			got, err := repo.FindByMatchKeys(model.CorrectionAlbumCoverBlock, []string{"block-cd1", "block-cd2"})
+			got, err := repo.FindByMatchKeys([]string{"block-cd1", "block-cd2"}, model.CorrectionAlbumCoverBlock)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(got).To(HaveLen(2))
 			Expect([]string{got[0].ImageHash, got[1].ImageHash}).To(ConsistOf("0123456789abcdef", "fedcba9876543210"))
 
-			got, err = repo.FindByMatchKeys(model.CorrectionAlbumCoverBlock, nil)
+			got, err = repo.FindByMatchKeys(nil, model.CorrectionAlbumCoverBlock)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(got).To(BeEmpty())
 		})

@@ -567,6 +567,10 @@ var _ = Describe("MediaFile", func() {
 			Expect(id.Kind).To(Equal(KindDiscArtwork))
 			Expect(id.ID).To(Equal("1:2"))
 		})
+		It("versions disc art by the album's image, which a chosen cover changes", func() {
+			mf := MediaFile{ID: "111", AlbumID: "1", DiscNumber: 2, AlbumImage: ItemImage{ImageHash: "0123456789abcdef"}}
+			Expect(mf.CoverArtID().Hash).To(Equal("0123456789abcdef"))
+		})
 		It("returns its album id if HasCoverArt is false and DiscNumber is 0", func() {
 			mf := MediaFile{ID: "111", AlbumID: "1", HasCoverArt: false}
 			id := mf.CoverArtID()
