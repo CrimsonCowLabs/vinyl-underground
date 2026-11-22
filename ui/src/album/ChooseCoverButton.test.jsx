@@ -1,6 +1,6 @@
 import React from 'react'
 import { render, fireEvent, waitFor, screen } from '@testing-library/react'
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { ChooseCoverButton } from './ChooseCoverButton'
 
 const {
@@ -9,6 +9,7 @@ const {
   mockChoose,
   mockBlock,
   mockUpload,
+  mockGetPreview,
   mockNotify,
   mockRefresh,
   mockDataProvider,
@@ -18,6 +19,7 @@ const {
   mockChoose: vi.fn(),
   mockBlock: vi.fn(),
   mockUpload: vi.fn(),
+  mockGetPreview: vi.fn(),
   mockNotify: vi.fn(),
   mockRefresh: vi.fn(),
   mockDataProvider: {},
@@ -83,6 +85,15 @@ const answers = {
   },
 }
 
+// A preview as the data provider answers it, as react-admin wants: { data: Blob }. The Blob
+// carries its candidate's ID, which names its blob URL.
+const preview = (candidateId) =>
+  Promise.resolve({
+    data: Object.assign(new Blob(['img'], { type: 'image/png' }), {
+      candidateId,
+    }),
+  })
+
 const open = () =>
   fireEvent.click(screen.getByText('resources.album.actions.chooseCover'))
 
@@ -94,9 +105,21 @@ describe('ChooseCoverButton', () => {
     mockDataProvider.chooseAlbumCover = mockChoose
     mockDataProvider.blockAlbumCover = mockBlock
     mockDataProvider.uploadAlbumCover = mockUpload
+    mockDataProvider.getCoverPreview = mockGetPreview
     mockGetCandidates.mockImplementation((albumId, source) =>
       Promise.resolve({ data: answers[source] }),
     )
+    // Each preview is a Blob, shown from a blob URL named after it
+    // react-admin's useDataProvider passes on only (resource, payload)
+    mockGetPreview.mockImplementation((albumId, { candidateId }) =>
+      preview(candidateId),
+    )
+    URL.createObjectURL = vi.fn((blob) => `blob:${blob.candidateId}`)
+    URL.revokeObjectURL = vi.fn()
+  })
+
+  afterEach(() => {
+    localStorage.removeItem('token')
   })
 
   it('is not offered to regular users', () => {
@@ -118,10 +141,94 @@ describe('ChooseCoverButton', () => {
     expect(mockGetCandidates).toHaveBeenCalledWith('al1', 'local')
     expect(mockGetCandidates).toHaveBeenCalledWith('al1', 'external')
     expect(mockGetCandidates).toHaveBeenCalledWith('al1', 'coverartarchive')
-    const img = screen.getByAltText('cover.jpg')
-    expect(img.getAttribute('src')).toContain(
-      '/api/albumCover/al1/candidates/c-folder/preview',
-    )
+    const img = await screen.findByAltText('cover.jpg')
+    expect(img.getAttribute('src')).toBe('blob:c-folder')
+    expect(mockGetPreview).toHaveBeenCalledWith('al1', {
+      candidateId: 'c-folder',
+      signal: expect.any(AbortSignal),
+    })
+  })
+
+  describe('previews', () => {
+    it('never put the login token in a URL', async () => {
+      localStorage.setItem('token', 'secret-token')
+      render(<ChooseCoverButton record={album} />)
+      open()
+      await screen.findByAltText('Record (Deluxe)')
+      for (const img of document.querySelectorAll('img')) {
+        expect(img.getAttribute('src')).not.toContain('secret-token')
+        expect(img.getAttribute('src')).not.toContain('jwt')
+      }
+    })
+
+    it('show each as it arrives, without waiting for a slow one', async () => {
+      mockGetPreview.mockImplementation((albumId, { candidateId }) =>
+        candidateId === 'c-exact'
+          ? new Promise(() => {})
+          : preview(candidateId),
+      )
+      render(<ChooseCoverButton record={album} />)
+      open()
+
+      expect(
+        (await screen.findByAltText('cover.jpg')).getAttribute('src'),
+      ).toBe('blob:c-folder')
+      expect(
+        (await screen.findByAltText('Record (Deluxe)')).getAttribute('src'),
+      ).toBe('blob:c-other')
+      // The slow one can still be chosen while it loads
+      expect(screen.getByLabelText('Record')).toBeTruthy()
+    })
+
+    it('are released when the picker closes', async () => {
+      render(<ChooseCoverButton record={album} />)
+      open()
+      await screen.findByAltText('cover.jpg')
+      await screen.findByAltText('Record (Deluxe)')
+      await screen.findByAltText('Record')
+
+      fireEvent.click(screen.getByText('ra.action.cancel'))
+
+      await waitFor(() => expect(URL.revokeObjectURL).toHaveBeenCalledTimes(3))
+      expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:c-folder')
+      expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:c-exact')
+      expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:c-other')
+    })
+
+    it('that arrive after the picker closed are dropped, and the rest cancelled', async () => {
+      let arrive
+      const signals = []
+      mockGetPreview.mockImplementation((albumId, { candidateId, signal }) => {
+        signals.push(signal)
+        return new Promise((resolve) => {
+          arrive = () => resolve(preview(candidateId))
+        })
+      })
+      render(<ChooseCoverButton record={album} />)
+      open()
+      await screen.findByText('Record (Deluxe)')
+
+      fireEvent.click(screen.getByText('ra.action.cancel'))
+      arrive()
+      await new Promise((r) => setTimeout(r, 0))
+
+      expect(signals.every((s) => s.aborted)).toBe(true)
+      expect(URL.createObjectURL).not.toHaveBeenCalled()
+    })
+
+    it('show a placeholder for one that failed, which can still be chosen', async () => {
+      mockGetPreview.mockImplementation((albumId, { candidateId }) =>
+        candidateId === 'c-folder'
+          ? Promise.reject(new Error('not an image'))
+          : preview(candidateId),
+      )
+      render(<ChooseCoverButton record={album} />)
+      open()
+
+      await screen.findByAltText('Record (Deluxe)')
+      expect(screen.queryByAltText('cover.jpg')).toBeNull()
+      expect(screen.getByLabelText('cover.jpg')).toBeTruthy()
+    })
   })
 
   it('shows the sources that answered when another fails or never answers', async () => {
