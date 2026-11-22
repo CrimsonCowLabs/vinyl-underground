@@ -14,8 +14,6 @@ const useStyles = makeStyles(
       inset: 0,
       overflowY: 'auto',
       overscrollBehavior: 'contain',
-      scrollBehavior: 'smooth',
-      '@media (prefers-reduced-motion: reduce)': { scrollBehavior: 'auto' },
     },
     synced: {
       // Room above and below, so the first and last lines can sit at the
@@ -72,25 +70,48 @@ const useStyles = makeStyles(
   { name: 'NDNowPlayingLyrics' },
 )
 
+// How long the lyrics stay where the Listener scrolled them before following
+// the song again, in ms
+const FOLLOW_AFTER_MS = 4000
+
+const reducedMotion = () =>
+  !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+
 // SyncedLyrics highlights the line being sung, keeping it in view a little
-// above the middle, and seeks to a line when it is tapped.
+// above the middle (at once when they open, then gliding line to line), and
+// seeks to a line when it is tapped. A Listener scrolling through them is
+// left to read for a few seconds.
 const SyncedLyrics = ({ lines, playback }) => {
   const classes = useStyles()
   const scroller = useRef(null)
-  const now = currentLine(lines, playback.currentTime)
+  const followed = useRef(false)
+  const scrolledAt = useRef(0)
+  const sung = currentLine(lines, playback.currentTime)
 
   useEffect(() => {
     const box = scroller.current
-    const line = box?.children[Math.max(now, 0)]
-    if (!line) return
-    box.scrollTop = line.offsetTop - box.clientHeight * 0.38
-  }, [now])
+    const line = box?.children[Math.max(sung, 0)]
+    if (!line || Date.now() - scrolledAt.current < FOLLOW_AFTER_MS) return
+    const top = line.offsetTop - box.clientHeight * 0.38
+    if (followed.current && !reducedMotion() && box.scrollTo) {
+      box.scrollTo({ top, behavior: 'smooth' })
+    } else {
+      box.scrollTop = top
+    }
+    followed.current = true
+  }, [sung])
+
+  const listenerScrolled = () => {
+    scrolledAt.current = Date.now()
+  }
 
   return (
     <div
       ref={scroller}
       className={clsx(classes.scroller, classes.synced)}
-      data-no-swipe
+      data-swipe-scroller
+      onWheel={listenerScrolled}
+      onTouchMove={listenerScrolled}
     >
       {lines.map((line, i) => (
         <button
@@ -98,10 +119,10 @@ const SyncedLyrics = ({ lines, playback }) => {
           type="button"
           className={clsx(
             classes.line,
-            i < now && classes.past,
-            i === now && classes.now,
+            i < sung && classes.past,
+            i === sung && classes.now,
           )}
-          aria-current={i === now ? 'true' : undefined}
+          aria-current={i === sung ? 'true' : undefined}
           onClick={() => playback.seek(line.time)}
         >
           {line.text || '♪'}
@@ -116,7 +137,10 @@ const UnsyncedLyrics = ({ lines }) => {
   const classes = useStyles()
   const translate = useTranslate()
   return (
-    <div className={clsx(classes.scroller, classes.unsynced)} data-no-swipe>
+    <div
+      className={clsx(classes.scroller, classes.unsynced)}
+      data-swipe-scroller
+    >
       <div className={classes.note}>
         {translate('nowPlaying.lyrics.notSynced')}
       </div>

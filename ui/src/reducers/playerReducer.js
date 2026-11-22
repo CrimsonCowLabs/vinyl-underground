@@ -226,11 +226,16 @@ const reducePlayFromQueue = (state, { data: { index } }) => ({
   playIndex: index,
 })
 
-// indexOf finds the queued item with the uuid in queue, or undefined
+// indexOf finds the queued Track with the uuid in queue, or undefined
 const indexOf = (queue, uuid) => {
-  const i = uuid ? queue.findIndex((item) => item.uuid === uuid) : -1
+  const i = uuid ? queue.findIndex((track) => track.uuid === uuid) : -1
   return i < 0 ? undefined : i
 }
+
+// playingIndex is the index in the queue of the Track playing or, before
+// playback starts after a reload, of the one queued to play.
+export const playingIndex = ({ queue, current, savedPlayIndex }) =>
+  indexOf(queue, current?.uuid) ?? savedPlayIndex ?? 0
 
 // editQueue gives state a new queue, keeping the Track playing (or, before
 // anything plays, queued to play) and any switch pending pointed at the same
@@ -257,11 +262,12 @@ const reduceMoveInQueue = (state, { data: { from, to } }) => {
 const reduceRemoveFromQueue = (state, { data: { index } }) => {
   if (state.queue.length <= 1) return state
   const queue = state.queue.filter((_, i) => i !== index)
-  const playingIndex =
-    indexOf(state.queue, state.current?.uuid) ?? state.savedPlayIndex ?? 0
-  if (index !== playingIndex) return editQueue(state, queue)
-  // The Track in play is gone: the one after it (or, at the end, the one
-  // before) takes its place
+  // The Track in play is the one a switch under way goes to, if any
+  if (index !== (state.playIndex ?? playingIndex(state))) {
+    return editQueue(state, queue)
+  }
+  // It's gone: the one after it (or, at the end, the one before) takes its
+  // place
   const next = Math.min(index, queue.length - 1)
   return {
     ...state,

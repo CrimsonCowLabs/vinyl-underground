@@ -340,6 +340,38 @@ describe('Now Playing tabs', () => {
       expect(queueNames()).toEqual(['Song b', 'Song a', 'Song c', 'Song d'])
     })
 
+    const swipeDown = (el) => {
+      fireEvent.touchStart(el, { touches: [{ clientX: 100, clientY: 100 }] })
+      fireEvent.touchMove(el, { touches: [{ clientX: 100, clientY: 300 }] })
+      fireEvent.touchEnd(el, {
+        changedTouches: [{ clientX: 100, clientY: 300 }],
+      })
+    }
+
+    it('closes Now Playing with a swipe down while the list is at its top', () => {
+      const { store } = showQueue()
+      swipeDown(within(panel()).getByText('Song c'))
+      expect(store.getState().nowPlaying.open).toBe(false)
+    })
+
+    it('scrolls the list rather than closing when it is scrolled down', () => {
+      const { store } = showQueue()
+      const row = within(panel()).getByText('Song c')
+      row.closest('[data-swipe-scroller]').scrollTop = 80
+      swipeDown(row)
+      expect(store.getState().nowPlaying.open).toBe(true)
+    })
+
+    it('drags a Track by its handle rather than closing', () => {
+      const { store } = showQueue()
+      swipeDown(
+        within(panel()).getByRole('button', {
+          name: 'nowPlaying.queue.move:Song b',
+        }),
+      )
+      expect(store.getState().nowPlaying.open).toBe(true)
+    })
+
     it("names the DJ picking a Station's Tracks", () => {
       showQueue({ station: true })
       expect(

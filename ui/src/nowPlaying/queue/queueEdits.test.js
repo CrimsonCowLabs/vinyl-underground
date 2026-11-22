@@ -107,6 +107,13 @@ describe('removing a Track from the queue', () => {
     expect(state.playIndex).toBe(2)
   })
 
+  it('keeps a switch under way to another Track when the one playing is removed', () => {
+    const switching = playerReducer(queueOf(1), playFromQueue(3))
+    const state = playerReducer(switching, removeFromQueue(1))
+    expect(names(state)).toBe('acd')
+    expect(state.queue[state.playIndex].trackId).toBe('d')
+  })
+
   it('never empties the queue', () => {
     const only = { ...queueOf(0), queue: [track('a')] }
     expect(playerReducer(only, removeFromQueue(0))).toBe(only)

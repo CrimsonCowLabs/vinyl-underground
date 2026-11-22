@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { useDispatch, useSelector } from 'react-redux'
+import { shallowEqual, useDispatch, useSelector } from 'react-redux'
 import { useTranslate } from 'react-admin'
 import { ButtonBase, IconButton, Typography } from '@material-ui/core'
 import { makeStyles } from '@material-ui/core/styles'
@@ -10,6 +10,7 @@ import { moveInQueue, playFromQueue, removeFromQueue } from '../../actions'
 import { formatDuration } from '../../utils'
 import { vuPalette } from '../vuPalette'
 import { dropIndex } from './dropIndex'
+import { playingIndex } from '../../reducers/playerReducer'
 
 const ROW_GAP = 2
 
@@ -65,7 +66,7 @@ const useStyles = makeStyles(
         touchAction: 'none',
         borderRadius: 8,
       },
-      play: {
+      playButton: {
         display: 'grid',
         gridTemplateColumns: '40px minmax(0, 1fr) auto',
         alignItems: 'center',
@@ -79,7 +80,7 @@ const useStyles = makeStyles(
       cover: {
         width: 40,
         height: 40,
-        borderRadius: 4,
+        borderRadius: 6,
         objectFit: 'cover',
         display: 'block',
         backgroundColor: vu.surface2,
@@ -93,7 +94,7 @@ const useStyles = makeStyles(
         overflow: 'hidden',
         textOverflow: 'ellipsis',
       },
-      sub: {
+      secondary: {
         display: 'block',
         fontSize: 12.5,
         color: theme.palette.text.secondary,
@@ -113,18 +114,16 @@ const useStyles = makeStyles(
 )
 
 // m:ss, as the rest of Now Playing shows times
-const duration = (seconds) => formatDuration(seconds).replace(/^0(?=\d:)/, '')
+const formatTime = (seconds) => formatDuration(seconds).replace(/^0(?=\d:)/, '')
 
-const titleOf = (item) => item.song?.title || item.name || ''
-const artistOf = (item) => item.song?.artist || item.singer || ''
+const titleOf = (track) => track.song?.title || track.name || ''
+const artistOf = (track) => track.song?.artist || track.singer || ''
 
-// The index of the Track playing or, before playback starts after a reload,
-// the one queued to play
-const selectQueue = (state) => {
-  const { queue, current, savedPlayIndex } = state.player
-  const playing = queue.findIndex((item) => item.uuid === current?.uuid)
-  return { queue, playing: playing >= 0 ? playing : savedPlayIndex || 0 }
-}
+// selectQueue is the queue, and the index of the Track playing in it
+const selectQueue = (state) => ({
+  queue: state.player.queue,
+  playing: playingIndex(state.player),
+})
 
 // useDrag moves a queued Track by its handle: a pointer drag (mouse, pen or
 // finger), the dragged row following it and the rows it passes making way,
@@ -199,7 +198,7 @@ const QueueView = ({ playback, dj }) => {
   const classes = useStyles()
   const translate = useTranslate()
   const dispatch = useDispatch()
-  const { queue, playing } = useSelector(selectQueue)
+  const { queue, playing } = useSelector(selectQueue, shallowEqual)
   const scroller = useRef(null)
   const { dragging, handlers, shift } = useDrag(queue.length, scroller)
 
@@ -218,19 +217,19 @@ const QueueView = ({ playback, dj }) => {
   }
 
   return (
-    <div ref={scroller} className={classes.scroller} data-no-swipe>
+    <div ref={scroller} className={classes.scroller} data-swipe-scroller>
       <Typography variant="overline" component="h3" className={classes.head}>
         {dj
           ? translate('nowPlaying.queue.upNextStation', { name: dj.name })
           : translate('nowPlaying.queue.upNext')}
       </Typography>
       <ul className={classes.list}>
-        {queue.map((item, index) => {
-          const title = titleOf(item)
+        {queue.map((track, index) => {
+          const title = titleOf(track)
           const dy = shift(index)
           return (
             <li
-              key={item.uuid}
+              key={track.uuid}
               className={clsx(
                 classes.row,
                 index === playing && classes.current,
@@ -245,19 +244,28 @@ const QueueView = ({ playback, dj }) => {
                 aria-label={translate('nowPlaying.queue.move', {
                   name: title,
                 })}
+                data-no-swipe
                 {...handlers(index)}
               >
                 <DragHandleIcon />
               </ButtonBase>
-              <ButtonBase className={classes.play} onClick={() => play(index)}>
-                <img className={classes.cover} src={item.cover} alt="" />
+              <ButtonBase
+                className={classes.playButton}
+                onClick={() => play(index)}
+              >
+                <img
+                  className={classes.cover}
+                  src={track.cover}
+                  alt=""
+                  loading="lazy"
+                />
                 <span className={classes.names}>
                   <span className={classes.title}>{title}</span>
-                  <span className={classes.sub}>{artistOf(item)}</span>
+                  <span className={classes.secondary}>{artistOf(track)}</span>
                 </span>
-                {item.duration > 0 && (
-                  <span className={clsx(classes.sub, classes.duration)}>
-                    {duration(item.duration)}
+                {track.duration > 0 && (
+                  <span className={clsx(classes.secondary, classes.duration)}>
+                    {formatTime(track.duration)}
                   </span>
                 )}
               </ButtonBase>
