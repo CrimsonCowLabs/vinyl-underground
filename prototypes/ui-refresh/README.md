@@ -1,7 +1,7 @@
 # UI refresh prototype (throwaway)
 
 A throwaway prototype for [#88](https://github.com/CrimsonCowLabs/vinyl-underground/issues/88): the
-warm record-shop look and the Now Playing layout, to react to on a real phone and in a desktop
+new look (a slate dark theme, a warm cream light theme) and the Now Playing layout, to react to on a real phone and in a desktop
 browser before #90, #91, #92, #98, #99, #100 and #101 build it for real.
 
 **It is throwaway.** It is plain HTML, CSS and JS with no build step, it sits outside `ui/` so the
@@ -70,16 +70,20 @@ only for large text and non-text marks, where AA asks for 3:1.
 
 ### Surfaces and text
 
+**Dark is Slate**, a cool blue-grey, chosen in review over the original warm brown. The Prototype
+panel's "Dark base" switch (or `?base=`) still offers Warm, Graphite (neutral grey) and Ink (true
+black) for comparison; their values are in `styles.css`.
+
 | Token            | MUI v4 theme key                         | Dark      | Light     | Used for                                         |
 | ---------------- | ---------------------------------------- | --------- | --------- | ------------------------------------------------ |
-| `--vu-bg`        | `palette.background.default`, theme-color | `#14110F` | `#F3EDE4` | Page background, Now Playing                     |
-| `--vu-surface`   | `palette.background.paper`               | `#1D1916` | `#FBF8F3` | Tab bar, player bar, sheets                      |
-| `--vu-surface-2` | custom (e.g. `palette.vu.surface2`)      | `#28221E` | `#E9E1D5` | Mini player, chips, search, DJ card, tab track   |
-| `--vu-surface-3` | custom (e.g. `palette.vu.surface3`)      | `#352D27` | `#FFFFFF` | Selected tab pill, slider track                  |
-| `--vu-divider`   | `palette.divider`                        | `#3A312A` | `#D6CBBC` | Borders                                          |
-| `--vu-text`      | `palette.text.primary`                   | `#F2EBE3` | `#1E1915` | Body text (15.9:1 dark, 15.0:1 light)            |
-| `--vu-text-2`    | `palette.text.secondary`                 | `#B3A698` | `#5E5247` | Secondary text (7.9:1 dark, 6.5:1 light)         |
-| `--vu-text-3`    | `palette.text.disabled`                  | `#7D7065` | `#7E7163` | Large text and marks only (3.9:1 dark, 4.1:1 light): upcoming lyric lines, empty stars, drag handles |
+| `--vu-bg`        | `palette.background.default`, theme-color | `#0F1216` | `#F3EDE4` | Page background, Now Playing                     |
+| `--vu-surface`   | `palette.background.paper`               | `#161A1F` | `#FBF8F3` | Tab bar, player bar, sheets                      |
+| `--vu-surface-2` | custom (e.g. `palette.vu.surface2`)      | `#1F242B` | `#E9E1D5` | Mini player, chips, search, DJ card, tab track   |
+| `--vu-surface-3` | custom (e.g. `palette.vu.surface3`)      | `#2A3038` | `#FFFFFF` | Selected tab pill, slider track                  |
+| `--vu-divider`   | `palette.divider`                        | `#2E343C` | `#D6CBBC` | Borders                                          |
+| `--vu-text`      | `palette.text.primary`                   | `#E8ECF1` | `#1E1915` | Body text (15.8:1 dark, 15.0:1 light)            |
+| `--vu-text-2`    | `palette.text.secondary`                 | `#9AA4B0` | `#5E5247` | Secondary text (7.4:1 dark, 6.5:1 light)         |
+| `--vu-text-3`    | `palette.text.disabled`                  | `#6B7480` | `#7E7163` | Large text and marks only (4.0:1 dark, 4.1:1 light): upcoming lyric lines, empty stars, drag handles |
 
 ### Accents
 
@@ -89,14 +93,14 @@ on the cream background.
 
 | Accent                  | Dark      | On it     | vs bg  | Light     | On it     | vs bg  |
 | ----------------------- | --------- | --------- | ------ | --------- | --------- | ------ |
-| Vermilion **(default)** | `#FF5B2E` | `#14110F` | 6.1:1  | `#B0300F` | `#FFFFFF` | 5.5:1  |
-| Amber                   | `#FF9A1F` | `#14110F` | 8.9:1  | `#934E00` | `#FFFFFF` | 5.4:1  |
-| Mustard                 | `#E2B53A` | `#14110F` | 9.8:1  | `#765A00` | `#FFFFFF` | 5.6:1  |
-| Olive                   | `#9DBB4E` | `#14110F` | 8.6:1  | `#4A6510` | `#FFFFFF` | 5.7:1  |
-| Teal                    | `#3EC1B0` | `#14110F` | 8.5:1  | `#086A5F` | `#FFFFFF` | 5.6:1  |
-| Denim                   | `#6FA3F0` | `#14110F` | 7.3:1  | `#2F5DB0` | `#FFFFFF` | 5.5:1  |
-| Plum                    | `#C08BF0` | `#14110F` | 7.3:1  | `#7A3FB0` | `#FFFFFF` | 5.7:1  |
-| Rose                    | `#FF6F91` | `#14110F` | 7.1:1  | `#B42851` | `#FFFFFF` | 5.4:1  |
+| Vermilion **(default)** | `#FF5B2E` | `#0F1216` | 6.1:1  | `#B0300F` | `#FFFFFF` | 5.5:1  |
+| Amber                   | `#FF9A1F` | `#0F1216` | 8.8:1  | `#934E00` | `#FFFFFF` | 5.4:1  |
+| Mustard                 | `#E2B53A` | `#0F1216` | 9.7:1  | `#765A00` | `#FFFFFF` | 5.6:1  |
+| Olive                   | `#9DBB4E` | `#0F1216` | 8.6:1  | `#4A6510` | `#FFFFFF` | 5.7:1  |
+| Teal                    | `#3EC1B0` | `#0F1216` | 8.5:1  | `#086A5F` | `#FFFFFF` | 5.6:1  |
+| Denim                   | `#6FA3F0` | `#0F1216` | 7.3:1  | `#2F5DB0` | `#FFFFFF` | 5.5:1  |
+| Plum                    | `#C08BF0` | `#0F1216` | 7.3:1  | `#7A3FB0` | `#FFFFFF` | 5.7:1  |
+| Rose                    | `#FF6F91` | `#0F1216` | 7.1:1  | `#B42851` | `#FFFFFF` | 5.4:1  |
 
 Derived from the accent (in MUI, `fade(primary.main, …)` from `@material-ui/core/styles`):
 
@@ -115,14 +119,14 @@ Derived from the accent (in MUI, `fade(primary.main, …)` from `@material-ui/co
    (greys) falls back to the default accent.
 3. Keep the hue, raise saturation to at least 45%, and step lightness (up on dark, down on light)
    until it is at least 4.5:1 against both `--vu-bg` and `--vu-surface-2`.
-4. Pick `#14110F` or `#FFFFFF` for text on it, whichever contrasts more.
+4. Pick `#0F1216` or `#FFFFFF` for text on it, whichever contrasts more.
 
 The accent fades over 0.7s between Tracks (CSS `@property` transitions here; in MUI, a
 `transition` on the coloured elements does the same).
 
 ### Everything else
 
-- **Texture:** a 180px tile of SVG `feTurbulence` noise as a data URI, warm-white grain at 7% on
+- **Texture:** a 180px tile of SVG `feTurbulence` noise as a data URI, cool-white grain at 7% on
   dark and brown grain at 8% on light, set as `background-image` on the page (in MUI, a
   `CssBaseline` `@global` body override). No blend modes or filters at runtime.
 - **Shape:** 12px radius for cards, sheets and the mini player (`shape.borderRadius: 12`), 6px for

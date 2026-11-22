@@ -73,8 +73,16 @@
     { id: 'plum', name: 'Plum', dark: '#C08BF0', light: '#7A3FB0' },
     { id: 'rose', name: 'Rose', dark: '#FF6F91', light: '#B42851' },
   ]
-  const BG = { dark: '#14110F', light: '#F3EDE4' }
-  const SURFACE2 = { dark: '#28221E', light: '#E9E1D5' }
+  // Dark bases. Slate is the chosen dark palette; the others stay for comparison.
+  const DARK_BASES = {
+    slate: { name: 'Slate', bg: '#0F1216', s2: '#1F242B' },
+    warm: { name: 'Warm', bg: '#14110F', s2: '#28221E' },
+    graphite: { name: 'Graphite', bg: '#121212', s2: '#242424' },
+    ink: { name: 'Ink', bg: '#000000', s2: '#1A1A1A' },
+  }
+  const LIGHT = { bg: '#F3EDE4', s2: '#E9E1D5' }
+  const BG = new Proxy({}, { get: (_, t) => (t === 'dark' ? DARK_BASES[state.base].bg : LIGHT.bg) })
+  const SURFACE2 = new Proxy({}, { get: (_, t) => (t === 'dark' ? DARK_BASES[state.base].s2 : LIGHT.s2) })
 
   // ---------- Sample data (all fictional) ----------
   const ALBUMS = [
@@ -160,6 +168,7 @@
   const q = new URLSearchParams(location.search)
   const state = {
     theme: q.get('theme') === 'light' ? 'light' : 'dark',
+    base: Object.prototype.hasOwnProperty.call(DARK_BASES, q.get('base')) ? q.get('base') : 'slate',
     accent: ACCENTS.some((a) => a.id === q.get('accent')) || q.get('accent') === 'art' ? q.get('accent') : 'vermilion',
     frame: q.get('frame') === 'desktop' ? 'desktop' : 'phone',
     station: q.get('station') === '1',
@@ -400,13 +409,14 @@
     }
     return rgbToHex(rgb)
   }
-  const onAccent = (hex) => (contrast(hex, '#14110F') >= contrast(hex, '#FFFFFF') ? '#14110F' : '#FFFFFF')
+  const onAccent = (hex) => (contrast(hex, '#0F1216') >= contrast(hex, '#FFFFFF') ? '#0F1216' : '#FFFFFF')
   const alpha = (hex, a) => `rgba(${hexToRgb(hex).join(', ')}, ${a})`
 
   let accentInfo = {}
   function applyAccent() {
     const root = document.documentElement
     root.dataset.theme = state.theme
+    root.dataset.base = state.base
     let hex
     let raw = null
     let fallback = false
@@ -919,6 +929,7 @@
     ].filter(Boolean)
     $('#proto-body').innerHTML = `
       <h4>Theme</h4>${seg('theme', [['dark', 'Dark'], ['light', 'Light']])}
+      <h4>Dark base</h4>${seg('base', Object.entries(DARK_BASES).map(([k, b]) => [k, b.name]))}
       <h4>Accent <span style="font-weight:400;text-transform:none">(← →)</span></h4><div class="swatches">${sw}</div>
       <h4>Framing</h4>${seg('frame', [['phone', 'Phone'], ['desktop', 'Desktop']])}
       <h4>Station</h4>${seg('station', [['0', 'Off'], ['1', 'On']])}
@@ -929,6 +940,7 @@
   function writeUrl() {
     const p = new URLSearchParams({
       theme: state.theme,
+      base: state.base,
       accent: state.accent,
       frame: state.frame,
       station: state.station ? '1' : '0',

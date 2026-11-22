@@ -27,7 +27,7 @@
   --vu-radius: 12px;
   --vu-radius-sm: 6px;
   --vu-accent: #ff5b2e;
-  --vu-on-accent: #14110f;
+  --vu-on-accent: #0f1216;
   --vu-accent-soft: rgba(255, 91, 46, 0.16);
   --vu-accent-glow: rgba(255, 91, 46, 0.3);
   /* "From album art" fades between covers rather than snapping */
@@ -39,17 +39,65 @@
 
 :root[data-theme='dark'] {
   color-scheme: dark;
-  --vu-bg: #14110f; /* background.default */
-  --vu-surface: #1d1916; /* background.paper */
-  --vu-surface-2: #28221e; /* inputs, mini player, chips */
-  --vu-surface-3: #352d27; /* selected pill, slider track */
-  --vu-divider: #3a312a;
-  --vu-text: #f2ebe3; /* text.primary */
-  --vu-text-2: #b3a698; /* text.secondary */
-  --vu-text-3: #7d7065; /* text.disabled, upcoming lyric lines */
+  --vu-bg: #0f1216; /* background.default */
+  --vu-surface: #161a1f; /* background.paper */
+  --vu-surface-2: #1f242b; /* inputs, mini player, chips */
+  --vu-surface-3: #2a3038; /* selected pill, slider track */
+  --vu-divider: #2e343c;
+  --vu-text: #e8ecf1; /* text.primary */
+  --vu-text-2: #9aa4b0; /* text.secondary */
+  --vu-text-3: #6b7480; /* text.disabled, upcoming lyric lines */
   --vu-shadow: 0 18px 40px rgba(0, 0, 0, 0.55);
   /* light grain on dark surfaces */
+  --vu-noise: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .9 0 0 0 0 .95 0 0 0 0 1 0 0 0 .07 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* Dark base: graphite (neutral grey, no tint) */
+:root[data-theme='dark'][data-base='graphite'] {
+  --vu-bg: #121212;
+  --vu-surface: #1a1a1a;
+  --vu-surface-2: #242424;
+  --vu-surface-3: #303030;
+  --vu-divider: #333333;
+  --vu-text: #ededed;
+  --vu-text-2: #a8a8a8;
+  --vu-text-3: #737373;
+  --vu-noise: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .07 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+:root[data-theme='dark'][data-base='graphite'] body {
+  background: #080808;
+}
+
+/* Dark base: warm (the original record-shop brown) */
+:root[data-theme='dark'][data-base='warm'] {
+  --vu-bg: #14110f;
+  --vu-surface: #1d1916;
+  --vu-surface-2: #28221e;
+  --vu-surface-3: #352d27;
+  --vu-divider: #3a312a;
+  --vu-text: #f2ebe3;
+  --vu-text-2: #b3a698;
+  --vu-text-3: #7d7065;
   --vu-noise: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 .95 0 0 0 0 .9 0 0 0 .07 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+:root[data-theme='dark'][data-base='warm'] body {
+  background: #0b0908;
+}
+
+/* Dark base: ink (true black, for OLED phones) */
+:root[data-theme='dark'][data-base='ink'] {
+  --vu-bg: #000000;
+  --vu-surface: #0e0e0e;
+  --vu-surface-2: #1a1a1a;
+  --vu-surface-3: #262626;
+  --vu-divider: #2a2a2a;
+  --vu-text: #f0f0f0;
+  --vu-text-2: #a3a3a3;
+  --vu-text-3: #6e6e6e;
+  --vu-noise: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .07 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+:root[data-theme='dark'][data-base='ink'] body {
+  background: #000000;
 }
 
 :root[data-theme='light'] {
@@ -79,7 +127,7 @@ body {
 body {
   font-family: var(--vu-font);
   color: var(--vu-text);
-  background: #0b0908;
+  background: #07090b;
   -webkit-font-smoothing: antialiased;
   -webkit-tap-highlight-color: transparent;
 }
