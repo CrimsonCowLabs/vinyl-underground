@@ -368,13 +368,7 @@ func dateRank(r musicbrainz.Release) int {
 
 // releaseLabel is a release's title, and its country, formats and year: "GB, 2×CD, 1999".
 func releaseLabel(r musicbrainz.Release) (string, string) {
-	var detail []string
-	for _, s := range []string{r.Country, r.Formats(), r.Date[:min(len(r.Date), 4)]} {
-		if s != "" {
-			detail = append(detail, s)
-		}
-	}
-	return r.Title, strings.Join(detail, ", ")
+	return r.Title, r.Detail()
 }
 
 func archiveCandidate(c CoverCandidate, releaseID string, cover musicbrainz.Cover) listedCandidate {

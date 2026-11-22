@@ -15,6 +15,7 @@ import (
 	"github.com/navidrome/navidrome/core/corrections"
 	"github.com/navidrome/navidrome/core/external"
 	"github.com/navidrome/navidrome/core/metrics"
+	"github.com/navidrome/navidrome/core/musicbrainz"
 	playlistsvc "github.com/navidrome/navidrome/core/playlists"
 	"github.com/navidrome/navidrome/core/quickconnect"
 	"github.com/navidrome/navidrome/core/refresh"
@@ -53,11 +54,12 @@ type Router struct {
 	refresher     refresh.Refresher
 	corrections   corrections.Corrections
 	coverPicker   artwork.CoverPicker
+	releaseSearch releaseSearch
 }
 
 func New(ds model.DataStore, share core.Share, playlists playlistsvc.Playlists, insights metrics.Insights, libraryService core.Library, userService core.User, maintenance core.Maintenance, pluginManager PluginManager, imgUpload artwork.Uploader, provider external.Provider, quickConnect quickconnect.QuickConnect, refresher refresh.Refresher, coverPicker artwork.CoverPicker) *Router {
 	r := &Router{ds: ds, share: share, playlists: playlists, insights: insights, libs: libraryService, users: userService, maintenance: maintenance, pluginManager: pluginManager, imgUpload: imgUpload, provider: provider, quickConnect: quickConnect, refresher: refresher, coverPicker: coverPicker,
-		corrections: corrections.New(ds, refresher)}
+		corrections: corrections.New(ds, refresher), releaseSearch: musicbrainz.New(musicbrainz.Options{})}
 	r.Handler = r.routes()
 	return r
 }
@@ -107,6 +109,7 @@ func (api *Router) routes() http.Handler {
 			api.addMetadataRoute(r)
 			api.addCorrectionRoute(r)
 			api.addAlbumCoverRoute(r)
+			api.addMusicBrainzRoute(r)
 			api.RX(r, "/library", api.libs.NewRepository, true)
 		})
 	})

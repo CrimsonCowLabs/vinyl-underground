@@ -143,4 +143,43 @@ describe('wrapperDataProvider', () => {
       )
     })
   })
+
+  describe('Find on MusicBrainz', () => {
+    it('searches by album artist and title, encoded in the URL', async () => {
+      mockHttpClient.mockResolvedValue({ json: [{ id: 'rel-1' }] })
+      await expect(
+        wrapperDataProvider.findMusicBrainzReleases(
+          'AC/DC & Co',
+          'Back in Black?',
+        ),
+      ).resolves.toEqual({ data: [{ id: 'rel-1' }] })
+      expect(mockHttpClient).toHaveBeenCalledWith(
+        '/api/musicbrainz/release?artist=AC%2FDC%20%26%20Co&title=Back%20in%20Black%3F',
+      )
+    })
+
+    it('sends the picked release with the album Correction', async () => {
+      mockHttpClient.mockResolvedValue({ json: { correction: { id: 'c1' } } })
+      await wrapperDataProvider.correctAlbum('al-1', {
+        name: 'Record',
+        albumArtist: 'Band',
+        year: 1999,
+        mbzAlbumId: 'rel-1',
+        mbzReleaseGroupId: 'rg-1',
+        mbzRelease: 'Record (GB, CD, 1999)',
+      })
+      expect(mockHttpClient).toHaveBeenCalledWith('/api/correction/album', {
+        method: 'POST',
+        body: JSON.stringify({
+          albumId: 'al-1',
+          name: 'Record',
+          albumArtist: 'Band',
+          year: 1999,
+          mbzAlbumId: 'rel-1',
+          mbzReleaseGroupId: 'rg-1',
+          mbzRelease: 'Record (GB, CD, 1999)',
+        }),
+      })
+    })
+  })
 })

@@ -185,6 +185,40 @@ var _ = Describe("Corrections", func() {
 			})
 		})
 
+		Describe("MusicBrainz IDs", func() {
+			const release, group = "8a7f5c4e-0d5b-4f1e-9d3c-3b2a1f0e9d8c", "1b2c3d4e-5f60-4718-9a0b-c1d2e3f40516"
+			mbz := album("a1", model.Correction{MbzAlbumID: release, MbzReleaseGroupID: group})
+
+			It("reads the File as if tagged with the release and release group IDs, which key the album", func() {
+				mf := read(tagged, mbz)
+				want := read(model.RawTags{"ALBUM": {"Something else"}, "MUSICBRAINZ_ALBUMID": {release}})
+				Expect(mf.MbzAlbumID).To(Equal(release))
+				Expect(mf.MbzReleaseGroupID).To(Equal(group))
+				Expect(mf.AlbumID).To(Equal(want.AlbumID), "the default album PID starts with musicbrainz_albumid")
+				Expect(mf.AlbumID).ToNot(Equal(read(tagged).AlbumID))
+				Expect(mf.Album).To(Equal("Liv"), "the title stays as tagged")
+				Expect(mf.CorrectionIDs).To(Equal([]string{"a1"}))
+			})
+
+			It("keeps the persistent ID of the uncorrected tags, so the Track is still the same Track", func() {
+				Expect(read(tagged, mbz).PID).To(Equal(read(tagged).PID))
+			})
+
+			It("replaces a tagged release, but leaves the Track's own and the album artist's MusicBrainz IDs as tagged", func() {
+				withIDs := model.RawTags{"ALBUM": {"Liv"}, "ALBUMARTIST": {"Greatful Dead"},
+					"MUSICBRAINZ_ALBUMID":        {"00000000-0000-4000-8000-000000000001"},
+					"MUSICBRAINZ_RELEASEGROUPID": {"00000000-0000-4000-8000-000000000002"},
+					"MUSICBRAINZ_TRACKID":        {"00000000-0000-4000-8000-000000000003"},
+					"MUSICBRAINZ_ALBUMARTISTID":  {"00000000-0000-4000-8000-000000000004"}}
+				mf := read(withIDs, mbz)
+				Expect(mf.MbzAlbumID).To(Equal(release))
+				Expect(mf.MbzReleaseGroupID).To(Equal(group))
+				Expect(mf.MbzRecordingID).To(Equal("00000000-0000-4000-8000-000000000003"))
+				Expect(mf.Participants.First(model.RoleAlbumArtist).MbzArtistID).To(Equal("00000000-0000-4000-8000-000000000004"))
+				Expect(mf.PID).To(Equal(read(withIDs).PID))
+			})
+		})
+
 		Describe("and artist renames", func() {
 			It("wins over a rename of the tagged album artist, which still renames the Track artist", func() {
 				ours := album("a1", model.Correction{AlbumArtist: "The Dead"})

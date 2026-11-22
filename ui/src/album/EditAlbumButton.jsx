@@ -29,6 +29,7 @@ import {
   trackNumbersValid,
   useTrackNumberRows,
 } from './trackNumbers'
+import { FindOnMusicBrainz } from './FindOnMusicBrainz'
 
 // The server answers a refused Correction with a code; anything else is a generic error.
 const knownErrors = [
@@ -56,6 +57,7 @@ const EditAlbumDialog = ({ record, onClose }) => {
   const [name, setName] = useState(record.name || '')
   const [albumArtist, setAlbumArtist] = useState(record.albumArtist || '')
   const [year, setYear] = useState(String(albumYear(record)))
+  const [release, setRelease] = useState(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
   const suggestions = useArtistSuggestions(albumArtist)
@@ -69,7 +71,8 @@ const EditAlbumDialog = ({ record, onClose }) => {
   const unchanged =
     name.trim() === (record.name || '') &&
     artist === (record.albumArtist || '') &&
-    (yearValue === 0 || yearValue === Number(albumYear(record) || 0))
+    (yearValue === 0 || yearValue === Number(albumYear(record) || 0)) &&
+    !release
   const trackChanges = trackNumberChanges(trackRows || [])
   const canSave =
     !saving &&
@@ -101,6 +104,11 @@ const EditAlbumDialog = ({ record, onClose }) => {
                   name: name.trim(),
                   albumArtist: artist,
                   year: yearValue,
+                  ...(release && {
+                    mbzAlbumId: release.id,
+                    mbzReleaseGroupId: release.releaseGroupId,
+                    mbzRelease: release.description,
+                  }),
                 })
                 .then(({ data }) => ({
                   data: { ...data, done: data.done && numbers.done },
@@ -142,6 +150,7 @@ const EditAlbumDialog = ({ record, onClose }) => {
       unchanged,
       trackChanges,
       setTrackRows,
+      release,
       onClose,
       notify,
       redirect,
@@ -213,6 +222,13 @@ const EditAlbumDialog = ({ record, onClose }) => {
             disabled={saving}
             error={!yearValid}
             inputProps={{ inputMode: 'numeric', 'data-testid': 'album-year' }}
+          />
+          <FindOnMusicBrainz
+            artist={artist}
+            title={name}
+            picked={release}
+            onPick={setRelease}
+            disabled={saving}
           />
           <TrackNumbersEditor
             rows={trackRows}

@@ -110,6 +110,26 @@ func (c *Client) ReleaseGroupReleases(ctx context.Context, releaseGroupID string
 	return res.Releases, err
 }
 
+// SearchReleases searches releases (editions of an album) by album artist and title, and returns
+// up to 25, best first, each with its release group, country, date and media. An empty artist
+// searches by title alone.
+func (c *Client) SearchReleases(ctx context.Context, artist, title string) ([]Release, error) {
+	query := `release:"` + luceneEscape(strings.TrimSpace(title)) + `"`
+	if artist = strings.TrimSpace(artist); artist != "" {
+		query += ` AND artist:"` + luceneEscape(artist) + `"`
+	}
+	var res struct {
+		Releases []Release `json:"releases"`
+	}
+	err := c.get(ctx, "release", url.Values{"query": {query}, "limit": {"25"}}, &res)
+	return res.Releases, err
+}
+
+// luceneEscape escapes a phrase for a quoted Lucene term.
+func luceneEscape(s string) string {
+	return strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(s)
+}
+
 func (c *Client) get(ctx context.Context, path string, params url.Values, into any) error {
 	params.Set("fmt", "json")
 	u := c.base + path + "?" + params.Encode()

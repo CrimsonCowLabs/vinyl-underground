@@ -29,6 +29,7 @@ type fakeCorrections struct {
 	blocks  []string
 	albums  []string
 	numbers []string
+	fixes   []corrections.AlbumFix
 }
 
 func (f *fakeCorrections) GetAll(context.Context) (model.Corrections, error) { return f.all, f.err }
@@ -70,6 +71,7 @@ func (f *fakeCorrections) CorrectAlbum(_ context.Context, albumID string, fix co
 		return nil, f.err
 	}
 	f.albums = append(f.albums, fmt.Sprintf("%s->%s|%s|%d", albumID, fix.AlbumArtist, fix.Name, fix.Year))
+	f.fixes = append(f.fixes, fix)
 	return &corrections.Applied{Correction: model.Correction{ID: "c3"}, AlbumID: "new-album", Done: true}, nil
 }
 
