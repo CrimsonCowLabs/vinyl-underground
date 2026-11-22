@@ -384,6 +384,194 @@ var _ = Describe("Stations with an LLM", Ordered, func() {
 	})
 })
 
+var _ = Describe("Starting a Station with an LLM", Ordered, func() {
+	var ds model.DataStore
+	var sel *fakeSelector
+	var svc stations.Service
+	var ctx context.Context
+	var seq int
+	var jazz []string // the Library's Tracks in Night Owl's genres
+
+	BeforeAll(func() {
+		ds = persistence.New(db.Db())
+		dave := model.User{ID: "dave-id", UserName: "dave", Name: "dave", NewPassword: "pw"}
+		Expect(ds.User(context.Background()).Put(&dave)).To(Succeed())
+		Expect(ds.User(context.Background()).SetUserLibraries(dave.ID, []int{1})).To(Succeed())
+		dave.Libraries = model.Libraries{{ID: 1}}
+		ctx = request.WithUser(context.Background(), dave)
+	})
+
+	// track makes a Track, by its own artist, named after the kind, in the genre.
+	track := func(kind, genre string) model.MediaFile {
+		seq++
+		return model.MediaFile{
+			ID: fmt.Sprintf("start-%s-%04d", kind, seq), LibraryID: 1, Path: fmt.Sprintf("start/%s/%d.mp3", kind, seq),
+			Title: fmt.Sprintf("%s %d", kind, seq), Artist: fmt.Sprintf("%s artist %d", kind, seq),
+			AlbumArtist: "Various", Album: "Album", Genre: genre,
+			Tags: model.Tags{model.TagGenre: []string{genre}},
+		}
+	}
+
+	// picks makes n Tracks for the fake LLM to pick, kept out of the database so only the
+	// LLM can serve them.
+	picks := func(kind string, n int) model.MediaFiles {
+		var res model.MediaFiles
+		for range n {
+			res = append(res, track(kind, "Pop"))
+		}
+		return res
+	}
+
+	// addInGenre puts n Tracks in the genre in the Library, and returns their IDs.
+	addInGenre := func(n int, genre string) []string {
+		Expect(ds.Tag(ctx).Add(1, model.NewTag(model.TagGenre, genre))).To(Succeed())
+		var res []string
+		for range n {
+			mf := track("library", genre)
+			Expect(ds.MediaFile(ctx).Put(&mf)).To(Succeed())
+			res = append(res, mf.ID)
+		}
+		return res
+	}
+
+	BeforeEach(func() {
+		for _, table := range []string{"station_track", "annotation", "media_file", "dj"} {
+			_, err := db.Db().Exec("delete from " + table)
+			Expect(err).ToNot(HaveOccurred())
+		}
+		sel = &fakeSelector{pick: func(string) model.MediaFiles { return nil }}
+		svc = stations.New(ds, sel, nil)
+		stations.SetStartWait(svc, 300*time.Millisecond)
+		DeferCleanup(func() { stations.WaitForSelection(svc) })
+		for _, table := range []string{"library_tag", "tag"} {
+			_, err := db.Db().Exec("delete from " + table)
+			Expect(err).ToNot(HaveOccurred())
+		}
+		jazz = addInGenre(50, "Cool Jazz")
+		addInGenre(30, "Polka")
+	})
+
+	// start starts the Station in the background, sending its first Tracks on the channel.
+	start := func(djID string, count int) chan model.MediaFiles {
+		done := make(chan model.MediaFiles, 1)
+		go func() {
+			defer GinkgoRecover()
+			tracks, err := svc.Start(ctx, djID, "", count)
+			Expect(err).ToNot(HaveOccurred())
+			done <- tracks
+		}()
+		return done
+	}
+
+	It("waits for the LLM's picks when none are ready, then starts with them", func() {
+		owl := picks("owl", 10)
+		sel.pick = func(string) model.MediaFiles { return owl }
+		sel.release = make(chan struct{})
+
+		done := start("night-owl", 5)
+		Consistently(done, 100*time.Millisecond).ShouldNot(Receive())
+		close(sel.release)
+
+		var tracks model.MediaFiles
+		Eventually(done).Should(Receive(&tracks))
+		Expect(ids(tracks)).To(Equal(ids(owl[:5])))
+	})
+
+	It("starts by rule, on the DJ's genres, past the wait, and plays the LLM's picks once they land", func() {
+		owl := picks("owl", 10)
+		sel.pick = func(string) model.MediaFiles { return owl }
+		sel.release = make(chan struct{})
+
+		var tracks model.MediaFiles
+		Eventually(start("night-owl", 5), time.Second).Should(Receive(&tracks))
+		Expect(tracks).To(HaveLen(5))
+		Expect(ids(tracks)).To(HaveEach(BeElementOf(jazz)))
+
+		close(sel.release)
+		stations.WaitForSelection(svc)
+		next, err := svc.Next(ctx, "night-owl", "", 3)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(ids(next)).To(Equal(ids(owl[:3])))
+	})
+
+	It("starts at once with the LLM's picks when they are ready", func() {
+		owl := picks("owl", 10)
+		sel.pick = func(string) model.MediaFiles { return owl }
+		_, err := svc.Start(ctx, "night-owl", "", 3) // plans Night Owl's picks
+		Expect(err).ToNot(HaveOccurred())
+		stations.WaitForSelection(svc)
+		sel.release = make(chan struct{}) // the LLM hangs from now on
+		DeferCleanup(func() { close(sel.release) })
+
+		var tracks model.MediaFiles
+		Eventually(start("night-owl", 5), 100*time.Millisecond).Should(Receive(&tracks))
+		Expect(ids(tracks)).To(Equal(ids(owl[3:8])))
+	})
+
+	It("starts at once on the DJ's genres when the LLM failed in the last couple of minutes", func() {
+		sel.err = errors.New("AI unavailable")
+		_, err := svc.Start(ctx, "sunny", "", 3) // waits for the failure
+		Expect(err).ToNot(HaveOccurred())
+		Expect(sel.asked()).To(HaveLen(1))
+
+		sel.release = make(chan struct{})
+		DeferCleanup(func() { close(sel.release) })
+		var tracks model.MediaFiles
+		Eventually(start("night-owl", 5), 100*time.Millisecond).Should(Receive(&tracks))
+		Expect(ids(tracks)).To(HaveEach(BeElementOf(jazz)))
+		Expect(sel.asked()).To(HaveLen(1))
+	})
+
+	It("starts at once on the DJ's genres without an LLM", func() {
+		svc = stations.New(ds, nil, nil)
+		stations.SetStartWait(svc, time.Hour)
+
+		var tracks model.MediaFiles
+		Eventually(start("night-owl", 5), 100*time.Millisecond).Should(Receive(&tracks))
+		Expect(tracks).To(HaveLen(5))
+		Expect(ids(tracks)).To(HaveEach(BeElementOf(jazz)))
+	})
+
+	It("waits for the picks of the Listener's own DJ too", func() {
+		mine, err := svc.CreateDJ(ctx, "Mr. Mellow", "Slow, soft songs for a rainy afternoon.")
+		Expect(err).ToNot(HaveOccurred())
+		mellow := picks("mellow", 10)
+		sel.pick = func(string) model.MediaFiles { return mellow }
+		sel.release = make(chan struct{})
+
+		done := start(mine.ID, 5)
+		Consistently(done, 100*time.Millisecond).ShouldNot(Receive())
+		close(sel.release)
+
+		var tracks model.MediaFiles
+		Eventually(done).Should(Receive(&tracks))
+		Expect(ids(tracks)).To(Equal(ids(mellow[:5])))
+	})
+
+	It("still gets its DJ's picks when the Listener switched from a Station whose selection is under way", func() {
+		owl, sunny := picks("owl", 10), picks("sunny", 10)
+		sel.pick = func(req string) model.MediaFiles {
+			if strings.Contains(req, "DJ Sunny.") {
+				return sunny
+			}
+			return owl
+		}
+		stations.SetStartWait(svc, 5*time.Second)
+		sel.release = make(chan struct{})
+		owlDone := start("night-owl", 3)
+		Eventually(sel.asked).Should(HaveLen(1))
+
+		sunnyDone := start("sunny", 5)
+		Consistently(sunnyDone, 100*time.Millisecond).ShouldNot(Receive())
+		close(sel.release)
+
+		Eventually(owlDone).Should(Receive())
+		var tracks model.MediaFiles
+		Eventually(sunnyDone).Should(Receive(&tracks))
+		Expect(ids(tracks)).To(Equal(ids(sunny[:5])))
+	})
+})
+
 var _ = Describe("Plans", func() {
 	var ps *stations.Plans
 	var owl, sunny stations.DJ

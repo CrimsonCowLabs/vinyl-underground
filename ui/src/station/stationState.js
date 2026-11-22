@@ -26,6 +26,19 @@ export const startStation = (djId, tracks, theme = '') => {
 }
 
 export const STATION_STOP = 'STATION_STOP'
+export const STATION_PICKING = 'STATION_PICKING'
+export const STATION_PICKING_FAILED = 'STATION_PICKING_FAILED'
+
+// stationPicking says a Station with the DJ is starting: with an LLM, the
+// server may take up to a minute picking its first songs.
+export const stationPicking = (dj) => ({
+  type: STATION_PICKING,
+  djId: dj.id,
+  djName: dj.name,
+})
+
+// stationPickingFailed says the Station starting couldn't.
+export const stationPickingFailed = () => ({ type: STATION_PICKING_FAILED })
 
 // stopStation takes the DJ off air, as when the Listener deletes it, leaving
 // the queued Tracks to play out without refills.
@@ -36,22 +49,33 @@ export const addStationTracks = (tracks) => addTracks(toQueueData(tracks))
 
 // The Station on air, if any. Playing anything else ends it. Each start gets a
 // new session, so a refill asked for by an earlier Station is never queued in
-// a later one, even with the same DJ.
+// a later one, even with the same DJ. picking is the DJ ({djId, djName}) of a
+// Station starting, while its first songs are picked. Playing anything else
+// meanwhile gives up that start.
 export const stationReducer = (
-  state = { djId: null, theme: '', session: 0 },
+  state = { djId: null, theme: '', session: 0, picking: null },
   action,
 ) => {
   switch (action.type) {
+    case STATION_PICKING:
+      return {
+        ...state,
+        picking: { djId: action.djId, djName: action.djName },
+      }
+    case STATION_PICKING_FAILED:
+      return { ...state, picking: null }
     case PLAYER_PLAY_TRACKS:
       return action.station
         ? {
             djId: action.station,
             theme: action.theme || '',
             session: (state.session || 0) + 1,
+            picking: null,
           }
-        : { ...state, djId: null }
+        : { ...state, djId: null, picking: null }
     case PLAYER_SET_TRACK:
     case PLAYER_CLEAR_QUEUE:
+      return { ...state, djId: null, picking: null }
     case STATION_STOP:
       return { ...state, djId: null }
     default:

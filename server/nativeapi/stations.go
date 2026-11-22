@@ -28,7 +28,8 @@ func (api *Router) addStationRoute(r chi.Router) {
 //   - GET /station/dj lists the DJs they can start a Station with, built-in then their own;
 //   - POST /station/dj creates one of their own DJs, PUT and DELETE /station/dj/{id} edit and
 //     delete it (built-in DJs are read-only);
-//   - POST /station/next serves their next Station Tracks;
+//   - POST /station/next serves their next Station Tracks; with "start": true it starts the
+//     Station, waiting up to stations.StartWait for the DJ's first picks from the LLM;
 //   - POST /station/skip records that they skipped one;
 //   - GET /station/blurb gives the Blurb for a Track change.
 func stationRoutes(r chi.Router, svc stations.Service) {
@@ -47,6 +48,8 @@ type nextStationRequest struct {
 	DJ    string `json:"dj"`
 	Theme string `json:"theme"`
 	Count int    `json:"count"`
+	// Start is set for a Station's first Tracks, which may wait for the LLM's picks.
+	Start bool `json:"start"`
 }
 
 func listDJs(svc stations.Service) http.HandlerFunc {
@@ -132,7 +135,11 @@ func nextStationTracks(svc stations.Service) http.HandlerFunc {
 			writeStationError(w, r, http.StatusBadRequest, "badRequest", err)
 			return
 		}
-		tracks, err := svc.Next(r.Context(), body.DJ, body.Theme, body.Count)
+		next := svc.Next
+		if body.Start {
+			next = svc.Start
+		}
+		tracks, err := next(r.Context(), body.DJ, body.Theme, body.Count)
 		switch {
 		case err == nil:
 			writeStationJSON(w, r, map[string]any{"tracks": tracks})

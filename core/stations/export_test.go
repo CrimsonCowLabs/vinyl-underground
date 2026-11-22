@@ -37,3 +37,8 @@ var PickRanked = pickRanked
 func WaitForBlurbs(s Service) {
 	s.(*service).blurbs.wg.Wait()
 }
+
+// SetStartWait sets how long a Station start waits for the LLM's picks.
+func SetStartWait(s Service, d time.Duration) {
+	s.(*service).startWait = d
+}
