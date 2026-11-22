@@ -3,8 +3,8 @@ import { BANDS } from './equalizerCurve'
 // The equalizer's settings, kept per device in settings.equalizer:
 //   on      whether it shapes the sound at all
 //   bands   each band's gain in dB, ±12, lowest band first
-//   preamp  the Listener's own preamp in dB, ±12 (the automatic lowering
-//           for boosted bands comes on top; see preampGain)
+//   preamp  the Listener's own preamp in dB, -12 to 0: it only lowers, so it
+//           can't clip (the automatic lowering for boosts is on top; see preampGain)
 //   preset  the preset the curve came from, built-in or custom, or null once
 //           the Listener has moved a slider
 //   custom  the Listener's own presets: { id, name, bands, preamp }
@@ -46,17 +46,21 @@ export const selectEqualizer = (state) => {
   if (!lastSelected || stored !== lastStored) {
     lastStored = stored
     lastSelected = { ...DEFAULTS, ...stored }
+    if (lastSelected.bands?.length !== BANDS.length) {
+      lastSelected.bands = DEFAULTS.bands
+    }
   }
   return lastSelected
 }
 
-const clamp = (db) => Math.max(-MAX_DB, Math.min(MAX_DB, Math.round(db)))
+const clamp = (db, max = MAX_DB) =>
+  Math.max(-MAX_DB, Math.min(max, Math.round(db)))
 
 const findPreset = (eq, id) =>
   BUILT_IN_PRESETS.find((p) => p.id === id) ||
   eq.custom.find((p) => p.id === id)
 
-export const turnOn = (eq, on) => ({ ...eq, on })
+export const setOn = (eq, on) => ({ ...eq, on })
 
 export const choosePreset = (eq, id) => {
   const preset = findPreset(eq, id)
@@ -81,10 +85,28 @@ export const setPreamp = (eq, db) => ({
   ...eq,
   on: true,
   preset: null,
-  preamp: clamp(db),
+  preamp: clamp(db, 0),
 })
 
-const sameName = (a, b) => a.toLocaleLowerCase() === b.toLocaleLowerCase()
+const sameName = (a, b) =>
+  a.trim().toLocaleLowerCase() === b.trim().toLocaleLowerCase()
+
+// nameTaken: whether a custom preset other than exceptId is called name
+export const nameTaken = (eq, name, exceptId) =>
+  eq.custom.some((p) => p.id !== exceptId && sameName(p.name, name))
+
+// pickedCustomPreset is the custom preset the curve came from, if any
+export const pickedCustomPreset = (eq) =>
+  eq.custom.find((p) => p.id === eq.preset)
+
+// presetName is what the curve is called: its preset's name, or "Custom"
+// once the Listener has moved a slider.
+export const presetName = (eq, translate) => {
+  if (BUILT_IN_PRESETS.some((p) => p.id === eq.preset)) {
+    return translate(`nowPlaying.eq.presets.${eq.preset}`)
+  }
+  return pickedCustomPreset(eq)?.name || translate('nowPlaying.eq.custom')
+}
 
 const nextId = (custom) =>
   `custom-${
@@ -115,9 +137,10 @@ export const savePreset = (eq, name) => {
   }
 }
 
+// renamePreset renames a custom preset, unless another one has the name
 export const renamePreset = (eq, id, name) => {
   const trimmed = name.trim()
-  if (!trimmed) return eq
+  if (!trimmed || nameTaken(eq, trimmed, id)) return eq
   return {
     ...eq,
     custom: eq.custom.map((p) => (p.id === id ? { ...p, name: trimmed } : p)),

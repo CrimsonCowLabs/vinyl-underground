@@ -6,12 +6,13 @@ import { setEqualizer } from '../actions'
 import {
   choosePreset,
   deletePreset,
+  nameTaken,
   renamePreset,
   savePreset,
   selectEqualizer,
   setBand,
   setPreamp,
-  turnOn,
+  setOn,
 } from './equalizerSettings'
 
 const FLAT = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
@@ -54,11 +55,24 @@ describe('equalizer settings', () => {
     expect(eq.preset).toBe(null)
   })
 
+  it('the preamp only ever lowers the level, so it never clips', () => {
+    expect(setPreamp(initial(), 6).preamp).toBe(0)
+    expect(setPreamp(initial(), -20).preamp).toBe(-12)
+  })
+
+  it('ignores stored bands of the wrong shape', () => {
+    const eq = selectEqualizer({
+      settings: { equalizer: { on: true, bands: [3, 3], preamp: -2 } },
+    })
+    expect(eq.bands).toEqual(FLAT)
+    expect(eq.preamp).toBe(-2)
+  })
+
   it('turning off keeps the curve for turning back on', () => {
     const on = choosePreset(initial(), 'loudness')
-    const off = turnOn(on, false)
+    const off = setOn(on, false)
     expect(off.on).toBe(false)
-    expect(turnOn(off, true)).toEqual(on)
+    expect(setOn(off, true)).toEqual(on)
   })
 
   describe('custom presets', () => {
@@ -118,6 +132,14 @@ describe('equalizer settings', () => {
       const eq = saved()
       expect(savePreset(eq, '   ')).toBe(eq)
       expect(renamePreset(eq, eq.custom[0].id, '')).toBe(eq)
+    })
+
+    it("won't rename one to another preset's name", () => {
+      const eq = savePreset(saved(), 'Headphones')
+      const [car, headphones] = eq.custom
+      expect(nameTaken(eq, 'headphones', car.id)).toBe(true)
+      expect(nameTaken(eq, 'Headphones', headphones.id)).toBe(false)
+      expect(renamePreset(eq, car.id, 'HEADPHONES')).toBe(eq)
     })
   })
 

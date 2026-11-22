@@ -1129,9 +1129,12 @@
       "renameTitle": "Rename preset",
       "delete": "Delete",
       "presetName": "Name",
+      "replacesPreset": "Replaces the preset with this name",
+      "nameTaken": "Another preset has this name",
+      "radioWaits": "Internet Radio plays without the equalizer. It starts with the next Track.",
       "saveButton": "Save",
-      "needsAudioEffects": "The equalizer needs Audio effects, which are off on this device. Turn them on in Settings.",
-      "openSettings": "Open Settings"
+      "needsAudioEffects": "The equalizer needs Audio effects, which are off on this device. Turn them on in Personal.",
+      "openSettings": "Open Personal"
     }
   },
   "help": {

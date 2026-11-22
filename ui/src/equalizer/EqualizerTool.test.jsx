@@ -27,10 +27,13 @@ vi.mock('react-admin', async (importOriginal) => ({
 const IPHONE =
   'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15'
 
-const setup = ({ settings, onIOS = false } = {}) => {
+const setup = ({ settings, onIOS = false, isRadio = false } = {}) => {
   if (onIOS) vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(IPHONE)
   const store = createStore(
-    combineReducers({ settings: settingsReducer }),
+    combineReducers({
+      settings: settingsReducer,
+      player: (state = { current: { isRadio } }) => state,
+    }),
     settings ? { settings } : undefined,
   )
   const onNavigate = vi.fn()
@@ -49,7 +52,7 @@ const setup = ({ settings, onIOS = false } = {}) => {
 const eqButton = () =>
   screen.getByRole('button', { name: /^nowPlaying\.eq\.label/, hidden: true })
 const sheet = () => document.querySelector('[aria-label="nowPlaying.eq.title"]')
-const preset = (name) => within(sheet()).getByRole('radio', { name })
+const preset = (name) => within(sheet()).getByRole('button', { name })
 const onSwitch = () =>
   within(sheet()).getByRole('checkbox', { name: 'nowPlaying.eq.on' })
 const bandSlider = (label) =>
@@ -75,7 +78,7 @@ describe('the EQ tool', () => {
     expect(eq().on).toBe(true)
     expect(eq().bands).toEqual([6, 5, 4, 2, 0, 0, 0, 0, 0, 0])
     expect(preset('nowPlaying.eq.presets.bassBoost')).toHaveAttribute(
-      'aria-checked',
+      'aria-pressed',
       'true',
     )
     expect(eqButton()).toHaveAttribute('aria-pressed', 'true')
@@ -166,7 +169,7 @@ describe('the EQ tool', () => {
       saveAs('Car')
 
       expect(eq().custom.map((p) => p.name)).toEqual(['Car'])
-      expect(preset('Car')).toHaveAttribute('aria-checked', 'true')
+      expect(preset('Car')).toHaveAttribute('aria-pressed', 'true')
       expect(eqButton()).toHaveTextContent('Car')
     })
 
@@ -203,7 +206,7 @@ describe('the EQ tool', () => {
       )
 
       expect(eq().custom).toEqual([])
-      expect(within(sheet()).queryByRole('radio', { name: 'Car' })).toBeNull()
+      expect(within(sheet()).queryByRole('button', { name: 'Car' })).toBeNull()
     })
 
     it("doesn't offer renaming or deleting a built-in preset", () => {
@@ -217,6 +220,24 @@ describe('the EQ tool', () => {
         within(sheet()).queryByRole('button', { name: 'nowPlaying.eq.delete' }),
       ).toBeNull()
     })
+  })
+
+  it('says Internet Radio plays without it until the next Track', () => {
+    setup({ isRadio: true })
+    fireEvent.click(eqButton())
+    expect(sheet()).not.toHaveTextContent('nowPlaying.eq.radioWaits')
+
+    fireEvent.click(preset('nowPlaying.eq.presets.bassBoost'))
+    expect(sheet()).toHaveTextContent('nowPlaying.eq.radioWaits')
+  })
+
+  it('caps the preamp at 0 dB', () => {
+    setup({ settings: { equalizer: { on: true, preamp: -3 } } })
+    fireEvent.click(eqButton())
+    expect(bandSlider('nowPlaying.eq.preamp')).toHaveAttribute(
+      'aria-valuemax',
+      '0',
+    )
   })
 
   describe('on an iPhone', () => {

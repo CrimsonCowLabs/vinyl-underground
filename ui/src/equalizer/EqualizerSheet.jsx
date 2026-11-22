@@ -25,11 +25,13 @@ import {
   MAX_DB,
   choosePreset,
   deletePreset,
+  nameTaken,
+  pickedCustomPreset,
   renamePreset,
   savePreset,
   setBand,
   setPreamp,
-  turnOn,
+  setOn,
 } from './equalizerSettings'
 
 const useStyles = makeStyles(
@@ -129,6 +131,7 @@ const useStyles = makeStyles(
         padding: theme.spacing(1, 1.5, 0),
       },
       spacer: { flex: 1 },
+      note: { padding: theme.spacing(0, 2.5, 1) },
       unavailable: {
         padding: theme.spacing(1, 2.5, 2),
         display: 'flex',
@@ -147,9 +150,18 @@ const bandLabel = (frequency) =>
 // +6, 0, −3 (a real minus sign)
 const formatDb = (db) => (db > 0 ? `+${db}` : db < 0 ? `−${Math.abs(db)}` : '0')
 
-const GainRow = ({ label, value, onChange, className, children }) => {
+const GainRow = ({
+  label,
+  value,
+  max = MAX_DB,
+  onChange,
+  className,
+  children,
+}) => {
   const classes = useStyles()
-  const at = ((value + MAX_DB) / (2 * MAX_DB)) * 100
+  const position = (db) => ((db + MAX_DB) / (max + MAX_DB)) * 100
+  const at = position(value)
+  const zero = position(0)
   return (
     <div className={`${classes.row} ${className || ''}`}>
       <span>{label}</span>
@@ -157,12 +169,12 @@ const GainRow = ({ label, value, onChange, className, children }) => {
         className={classes.slider}
         classes={{ rail: classes.rail, thumb: classes.thumb }}
         style={{
-          '--lo': `${Math.min(50, at)}%`,
-          '--hi': `${Math.max(50, at)}%`,
+          '--lo': `${Math.min(zero, at)}%`,
+          '--hi': `${Math.max(zero, at)}%`,
         }}
         color="primary"
         min={-MAX_DB}
-        max={MAX_DB}
+        max={max}
         step={1}
         track={false}
         value={value}
@@ -177,13 +189,16 @@ const GainRow = ({ label, value, onChange, className, children }) => {
 }
 
 // PresetNameDialog asks for a custom preset's name, to save or rename it.
-const PresetNameDialog = ({ title, initialName, onSave, onClose }) => {
+// check(name) returns { note, refused } about the name typed: a note to show
+// under it, and whether it can't be used.
+const PresetNameDialog = ({ title, initialName, check, onSave, onClose }) => {
   const translate = useTranslate()
   const [name, setName] = useState(initialName)
-  useEffect(() => setName(initialName), [initialName])
+  const { note, refused } = check(name)
+  const usable = name.trim() && !refused
   const submit = (event) => {
     event.preventDefault()
-    if (!name.trim()) return
+    if (!usable) return
     onSave(name)
     onClose()
   }
@@ -205,11 +220,13 @@ const PresetNameDialog = ({ title, initialName, onSave, onClose }) => {
             value={name}
             onChange={(event) => setName(event.target.value)}
             inputProps={{ maxLength: 40 }}
+            error={refused}
+            helperText={note}
           />
         </DialogContent>
         <DialogActions>
           <Button onClick={onClose}>{translate('ra.action.cancel')}</Button>
-          <Button type="submit" color="primary" disabled={!name.trim()}>
+          <Button type="submit" color="primary" disabled={!usable}>
             {translate('nowPlaying.eq.saveButton')}
           </Button>
         </DialogActions>
@@ -222,20 +239,23 @@ const PresetNameDialog = ({ title, initialName, onSave, onClose }) => {
 // switch, the presets, the preamp and the ten bands, and saving, renaming
 // and deleting custom presets. Each change is handed to onChange as new
 // settings. Where audio effects aren't available (an iPhone with the Audio
-// effects switch off) it points to that switch instead.
+// effects switch off) it points to that switch instead. radioWaits says the
+// equalizer is holding back for Internet Radio (waitsForTrack).
 const EqualizerSheet = ({
   open,
   onClose,
   eq,
   available,
+  radioWaits,
   onChange,
   onOpenSettings,
 }) => {
   const classes = useStyles()
   const translate = useTranslate()
-  const [naming, setNaming] = useState(null) // 'save' | 'rename' | null
+  const [saving, setSaving] = useState(false)
+  const [renaming, setRenaming] = useState(false)
   const title = translate('nowPlaying.eq.title')
-  const custom = eq.custom.find((p) => p.id === eq.preset)
+  const custom = pickedCustomPreset(eq)
   const lowered = peakDb(eq.bands)
 
   // Keeps the preset picked in view along the row of presets, such as a
@@ -243,7 +263,7 @@ const EqualizerSheet = ({
   const [chips, setChips] = useState(null)
   const checkedId = eq.on ? eq.preset : null
   useEffect(() => {
-    const checked = chips?.querySelector('[aria-checked="true"]')
+    const checked = chips?.querySelector('[aria-pressed="true"]')
     checked?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
   }, [chips, checkedId])
 
@@ -270,7 +290,7 @@ const EqualizerSheet = ({
           <Switch
             color="primary"
             checked={eq.on}
-            onChange={(event) => onChange(turnOn(eq, event.target.checked))}
+            onChange={(event) => onChange(setOn(eq, event.target.checked))}
             inputProps={{ 'aria-label': translate('nowPlaying.eq.on') }}
           />
         )}
@@ -287,10 +307,19 @@ const EqualizerSheet = ({
         </div>
       ) : (
         <>
+          {radioWaits && (
+            <Typography
+              variant="body2"
+              color="textSecondary"
+              className={classes.note}
+            >
+              {translate('nowPlaying.eq.radioWaits')}
+            </Typography>
+          )}
           <div
             ref={setChips}
             className={classes.chips}
-            role="radiogroup"
+            role="group"
             aria-label={translate('nowPlaying.eq.presetsLabel')}
           >
             {presets.map(({ id, name }) => {
@@ -298,8 +327,7 @@ const EqualizerSheet = ({
               return (
                 <ButtonBase
                   key={id}
-                  role="radio"
-                  aria-checked={checked}
+                  aria-pressed={checked}
                   className={
                     checked
                       ? `${classes.chip} ${classes.chipActive}`
@@ -317,6 +345,7 @@ const EqualizerSheet = ({
             <GainRow
               label={translate('nowPlaying.eq.preamp')}
               value={eq.preamp}
+              max={0}
               onChange={(db) => onChange(setPreamp(eq, db))}
               className={classes.preampRow}
             >
@@ -342,7 +371,7 @@ const EqualizerSheet = ({
             <Button
               size="small"
               startIcon={<SaveIcon />}
-              onClick={() => setNaming('save')}
+              onClick={() => setSaving(true)}
             >
               {translate('nowPlaying.eq.save')}
             </Button>
@@ -352,7 +381,7 @@ const EqualizerSheet = ({
                 <Button
                   size="small"
                   startIcon={<EditIcon />}
-                  onClick={() => setNaming('rename')}
+                  onClick={() => setRenaming(true)}
                 >
                   {translate('nowPlaying.eq.rename')}
                 </Button>
@@ -369,18 +398,33 @@ const EqualizerSheet = ({
         </>
       )}
 
-      {naming && (
+      {saving && (
         <PresetNameDialog
-          title={translate(`nowPlaying.eq.${naming}Title`)}
-          initialName={naming === 'rename' ? custom?.name || '' : ''}
-          onSave={(name) =>
-            onChange(
-              naming === 'rename'
-                ? renamePreset(eq, custom.id, name)
-                : savePreset(eq, name),
-            )
-          }
-          onClose={() => setNaming(null)}
+          title={translate('nowPlaying.eq.saveTitle')}
+          initialName=""
+          check={(name) => ({
+            note: nameTaken(eq, name)
+              ? translate('nowPlaying.eq.replacesPreset')
+              : undefined,
+            refused: false,
+          })}
+          onSave={(name) => onChange(savePreset(eq, name))}
+          onClose={() => setSaving(false)}
+        />
+      )}
+      {renaming && custom && (
+        <PresetNameDialog
+          title={translate('nowPlaying.eq.renameTitle')}
+          initialName={custom.name}
+          check={(name) => {
+            const refused = nameTaken(eq, name, custom.id)
+            return {
+              refused,
+              note: refused ? translate('nowPlaying.eq.nameTaken') : undefined,
+            }
+          }}
+          onSave={(name) => onChange(renamePreset(eq, custom.id, name))}
+          onClose={() => setRenaming(false)}
         />
       )}
     </Drawer>

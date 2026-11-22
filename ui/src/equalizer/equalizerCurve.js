@@ -1,6 +1,6 @@
 // The equalizer's ten bands, an octave apart. The ends are shelves, so the
 // lowest band lifts or cuts everything below it and the highest everything
-// above it; the eight between are peaking filters a little over an octave
+// above it; the eight between are peaking filters about an octave
 // wide (Q 1.41), so neighbouring bands blend into a smooth curve.
 export const BANDS = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
 export const PEAKING_Q = 1.41

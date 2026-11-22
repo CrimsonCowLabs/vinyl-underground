@@ -21,16 +21,14 @@ const GLIDE = 0.015
 // available, so it never builds the chain for nothing; otherwise the slot is
 // empty and passes the audio straight through.
 //
-// The filters are made inside the chain's createFilters callback, which the
-// chain calls again whenever it rebuilds (a new player element after a
-// logout and login), so they always take the current curve, and the nodes
-// held for live changes are always the chain's current ones.
+// The filters are made in createNodes, the callback handed to
+// chain.setEqualizer, which the chain calls again whenever it rebuilds (a
+// new player element after a logout and login). So they always take the
+// current curve, and the nodes held for live changes are the chain's own.
 export const createEqualizer = (chain) => {
   let current = null
   let inSlot = false
-  // The nodes the chain last built from createNodes. The chain calls it again
-  // whenever it is rebuilt, so these are always the live ones.
-  let nodes = null
+  let nodes = null // the ones createNodes made last
 
   const createNodes = (context) => {
     const gain = context.createGain()
@@ -64,14 +62,8 @@ export const createEqualizer = (chain) => {
     apply(eq, { available, isRadio }) {
       current = eq
       const wanted =
-        available &&
-        eq.on &&
-        !isFlat(eq) &&
-        // Building the chain while a radio stream plays silences a stream
-        // from a host without CORS until it reloads, so on Internet Radio
-        // the equalizer only joins a chain that is already there, and
-        // otherwise waits for the next Library Track.
-        (inSlot || !isRadio || chain.isBuilt())
+        wantsTheChain(eq, available) &&
+        !waitsForTrack(eq, { available, isRadio, built: chain.isBuilt() })
       if (wanted && inSlot && nodes) adjust()
       else if (wanted !== inSlot) {
         inSlot = wanted
@@ -81,6 +73,17 @@ export const createEqualizer = (chain) => {
     },
   }
 }
+
+// Whether the equalizer has anything to do: on, not flat, and allowed.
+const wantsTheChain = (eq, available) => available && eq.on && !isFlat(eq)
+
+// waitsForTrack: whether the equalizer is holding back for Internet Radio.
+// Building the chain while a radio stream plays silences a stream from a
+// host without CORS until it reloads, so on Internet Radio the equalizer
+// only joins a chain that is already built, and otherwise waits for the next
+// Library Track. (Once it is in the chain, the chain is built.)
+export const waitsForTrack = (eq, { available, isRadio, built }) =>
+  wantsTheChain(eq, available) && isRadio && !built
 
 export const equalizer = createEqualizer(audioChain)
 
