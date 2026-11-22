@@ -39,6 +39,7 @@ import { closeNowPlaying } from '../nowPlaying/nowPlayingState'
 import { nowPlayingPlayerProps } from './nowPlayingPlayerProps'
 import { sleepTimer, usePlaybackSpeed } from '../playbackTools'
 import { PlayerThemeProvider } from './PlayerThemeProvider'
+import MiniPlayer from './MiniPlayer'
 
 const Player = () => {
   const theme = useCurrentTheme()
@@ -142,6 +143,7 @@ const Player = () => {
   const classes = useStyle({
     isRadio,
     visible,
+    isDesktop,
     enableCoverAnimation: config.enableCoverAnimation,
   })
   const showNotifications = useSelector(
@@ -464,6 +466,7 @@ const Player = () => {
         onBeforeDestroy={onBeforeDestroy}
         getAudioInstance={setAudioInstance}
       />
+      {visible && !isDesktop && <MiniPlayer audioInstance={audioInstance} />}
       {visible && <StationBlurb />}
       {visible && <NowPlaying audioInstance={audioInstance} />}
       <StationPicking />

@@ -12,10 +12,12 @@ import { useResumeDownloads } from '../download'
 import { OfflineGate } from '../download/OfflineGate'
 import { PANEL_WIDTH } from '../nowPlaying/nowPlayingState'
 import { useNowPlayingPanelShown } from '../nowPlaying/useNowPlayingPanel'
+import { usePlayerRoom } from '../audioplayer/usePlayerRoom'
 
 const useStyles = makeStyles({
   root: {
-    paddingBottom: (props) => (props.addPadding ? '80px' : 0),
+    // Room for the player bar, or the mini player on a phone
+    paddingBottom: (props) => props.playerRoom,
     // Room for the Now Playing panel, so it sits beside the page, not over it
     paddingRight: (props) => (props.nowPlayingPanel ? PANEL_WIDTH : 0),
     // Within react-admin's width: 100%, so the page narrows rather than
@@ -29,7 +31,7 @@ const Layout = (props) => {
   const queue = useSelector((state) => state.player?.queue)
   const nowPlayingPanel = useNowPlayingPanelShown()
   const classes = useStyles({
-    addPadding: queue.length > 0,
+    playerRoom: usePlayerRoom(),
     nowPlayingPanel: nowPlayingPanel && queue.length > 0,
   })
   const dispatch = useDispatch()
