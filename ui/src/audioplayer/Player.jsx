@@ -32,7 +32,7 @@ import subsonic from '../subsonic'
 import locale from './locale'
 import { keyMap } from '../hotkeys'
 import keyHandlers from './keyHandlers'
-import { replayGainRequest } from '../utils/calculateReplayGain'
+import { replayGainForChain } from '../utils/calculateReplayGain'
 import { audioChain } from './audioChain'
 import { detectBrowserProfile, decisionService } from '../transcode'
 import { APP_NAME } from '../consts'
@@ -152,7 +152,7 @@ const Player = () => {
   useEffect(() => {
     const song = playerState.current?.song || {}
     audioChain.setReplayGain(
-      replayGainRequest(config.enableReplayGain, gainInfo, song),
+      replayGainForChain(config.enableReplayGain, gainInfo, song),
     )
   }, [playerState, gainInfo])
 

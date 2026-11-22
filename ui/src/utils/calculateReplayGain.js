@@ -32,7 +32,7 @@ export const calculateGain = (gainInfo, song) => {
 
 // The gain ReplayGain asks the audio chain for, or null when it is off (by the
 // server or in the Listener's settings) and so doesn't need the chain.
-export const replayGainRequest = (enabled, gainInfo, song) =>
+export const replayGainForChain = (enabled, gainInfo, song) =>
   enabled && (gainInfo.gainMode === 'album' || gainInfo.gainMode === 'track')
     ? calculateGain(gainInfo, song)
     : null

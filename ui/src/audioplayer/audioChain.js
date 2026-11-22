@@ -50,7 +50,8 @@ export const createAudioChain = (options = {}) => {
     if (!element || !AudioContextClass) return false
 
     const context = new AudioContextClass()
-    // We need this to support radios in Firefox.
+    // We need this to support radios in Firefox. A radio stream already
+    // playing from a host without CORS stays silent until it is reloaded.
     element.crossOrigin = 'anonymous'
     const source = context.createMediaElementSource(element)
     const analyser = context.createAnalyser()
@@ -68,13 +69,16 @@ export const createAudioChain = (options = {}) => {
 
   const resume = () => {
     if (graph && graph.context.state !== 'running') {
-      graph.context.resume()
+      // Outside a user gesture the browser may refuse; the next play retries.
+      graph.context.resume().catch(() => {})
     }
   }
 
   return {
     // Hands the chain the player's audio element. Builds nothing unless a
-    // feature has already asked for the chain.
+    // feature has already asked for the chain. A different element (the
+    // player remounted) gets a fresh chain with what was asked for: features
+    // holding filters or an analyser from the old one must ask again.
     attach(newElement) {
       if (newElement === element) return
       if (graph) {
