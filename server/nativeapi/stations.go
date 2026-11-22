@@ -30,7 +30,8 @@ func (api *Router) addStationRoute(r chi.Router) {
 //     delete it (built-in DJs are read-only);
 //   - GET /station/genres lists their Library's genres, which their DJs' genres are picked
 //     from, and GET /station/genres/match?name=…&description=… the ones a DJ would get;
-//   - POST /station/next serves their next Station Tracks;
+//   - POST /station/next serves their next Station Tracks; with "start": true it starts the
+//     Station, waiting up to stations.StartWait for the DJ's first picks from the LLM;
 //   - POST /station/skip records that they skipped one;
 //   - GET /station/blurb gives the Blurb for a Track change.
 func stationRoutes(r chi.Router, svc stations.Service) {
@@ -51,6 +52,8 @@ type nextStationRequest struct {
 	DJ    string `json:"dj"`
 	Theme string `json:"theme"`
 	Count int    `json:"count"`
+	// Start is set for a Station's first Tracks, which may wait for the LLM's picks.
+	Start bool `json:"start"`
 }
 
 func listDJs(svc stations.Service) http.HandlerFunc {
@@ -167,8 +170,15 @@ func nextStationTracks(svc stations.Service) http.HandlerFunc {
 			writeStationError(w, r, http.StatusBadRequest, "badRequest", err)
 			return
 		}
-		tracks, err := svc.Next(r.Context(), body.DJ, body.Theme, body.Count)
+		next := svc.Next
+		if body.Start {
+			next = svc.Start
+		}
+		tracks, err := next(r.Context(), body.DJ, body.Theme, body.Count)
 		switch {
+		case r.Context().Err() != nil:
+			// The Listener left while their Station was starting; there's no one to answer.
+			log.Debug(r.Context(), "Station start abandoned", err)
 		case err == nil:
 			writeStationJSON(w, r, map[string]any{"tracks": tracks})
 		case errors.Is(err, stations.ErrUnknownDJ):

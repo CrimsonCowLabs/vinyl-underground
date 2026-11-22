@@ -290,6 +290,7 @@
     "station": {
       "name": "Station |||| Stations",
       "onAir": "On air",
+      "picking": "Picking your first songs…",
       "fields": {
         "theme": "Theme (optional)",
         "themeHelp": "A mood or idea for the Station, e.g. late-night drive"

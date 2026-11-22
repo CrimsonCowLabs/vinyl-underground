@@ -20,8 +20,9 @@ import (
 //
 // The LLM is slow (tens of seconds), so its picks are made ahead, in the background, into a
 // plan per Listener and DJ. A refill only ever takes from the plan and never waits for the LLM:
-// when the plan is short, as when a Station starts, rule-based selection tops it up. Plans live
-// in memory only, so a restart loses them.
+// when the plan is short, rule-based selection tops it up. Only a Station's start waits, up to
+// StartWait, when its plan is empty, so a Station sounds like its DJ from the first Track.
+// Plans live in memory only, so a restart loses them.
 
 const (
 	// MaxThemeLength is the longest Theme accepted, in characters.
@@ -35,9 +36,13 @@ const (
 	// selectionTimeout is a backstop for one background selection (two LLM calls, each
 	// already bounded by the LLM's own timeout), so a stuck one never blocks the next forever.
 	selectionTimeout = 10 * time.Minute
-	// retryAfter is how long a Station plays by rule after its selection failed (say, the LLM's
-	// host is asleep) before asking the LLM again.
+	// retryAfter is how long a Listener's Stations play by rule after a selection failed (say,
+	// the LLM's host is asleep) before asking the LLM again. A Station start doesn't wait for
+	// the LLM meanwhile either, so a sleeping LLM host doesn't cost StartWait on every start.
 	retryAfter = 2 * time.Minute
+	// StartWait is the longest a Station start waits for the LLM's picks when none are
+	// planned. Past it, the Station starts by rule and the picks join later refills.
+	StartWait = 60 * time.Second
 	// planIdle is how long a plan is kept unused before it is dropped, so memory stays bounded
 	// while a Station left for the evening still has its picks the next day.
 	planIdle = 24 * time.Hour
@@ -71,10 +76,9 @@ func stationRequest(dj DJ, theme string) string {
 type plan struct {
 	// request is what the LLM was asked, so editing the DJ's persona or changing the Theme
 	// starts a new plan too.
-	request  string
-	tracks   model.MediaFiles
-	failedAt time.Time
-	usedAt   time.Time
+	request string
+	tracks  model.MediaFiles
+	usedAt  time.Time
 }
 
 // isFor reports whether the plan was made for the DJ's current persona and the Theme.
@@ -93,8 +97,17 @@ type plans struct {
 	byKey map[planKey]*plan
 	// selecting holds the Listeners with a selection under way. It is per Listener, not per
 	// plan, so switching Station never queues a second slow LLM call behind the first.
-	selecting map[string]bool
-	wg        sync.WaitGroup // background selections, for tests
+	selecting map[string]*selection
+	// failedAt is when each Listener's last selection failed, if it did and none succeeded
+	// since. It is per Listener: when the LLM is down, it is down for all their DJs.
+	failedAt map[string]time.Time
+	wg       sync.WaitGroup // background selections, for tests
+}
+
+// selection is a background selection under way into a plan.
+type selection struct {
+	plan *plan
+	done chan struct{} // closed when it ends
 }
 
 // planFor returns the Listener's plan for the DJ and Theme, starting a new, empty one when
@@ -103,7 +116,8 @@ type plans struct {
 func (ps *plans) planFor(userID string, dj DJ, theme string, now time.Time) *plan {
 	if ps.byKey == nil {
 		ps.byKey = map[planKey]*plan{}
-		ps.selecting = map[string]bool{}
+		ps.selecting = map[string]*selection{}
+		ps.failedAt = map[string]time.Time{}
 	}
 	key := planKey{userID, dj.ID}
 	p := ps.byKey[key]
@@ -144,13 +158,64 @@ func (ps *plans) selectAhead(ctx context.Context, sel Selector, userID string, d
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
 	p := ps.byKey[planKey{userID, dj.ID}]
-	if p == nil || !p.isFor(dj, theme) || ps.selecting[userID] || len(p.tracks) >= planLowWater || time.Since(p.failedAt) < retryAfter {
+	if p == nil || !p.isFor(dj, theme) || len(p.tracks) >= planLowWater {
+		return
+	}
+	ps.startSelection(ctx, sel, userID, p, dj, theme, exclude)
+}
+
+// awaitPicks waits, up to wait, until the Listener's plan for the DJ and Theme has Tracks, as
+// a Station start does. It starts the selection itself if none is under way, and when one is
+// under way for another of the Listener's Stations, it starts its own once that one ends. It
+// returns at once when the Listener's last selection failed within retryAfter, and early
+// when a selection fails meanwhile or ctx is done (then with ctx's error).
+func (ps *plans) awaitPicks(ctx context.Context, sel Selector, userID string, dj DJ, theme string, exclude []string, wait time.Duration) error {
+	timeout := time.NewTimer(wait)
+	defer timeout.Stop()
+	for {
+		ps.mu.Lock()
+		p := ps.planFor(userID, dj, theme, time.Now())
+		if len(p.tracks) > 0 || ps.failedRecently(userID) {
+			ps.mu.Unlock()
+			return nil
+		}
+		ps.startSelection(ctx, sel, userID, p, dj, theme, exclude)
+		running := ps.selecting[userID]
+		ps.mu.Unlock()
+
+		select {
+		case <-running.done:
+			// This plan's own selection ended, so its picks, if any, are in. When another
+			// plan's ended, this one's starts next time round.
+			if running.plan == p {
+				return nil
+			}
+		case <-timeout.C:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+}
+
+// failedRecently reports whether the Listener's last selection failed within retryAfter.
+// ps.mu must be held.
+func (ps *plans) failedRecently(userID string) bool {
+	at, ok := ps.failedAt[userID]
+	return ok && time.Since(at) < retryAfter
+}
+
+// startSelection starts a background selection into the plan, unless one is under way for
+// the Listener or their last one failed recently. ps.mu must be held.
+func (ps *plans) startSelection(ctx context.Context, sel Selector, userID string, p *plan, dj DJ, theme string, exclude []string) {
+	if ps.selecting[userID] != nil || ps.failedRecently(userID) {
 		return
 	}
 	for _, mf := range p.tracks {
 		exclude = append(exclude, mf.ID)
 	}
-	ps.selecting[userID] = true
+	running := &selection{plan: p, done: make(chan struct{})}
+	ps.selecting[userID] = running
 	ps.wg.Add(1)
 	// The selection outlives the refill's request, keeping its Listener for the Library.
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), selectionTimeout)
@@ -162,11 +227,13 @@ func (ps *plans) selectAhead(ctx context.Context, sel Selector, userID string, d
 		ps.mu.Lock()
 		defer ps.mu.Unlock()
 		delete(ps.selecting, userID)
+		defer close(running.done)
 		if err != nil {
-			p.failedAt = time.Now()
+			ps.failedAt[userID] = time.Now()
 			log.Warn(ctx, "Station selection failed; playing by rule for now", "dj", dj.ID, "theme", theme, err)
 			return
 		}
+		delete(ps.failedAt, userID)
 		log.Debug(ctx, "Station selection ready", "dj", dj.ID, "theme", theme, "tracks", len(tracks))
 		// The plan may have been replaced (an edited DJ or a new Theme) or dropped meanwhile;
 		// then these picks go with it.

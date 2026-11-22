@@ -38,6 +38,7 @@ import { APP_NAME } from '../consts'
 import { useStationRefill } from '../station/useStationRefill'
 import { useStationSkips } from '../station/useStationSkips'
 import StationBlurb from '../station/StationBlurb'
+import StationPicking from '../station/StationPicking'
 
 const Player = () => {
   const theme = useCurrentTheme()
@@ -480,6 +481,7 @@ const Player = () => {
         getAudioInstance={setAudioInstance}
       />
       {visible && <StationBlurb />}
+      <StationPicking />
       <GlobalHotKeys handlers={handlers} keyMap={keyMap} allowChanges />
     </ThemeProvider>
   )

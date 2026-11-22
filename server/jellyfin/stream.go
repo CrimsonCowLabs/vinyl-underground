@@ -148,6 +148,7 @@ func (api *Router) serveStream(w http.ResponseWriter, r *http.Request, mf *model
 		w.WriteHeader(http.StatusOK)
 		return
 	}
+	streamReq.Range = r.Header.Get("Range")
 	s, err := api.streamer.NewStream(ctx, mf, streamReq)
 	if err != nil {
 		api.internalError(w, r, err)

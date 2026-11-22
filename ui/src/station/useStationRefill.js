@@ -14,13 +14,17 @@ export const REFILL_COUNT = 3
 export const RETRY_MS = 15000
 
 // fetchStationTracks asks for a Station's next Tracks. The Theme is only sent
-// when there is one (only with an LLM configured).
-export const fetchStationTracks = (djId, count, theme = '') =>
+// when there is one (only with an LLM configured). For a Station's first
+// Tracks (start), the server may wait up to a minute for the LLM's picks.
+export const fetchStationTracks = (djId, count, theme = '', start = false) =>
   httpClient(`${REST_URL}/station/next`, {
     method: 'POST',
-    body: JSON.stringify(
-      theme ? { dj: djId, count, theme } : { dj: djId, count },
-    ),
+    body: JSON.stringify({
+      dj: djId,
+      count,
+      ...(theme && { theme }),
+      ...(start && { start }),
+    }),
   }).then(({ json }) => json.tracks || [])
 
 // useStationRefill keeps the Station on air endless: while a DJ is on air and

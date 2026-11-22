@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react'
-import { useDispatch, useSelector } from 'react-redux'
+import { useDispatch, useSelector, useStore } from 'react-redux'
 import { Title, useNotify, useTranslate } from 'react-admin'
 import {
   Button,
@@ -7,6 +7,7 @@ import {
   CardActions,
   CardContent,
   Chip,
+  CircularProgress,
   Dialog,
   DialogActions,
   DialogContent,
@@ -26,7 +27,13 @@ import { httpClient } from '../dataProvider'
 import { REST_URL } from '../consts'
 import config from '../config'
 import { setPlayMode } from '../actions'
-import { startStation, stopStation } from './stationState'
+import {
+  startStation,
+  isPicking,
+  stationPicking,
+  stationPickingFailed,
+  stopStation,
+} from './stationState'
 import { fetchStationTracks } from './useStationRefill'
 import DJEditor from './DJEditor'
 import { stationErrorKey } from './stationErrors'
@@ -44,6 +51,12 @@ const useStyles = makeStyles((theme) => ({
   theme: { marginBottom: theme.spacing(2), maxWidth: 480 },
   toolbar: { marginBottom: theme.spacing(2) },
   spacer: { flexGrow: 1 },
+  picking: {
+    display: 'flex',
+    alignItems: 'center',
+    padding: theme.spacing(0.75, 1),
+  },
+  pickingSpinner: { marginRight: theme.spacing(1) },
 }))
 
 // StationList shows the DJs: the built-in ones, then the Listener's own, which
@@ -55,10 +68,11 @@ const StationList = () => {
   const translate = useTranslate()
   const notify = useNotify()
   const dispatch = useDispatch()
+  const store = useStore()
   const classes = useStyles()
   const onAir = useSelector((state) => state.station?.djId)
+  const starting = useSelector((state) => state.station?.picking?.djId ?? null)
   const [djs, setDJs] = useState([])
-  const [starting, setStarting] = useState(null)
   const [stationTheme, setStationTheme] = useState('')
   // editing is { dj } while the editor is open; dj is null for a new one.
   const [editing, setEditing] = useState(null)
@@ -88,8 +102,13 @@ const StationList = () => {
     setDeleting(null)
     httpClient(`${REST_URL}/station/dj/${dj.id}`, { method: 'DELETE' })
       .then(() => {
-        // Its Station can't refill any more; what's queued plays out.
+        // Its Station can't refill any more; what's queued plays out. One
+        // still starting won't start.
         if (onAir === dj.id) dispatch(stopStation())
+        const { picking } = store.getState().station
+        if (picking?.djId === dj.id) {
+          dispatch(stationPickingFailed(picking.token))
+        }
       })
       .catch((err) => notify(stationErrorKey(err), { type: 'warning' }))
       .finally(loadDJs)
@@ -97,15 +116,21 @@ const StationList = () => {
 
   const start = (dj) => {
     const theme = config.enableStationThemes ? stationTheme.trim() : ''
-    setStarting(dj.id)
-    fetchStationTracks(dj.id, START_COUNT, theme)
+    // With an LLM, the server may wait up to a minute for the DJ's first picks.
+    const { token } = dispatch(stationPicking(dj))
+    fetchStationTracks(dj.id, START_COUNT, theme, true)
       .then((tracks) => {
+        // The Listener may have played something else meanwhile.
+        if (!isPicking(store.getState(), token)) return
         // Shuffle or repeat would replay Tracks and break the DJ's order.
         dispatch(setPlayMode('order'))
         dispatch(startStation(dj.id, tracks, theme))
       })
-      .catch((err) => notify(stationErrorKey(err), { type: 'warning' }))
-      .finally(() => setStarting(null))
+      .catch((err) => {
+        if (!isPicking(store.getState(), token)) return
+        dispatch(stationPickingFailed(token))
+        notify(stationErrorKey(err), { type: 'warning' })
+      })
   }
 
   return (
@@ -155,15 +180,29 @@ const StationList = () => {
                 </Typography>
               </CardContent>
               <CardActions>
-                <Button
-                  color="primary"
-                  startIcon={<PlayArrowIcon />}
-                  disabled={starting !== null}
-                  aria-label={`${translate('resources.station.actions.start')} ${dj.name}`}
-                  onClick={() => start(dj)}
-                >
-                  {translate('resources.station.actions.start')}
-                </Button>
+                {starting === dj.id ? (
+                  <Typography
+                    variant="body2"
+                    color="textSecondary"
+                    className={classes.picking}
+                  >
+                    <CircularProgress
+                      size={16}
+                      className={classes.pickingSpinner}
+                    />
+                    {translate('resources.station.picking')}
+                  </Typography>
+                ) : (
+                  <Button
+                    color="primary"
+                    startIcon={<PlayArrowIcon />}
+                    disabled={starting !== null}
+                    aria-label={`${translate('resources.station.actions.start')} ${dj.name}`}
+                    onClick={() => start(dj)}
+                  >
+                    {translate('resources.station.actions.start')}
+                  </Button>
+                )}
                 {!dj.builtIn && (
                   <>
                     <div className={classes.spacer} />

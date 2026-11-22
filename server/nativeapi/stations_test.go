@@ -31,7 +31,13 @@ type fakeStations struct {
 	gotUser  string
 	gotTrack string
 	gotAfter string
+	started  bool
 	blurb    *stations.Blurb
+}
+
+func (f *fakeStations) Start(ctx context.Context, djID, theme string, count int) (model.MediaFiles, error) {
+	f.started = true
+	return f.Next(ctx, djID, theme, count)
 }
 
 func (f *fakeStations) Blurb(ctx context.Context, djID, trackID, afterID string) (stations.Blurb, bool) {
@@ -88,6 +94,21 @@ var _ = Describe("Station endpoints", func() {
 		tracks := res.(map[string]any)["tracks"]
 		Expect(tracks).To(HaveLen(1))
 		Expect(tracks.([]any)[0]).To(HaveKeyWithValue("id", "mf-1"))
+	})
+
+	It("starts a Station, waiting for the DJ's first picks, when asked to", func() {
+		code, res := call(nextStationTracks(svc), http.MethodPost, `{"dj":"night-owl","count":5,"start":true}`)
+		Expect(code).To(Equal(http.StatusOK))
+		Expect(svc.started).To(BeTrue())
+		Expect(svc.gotDJ).To(Equal("night-owl"))
+		Expect(svc.gotCount).To(Equal(5))
+		Expect(res.(map[string]any)["tracks"]).To(HaveLen(1))
+	})
+
+	It("refills without waiting otherwise", func() {
+		code, _ := call(nextStationTracks(svc), http.MethodPost, `{"dj":"night-owl","count":3}`)
+		Expect(code).To(Equal(http.StatusOK))
+		Expect(svc.started).To(BeFalse())
 	})
 
 	It("passes the Station's Theme on", func() {
