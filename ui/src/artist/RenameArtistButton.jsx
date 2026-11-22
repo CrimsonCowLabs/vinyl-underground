@@ -30,9 +30,17 @@ const knownErrors = [
   'notFound',
 ]
 
-// How the server matches Artist names: regardless of capitals and extra spaces.
+// How the server matches Artist names (model.ArtistNameKey): regardless of capitals, extra
+// spaces, and typographic quotes and dashes.
 const nameKey = (name) =>
-  name.toLowerCase().split(/\s+/).filter(Boolean).join(' ')
+  name
+    .toLowerCase()
+    .replace(/[‘’‛′]/g, "'")
+    .replace(/[＂〃ˮײ᳓″‶˶ʺ“”˝‟]/g, '"')
+    .replace(/[‐–—−―]/g, '-')
+    .split(/\s+/)
+    .filter(Boolean)
+    .join(' ')
 
 // useArtistSuggestions offers the other Artists whose name matches what is typed.
 const useArtistSuggestions = (name, artistId) => {
@@ -88,21 +96,24 @@ const RenameArtistDialog = ({ record, onClose }) => {
         ? dataProvider.mergeArtist(record.id, target.id)
         : dataProvider.renameArtist(record.id, name)
       const notifications = target
-        ? ['merged', 'merging']
-        : ['renamed', 'renaming']
+        ? { done: 'merged', background: 'merging' }
+        : { done: 'renamed', background: 'renaming' }
       save
         .then(({ data }) => {
           onClose()
           if (data.done) {
-            notify(`resources.artist.notifications.${notifications[0]}`, {
+            notify(`resources.artist.notifications.${notifications.done}`, {
               type: 'info',
             })
             redirect(`/artist/${data.artistId}/show`)
           } else {
             // A large rename finishes in the background, and this page's Artist ID goes with it
-            notify(`resources.artist.notifications.${notifications[1]}`, {
-              type: 'info',
-            })
+            notify(
+              `resources.artist.notifications.${notifications.background}`,
+              {
+                type: 'info',
+              },
+            )
             redirect('/artist')
           }
         })

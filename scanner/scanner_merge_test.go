@@ -64,6 +64,8 @@ var _ = Describe("Scanning with an Artist merge", Ordered, func() {
 		createFS(fstest.MapFS{
 			"The Grateful Dead/Live/01 - Ripple.mp3":      dupe(track(1, "Ripple")),
 			"The Grateful Dead/Live/02 - Casey Jones.mp3": dupe(track(2, "Casey Jones")),
+			// A second folder: the merge applies in each of them, in the same scan
+			"The Grateful Dead/Studio/01 - Truckin.mp3":   dupe(track(1, "Truckin"), _t{"album": "Studio"}),
 			"Grateful Dead/Europe 72/01 - Jack Straw.mp3": dead(track(1, "Jack Straw")),
 		})
 		_, err := s.ScanAll(ctx, true)
@@ -109,18 +111,18 @@ var _ = Describe("Scanning with an Artist merge", Ordered, func() {
 		scanFolders()
 
 		Expect(trackIDs()).To(Equal(before))
-		Expect(albumsOf(targetID)).To(ConsistOf("Live", "Europe 72"))
+		Expect(albumsOf(targetID)).To(ConsistOf("Live", "Studio", "Europe 72"))
 		mf, err := findByPath("The Grateful Dead/Live/01 - Ripple.mp3")
 		Expect(err).ToNot(HaveOccurred())
 		Expect(mf.Artist).To(Equal("Grateful Dead"))
 		Expect(mf.ArtistID).To(Equal(targetID))
-		Expect(artist(ctx, targetID).SongCount).To(Equal(3))
+		Expect(artist(ctx, targetID).SongCount).To(Equal(4))
 		Expect(ds.MediaFile(ctx).CountAll(model.QueryOptions{Filters: squirrel.Eq{"artist_id": dupeID}})).To(BeZero())
 
 		By("undoing")
 		undo()
 		Expect(albumsOf(targetID)).To(ConsistOf("Europe 72"))
-		Expect(albumsOf(dupeID)).To(ConsistOf("Live"))
+		Expect(albumsOf(dupeID)).To(ConsistOf("Live", "Studio"))
 		Expect(trackIDs()).To(Equal(before))
 	})
 

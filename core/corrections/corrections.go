@@ -27,9 +27,9 @@ var (
 	// ErrRenamedAway is returned when renaming an Artist to a name a Correction renames away:
 	// undoing that Correction is the way to get it back.
 	ErrRenamedAway = fmt.Errorf("%w: a Correction renames that name away; undo it instead", model.ErrValidation)
-	// ErrUndoLaterFirst is returned when undoing an artist rename that a later Correction builds on:
-	// one renaming its new name onward (A→B, then B→C), or, for a rename, merging another Artist
-	// into its new name. Undoing that one first keeps the Artists' stars and play counts apart.
+	// ErrUndoLaterFirst is returned when undoing an artist rename or merge that a later Correction
+	// builds on: one renaming its new name onward (A→B, then B→C), or merging another Artist into
+	// its new name. Undoing that one first keeps the Artists' stars and play counts apart.
 	ErrUndoLaterFirst = fmt.Errorf("%w: a later Correction builds on this one; undo it first", model.ErrValidation)
 )
 
@@ -168,8 +168,9 @@ func isPlaceholder(name string) bool {
 }
 
 // checkUndoOrder returns ErrUndoLaterFirst if another artist Correction builds on cr: it renames
-// cr's new name onward, or (cr being a plain rename, whose undo moves all of the new name's stars
-// back) it merges another Artist into cr's new name.
+// cr's new name onward, or it merges another Artist into cr's new name later. A plain rename's
+// undo moves all of the new name's stars back, and a merge's undo the star the target took from
+// it, which a later merge may rely on.
 func (c *corrections) checkUndoOrder(ctx context.Context, cr *model.Correction) error {
 	if !cr.Kind.IsArtistRename() {
 		return nil
@@ -183,7 +184,7 @@ func (c *corrections) checkUndoOrder(ctx context.Context, cr *model.Correction) 
 		if o.ID == cr.ID || o.Undoing || !o.Kind.IsArtistRename() {
 			continue
 		}
-		if o.MatchKey == to || (cr.Kind == model.CorrectionArtistRename && model.ArtistNameKey(o.To) == to) {
+		if o.MatchKey == to || (model.ArtistNameKey(o.To) == to && o.CreatedAt.After(cr.CreatedAt)) {
 			return ErrUndoLaterFirst
 		}
 	}

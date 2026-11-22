@@ -1,6 +1,6 @@
 -- +goose Up
 -- Artist merges (#123): the stars, ratings and play counts an artistMerge Correction moved into the
--- Artist it merges into, one row per user, so undoing it can move them back. star_taken and
+-- Artist it merges into, one row per Listener (user), so undoing it can move them back. star_taken and
 -- rating_taken say whether the merged Artist took this Artist's star or rating (it had none of its
 -- own). Rows are deleted once the merge is undone, or with their Correction.
 CREATE TABLE IF NOT EXISTS correction_annotation (

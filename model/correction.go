@@ -71,7 +71,7 @@ type CorrectionRepository interface {
 	// FolderIDs returns the folders of the Tracks the Correction applies to now.
 	FolderIDs(id string) ([]string, error)
 
-	// MergeArtistAnnotations merges every user's star, rating and play count of Artist fromID into
+	// MergeArtistAnnotations merges every Listener's star, rating and play count of Artist fromID into
 	// Artist toID's, for the artist merge Correction with correctionID: play counts are added
 	// together, and toID keeps its own star and rating, taking fromID's only where it has none.
 	// What it moved is kept with the Correction, for SplitArtistAnnotations.

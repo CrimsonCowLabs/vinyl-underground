@@ -82,6 +82,7 @@ func (r *correctionRepository) SetUndoing(id string) error {
 }
 
 func (r *correctionRepository) Delete(id string) error {
+	// Foreign keys may be off (they are only turned on for in-memory databases)
 	if _, err := r.executeSQL(Delete("correction_annotation").Where(Eq{"correction_id": id})); err != nil {
 		return err
 	}
@@ -98,8 +99,10 @@ func (r *correctionRepository) FolderIDs(id string) ([]string, error) {
 	return res, err
 }
 
-// The SQL below works on the artist annotations of both Artists, for every user. Dates compare as
-// stored, which is how the split recognises a star or rating unchanged since the merge.
+// The SQL below works on the artist annotations of both Artists, for every Listener. Dates compare
+// as stored, which is how the split recognises a star or rating unchanged since the merge. A merge
+// can run again (in a later scan reaching more of the merged Artist's folders): what fromID got
+// meanwhile joins what was kept.
 
 // mergeArtistAnnotationsSQL keeps (adding to it) what fromID has, then merges it into toID's: play
 // counts added, the later play date, and toID's own star and rating unless it has none.
@@ -113,7 +116,13 @@ var mergeArtistAnnotationsSQL = []string{
 		on b.user_id = a.user_id and b.item_type = 'artist' and b.item_id = {:to}
 	where a.item_type = 'artist' and a.item_id = {:from}
 	on conflict (correction_id, user_id) do update set
-		play_count = correction_annotation.play_count + excluded.play_count`,
+		play_count = correction_annotation.play_count + excluded.play_count,
+		star_taken = correction_annotation.star_taken or excluded.star_taken,
+		starred = case when excluded.star_taken then excluded.starred else correction_annotation.starred end,
+		starred_at = case when excluded.star_taken then excluded.starred_at else correction_annotation.starred_at end,
+		rating_taken = correction_annotation.rating_taken or excluded.rating_taken,
+		rating = case when excluded.rating_taken then excluded.rating else correction_annotation.rating end,
+		rated_at = case when excluded.rating_taken then excluded.rated_at else correction_annotation.rated_at end`,
 	`update annotation set
 		play_count = coalesce(annotation.play_count, 0) + coalesce(a.play_count, 0),
 		play_date = case when annotation.play_date is null or a.play_date > annotation.play_date
@@ -126,7 +135,7 @@ var mergeArtistAnnotationsSQL = []string{
 	from annotation a
 	where annotation.item_type = 'artist' and annotation.item_id = {:to}
 		and a.item_type = 'artist' and a.item_id = {:from} and a.user_id = annotation.user_id`,
-	// Users who annotated only fromID: their row moves whole. The others' were merged above.
+	// Listeners who annotated only fromID: their row moves whole. The others' were merged above.
 	`update or ignore annotation set item_id = {:to} where item_type = 'artist' and item_id = {:from}`,
 	`delete from annotation where item_type = 'artist' and item_id = {:from}`,
 }

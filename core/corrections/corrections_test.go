@@ -251,6 +251,7 @@ var _ = Describe("Corrections", func() {
 
 		It("refuses to undo a rename that another Artist was merged into since", func() {
 			first := rename("Greatful Dead", "Grateful Dead")
+			time.Sleep(10 * time.Millisecond)
 			then := merge("The Grateful Dead", "grateful dead")
 
 			_, err := svc.Undo(ctx, first.ID)
@@ -259,10 +260,15 @@ var _ = Describe("Corrections", func() {
 			Expect(svc.Undo(ctx, first.ID)).ToNot(BeNil())
 		})
 
-		It("undoes merges into the same Artist in any order", func() {
-			one := merge("The Grateful Dead", "Grateful Dead")
-			merge("Grateful Dead, The", "Grateful Dead")
-			Expect(svc.Undo(ctx, one.ID)).ToNot(BeNil())
+		It("undoes merges into the same Artist latest first", func() {
+			first := merge("The Grateful Dead", "Grateful Dead")
+			time.Sleep(10 * time.Millisecond)
+			then := merge("Grateful Dead, The", "Grateful Dead")
+
+			_, err := svc.Undo(ctx, first.ID)
+			Expect(err).To(MatchError(corrections.ErrUndoLaterFirst))
+			Expect(svc.Undo(ctx, then.ID)).ToNot(BeNil())
+			Expect(svc.Undo(ctx, first.ID)).ToNot(BeNil())
 		})
 	})
 
