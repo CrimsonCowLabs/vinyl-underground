@@ -26,6 +26,16 @@ type Request struct {
 	BitDepth   int
 	Channels   int
 	Offset     int // seconds
+	// Range is the HTTP request's Range header, if any. It only affects logging: a browser
+	// fetches one play of a raw file in many byte ranges, and only the first is a new play.
+	Range string
+}
+
+// continuesPlay reports whether the Range picks up a stream after its first byte, as a
+// browser does while it buffers a file it is already playing.
+func (r Request) continuesPlay() bool {
+	rng := strings.TrimSpace(r.Range)
+	return rng != "" && !strings.HasPrefix(rng, "bytes=0-")
 }
 
 // ClientInfo represents client playback capabilities.

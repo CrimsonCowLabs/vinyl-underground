@@ -33,6 +33,7 @@ func (api *Router) Stream(w http.ResponseWriter, r *http.Request) (*responses.Su
 	}
 
 	streamReq := api.transcodeDecision.ResolveRequest(ctx, mf, format, maxBitRate, timeOffset)
+	streamReq.Range = r.Header.Get("Range")
 	stream, err := api.streamer.NewStream(ctx, mf, streamReq)
 	if err != nil {
 		return nil, err
