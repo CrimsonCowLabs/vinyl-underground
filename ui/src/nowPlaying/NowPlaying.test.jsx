@@ -88,7 +88,11 @@ const fakeAudio = () => {
 
 // setup plays song, or with station, starts the Night Owl's Station on
 // songs b, c and d
-const setup = ({ station = false } = {}) => {
+const setup = ({
+  station = false,
+  path = '/album',
+  djName = 'Night Owl',
+} = {}) => {
   const store = createStore(
     combineReducers({
       player: playerReducer,
@@ -103,13 +107,13 @@ const setup = ({ station = false } = {}) => {
             'night-owl',
             ['b', 'c', 'd'].map((id) => ({ ...song, id, title: `Song ${id}` })),
             '',
-            'Night Owl',
+            djName,
           )
         : playTracks({ [song.id]: song }),
     )
     store.dispatch(currentPlaying({ ...store.getState().player.queue[0] }))
   })
-  const history = createMemoryHistory({ initialEntries: ['/album'] })
+  const history = createMemoryHistory({ initialEntries: [path] })
   const audio = fakeAudio()
   render(
     <Provider store={store}>
@@ -191,7 +195,7 @@ describe('NowPlaying', () => {
   it('takes back its history entry when closed another way', async () => {
     const { open, isOpen } = setup()
     open()
-    expect(window.history.state?.nowPlaying).toBe(true)
+    expect(window.history.state?.nowPlaying).toBeTruthy()
 
     fireEvent.click(screen.getByRole('button', { name: 'nowPlaying.close' }))
     await waitFor(() => expect(window.history.state?.nowPlaying).toBeFalsy())
@@ -202,7 +206,7 @@ describe('NowPlaying', () => {
     open()
     await new Promise((resolve) => setTimeout(resolve, 20))
     expect(isOpen()).toBe(true)
-    expect(window.history.state?.nowPlaying).toBe(true)
+    expect(window.history.state?.nowPlaying).toBeTruthy()
     act(() => window.history.back())
     await waitFor(() => expect(isOpen()).toBe(false))
   })
@@ -280,7 +284,7 @@ describe('NowPlaying', () => {
     })
 
     it('uses the Track as queued when the server is out of reach', () => {
-      serverSong = undefined // a Download played offline
+      serverSong = undefined // a Track from a Download, played offline
       const { open } = setup()
       open()
 
@@ -317,6 +321,25 @@ describe('NowPlaying', () => {
       playing(2)
       expect(card()).not.toHaveTextContent('That was b. Here is c.')
       await waitFor(() => expect(card()).toHaveTextContent('Now d.'))
+
+      // Nor does it pop up once the view closes
+      fireEvent.click(screen.getByRole('button', { name: 'nowPlaying.close' }))
+      await waitFor(() => expect(view()).toBeNull())
+      expect(screen.queryByText('Now d.')).toBeNull()
+    })
+
+    it("finds the DJ's name for a Station started before names were kept", async () => {
+      httpClient.mockImplementation((url) =>
+        Promise.resolve({
+          json: url.endsWith('/station/dj/night-owl')
+            ? { id: 'night-owl', name: 'Night Owl' }
+            : undefined,
+        }),
+      )
+      const { open } = setup({ station: true, djName: '' })
+      open()
+
+      await waitFor(() => expect(card()).toHaveTextContent('Night Owl'))
     })
 
     it('has no DJ card off a Station', () => {
@@ -407,6 +430,36 @@ describe('NowPlaying', () => {
         'Speed',
       ])
     })
+  })
+
+  it('goes nowhere from a link to the page under it, just closing', async () => {
+    const { open, isOpen, history } = setup({ path: '/album/al1/show' })
+    const replace = vi.spyOn(history, 'replace')
+    const back = vi.spyOn(window.history, 'back')
+    open()
+
+    fireEvent.click(screen.getByRole('link', { name: 'Small Hours' }))
+
+    expect(isOpen()).toBe(false)
+    // The hash router ignores a replace by the same path, which would leave
+    // the view's history entry for back to land on; it is taken back instead
+    expect(replace).not.toHaveBeenCalled()
+    expect(back).toHaveBeenCalledTimes(1)
+    back.mockRestore()
+  })
+
+  it("ignores an entry left by an earlier page load's view", async () => {
+    // As if the page was reloaded with the view open
+    window.history.replaceState({ nowPlaying: 'an-earlier-load' }, '')
+    const { open } = setup()
+    open()
+
+    fireEvent.click(screen.getByRole('button', { name: 'nowPlaying.close' }))
+
+    // Closing takes back only its own entry, landing on the earlier one
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(window.history.state?.nowPlaying).toBe('an-earlier-load')
+    window.history.replaceState(null, '')
   })
 
   it('stays open after a short or sideways drag', () => {

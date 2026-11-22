@@ -23,7 +23,7 @@ const useStyles = makeStyles(
         alignItems: 'center',
         gap: 3,
         padding: '6px 0',
-        borderRadius: 10,
+        borderRadius: 12,
         fontSize: 11,
         fontWeight: 600,
         color: theme.palette.text.secondary,

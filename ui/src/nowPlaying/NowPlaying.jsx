@@ -5,7 +5,7 @@ import { useTranslate } from 'react-admin'
 import { Dialog, IconButton, Slide } from '@material-ui/core'
 import { makeStyles } from '@material-ui/core/styles'
 import KeyboardArrowDownIcon from '@material-ui/icons/KeyboardArrowDown'
-import { closeNowPlaying } from './nowPlayingState'
+import { closeNowPlaying, isNowPlayingOpen } from './nowPlayingState'
 import { useBackToClose } from './useBackToClose'
 import { useSwipeDown } from './useSwipeDown'
 import NowPlayingContent from './NowPlayingContent'
@@ -25,7 +25,6 @@ const useStyles = makeStyles(
         // Follows a down drag; springs back if it doesn't close
         transition: 'transform 0.2s ease-out',
       },
-      dragging: { transition: 'none' },
       scroller: {
         height: '100%',
         overflowY: 'auto',
@@ -49,10 +48,10 @@ const NowPlaying = ({ audioInstance }) => {
   const dispatch = useDispatch()
   const router = useHistory()
   const classes = useStyles()
-  const open = useSelector((state) => !!state.nowPlaying?.open)
+  const open = useSelector(isNowPlayingOpen)
   const close = useCallback(() => dispatch(closeNowPlaying()), [dispatch])
   const leave = useBackToClose(open, close)
-  const { offset, handlers } = useSwipeDown(close)
+  const { sheetRef, handlers } = useSwipeDown(close)
 
   const navigate = useCallback(
     (path) => {
@@ -71,10 +70,8 @@ const NowPlaying = ({ audioInstance }) => {
       PaperProps={{
         'aria-label': translate('nowPlaying.title'),
         'aria-modal': true,
-        className: offset
-          ? `${classes.paper} ${classes.dragging}`
-          : classes.paper,
-        style: offset ? { transform: `translateY(${offset}px)` } : undefined,
+        ref: sheetRef,
+        className: classes.paper,
       }}
     >
       <div className={classes.scroller} {...handlers}>

@@ -8,6 +8,7 @@ import subsonic from '../subsonic'
 import { StarToggle, TrackRating } from './StarAndRating'
 import { useTrackRecord } from './useTrackRecord'
 import StationCard from './StationCard'
+import { useStationDJ } from './useStationDJ'
 import RecordArt from './RecordArt'
 import Transport from './Transport'
 import NowPlayingToolbar from './NowPlayingToolbar'
@@ -75,13 +76,14 @@ const useStyles = makeStyles(
   { name: 'NDNowPlayingContent' },
 )
 
-// titlePath is where the Track's title goes, as in the player bar
-const titlePath = (current) => {
-  const song = current?.song || {}
-  if (current?.isRadio) return `/radio/${current.trackId}/show`
-  if (song.playlistId) return `/playlist/${song.playlistId}/show`
-  return song.albumId ? `/album/${song.albumId}/show` : null
-}
+const albumPath = (albumId) => albumId && `/album/${albumId}/show`
+
+// titlePath is where the title goes: the album, which the header names, or an
+// Internet Radio station's page
+const titlePath = (current) =>
+  current?.isRadio
+    ? `/radio/${current.trackId}/show`
+    : albumPath(current?.song?.albumId)
 
 // NavLink is a real link (so it can be opened, read and focused as one) that
 // goes through onNavigate, so the view can close as it navigates.
@@ -104,7 +106,7 @@ const NavLink = ({ path, onNavigate, className, children }) => {
 }
 
 // useCover is the cover big enough for the view, falling back to the player
-// bar's smaller one (which a Download keeps offline) if it can't be had.
+// bar's smaller one (which a Download keeps for its Tracks offline) if it can't be had.
 const useCover = (current) => {
   const small = current?.cover
   const large =
@@ -142,17 +144,14 @@ const NowPlayingContent = ({ audioInstance, onNavigate, closeButton }) => {
   const record = useTrackRecord(current)
   const playback = usePlayback(audioInstance, current?.duration)
   const cover = useCover(current)
-  const djName = useSelector((state) =>
-    state.station?.djId ? state.station.djName || '' : null,
-  )
+  const dj = useStationDJ()
   const title = isRadio ? current.name || song.name : song.title
-  const overline =
-    djName != null
-      ? 'nowPlaying.station'
-      : isRadio
-        ? 'nowPlaying.radio'
-        : 'nowPlaying.playingFromAlbum'
-  const source = djName != null ? djName : isRadio ? title : song.album
+  const overline = dj
+    ? 'nowPlaying.station'
+    : isRadio
+      ? 'nowPlaying.radio'
+      : 'nowPlaying.playingFromAlbum'
+  const source = dj ? dj.name : isRadio ? title : song.album
 
   return (
     <div className={classes.root}>
@@ -202,7 +201,7 @@ const NowPlayingContent = ({ audioInstance, onNavigate, closeButton }) => {
             </NavLink>
             {' · '}
             <NavLink
-              path={song.albumId && `/album/${song.albumId}/show`}
+              path={albumPath(song.albumId)}
               onNavigate={onNavigate}
               className={classes.link}
             >
@@ -212,7 +211,7 @@ const NowPlayingContent = ({ audioInstance, onNavigate, closeButton }) => {
         )}
         {!isRadio && <TrackRating record={record} />}
       </div>
-      <StationCard />
+      <StationCard dj={dj} />
       <Transport playback={playback} seekable={!isRadio} />
       <NowPlayingToolbar onNavigate={onNavigate} />
     </div>

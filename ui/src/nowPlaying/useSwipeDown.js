@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useRef } from 'react'
 
 // How far down a drag has to go to close, in px
 export const SWIPE_CLOSE_PX = 120
@@ -12,12 +12,19 @@ const point = (e) => {
 }
 
 // useSwipeDown closes a sheet with a downward drag. It returns the touch
-// handlers to spread on the sheet, and how far it is being dragged so the
-// sheet can follow the finger. A drag that starts on a slider, or while the
-// sheet is scrolled down, is left alone.
+// handlers to spread on the sheet's scroller, and a ref for the sheet, which
+// follows the finger (moved directly, so a drag doesn't re-render the view).
+// A drag that starts on a slider, or while the sheet is scrolled down, is
+// left alone.
 export const useSwipeDown = (onClose) => {
   const start = useRef(null)
-  const [offset, setOffset] = useState(0)
+  const sheetRef = useRef(null)
+  const setOffset = (px) => {
+    const sheet = sheetRef.current
+    if (!sheet) return
+    sheet.style.transform = px ? `translateY(${px}px)` : ''
+    sheet.style.transition = px ? 'none' : ''
+  }
 
   const onTouchStart = (e) => {
     const scroller = e.currentTarget
@@ -46,7 +53,7 @@ export const useSwipeDown = (onClose) => {
   }
 
   return {
-    offset,
+    sheetRef,
     handlers: {
       onTouchStart,
       onTouchMove,

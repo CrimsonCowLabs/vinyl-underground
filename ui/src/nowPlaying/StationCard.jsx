@@ -1,8 +1,6 @@
 import React from 'react'
-import { useSelector } from 'react-redux'
 import { useTranslate } from 'react-admin'
 import { makeStyles } from '@material-ui/core/styles'
-import { latestBlurb } from '../station/stationState'
 import { vuPalette } from './vuPalette'
 
 const useStyles = makeStyles(
@@ -66,17 +64,14 @@ const initials = (name) =>
     .map((word) => word[0].toUpperCase())
     .join('')
 
-// StationCard shows, on a Station, its DJ and the Blurb the DJ showed as the
-// Track playing started (Blurbs on, and written in time). It updates as the
-// Tracks change.
-const StationCard = () => {
+// StationCard shows, on a Station, its DJ (from useStationDJ) and the Blurb
+// the DJ showed as the Track playing started (Blurbs on, and written in
+// time). It updates as the Tracks change.
+const StationCard = ({ dj }) => {
   const classes = useStyles()
   const translate = useTranslate()
-  const onAir = useSelector((state) => !!state.station?.djId)
-  const blurb = useSelector(latestBlurb)
-  const djName = useSelector((state) => state.station?.djName) || blurb?.djName
-
-  if (!onAir || !djName) return null
+  if (!dj?.name) return null
+  const { name: djName, blurb } = dj
   return (
     <section
       className={classes.root}

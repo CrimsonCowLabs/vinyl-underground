@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useRef } from 'react'
 
 const KEY = 'nowPlaying'
-const ours = () => !!window.history.state?.[KEY]
+// Marks this page load's entries, so one left by the view before a reload
+// isn't taken for the open view's own
+const LOAD = Math.random().toString(36).slice(2)
+const ours = () => window.history.state?.[KEY] === LOAD
 const pushEntry = () =>
-  window.history.pushState({ ...window.history.state, [KEY]: true }, '')
+  window.history.pushState({ ...window.history.state, [KEY]: LOAD }, '')
 
 // The popstate caused by the view taking its own entry back after closing
 // some other way (its button, Esc, the down gesture). It isn't a request to
@@ -21,7 +24,8 @@ const noteTakenBack = (e) => {
 //
 // It returns leave(path, router), for navigating from the view: the view's
 // entry becomes the destination, so back from there returns to the page that
-// was under the view.
+// was under the view. A link to that page itself just closes the view (the
+// hash router ignores a replace by the same path).
 export const useBackToClose = (open, close) => {
   const closeRef = useRef(close)
   closeRef.current = close
@@ -48,6 +52,7 @@ export const useBackToClose = (open, close) => {
   }, [open])
 
   return useCallback((path, router) => {
+    if (path === router.location.pathname) return
     if (ours()) {
       window.history.replaceState({ ...window.history.state, [KEY]: false }, '')
       router.replace(path)

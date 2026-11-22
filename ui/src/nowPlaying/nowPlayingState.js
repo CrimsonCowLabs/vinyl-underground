@@ -16,3 +16,5 @@ export const nowPlayingReducer = (state = { open: false }, action) => {
       return state
   }
 }
+
+export const isNowPlayingOpen = (state) => !!state.nowPlaying?.open

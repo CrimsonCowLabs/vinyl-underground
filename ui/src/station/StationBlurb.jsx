@@ -8,6 +8,7 @@ import { httpClient } from '../dataProvider'
 import { REST_URL } from '../consts'
 import config from '../config'
 import { stationBlurb } from './stationState'
+import { isNowPlayingOpen } from '../nowPlaying/nowPlayingState'
 
 // How long a Blurb stays on screen.
 export const BLURB_MS = 15000
@@ -35,7 +36,7 @@ const StationBlurb = () => {
   const dispatch = useDispatch()
   const station = useSelector((state) => state.station)
   const current = useSelector((state) => state.player.current)
-  const nowPlayingOpen = useSelector((state) => !!state.nowPlaying?.open)
+  const nowPlayingOpen = useSelector(isNowPlayingOpen)
   const [blurb, setBlurb] = useState(null)
   const last = useRef(null) // the Track playing before, and the Station it played on
 
@@ -70,6 +71,11 @@ const StationBlurb = () => {
         console.debug('No Station Blurb:', e)
       })
   }, [uuid, trackId, onAir?.djId, onAir?.session]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Shown in Now Playing's DJ card instead, so it doesn't pop up on closing
+  useEffect(() => {
+    if (nowPlayingOpen) setBlurb(null)
+  }, [nowPlayingOpen, blurb])
 
   useEffect(() => {
     if (!blurb) return
