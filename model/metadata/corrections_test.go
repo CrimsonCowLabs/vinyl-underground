@@ -69,6 +69,11 @@ var _ = Describe("Corrections", func() {
 			Expect(names(mf, model.RoleAlbumArtist)).To(Equal([]string{"Bob Dylan", "Grateful Dead"}))
 		})
 
+		It("replaces the name only where it stands whole in the display name", func() {
+			mf := read(model.RawTags{"ARTIST": {"Joanne & Ann"}, "ARTISTS": {"Joanne", "Ann"}}, rename("c1", "Ann", "Anne"))
+			Expect(mf.Artist).To(Equal("Joanne & Anne"))
+		})
+
 		It("renames the album artist when it falls back to the Track artist", func() {
 			mf := read(model.RawTags{"ARTIST": {"Greatful Dead"}}, fix)
 			Expect(names(mf, model.RoleAlbumArtist)).To(Equal([]string{"Grateful Dead"}))
@@ -107,8 +112,8 @@ var _ = Describe("Corrections", func() {
 			c := metadata.NewCorrections(model.Corrections{rename("c1", "Greatful Dead", "Grateful Dead"), undoing})
 
 			Expect(c.ArtistIDMoves()).To(ConsistOf(
-				metadata.IDMove{From: metadata.ArtistID("Greatful Dead"), To: metadata.ArtistID("Grateful Dead")},
-				metadata.IDMove{From: metadata.ArtistID("Jimi Hendrix Experience"), To: metadata.ArtistID("Jimi Hendrix")},
+				metadata.IDMove{CorrectionID: "c1", From: metadata.ArtistID("Greatful Dead"), To: metadata.ArtistID("Grateful Dead")},
+				metadata.IDMove{CorrectionID: "c2", From: metadata.ArtistID("Jimi Hendrix Experience"), To: metadata.ArtistID("Jimi Hendrix")},
 			))
 		})
 	})

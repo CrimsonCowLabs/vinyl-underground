@@ -214,6 +214,19 @@ var _ = Describe("Corrections", func() {
 			Expect(err).To(MatchError(model.ErrNotFound))
 		})
 
+		It("also rescans the folders still holding the old name, which the rename hasn't reached yet", func() {
+			_, err := db.Db().Exec("delete from media_file")
+			Expect(err).ToNot(HaveOccurred())
+			pending := []model.ScanTarget{{LibraryID: 1, FolderPath: "Greatful Dead/Studio"}}
+			refresher.targets[metadata.ArtistID("Greatful Dead")] = pending
+
+			_, err = svc.Undo(ctx, rename.ID)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(refresher.scanned()).To(Equal([][]model.ScanTarget{pending}))
+			_, err = ds.Correction(ctx).Get(rename.ID)
+			Expect(err).To(MatchError(model.ErrNotFound))
+		})
+
 		It("deletes an orphaned Correction straight away", func() {
 			_, err := db.Db().Exec("delete from media_file")
 			Expect(err).ToNot(HaveOccurred())

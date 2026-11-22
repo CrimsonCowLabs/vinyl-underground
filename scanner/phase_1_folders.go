@@ -309,6 +309,9 @@ func (p *phaseFolders) loadTagsFromFiles(entry *folderEntry, toImport map[string
 			prevAlbumID := ""
 			if prev := toImport[filePath]; prev != nil {
 				prevAlbumID = prev.AlbumID
+				for _, id := range symmetricDifference(prev.CorrectionIDs, track.CorrectionIDs) {
+					entry.correctionChanges[id] = struct{}{}
+				}
 			} else {
 				prevAlbumID = md.AlbumID(track, p.prevAlbumPIDConf)
 			}
@@ -478,12 +481,13 @@ func (p *phaseFolders) persistFolder(ctx context.Context, tx model.DataStore, en
 }
 
 // moveArtistAnnotations moves the stars, ratings and play counts of a renamed Artist (or of a
-// rename being undone) to the Artist's new ID, once a folder holds that Artist. It runs before GC
-// deletes the annotations of the old, now empty Artist. Moving is idempotent: later scans find
-// nothing left to move. Album annotations follow their albums in persistAlbum.
+// rename being undone) to the Artist's new ID, in the folders where the rename newly applies (or
+// no longer does) to Tracks already in the Library. That is before GC deletes the annotations of
+// the old, now empty Artist, and only then: an Artist kept under the old name (e.g. as a composer)
+// keeps what it gets later. Album annotations follow their albums in persistAlbum.
 func (p *phaseFolders) moveArtistAnnotations(repo model.ArtistRepository, entry *folderEntry) error {
 	for _, m := range p.artistIDMoves {
-		if !slices.ContainsFunc(entry.artists, func(a model.Artist) bool { return a.ID == m.To }) {
+		if _, changed := entry.correctionChanges[m.CorrectionID]; !changed {
 			continue
 		}
 		if err := repo.ReassignAnnotation(m.From, m.To); err != nil {
@@ -566,3 +570,19 @@ func (p *phaseFolders) finalize(err error) error {
 }
 
 var _ phase[*folderEntry] = (*phaseFolders)(nil)
+
+// symmetricDifference returns the values in only one of a and b.
+func symmetricDifference(a, b []string) []string {
+	var res []string
+	for _, v := range a {
+		if !slices.Contains(b, v) {
+			res = append(res, v)
+		}
+	}
+	for _, v := range b {
+		if !slices.Contains(a, v) {
+			res = append(res, v)
+		}
+	}
+	return res
+}

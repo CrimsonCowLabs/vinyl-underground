@@ -74,7 +74,7 @@ describe('RenameArtistButton', () => {
     expect(screen.queryByRole('textbox')).toBeNull()
   })
 
-  it('closes once saved when the rescan carries on in the background', async () => {
+  it('closes once saved, back to the Artists, when the rescan carries on in the background', async () => {
     mockRenameArtist.mockResolvedValue({
       data: { artistId: 'ar2', done: false },
     })
@@ -87,14 +87,14 @@ describe('RenameArtistButton', () => {
         expect.anything(),
       ),
     )
-    expect(mockRedirect).not.toHaveBeenCalled()
+    expect(mockRedirect).toHaveBeenCalledWith('/artist')
     expect(screen.queryByRole('textbox')).toBeNull()
   })
 
   it('explains a refused rename and stays open', async () => {
     mockRenameArtist.mockRejectedValue({
       status: 409,
-      body: { code: 'artistExists' },
+      body: { error: 'artistExists' },
     })
     render(<RenameArtistButton record={record} />)
     rename('Grateful Dead')

@@ -79,9 +79,9 @@ var _ = Describe("Corrections API", func() {
 		return w
 	}
 	errorCode := func(w *httptest.ResponseRecorder) string {
-		var res struct{ Code string }
+		var res struct{ Error string }
 		Expect(json.Unmarshal(w.Body.Bytes(), &res)).To(Succeed())
-		return res.Code
+		return res.Error
 	}
 
 	It("lists the Corrections with a total count", func() {

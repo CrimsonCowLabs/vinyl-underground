@@ -3,6 +3,7 @@ package nativeapi
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 
@@ -25,7 +26,7 @@ func (api *Router) addCorrectionRoute(r chi.Router) {
 func (api *Router) listCorrections(w http.ResponseWriter, r *http.Request) {
 	all, err := api.corrections.GetAll(r.Context())
 	if err != nil {
-		correctionError(w, r, err)
+		writeCorrectionError(w, r, err)
 		return
 	}
 	if all == nil {
@@ -41,12 +42,12 @@ func (api *Router) renameArtist(w http.ResponseWriter, r *http.Request) {
 		Name     string `json:"name"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		correctionError(w, r, model.ErrValidation)
+		writeCorrectionError(w, r, fmt.Errorf("%w: %w", model.ErrValidation, err))
 		return
 	}
 	res, err := api.corrections.RenameArtist(r.Context(), body.ArtistID, body.Name)
 	if err != nil {
-		correctionError(w, r, err)
+		writeCorrectionError(w, r, err)
 		return
 	}
 	_ = rest.RespondWithJSON(w, http.StatusOK, res)
@@ -55,16 +56,16 @@ func (api *Router) renameArtist(w http.ResponseWriter, r *http.Request) {
 func (api *Router) undoCorrection(w http.ResponseWriter, r *http.Request) {
 	res, err := api.corrections.Undo(r.Context(), chi.URLParam(r, "id"))
 	if err != nil {
-		correctionError(w, r, err)
+		writeCorrectionError(w, r, err)
 		return
 	}
 	_ = rest.RespondWithJSON(w, http.StatusOK, res)
 }
 
-// correctionError answers with a status and a code the UI translates; message is for logs and
-// other clients.
-func correctionError(w http.ResponseWriter, r *http.Request, err error) {
-	status, code := http.StatusInternalServerError, "error"
+// writeCorrectionError answers with a status and an error code the UI translates. The underlying
+// error is only logged.
+func writeCorrectionError(w http.ResponseWriter, r *http.Request, err error) {
+	status, code := http.StatusInternalServerError, "internal"
 	switch {
 	case errors.Is(err, corrections.ErrArtistExists):
 		status, code = http.StatusConflict, "artistExists"
@@ -76,8 +77,11 @@ func correctionError(w http.ResponseWriter, r *http.Request, err error) {
 		status, code = http.StatusBadRequest, "invalid"
 	case errors.Is(err, model.ErrNotFound):
 		status, code = http.StatusNotFound, "notFound"
-	default:
-		log.Error(r.Context(), "Error handling Correction", err)
 	}
-	_ = rest.RespondWithJSON(w, status, map[string]string{"code": code, "message": err.Error()})
+	if status == http.StatusInternalServerError {
+		log.Error(r.Context(), "Error handling a Correction", err)
+	} else {
+		log.Debug(r.Context(), "Correction refused", "code", code, err)
+	}
+	_ = rest.RespondWithJSON(w, status, map[string]string{"error": code})
 }

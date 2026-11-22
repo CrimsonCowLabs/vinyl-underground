@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -95,14 +96,10 @@ func (c *corrections) RenameArtist(ctx context.Context, artistID, name string) (
 			return nil, err
 		}
 	}
-	all, err := c.ds.Correction(ctx).GetAll()
-	if err != nil {
+	if _, err := c.ds.Correction(ctx).GetByMatchKey(model.CorrectionArtistRename, model.ArtistNameKey(name)); err == nil {
+		return nil, ErrRenamedAway
+	} else if !errors.Is(err, model.ErrNotFound) {
 		return nil, err
-	}
-	for _, o := range all {
-		if o.Kind == model.CorrectionArtistRename && o.MatchKey == model.ArtistNameKey(name) {
-			return nil, ErrRenamedAway
-		}
 	}
 
 	targets, err := c.refresher.ScanTargets(ctx, model.KindArtistArtwork, ar.ID)
@@ -132,7 +129,19 @@ func (c *corrections) Undo(ctx context.Context, id string) (*Applied, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Artist renames are the only kind so far: undoing one restores, and refreshes, the old name
 	res := &Applied{Correction: *cr, ArtistID: metadata.ArtistID(cr.From), Done: true}
+	// Folders still holding the old name too: a rename whose own rescan is still running, or
+	// failed, has not reached its Tracks yet
+	notYetRenamed, err := c.refresher.ScanTargets(ctx, model.KindArtistArtwork, res.ArtistID)
+	if err != nil {
+		return nil, err
+	}
+	for _, t := range notYetRenamed {
+		if !slices.Contains(targets, t) {
+			targets = append(targets, t)
+		}
+	}
 	if len(targets) == 0 {
 		log.Info(ctx, "Corrections: deleting a Correction that applies to nothing", "kind", cr.Kind, "from", cr.From, "to", cr.To)
 		return res, repo.Delete(id)

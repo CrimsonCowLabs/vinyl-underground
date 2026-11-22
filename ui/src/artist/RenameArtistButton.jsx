@@ -51,12 +51,13 @@ const RenameArtistDialog = ({ record, onClose }) => {
             notify('resources.artist.notifications.renamed', { type: 'info' })
             redirect(`/artist/${data.artistId}/show`)
           } else {
-            // A large rename finishes in the background; the page updates when the scan ends
+            // A large rename finishes in the background, and this page's Artist ID goes with it
             notify('resources.artist.notifications.renaming', { type: 'info' })
+            redirect('/artist')
           }
         })
         .catch((err) => {
-          const code = err?.body?.code
+          const code = err?.body?.error
           setError(
             translate(
               `resources.correction.errors.${knownErrors.includes(code) ? code : 'unknown'}`,

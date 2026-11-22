@@ -33,7 +33,7 @@ const trackCounts = `(select je.value as correction_id, count(*) as track_count
 func (r *correctionRepository) GetAll() (model.Corrections, error) {
 	var res model.Corrections
 	sq := Select("correction.*", "coalesce(tc.track_count, 0) as track_count").From(r.tableName).
-		LeftJoin(trackCounts + " on tc.correction_id = correction.id").
+		LeftJoin(trackCounts+" on tc.correction_id = correction.id").
 		OrderBy("correction.created_at desc", "correction.rowid desc")
 	err := r.queryAll(sq, &res)
 	return res, err
@@ -42,6 +42,14 @@ func (r *correctionRepository) GetAll() (model.Corrections, error) {
 func (r *correctionRepository) Get(id string) (*model.Correction, error) {
 	var res model.Correction
 	if err := r.queryOne(Select("*").From(r.tableName).Where(Eq{"id": id}), &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (r *correctionRepository) GetByMatchKey(kind model.CorrectionKind, key string) (*model.Correction, error) {
+	var res model.Correction
+	if err := r.queryOne(Select("*").From(r.tableName).Where(Eq{"kind": kind, "match_key": key}), &res); err != nil {
 		return nil, err
 	}
 	return &res, nil

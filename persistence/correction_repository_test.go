@@ -51,6 +51,11 @@ var _ = Describe("CorrectionRepository", func() {
 	It("rejects a second Correction matching the same thing", func() {
 		Expect(repo.Add(rename("Greatful Dead", "Grateful Dead"))).To(Succeed())
 		Expect(repo.Add(rename("greatful  dead", "The Grateful Dead"))).To(MatchError(model.ErrAlreadyExists))
+		got, err := repo.GetByMatchKey(model.CorrectionArtistRename, "greatful dead")
+		Expect(err).ToNot(HaveOccurred())
+		Expect(got.To).To(Equal("Grateful Dead"))
+		_, err = repo.GetByMatchKey(model.CorrectionArtistRename, "grateful dead")
+		Expect(err).To(MatchError(model.ErrNotFound))
 	})
 
 	It("lists Corrections newest first, counting the Tracks each applies to now", func() {

@@ -38,6 +38,17 @@ func (m *MockCorrectionRepo) Get(id string) (*model.Correction, error) {
 	return nil, model.ErrNotFound
 }
 
+func (m *MockCorrectionRepo) GetByMatchKey(kind model.CorrectionKind, key string) (*model.Correction, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, c := range m.All {
+		if c.Kind == kind && c.MatchKey == key {
+			return &c, nil
+		}
+	}
+	return nil, model.ErrNotFound
+}
+
 func (m *MockCorrectionRepo) Add(c *model.Correction) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

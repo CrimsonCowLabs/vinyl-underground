@@ -3,6 +3,8 @@ package metadata
 import (
 	"slices"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/utils/str"
@@ -31,9 +33,11 @@ func NewCorrections(cs model.Corrections) Corrections {
 	return c
 }
 
-// IDMove says that what was attached to one ID (e.g. stars and play counts) belongs to another.
+// IDMove says that what was attached to one ID (e.g. stars and play counts) belongs to another,
+// because of the Correction with CorrectionID.
 type IDMove struct {
-	From, To string
+	CorrectionID string
+	From, To     string
 }
 
 // ArtistIDMoves returns where each renamed Artist's ID moves: from the old name's ID to the new
@@ -41,16 +45,16 @@ type IDMove struct {
 // the ID, so it moves nothing.
 func (c Corrections) ArtistIDMoves() []IDMove {
 	var moves []IDMove
-	add := func(from, to string) {
-		if m := (IDMove{From: ArtistID(from), To: ArtistID(to)}); m.From != m.To {
+	add := func(id, from, to string) {
+		if m := (IDMove{CorrectionID: id, From: ArtistID(from), To: ArtistID(to)}); m.From != m.To {
 			moves = append(moves, m)
 		}
 	}
 	for _, cr := range c.renames {
-		add(cr.From, c.resolve(cr.To, nil))
+		add(cr.ID, cr.From, c.resolve(cr.To, nil))
 	}
 	for _, cr := range c.undoings {
-		add(c.resolve(cr.To, nil), cr.From)
+		add(cr.ID, c.resolve(cr.To, nil), cr.From)
 	}
 	return moves
 }
@@ -113,10 +117,35 @@ func (c Corrections) renameArtists(mf *model.MediaFile) {
 }
 
 // replaceName swaps the name for its new one in a display name, which joins the tagged names.
-// A display name of just that Artist (give or take spaces) becomes the new name.
+// A display name of just that Artist (give or take spaces) becomes the new name. Otherwise the
+// name is replaced where it stands whole, so renaming "Ann" leaves "Joanne & Ann"'s Joanne alone.
 func replaceName(display, name, to string) string {
 	if model.ArtistNameKey(display) == model.ArtistNameKey(name) {
 		return to
 	}
-	return strings.Replace(display, name, to, 1)
+	for start := 0; start < len(display); {
+		i := strings.Index(display[start:], name)
+		if i < 0 {
+			break
+		}
+		i += start
+		end := i + len(name)
+		if !isWordRune(lastRune(display[:i])) && !isWordRune(firstRune(display[end:])) {
+			return display[:i] + to + display[end:]
+		}
+		start = i + 1
+	}
+	return display
+}
+
+func isWordRune(r rune) bool { return unicode.IsLetter(r) || unicode.IsDigit(r) }
+
+func firstRune(s string) rune {
+	r, _ := utf8.DecodeRuneInString(s)
+	return r
+}
+
+func lastRune(s string) rune {
+	r, _ := utf8.DecodeLastRuneInString(s)
+	return r
 }

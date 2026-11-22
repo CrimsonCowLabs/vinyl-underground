@@ -248,7 +248,7 @@ const wrapperDataProvider = {
       method: 'POST',
     }).then(() => ({ data: { id } })),
   // Corrections (admin only). Both answer { correction, artistId, done }: done is false while
-  // the rescan carries on in the background. A failure's body has a `code` to translate.
+  // the rescan carries on in the background. A failure's body has an `error` code to translate.
   renameArtist: (artistId, name) =>
     httpClient(`${REST_URL}/correction/artistRename`, {
       method: 'POST',

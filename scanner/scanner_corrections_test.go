@@ -210,6 +210,22 @@ var _ = Describe("Scanning with Corrections", Ordered, func() {
 		Expect(mf.CorrectionIDs).To(BeEmpty())
 	})
 
+	It("moves the stars only when the rename is applied, so an Artist kept as a composer keeps its own later", func() {
+		Expect(ds.Correction(ctx).Add(rename)).To(Succeed())
+		scanFolders(targets...)
+		// "Greatful Dead" is still the composer of Casey Jones
+		Expect(ds.Artist(ctx).SetStar(true, oldArtistID)).To(Succeed())
+
+		scanFolders(targets...)
+
+		ar, err := ds.Artist(ctx).Get(oldArtistID)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(ar.Starred).To(BeTrue())
+		ar, err = ds.Artist(ctx).Get(newArtistID)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(ar.Starred).To(BeFalse())
+	})
+
 	It("records which Tracks each Correction applies to", func() {
 		Expect(ds.Correction(ctx).Add(rename)).To(Succeed())
 		scanFolders(targets...)

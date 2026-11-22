@@ -50,6 +50,8 @@ type CorrectionRepository interface {
 	// GetAll returns every Correction, newest first, with its TrackCount.
 	GetAll() (Corrections, error)
 	Get(id string) (*Correction, error)
+	// GetByMatchKey returns the Correction of the kind matching key, or ErrNotFound.
+	GetByMatchKey(kind CorrectionKind, key string) (*Correction, error)
 	// Add stores a new Correction, setting its ID and CreatedAt. It returns ErrAlreadyExists if a
 	// Correction of the same Kind already has its MatchKey.
 	Add(c *Correction) error

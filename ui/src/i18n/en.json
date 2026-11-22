@@ -152,11 +152,11 @@
         "rename": "Rename"
       },
       "message": {
-        "renameHelp": "The new name is used everywhere in the library, also for files added later, in every app. The files are not changed. You can undo it on the Corrections page."
+        "renameHelp": "The new name is used everywhere in the Library, also for Files added later, in every app. The Files are not changed. You can undo it on the Corrections page."
       },
       "notifications": {
         "renamed": "Artist renamed",
-        "renaming": "Rename saved. The library is being updated in the background"
+        "renaming": "Rename saved. The Library is being updated in the background"
       }
     },
     "user": {
@@ -388,7 +388,7 @@
         "artistRename": "Artist rename"
       },
       "status": {
-        "tracks": "1 track |||| %{smart_count} tracks",
+        "tracks": "1 Track |||| %{smart_count} Tracks",
         "orphaned": "Matches nothing",
         "undoing": "Undoing…"
       },
@@ -401,7 +401,7 @@
       },
       "notifications": {
         "undone": "Correction undone",
-        "undoing": "Undoing. The library is being updated in the background"
+        "undoing": "Undoing. The Library is being updated in the background"
       },
       "errors": {
         "artistExists": "An Artist named \"%{name}\" already exists. Merging Artists is not supported yet.",

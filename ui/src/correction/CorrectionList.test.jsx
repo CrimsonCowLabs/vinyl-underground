@@ -107,7 +107,7 @@ describe('Corrections page', () => {
   })
 
   it('reports a failed undo', async () => {
-    mockUndo.mockRejectedValue({ status: 500, body: { code: 'error' } })
+    mockUndo.mockRejectedValue({ status: 500, body: { error: 'internal' } })
     render(<UndoCorrectionButton record={rename} />)
     fireEvent.click(screen.getByText('resources.correction.actions.undo'))
     fireEvent.click(screen.getByText('confirm'))
