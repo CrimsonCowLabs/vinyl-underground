@@ -43,6 +43,11 @@ const (
 	randomCandidates   = 300
 	favoriteCandidates = 100
 	tasteCandidates    = 200
+
+	// strictGenreTracks is how many Library Tracks must be in a DJ's genres for rule-based
+	// selection to play only those. Below it the genres are just a boost, so a DJ never runs
+	// dry in a small Library. It counts within the tasteCandidates sample, so it can't exceed it.
+	strictGenreTracks = 50
 )
 
 var (
@@ -268,6 +273,7 @@ func servedAt(mfs model.MediaFiles, now time.Time) []Served {
 // candidates gathers Tracks from the Listener's Library for Pick to choose from: a random
 // sample, so the whole Library gets a chance, plus the Listener's favorites and most played
 // Tracks, plus Tracks that suit the DJ's Taste. Repeats among them are fine; Pick drops them.
+// When strictGenreTracks or more Library Tracks are in the DJ's genres, only those are left.
 func (s *service) candidates(ctx context.Context, dj DJ) (model.MediaFiles, error) {
 	repo := s.ds.MediaFile(ctx)
 	present := Eq{"media_file.missing": false}
@@ -296,6 +302,7 @@ func (s *service) candidates(ctx context.Context, dj DJ) (model.MediaFiles, erro
 	}
 
 	t := dj.Taste
+	strict := false
 	if t.GenreWeight > 0 {
 		genres, err := s.matchingGenres(ctx, t.Genres)
 		if err != nil {
@@ -306,6 +313,8 @@ func (s *service) candidates(ctx context.Context, dj DJ) (model.MediaFiles, erro
 			if err := add("Tracks in the DJ's genres", mfs, err); err != nil {
 				return nil, err
 			}
+			// The sample holds every Track in the genres up to tasteCandidates, so it counts them.
+			strict = len(mfs) >= strictGenreTracks
 		}
 	}
 	if t.UnplayedWeight > 0 {
@@ -321,6 +330,15 @@ func (s *service) candidates(ctx context.Context, dj DJ) (model.MediaFiles, erro
 		if err := add("older Tracks", mfs, err); err != nil {
 			return nil, err
 		}
+	}
+	if strict {
+		inGenres := all[:0]
+		for _, mf := range all {
+			if t.likesGenre(mf) {
+				inGenres = append(inGenres, mf)
+			}
+		}
+		all = inGenres
 	}
 	return all, nil
 }

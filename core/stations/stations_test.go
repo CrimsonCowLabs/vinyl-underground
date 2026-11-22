@@ -279,6 +279,80 @@ var _ = Describe("Stations", Ordered, func() {
 		Expect(ids(bobTracks)).To(ContainElement(BeElementOf(ids(aliceTracks))))
 	})
 
+	Describe("a DJ's genres", func() {
+		// addInGenre puts n Tracks tagged with the genre in the Library, as a scan does: the
+		// genre lives in the Track's tags only, the plain genre column stays empty.
+		addInGenre := func(n int, genre string) []string {
+			tag := model.NewTag(model.TagGenre, genre)
+			Expect(ds.Tag(aliceCtx).Add(1, tag)).To(Succeed())
+			ids := addTracks(n)
+			for _, id := range ids {
+				mf, err := ds.MediaFile(aliceCtx).Get(id)
+				Expect(err).ToNot(HaveOccurred())
+				mf.Tags = model.Tags{model.TagGenre: {genre}}
+				Expect(ds.MediaFile(aliceCtx).Put(mf)).To(Succeed())
+			}
+			return ids
+		}
+
+		// serve refills the Station with the DJ until it has served n Tracks.
+		serve := func(djID string, n int) []string {
+			var res []string
+			for len(res) < n {
+				tracks, err := svc.Next(aliceCtx, djID, "", stations.MaxCount)
+				Expect(err).ToNot(HaveOccurred())
+				res = append(res, ids(tracks)...)
+			}
+			return res
+		}
+
+		BeforeEach(func() {
+			_, err := db.Db().Exec("delete from library_tag")
+			Expect(err).ToNot(HaveOccurred())
+			_, err = db.Db().Exec("delete from tag")
+			Expect(err).ToNot(HaveOccurred())
+		})
+
+		It("only play Tracks in them when 50 or more Library Tracks are", func() {
+			jazz := addInGenre(30, "Cool Jazz")
+			jazz = append(jazz, addInGenre(20, "Acid Jazz")...)
+			addInGenre(30, "Thrash Metal")
+			addTracks(40)
+
+			Expect(serve("night-owl", 50)).To(HaveEach(BeElementOf(jazz)))
+		})
+
+		It("are matched within a Track's genre tags", func() {
+			dance := addInGenre(50, "Electronica & Dance")
+			addTracks(40)
+
+			Expect(serve("sunny", 50)).To(HaveEach(BeElementOf(dance)))
+		})
+
+		It("keep the Station playing them once they have all been served", func() {
+			jazz := addInGenre(50, "Cool Jazz")
+			addTracks(40)
+
+			Expect(serve("night-owl", 70)).To(HaveEach(BeElementOf(jazz)))
+		})
+
+		It("are only a boost when fewer than 50 Library Tracks are in them", func() {
+			jazz := addInGenre(49, "Cool Jazz")
+			untagged := addTracks(40)
+
+			served := serve("night-owl", 60)
+			Expect(served).To(ContainElement(BeElementOf(untagged)))
+			Expect(served).To(ContainElement(BeElementOf(jazz)))
+		})
+
+		It("leave a DJ without genres playing the whole Library", func() {
+			addInGenre(60, "Cool Jazz")
+			untagged := addTracks(40)
+
+			Expect(serve("crate-digger", 60)).To(ContainElement(BeElementOf(untagged)))
+		})
+	})
+
 	Describe("skips", func() {
 		// firstPicks counts how often each Track is the first one a Station serves over many
 		// fresh starts. Forgetting what the Station served stands in for 48h passing.

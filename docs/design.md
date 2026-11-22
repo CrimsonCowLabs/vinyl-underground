@@ -37,6 +37,7 @@ It is a public, GPL-3.0, hard fork of Navidrome **v0.64.2**, renamed and never r
 ### Stations ([ADR-0005](./adr/0005-stations-are-personal-not-live-broadcast.md))
 - Personal, endless and skippable. The Listener starts a Station with a DJ and an optional Theme.
 - Selection uses the DJ's taste and the Theme, biased toward the Listener's favorites and history.
+  - Without an LLM, a DJ with genres (Night Owl, Sunny) plays only Tracks in them once the Library has 50 or more such Tracks (#103), matched within each Track's genre tags; Tracks with no genre are left out. Below 50, the genres are only a boost, so a small Library never runs dry. DJs without genres (The Crate Digger) draw on the whole Library.
 - It avoids Tracks played in the last ~48h and avoids repeating an artist within ~5 Tracks.
 - Tracks and Blurbs are pre-generated 2–3 Tracks ahead.
 - A skip is a mild "less like this" signal for that Station only, fading over ~30 days.
