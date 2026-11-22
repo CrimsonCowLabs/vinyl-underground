@@ -956,6 +956,17 @@
     },
     "albumList": "Albums",
     "playlists": "Playlists",
+    "tabBar": {
+      "label": "Sections",
+      "library": "Library",
+      "playlists": "Playlists",
+      "stations": "Stations",
+      "downloads": "Downloads",
+      "more": "More"
+    },
+    "more": {
+      "generatePlaylist": "Generate a Playlist"
+    },
     "onlyFavourites": "Only show favourites",
     "sharedPlaylists": "Shared Playlists",
     "about": "About"

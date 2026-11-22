@@ -14,12 +14,17 @@ import Layout from './Layout'
 
 // react-admin's layout stands in as the page: the sidebar and the content
 vi.mock('react-admin', () => ({
-  Layout: ({ className, children }) => (
+  Layout: ({ className, children, sidebar: Sidebar }) => (
     <div data-testid="page" className={className}>
+      <Sidebar>the menu</Sidebar>
       {children}
     </div>
   ),
+  Sidebar: ({ children }) => <aside>{children}</aside>,
   toggleSidebar: () => ({ type: 'TOGGLE_SIDEBAR' }),
+}))
+vi.mock('./TabBar', () => ({
+  default: () => <nav aria-label="tab bar" />,
 }))
 vi.mock('./Menu', () => ({ default: () => null }))
 vi.mock('./AppBar', () => ({ default: () => null }))
@@ -106,5 +111,35 @@ describe('Layout beside the Now Playing panel', () => {
     dispatch(openNowPlaying())
 
     expect(pageRoomOnTheRight()).toBe(0)
+  })
+})
+
+describe('Layout on a phone and on desktop', () => {
+  afterEach(() => {
+    cleanup()
+    delete window.matchMedia
+  })
+
+  it('navigates with the tab bar on a phone, without the side drawer', () => {
+    screenWidth(390)
+    setup()
+    expect(
+      screen.getByRole('navigation', { name: 'tab bar' }),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('the menu')).not.toBeInTheDocument()
+  })
+
+  it('keeps the side drawer on desktop, with no tab bar', () => {
+    screenWidth(1440)
+    setup()
+    expect(screen.getByText('the menu')).toBeInTheDocument()
+    expect(screen.queryByRole('navigation')).not.toBeInTheDocument()
+  })
+
+  it('keeps the side drawer from 810px', () => {
+    screenWidth(810)
+    setup()
+    expect(screen.getByText('the menu')).toBeInTheDocument()
+    expect(screen.queryByRole('navigation')).not.toBeInTheDocument()
   })
 })

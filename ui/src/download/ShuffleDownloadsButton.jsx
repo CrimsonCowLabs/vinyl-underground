@@ -1,8 +1,8 @@
 import React from 'react'
 import PropTypes from 'prop-types'
 import { useDispatch } from 'react-redux'
-import { Button, useNotify, useTranslate } from 'react-admin'
-import { IconButton, Tooltip } from '@material-ui/core'
+import { useNotify, useTranslate } from 'react-admin'
+import { Button, IconButton, Tooltip } from '@material-ui/core'
 import ShuffleIcon from '@material-ui/icons/Shuffle'
 import { shuffleTracks } from '../actions'
 import { downloadedTracksForPlayer } from './index'
@@ -33,9 +33,15 @@ export const ShuffleDownloadsButton = ({ compact }) => {
       </Tooltip>
     )
   }
+  // Labelled on a phone too, where react-admin's Button shows only its icon
   return (
-    <Button onClick={shuffle} label={label} variant="contained">
-      <ShuffleIcon />
+    <Button
+      onClick={shuffle}
+      variant="contained"
+      color="primary"
+      startIcon={<ShuffleIcon />}
+    >
+      {label}
     </Button>
   )
 }

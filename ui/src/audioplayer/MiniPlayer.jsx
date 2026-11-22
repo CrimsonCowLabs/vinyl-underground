@@ -10,6 +10,7 @@ import { useStationDJ } from '../nowPlaying/useStationDJ'
 import { usePlayback } from '../nowPlaying/usePlayback'
 import { openNowPlaying } from '../nowPlaying/nowPlayingState'
 import { vuPalette } from '../nowPlaying/vuPalette'
+import { aboveTabBar } from '../layout/tabBarRoom'
 
 const useStyles = makeStyles(
   (theme) => {
@@ -25,7 +26,8 @@ const useStyles = makeStyles(
         position: 'fixed',
         left: 8,
         right: 8,
-        bottom: 'calc(env(safe-area-inset-bottom) + 8px)',
+        // Just above the tab bar
+        bottom: aboveTabBar(8),
         zIndex: theme.zIndex.appBar,
         display: 'grid',
         gridTemplateColumns: 'minmax(0, 1fr) auto auto',
@@ -85,9 +87,9 @@ const useStyles = makeStyles(
   { name: 'NDMiniPlayer' },
 )
 
-// MINI_PLAYER_ROOM is the room the MiniPlayer takes along the bottom of the
-// page: its 60px, the 8px below it and 8px above, over the home indicator
-export const MINI_PLAYER_ROOM = 'calc(env(safe-area-inset-bottom) + 76px)'
+// MINI_PLAYER_ROOM is the room in px the MiniPlayer takes above the tab bar:
+// its 60px, the 8px below it and 8px above
+export const MINI_PLAYER_ROOM = 76
 
 // useQueued is the Track playing, or before anything has played since a
 // reload, the one the queue would play
