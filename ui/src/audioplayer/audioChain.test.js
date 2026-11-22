@@ -310,4 +310,13 @@ describe('createAudioChain', () => {
     ])
     expect(nodeOfKind(contexts[1], 'gain').gain.value).toBe(0.5)
   })
+
+  it('tells whether it is built, without building it', () => {
+    chain.attach(newElement())
+    expect(chain.isBuilt()).toBe(false)
+    expect(contexts).toHaveLength(0)
+
+    chain.setReplayGain(0.5)
+    expect(chain.isBuilt()).toBe(true)
+  })
 })

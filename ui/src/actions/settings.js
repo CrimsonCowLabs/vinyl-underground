@@ -6,6 +6,7 @@ export const SET_SIDEBAR_PLAYLISTS_FAVOURITES =
 
 export const SET_AUDIO_EFFECTS = 'SET_AUDIO_EFFECTS'
 export const SET_PLAYBACK_SPEED = 'SET_PLAYBACK_SPEED'
+export const SET_EQUALIZER = 'SET_EQUALIZER'
 
 export const setNotificationsState = (enabled) => ({
   type: SET_NOTIFICATIONS_STATE,
@@ -35,4 +36,11 @@ export const setAudioEffects = (enabled) => ({
 export const setPlaybackSpeed = (speed) => ({
   type: SET_PLAYBACK_SPEED,
   data: speed,
+})
+
+// setEqualizer stores the equalizer's settings, as made by the functions in
+// equalizer/equalizerSettings.js.
+export const setEqualizer = (equalizer) => ({
+  type: SET_EQUALIZER,
+  data: equalizer,
 })
