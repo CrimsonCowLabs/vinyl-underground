@@ -1,6 +1,7 @@
 package stations
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -82,6 +83,9 @@ type genreMapper struct {
 	failedAt map[string]time.Time
 	// backfilling holds the Listeners with a background mapping under way.
 	backfilling map[string]bool
+	// backoff is how long after a failure a Listener's mappings wait: retryAfter, but shorter
+	// in tests.
+	backoff     time.Duration
 	turns       sync.Map       // Listener ID -> chan struct{}, the one LLM call they may have running
 	wg          sync.WaitGroup // background mappings, for tests
 }
@@ -121,7 +125,7 @@ func (m *genreMapper) cached(userID, text string, now time.Time) ([]string, bool
 // must be held.
 func (m *genreMapper) failedRecently(userID string, now time.Time) bool {
 	at, ok := m.failedAt[userID]
-	return ok && now.Sub(at) < retryAfter
+	return ok && now.Sub(at) < cmp.Or(m.backoff, retryAfter)
 }
 
 // mapGenres returns the Library genres the LLM finds in the DJ's name and description, and

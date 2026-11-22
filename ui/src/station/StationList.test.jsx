@@ -476,6 +476,157 @@ describe('StationList', () => {
       expect(editor()).toBeInTheDocument()
     })
 
+    describe('setup step, with an LLM', () => {
+      // pending returns a promise and what settles it, for a slow server.
+      const pending = () => {
+        let settle
+        const promise = new Promise((resolve, reject) => {
+          settle = { resolve, reject }
+        })
+        return { promise, settle }
+      }
+
+      beforeEach(() => {
+        config.enableStationThemes = true
+      })
+
+      const openNew = async () => {
+        renderPage()
+        await screen.findByText('Night Owl')
+        fireEvent.click(
+          screen.getByRole('button', { name: 'resources.station.dj.new' }),
+        )
+        fill('Mr. Mellow', 'Slow, soft songs.')
+      }
+
+      // serveSetup has saving the DJ and its setup step wait for the test.
+      const serveSetup = () => {
+        const saving = pending()
+        const setup = pending()
+        serveDJs(djs, {
+          'POST /dj': () => saving.promise,
+          'GET /dj/dj-1/setup': () => setup.promise,
+        })
+        return { saving: saving.settle, setup: setup.settle }
+      }
+
+      it('shows its progress while the genres are read and the first hour picked', async () => {
+        const server = serveSetup()
+        await openNew()
+        save()
+
+        expect(
+          await screen.findByText('resources.station.dj.setup.readingGenres'),
+        ).toBeInTheDocument()
+        serveDJs([...djs, mellow], {
+          'GET /dj/dj-1/setup': () => new Promise(() => {}),
+        })
+        server.saving.resolve({ json: mellow })
+        expect(
+          await screen.findByText('resources.station.dj.setup.picking'),
+        ).toBeInTheDocument()
+        expect(
+          screen.queryByText('resources.station.dj.setup.readingGenres'),
+        ).not.toBeInTheDocument()
+        expect(calls('GET', '/dj/dj-1/setup')).toHaveLength(1)
+        expect(editor()).toBeInTheDocument()
+      })
+
+      it('closes once the DJ is ready, listing it', async () => {
+        serveDJs(djs, {
+          'POST /dj': () => {
+            serveDJs([...djs, mellow], {
+              'GET /dj/dj-1/setup': () =>
+                Promise.resolve({ json: { status: 'ready' } }),
+            })
+            return Promise.resolve({ json: mellow })
+          },
+        })
+        await openNew()
+        save()
+
+        await waitFor(() =>
+          expect(screen.queryByRole('dialog')).not.toBeInTheDocument(),
+        )
+        expect(screen.getByText('Mr. Mellow')).toBeInTheDocument()
+        expect(calls('GET', '/dj/dj-1/setup')).toHaveLength(1)
+        expect(
+          screen.queryByText('resources.station.dj.setup.settingUp'),
+        ).not.toBeInTheDocument()
+      })
+
+      it('says the DJ is still being set up when the setup step ran out', async () => {
+        const server = serveSetup()
+        await openNew()
+        save()
+        server.saving.resolve({ json: mellow })
+        server.setup.resolve({ json: { status: 'settingUp' } })
+
+        expect(
+          await screen.findByText('resources.station.dj.setup.settingUp'),
+        ).toBeInTheDocument()
+        expect(editor()).toBeInTheDocument()
+        serveDJs([...djs, mellow])
+        fireEvent.click(
+          screen.getByRole('button', {
+            name: 'resources.station.dj.setup.done',
+          }),
+        )
+        await waitFor(() =>
+          expect(screen.queryByRole('dialog')).not.toBeInTheDocument(),
+        )
+        expect(await screen.findByText('Mr. Mellow')).toBeInTheDocument()
+      })
+
+      it('says the DJ is still being set up when asking after it failed', async () => {
+        const server = serveSetup()
+        await openNew()
+        save()
+        server.saving.resolve({ json: mellow })
+        server.setup.reject(httpError(500, 'internal'))
+
+        expect(
+          await screen.findByText('resources.station.dj.setup.settingUp'),
+        ).toBeInTheDocument()
+      })
+
+      it('sets up an edited DJ too', async () => {
+        serveDJs([...djs, mellow], {
+          'PUT /dj/dj-1': () => Promise.resolve({ json: mellow }),
+          'GET /dj/dj-1/setup': () =>
+            Promise.resolve({ json: { status: 'settingUp' } }),
+        })
+        renderPage()
+        await screen.findByText('Mr. Mellow')
+        fireEvent.click(
+          screen.getByRole('button', { name: 'ra.action.edit Mr. Mellow' }),
+        )
+        save()
+
+        expect(
+          await screen.findByText('resources.station.dj.setup.settingUp'),
+        ).toBeInTheDocument()
+        expect(calls('GET', '/dj/dj-1/setup')).toHaveLength(1)
+      })
+
+      it('has no setup step without an LLM', async () => {
+        config.enableStationThemes = false
+        serveDJs(djs, {
+          'POST /dj': () => {
+            serveDJs([...djs, mellow])
+            return Promise.resolve({ json: mellow })
+          },
+        })
+        await openNew()
+        save()
+
+        await waitFor(() =>
+          expect(screen.queryByRole('dialog')).not.toBeInTheDocument(),
+        )
+        expect(calls('GET', '/dj/dj-1/setup')).toHaveLength(0)
+      })
+    })
+
     describe('genres', () => {
       const description = () =>
         screen.getByLabelText(/^resources.station.dj.fields.description/)

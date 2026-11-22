@@ -63,3 +63,38 @@ func ForgetGenreFailures(s Service) {
 func SetStartWait(s Service, d time.Duration) {
 	s.(*service).startWait = d
 }
+
+// SetSetupTimes sets how long a DJ's setup step waits, how often a setup going on asks the
+// LLM again and for how long; failed selections and genre mappings back off for every too.
+func SetSetupTimes(s Service, wait, every, window time.Duration) {
+	svc := s.(*service)
+	svc.setupTimes = setupTimes{wait: wait, retryEvery: every, retryFor: window}
+	svc.plans.backoff = every
+	if svc.genreLLM != nil {
+		svc.genreLLM.backoff = every
+	}
+}
+
+// StopSetups stops the Service's DJ setups going on and waits for them to end.
+func StopSetups(s Service) {
+	svc := s.(*service)
+	svc.setups.mu.Lock()
+	for _, st := range svc.setups.byKey {
+		st.cancel()
+	}
+	svc.setups.mu.Unlock()
+	svc.setups.wg.Wait()
+}
+
+// HasPlan reports whether the Service keeps a plan for the Listener's Station with the DJ.
+func HasPlan(s Service, userID, djID string) bool {
+	ps := &s.(*service).plans
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
+	return ps.byKey[planKey{userID, djID}] != nil
+}
+
+// WaitForSetups waits until the Service's DJ setups stop trying.
+func WaitForSetups(s Service) {
+	s.(*service).setups.wg.Wait()
+}

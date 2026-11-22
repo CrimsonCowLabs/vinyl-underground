@@ -1,6 +1,7 @@
 package stations
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"math/rand/v2"
@@ -24,7 +25,8 @@ import (
 // plan per Listener and DJ. A refill only ever takes from the plan and never waits for the LLM:
 // when the plan is short, rule-based selection tops it up. Only a Station's start waits, up to
 // StartWait, when its plan is empty, so a Station sounds like its DJ from the first Track.
-// Plans live in memory only, so a restart loses them.
+// Creating or editing a Listener's DJ plans its first picks up front (see dj_setup.go), so its
+// first start needn't wait. Plans live in memory only, so a restart loses them.
 
 const (
 	// MaxThemeLength is the longest Theme accepted, in characters.
@@ -107,6 +109,19 @@ type plan struct {
 	input  selectionInput
 	tracks model.MediaFiles
 	usedAt time.Time
+	// picked is set once a selection added the LLM's picks to it, so a DJ's setup can tell
+	// them from the rule-based starter Tracks it may hold (see dj_setup.go).
+	picked bool
+}
+
+// hasTracks reports whether the plan has Tracks to serve, picked by the LLM or not.
+func (p *plan) hasTracks() bool {
+	return len(p.tracks) > 0
+}
+
+// ready reports whether the plan has Tracks to serve and the LLM picked for it: a DJ set up.
+func (p *plan) ready() bool {
+	return p.picked && len(p.tracks) > 0
 }
 
 // isFor reports whether the plan was made for the input: the DJ's current persona and genres,
@@ -130,7 +145,10 @@ type plans struct {
 	// failedAt is when each Listener's last selection failed, if it did and none succeeded
 	// since. It is per Listener: when the LLM is down, it is down for all their DJs.
 	failedAt map[string]time.Time
-	wg       sync.WaitGroup // background selections, for tests
+	// backoff is how long after a failure a Listener's selections wait: retryAfter, but
+	// shorter in tests.
+	backoff time.Duration
+	wg      sync.WaitGroup // background selections, for tests
 }
 
 // selection is a background selection under way into a plan.
@@ -156,6 +174,21 @@ func (ps *plans) planFor(userID string, in selectionInput, now time.Time) *plan 
 	}
 	p.usedAt = now
 	return p
+}
+
+// drop forgets the Listener's plan for the DJ, as when they delete it. A selection under way
+// for it still ends, its picks going with the plan.
+func (ps *plans) drop(userID, djID string) {
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
+	delete(ps.byKey, planKey{userID, djID})
+}
+
+// isReady reports whether the plan is ready (see plan.ready).
+func (ps *plans) isReady(p *plan) bool {
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
+	return p.ready()
 }
 
 // dropIdle forgets every plan unused for planIdle, so memory stays bounded. A household has
@@ -193,18 +226,19 @@ func (ps *plans) selectAhead(ctx context.Context, sel Selector, userID string, i
 	ps.startSelection(ctx, sel, userID, p, exclude)
 }
 
-// awaitPicks waits, up to wait, until the Listener's plan for the input has Tracks, as
-// a Station start does. It starts the selection itself if none is under way, and when one is
+// awaitPicks waits, up to wait, until the Listener's plan for the input is done waiting for:
+// until it has Tracks (plan.hasTracks), as a Station start does, or the LLM's (plan.ready), as
+// a DJ's setup does. It starts the selection itself if none is under way, and when one is
 // under way for another of the Listener's Stations, it starts its own once that one ends. It
 // returns at once when the Listener's last selection failed within retryAfter, and early
 // when a selection fails meanwhile or ctx is done (then with ctx's error).
-func (ps *plans) awaitPicks(ctx context.Context, sel Selector, userID string, in selectionInput, exclude []string, wait time.Duration) error {
+func (ps *plans) awaitPicks(ctx context.Context, sel Selector, userID string, in selectionInput, exclude []string, wait time.Duration, done func(*plan) bool) error {
 	timeout := time.NewTimer(wait)
 	defer timeout.Stop()
 	for {
 		ps.mu.Lock()
 		p := ps.planFor(userID, in, time.Now())
-		if len(p.tracks) > 0 || ps.failedRecently(userID) {
+		if done(p) || ps.failedRecently(userID) {
 			ps.mu.Unlock()
 			return nil
 		}
@@ -231,7 +265,7 @@ func (ps *plans) awaitPicks(ctx context.Context, sel Selector, userID string, in
 // ps.mu must be held.
 func (ps *plans) failedRecently(userID string) bool {
 	at, ok := ps.failedAt[userID]
-	return ok && time.Since(at) < retryAfter
+	return ok && time.Since(at) < cmp.Or(ps.backoff, retryAfter)
 }
 
 // startSelection starts a background selection into the plan, unless one is under way for
@@ -268,6 +302,7 @@ func (ps *plans) startSelection(ctx context.Context, sel Selector, userID string
 		// The plan may have been replaced (an edited DJ or a new Theme) or dropped meanwhile;
 		// then these picks go with it.
 		p.tracks = appendNew(p.tracks, tracks)
+		p.picked = p.picked || len(tracks) > 0
 	}()
 }
 

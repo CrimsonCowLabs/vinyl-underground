@@ -85,8 +85,15 @@ type Service interface {
 	// MatchGenres returns the genres saving a DJ with the name and description would give it,
 	// unless the Listener picks them by hand, so the DJ form can show them before it is saved.
 	MatchGenres(ctx context.Context, name, description string) ([]string, error)
-	// DeleteDJ deletes the logged-in Listener's DJ (ErrBuiltInDJ for a built-in one). What its
-	// Stations served and played stays in the Listener's history.
+	// AwaitSetup waits for the setup step of the logged-in Listener's DJ, which creating or
+	// editing it starts with an LLM (ErrBuiltInDJ for a built-in one), and says how it ended:
+	// SetupReady when its plan holds the LLM's picks, SetupSettingUp when it plays a starter
+	// while the setup goes on, or SetupNone when no setup is going on (as without an LLM). It
+	// waits at most SetupWait from the save.
+	AwaitSetup(ctx context.Context, id string) (SetupStatus, error)
+	// DeleteDJ deletes the logged-in Listener's DJ (ErrBuiltInDJ for a built-in one), stops its
+	// setup and forgets its plan. What its Stations served and played stays in the Listener's
+	// history.
 	DeleteDJ(ctx context.Context, id string) error
 	// Next serves the next count Tracks (DefaultCount when 0) of the logged-in Listener's
 	// Station with the DJ and the optional Theme, and remembers them so later refills don't
@@ -109,7 +116,8 @@ type Service interface {
 // and the Theme is ignored. A nil writer means there are no Blurbs. Without WithGenreLLM, a
 // Listener's DJs get the genres their words name.
 func New(ds model.DataStore, selector Selector, writer BlurbWriter, opts ...Option) Service {
-	s := &service{ds: ds, selector: selector, blurbs: blurbs{writer: writer}, startWait: StartWait}
+	s := &service{ds: ds, selector: selector, blurbs: blurbs{writer: writer}, startWait: StartWait,
+		setupTimes: setupTimes{wait: SetupWait, retryEvery: setupRetryEvery, retryFor: setupRetryFor}}
 	for _, opt := range opts {
 		opt(s)
 	}
@@ -127,6 +135,9 @@ type service struct {
 	startWait time.Duration
 	// genreLLM maps a Listener's DJs to the Library's genres; nil without an LLM.
 	genreLLM *genreMapper
+	// setups are the Listener's DJs being set up, and setupTimes how long that takes.
+	setups     setups
+	setupTimes setupTimes
 }
 
 // tracksRequest is a checked request for a Station's Tracks, to start it or refill it.
@@ -189,7 +200,7 @@ func (s *service) Start(ctx context.Context, djID, theme string, count int) (mod
 		if err != nil {
 			return nil, err
 		}
-		if err := s.plans.awaitPicks(ctx, s.selector, r.usr.ID, r.input, trackIDs(history), s.startWait); err != nil {
+		if err := s.plans.awaitPicks(ctx, s.selector, r.usr.ID, r.input, trackIDs(history), s.startWait, (*plan).hasTracks); err != nil {
 			return nil, err
 		}
 	}

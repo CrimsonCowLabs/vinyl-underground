@@ -30,7 +30,9 @@ func (api *Router) addStationRoute(r chi.Router) {
 //   - GET /station/dj lists the DJs they can start a Station with, built-in then their own;
 //   - POST /station/dj creates one of their own DJs, GET /station/dj/{id} opens it for the DJ
 //     form (mapping its genres with the LLM first when they still need it), PUT and DELETE
-//     /station/dj/{id} edit and delete it (built-in DJs are read-only);
+//     /station/dj/{id} edit and delete it (built-in DJs are read-only); with an LLM, creating
+//     or editing one starts its setup, and GET /station/dj/{id}/setup waits for its setup step
+//     (up to stations.SetupWait from the save) and says how it ended;
 //   - GET /station/genres lists their Library's genres, which their DJs' genres are picked
 //     from, and GET /station/genres/match?name=…&description=… the ones a DJ would get;
 //   - POST /station/next serves their next Station Tracks; with "start": true it starts the
@@ -44,6 +46,7 @@ func stationRoutes(r chi.Router, svc stations.Service) {
 		r.Get("/dj/{id}", openDJ(svc))
 		r.Put("/dj/{id}", updateDJ(svc))
 		r.Delete("/dj/{id}", deleteDJ(svc))
+		r.Get("/dj/{id}/setup", djSetup(svc))
 		r.Get("/genres", listGenres(svc))
 		r.Get("/genres/match", matchGenres(svc))
 		r.Post("/next", nextStationTracks(svc))
@@ -128,6 +131,26 @@ func updateDJ(svc stations.Service) http.HandlerFunc {
 			return
 		}
 		writeStationJSON(w, r, dj)
+	}
+}
+
+// djSetup answers GET /station/dj/{id}/setup once the DJ's setup step, which saving it starts
+// with an LLM, has ended: {"status": "ready"} when its Station starts with the LLM's picks,
+// "settingUp" when it plays a starter while the server keeps setting it up, "none" when no
+// setup is going on (as without an LLM). It waits up to stations.SetupWait from the save, as
+// POST /station/next with "start" waits for a Station's first picks.
+func djSetup(svc stations.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		status, err := svc.AwaitSetup(r.Context(), chi.URLParam(r, "id"))
+		switch {
+		case r.Context().Err() != nil:
+			// The Listener left during the setup step; it goes on without them.
+			log.Debug(r.Context(), "DJ setup step abandoned", err)
+		case err != nil:
+			writeDJError(w, r, err)
+		default:
+			writeStationJSON(w, r, map[string]any{"status": status})
+		}
 	}
 }
 
