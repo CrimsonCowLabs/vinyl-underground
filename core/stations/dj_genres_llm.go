@@ -1,6 +1,7 @@
 package stations
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -82,8 +83,11 @@ type genreMapper struct {
 	failedAt map[string]time.Time
 	// backfilling holds the Listeners with a background mapping under way.
 	backfilling map[string]bool
-	turns       sync.Map       // Listener ID -> chan struct{}, the one LLM call they may have running
-	wg          sync.WaitGroup // background mappings, for tests
+	// backoff is how long after a failure a Listener's mappings wait: retryAfter, but shorter
+	// in tests.
+	backoff time.Duration
+	turns   sync.Map       // Listener ID -> chan struct{}, the one LLM call they may have running
+	wg      sync.WaitGroup // background mappings, for tests
 }
 
 // genreAnswer is the genres the LLM named for a DJ's name and description.
@@ -117,11 +121,30 @@ func (m *genreMapper) cached(userID, text string, now time.Time) ([]string, bool
 	return nil, false
 }
 
+// failedLately reports whether the Listener's last mapping failed within retryAfter.
+func (m *genreMapper) failedLately(userID string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.failedRecently(userID, time.Now())
+}
+
+// backAt is when the Listener's back-off from their last failed mapping ends: the zero time
+// when none failed since one succeeded.
+func (m *genreMapper) backAt(userID string) time.Time {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	at, ok := m.failedAt[userID]
+	if !ok {
+		return time.Time{}
+	}
+	return at.Add(cmp.Or(m.backoff, retryAfter))
+}
+
 // failedRecently reports whether the Listener's last mapping failed within retryAfter. m.mu
 // must be held.
 func (m *genreMapper) failedRecently(userID string, now time.Time) bool {
 	at, ok := m.failedAt[userID]
-	return ok && now.Sub(at) < retryAfter
+	return ok && now.Sub(at) < cmp.Or(m.backoff, retryAfter)
 }
 
 // mapGenres returns the Library genres the LLM finds in the DJ's name and description, and
@@ -266,24 +289,35 @@ func (s *service) mapGenresAhead(ctx context.Context, userID string, dj DJ) {
 			delete(m.backfilling, userID)
 			m.mu.Unlock()
 		}()
-		if done := s.selectionUnderWay(userID); done != nil {
-			select {
-			case <-done:
-			case <-ctx.Done():
-				return
-			}
-		}
-		library, err := s.libraryGenres(ctx)
-		if err != nil {
+		if _, err := s.mapGenresWhenFree(ctx, userID, dj, genreBackfillTimeout); err != nil && ctx.Err() == nil {
 			log.Warn(ctx, "Mapping a DJ to genres failed", "dj", dj.ID, err)
-			return
-		}
-		if genres, ok := s.llmGenres(ctx, dj.Name, dj.Description, library); ok {
-			if _, err := s.storeGenres(ctx, dj, genres, model.DJGenresFromLLM); err != nil {
-				log.Warn(ctx, "Storing a DJ's genres failed", "dj", dj.ID, err)
-			}
 		}
 	}()
+}
+
+// mapGenresWhenFree maps the Listener's DJ's genres with the LLM, giving it up to timeout,
+// once the Listener's selection under way, if any, has ended, so the LLM host has one of their
+// calls at a time. It stores them unless the DJ was edited meanwhile, and returns the DJ as it
+// is now: unchanged when the LLM didn't map it.
+func (s *service) mapGenresWhenFree(ctx context.Context, userID string, dj DJ, timeout time.Duration) (DJ, error) {
+	if done := s.selectionUnderWay(userID); done != nil {
+		select {
+		case <-done:
+		case <-ctx.Done():
+			return dj, ctx.Err()
+		}
+	}
+	library, err := s.libraryGenres(ctx)
+	if err != nil {
+		return dj, err
+	}
+	mapCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	genres, ok := s.llmGenres(mapCtx, dj.Name, dj.Description, library)
+	if !ok {
+		return dj, nil
+	}
+	return s.storeGenres(ctx, dj, genres, model.DJGenresFromLLM)
 }
 
 // selectionUnderWay returns what closes when the Listener's selection under way ends, or nil

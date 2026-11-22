@@ -42,10 +42,12 @@ func (f *fakeSelector) Select(_ context.Context, request string, genres []string
 	if release != nil {
 		<-release
 	}
-	if f.err != nil {
-		return nil, f.err
+	f.mu.Lock()
+	err, picks := f.err, f.pick
+	f.mu.Unlock()
+	if err != nil {
+		return nil, err
 	}
-	picks := f.pick
 	if f.pickIn != nil {
 		picks = func(request string) model.MediaFiles { return f.pickIn(request, genres) }
 	}
@@ -56,6 +58,13 @@ func (f *fakeSelector) Select(_ context.Context, request string, genres []string
 		}
 	}
 	return res, nil
+}
+
+// failWith has the fake fail every selection from now on with err, or none when it is nil.
+func (f *fakeSelector) failWith(err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.err = err
 }
 
 func (f *fakeSelector) asked() []string {
@@ -103,6 +112,7 @@ var _ = Describe("Stations with an LLM", Ordered, func() {
 		}
 		sel = &fakeSelector{pick: func(string) model.MediaFiles { return nil }}
 		svc = stations.New(ds, sel, nil)
+		DeferCleanup(func() { stations.StopSetups(svc) })
 	})
 
 	// track makes a Track, by its own artist, named after the kind.
@@ -144,6 +154,15 @@ var _ = Describe("Stations with an LLM", Ordered, func() {
 		return tracks
 	}
 
+	// next serves the Station's next Tracks and lets any selection it started finish. Unlike
+	// listen, it serves from whatever is planned already.
+	next := func(djID, theme string, count int) model.MediaFiles {
+		tracks, err := svc.Next(ctx, djID, theme, count)
+		Expect(err).ToNot(HaveOccurred())
+		stations.WaitForSelection(svc)
+		return tracks
+	}
+
 	BeforeEach(func() {
 		addTracks(20)
 	})
@@ -162,8 +181,6 @@ var _ = Describe("Stations with an LLM", Ordered, func() {
 	It("asks with the persona of the Listener's own DJ, and starts over when they edit it", func() {
 		_, err := db.Db().Exec("delete from dj")
 		Expect(err).ToNot(HaveOccurred())
-		mine, err := svc.CreateDJ(ctx, stations.DJEdit{Name: "Mr. Mellow", Description: "Slow, soft songs for a rainy afternoon."})
-		Expect(err).ToNot(HaveOccurred())
 		mellow, loud := llmPicks("mellow", 8), llmPicks("loud", 8)
 		sel.pick = func(req string) model.MediaFiles {
 			switch {
@@ -174,13 +191,15 @@ var _ = Describe("Stations with an LLM", Ordered, func() {
 			}
 			return nil
 		}
-
-		Expect(ids(listen(mine.ID, "", 3))).To(Equal(ids(mellow[:3])))
-		stations.WaitForSelection(svc)
+		mine, err := svc.CreateDJ(ctx, stations.DJEdit{Name: "Mr. Mellow", Description: "Slow, soft songs for a rainy afternoon."})
+		Expect(err).ToNot(HaveOccurred())
+		Expect(svc.AwaitSetup(ctx, mine.ID)).To(Equal(stations.SetupReady))
+		Expect(ids(next(mine.ID, "", 3))).To(Equal(ids(mellow[:3])))
 
 		_, err = svc.UpdateDJ(ctx, mine.ID, stations.DJEdit{Name: "Mr. Loud", Description: "Fast and loud."})
 		Expect(err).ToNot(HaveOccurred())
-		Expect(ids(listen(mine.ID, "", 3))).To(Equal(ids(loud[:3])))
+		Expect(svc.AwaitSetup(ctx, mine.ID)).To(Equal(stations.SetupReady))
+		Expect(ids(next(mine.ID, "", 3))).To(Equal(ids(loud[:3])))
 	})
 
 	// The LLM picks only from the DJ's genres, resolved to the Library's genre names (#108).
@@ -216,8 +235,6 @@ var _ = Describe("Stations with an LLM", Ordered, func() {
 		})
 
 		It("limits a Listener's DJ to its own genres, whole, and starts over when they change", func() {
-			mine, err := svc.CreateDJ(ctx, stations.DJEdit{Name: "Mr. Pop", Description: "Chart hits.", Genres: []string{"Pop"}})
-			Expect(err).ToNot(HaveOccurred())
 			pop, kpop := llmPicks("pop", 8), llmPicks("kpop", 8)
 			sel.pickIn = func(_ string, genres []string) model.MediaFiles {
 				switch {
@@ -228,14 +245,16 @@ var _ = Describe("Stations with an LLM", Ordered, func() {
 				}
 				return nil
 			}
-
-			Expect(ids(listen(mine.ID, "", 3))).To(Equal(ids(pop[:3])))
-			stations.WaitForSelection(svc)
+			mine, err := svc.CreateDJ(ctx, stations.DJEdit{Name: "Mr. Pop", Description: "Chart hits.", Genres: []string{"Pop"}})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(svc.AwaitSetup(ctx, mine.ID)).To(Equal(stations.SetupReady))
+			Expect(ids(next(mine.ID, "", 3))).To(Equal(ids(pop[:3])))
 
 			// Only the genres change, so the request's prose is the same.
 			_, err = svc.UpdateDJ(ctx, mine.ID, stations.DJEdit{Name: "Mr. Pop", Description: "Chart hits.", Genres: []string{"K-Pop"}})
 			Expect(err).ToNot(HaveOccurred())
-			Expect(ids(listen(mine.ID, "", 3))).To(Equal(ids(kpop[:3])))
+			Expect(svc.AwaitSetup(ctx, mine.ID)).To(Equal(stations.SetupReady))
+			Expect(ids(next(mine.ID, "", 3))).To(Equal(ids(kpop[:3])))
 		})
 
 		It("leaves the selection open for a DJ without genres", func() {
@@ -284,7 +303,10 @@ var _ = Describe("Stations with an LLM", Ordered, func() {
 
 	It("never waits on the LLM: the first Tracks are rule-based while it selects", func() {
 		sel.release = make(chan struct{})
-		DeferCleanup(func() { stations.WaitForSelection(svc) })
+		DeferCleanup(func() {
+			stations.StopSetups(svc)
+			stations.WaitForSelection(svc)
+		})
 		defer close(sel.release)
 
 		done := make(chan model.MediaFiles)
@@ -338,15 +360,6 @@ var _ = Describe("Stations with an LLM", Ordered, func() {
 		return picks["Night Owl"], picks["Sunny"]
 	}
 
-	// next serves the Station's next Tracks and lets any selection it started finish. Unlike
-	// listen, it serves from whatever is planned already.
-	next := func(djID, theme string, count int) model.MediaFiles {
-		tracks, err := svc.Next(ctx, djID, theme, count)
-		Expect(err).ToNot(HaveOccurred())
-		stations.WaitForSelection(svc)
-		return tracks
-	}
-
 	It("keeps each DJ's picks when the Listener switches Station and back", func() {
 		owl, sunny := owlAndSunny(10)
 
@@ -373,20 +386,24 @@ var _ = Describe("Stations with an LLM", Ordered, func() {
 	It("starts afresh only for the DJ the Listener edited", func() {
 		_, err := db.Db().Exec("delete from dj")
 		Expect(err).ToNot(HaveOccurred())
+		picks := picksByDJ(10, "Mr. Mellow", "Sunny")
+		sunny := picks["Sunny"]
 		mine, err := svc.CreateDJ(ctx, stations.DJEdit{Name: "Mr. Mellow", Description: "Slow, soft songs for a rainy afternoon."})
 		Expect(err).ToNot(HaveOccurred())
-		picks := picksByDJ(10, "Mr. Mellow", "Sunny")
-		mellow, sunny := picks["Mr. Mellow"], picks["Sunny"]
-		listen(mine.ID, "", 3)
-		stations.WaitForSelection(svc)
+		Expect(svc.AwaitSetup(ctx, mine.ID)).To(Equal(stations.SetupReady))
+		next(mine.ID, "", 3)
 		listen("sunny", "", 3)
 		stations.WaitForSelection(svc)
 
-		// Only the description changes, so the DJ is still Mr. Mellow to the fake LLM.
+		// Only the description changes, so the DJ is still Mr. Mellow to the fake LLM, which
+		// picks other Tracks for it now.
+		loud := llmPicks("loud", 10)
+		picks["Mr. Mellow"] = loud
 		_, err = svc.UpdateDJ(ctx, mine.ID, stations.DJEdit{Name: "Mr. Mellow", Description: "Fast and loud."})
 		Expect(err).ToNot(HaveOccurred())
+		Expect(svc.AwaitSetup(ctx, mine.ID)).To(Equal(stations.SetupReady))
 
-		Expect(ids(next(mine.ID, "", 3))).ToNot(ContainElement(BeElementOf(ids(mellow))))
+		Expect(ids(next(mine.ID, "", 3))).To(Equal(ids(loud[:3])))
 		Expect(ids(next("sunny", "", 3))).To(Equal(ids(sunny[3:6])))
 	})
 
@@ -626,9 +643,14 @@ var _ = Describe("Starting a Station with an LLM", Ordered, func() {
 		Expect(ids(tracks)).To(HaveEach(BeElementOf(jazz)))
 	})
 
-	It("waits for the picks of the Listener's own DJ too", func() {
+	It("waits for the picks of the Listener's own DJ too, once its setup is forgotten", func() {
 		mine, err := svc.CreateDJ(ctx, stations.DJEdit{Name: "Mr. Mellow", Description: "Slow, soft songs for a rainy afternoon."})
 		Expect(err).ToNot(HaveOccurred())
+		// A restart forgets its setup and plan.
+		stations.StopSetups(svc)
+		stations.WaitForSelection(svc)
+		svc = stations.New(ds, sel, nil)
+		stations.SetStartWait(svc, 10*time.Second)
 		mellow := picks("mellow", 10)
 		sel.pick = func(string) model.MediaFiles { return mellow }
 		sel.release = make(chan struct{})

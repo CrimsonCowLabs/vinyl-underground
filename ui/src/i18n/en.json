@@ -311,6 +311,12 @@
         },
         "resuggest": "Re-suggest from description",
         "suggestingGenres": "Suggesting genres…",
+        "setup": {
+          "readingGenres": "Reading your Library's genres…",
+          "picking": "Picking the first hour…",
+          "settingUp": "Your DJ is saved. It's still being set up and will sound better shortly.",
+          "done": "Done"
+        },
         "noGenresWarning": "No genre in your Library matched, so this DJ will lean on your favorites and play history.",
         "deleteTitle": "Delete %{name}?",
         "deleteContent": "Your DJ is gone for good. Tracks its Stations played stay in your play history."

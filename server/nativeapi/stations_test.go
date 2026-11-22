@@ -33,6 +33,7 @@ type fakeStations struct {
 	gotAfter string
 	started  bool
 	blurb    *stations.Blurb
+	setup    stations.SetupStatus
 }
 
 func (f *fakeStations) Start(ctx context.Context, djID, theme string, count int) (model.MediaFiles, error) {
@@ -55,6 +56,13 @@ func (f *fakeStations) Skip(ctx context.Context, djID, trackID string) error {
 	usr, _ := request.UserFrom(ctx)
 	f.gotUser = usr.ID
 	return f.err
+}
+
+func (f *fakeStations) AwaitSetup(ctx context.Context, id string) (stations.SetupStatus, error) {
+	f.gotDJ = id
+	usr, _ := request.UserFrom(ctx)
+	f.gotUser = usr.ID
+	return f.setup, f.err
 }
 
 func (f *fakeStations) Next(ctx context.Context, djID, theme string, count int) (model.MediaFiles, error) {
@@ -170,6 +178,29 @@ var _ = Describe("Station endpoints", func() {
 	It("answers with no content when the Blurb isn't written", func() {
 		code, _ := call(stationBlurb(svc), http.MethodGet, "", "?dj=night-owl&track=mf-2&after=mf-1")
 		Expect(code).To(Equal(http.StatusNoContent))
+	})
+
+	DescribeTable("says how the Listener's DJ's setup step ended, once it has",
+		func(status stations.SetupStatus) {
+			svc.setup = status
+			code, res := call(djSetup(svc), http.MethodGet, "")
+			Expect(code).To(Equal(http.StatusOK))
+			Expect(res).To(HaveKeyWithValue("status", string(status)))
+			Expect(svc.gotUser).To(Equal("u1"))
+		},
+		Entry("ready, with the LLM's picks planned", stations.SetupReady),
+		Entry("still being set up, playing a starter meanwhile", stations.SetupSettingUp),
+		Entry("no setup going on", stations.SetupNone),
+	)
+
+	It("doesn't answer a Listener who left during the setup step", func() {
+		svc.err = context.Canceled
+		r := httptest.NewRequest(http.MethodGet, "/station/dj/x/setup", nil)
+		ctx, cancel := context.WithCancel(request.WithUser(r.Context(), alice))
+		cancel()
+		w := httptest.NewRecorder()
+		djSetup(svc)(w, r.WithContext(ctx))
+		Expect(w.Body.Len()).To(BeZero())
 	})
 
 	It("needs a logged-in Listener", func() {
@@ -326,6 +357,20 @@ var _ = Describe("DJ endpoints", func() {
 		code, res, _ = call(bob, http.MethodDelete, "/station/dj/"+id, "")
 		Expect(code).To(Equal(http.StatusNotFound))
 		Expect(res).To(HaveKeyWithValue("error", "unknownDJ"))
+	})
+
+	It("has no setup step for a DJ without an LLM", func() {
+		id := create()
+		code, res, _ := call(alice, http.MethodGet, "/station/dj/"+id+"/setup", "")
+		Expect(code).To(Equal(http.StatusOK))
+		Expect(res).To(HaveKeyWithValue("status", "none"))
+
+		code, res, _ = call(bob, http.MethodGet, "/station/dj/"+id+"/setup", "")
+		Expect(code).To(Equal(http.StatusNotFound))
+		Expect(res).To(HaveKeyWithValue("error", "unknownDJ"))
+		code, res, _ = call(alice, http.MethodGet, "/station/dj/sunny/setup", "")
+		Expect(code).To(Equal(http.StatusForbidden))
+		Expect(res).To(HaveKeyWithValue("error", "builtInDJ"))
 	})
 
 	It("refuses to edit or delete a built-in DJ", func() {

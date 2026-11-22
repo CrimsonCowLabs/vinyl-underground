@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/navidrome/navidrome/model"
@@ -113,6 +114,7 @@ func (s *service) OpenDJ(ctx context.Context, id string) (DJ, error) {
 }
 
 func (s *service) CreateDJ(ctx context.Context, edit DJEdit) (DJ, error) {
+	began := time.Now()
 	dj, err := cleanDJ(edit.Name, edit.Description)
 	if err != nil {
 		return DJ{}, err
@@ -123,10 +125,12 @@ func (s *service) CreateDJ(ctx context.Context, edit DJEdit) (DJ, error) {
 	if err := s.ds.DJ(ctx).Put(&dj); err != nil {
 		return DJ{}, fmt.Errorf("saving the DJ: %w", err)
 	}
+	s.startSetup(ctx, listenerDJ(dj), began)
 	return listenerDJ(dj), nil
 }
 
 func (s *service) UpdateDJ(ctx context.Context, id string, edit DJEdit) (DJ, error) {
+	began := time.Now()
 	if err := editable(id); err != nil {
 		return DJ{}, err
 	}
@@ -157,6 +161,7 @@ func (s *service) UpdateDJ(ctx context.Context, id string, edit DJEdit) (DJ, err
 	if err != nil {
 		return DJ{}, fmt.Errorf("saving the DJ: %w", err)
 	}
+	s.startSetup(ctx, listenerDJ(dj), began)
 	return listenerDJ(dj), nil
 }
 
@@ -181,6 +186,10 @@ func (s *service) DeleteDJ(ctx context.Context, id string) error {
 	}
 	if err != nil {
 		return fmt.Errorf("deleting the DJ: %w", err)
+	}
+	if usr, ok := request.UserFrom(ctx); ok {
+		s.setups.stop(planKey{usr.ID, id})
+		s.plans.drop(usr.ID, id)
 	}
 	return nil
 }
