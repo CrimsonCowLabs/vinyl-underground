@@ -57,8 +57,9 @@ type Corrections interface {
 	// the folders of the albums it is album artist or Track artist on, and refreshes it.
 	RenameArtist(ctx context.Context, artistID, name string) (*Applied, error)
 	// ChooseAlbumCover makes the image the album's cover, over every source in CoverArtPriority,
-	// replacing an earlier choice, and refreshes the album's artwork. The Correction is keyed by
-	// the album's folder (see model.AlbumFolderKey). The image must already be in the
+	// replacing an earlier choice; it is the album's disc art and its tracks' art too. The
+	// Correction is keyed by the album's folder (see model.AlbumFolderKey), and saving it refreshes
+	// the artwork of the albums in that folder and of their tracks. The image must already be in the
 	// chosen-cover store (see artwork.ChosenCoverStore). Choosing an image blocked for the album
 	// lifts the block.
 	ChooseAlbumCover(ctx context.Context, albumID string, cover AlbumCover) (*Applied, error)
@@ -198,7 +199,6 @@ func (c *corrections) ChooseAlbumCover(ctx context.Context, albumID string, cove
 	}
 	cr := model.Correction{Kind: model.CorrectionAlbumCover, MatchKey: key, From: albumLabel(*al), To: cover.Source,
 		ImageHash: cover.Hash, ImageMime: cover.Mime}
-	var lifted bool
 	err = c.ds.WithTx(func(tx model.DataStore) error {
 		repo := tx.Correction(ctx)
 		if old, err := model.AlbumCorrection(repo, model.CorrectionAlbumCover, *al); err == nil {
@@ -209,8 +209,7 @@ func (c *corrections) ChooseAlbumCover(ctx context.Context, albumID string, cove
 			return err
 		}
 		// Choosing an image the admin had marked wrong takes that back
-		var err error
-		if lifted, err = deleteAlbumCorrections(repo, model.CorrectionAlbumCoverBlock, *al, cover.Hash); err != nil {
+		if err := deleteAlbumCorrections(repo, model.CorrectionAlbumCoverBlock, *al, cover.Hash); err != nil {
 			return err
 		}
 		return repo.Add(&cr)
@@ -219,11 +218,9 @@ func (c *corrections) ChooseAlbumCover(ctx context.Context, albumID string, cove
 		return nil, err
 	}
 	log.Info(ctx, "Corrections: choosing an album cover", "album", al.Name, "source", cover.Source, "hash", cover.Hash)
-	// A cover is no tag: nothing to rescan, only the album's artwork to resolve again (with a block
-	// lifted, that of every album and track it applied to)
-	if !lifted {
-		c.refreshCover(ctx, *al, false)
-	} else if err := c.refreshFolderCovers(ctx, key, true); err != nil {
+	// A cover is no tag: nothing to rescan, only the artwork of every album the choice applies to,
+	// and of their tracks (which show it too), to resolve again
+	if err := c.refreshFolderCovers(ctx, key); err != nil {
 		log.Warn(ctx, "Corrections: could not refresh the covers", "album", al.Name, err)
 	}
 	return &Applied{Correction: cr, Done: true}, nil
@@ -270,7 +267,7 @@ func (c *corrections) BlockAlbumCover(ctx context.Context, albumID, imageHash st
 	}
 	log.Info(ctx, "Corrections: marking an album cover wrong", "album", al.Name, "image", cr.To, "hash", cr.ImageHash)
 	// The block is saved either way, and applies whenever the albums are next resolved
-	if err := c.refreshFolderCovers(ctx, key, true); err != nil {
+	if err := c.refreshFolderCovers(ctx, key); err != nil {
 		log.Warn(ctx, "Corrections: could not refresh the covers", "album", al.Name, err)
 	}
 	return &Applied{Correction: cr, Done: true}, nil
@@ -291,24 +288,21 @@ func coverSourceLabel(ia *model.ItemArtwork) string {
 	return strings.TrimPrefix(ia.Source, artwork.ExternalPrefix)
 }
 
-// deleteAlbumCorrections deletes the album's Corrections of the kind for the image, reporting
-// whether there were any.
-func deleteAlbumCorrections(repo model.CorrectionRepository, kind model.CorrectionKind, al model.Album, imageHash string) (bool, error) {
+// deleteAlbumCorrections deletes the album's Corrections of the kind for the image.
+func deleteAlbumCorrections(repo model.CorrectionRepository, kind model.CorrectionKind, al model.Album, imageHash string) error {
 	all, err := model.AlbumCorrections(repo, kind, al)
 	if err != nil {
-		return false, err
+		return err
 	}
-	var deleted bool
 	for _, c := range all {
 		if c.ImageHash != imageHash {
 			continue
 		}
 		if err := repo.Delete(c.ID); err != nil {
-			return deleted, err
+			return err
 		}
-		deleted = true
 	}
-	return deleted, nil
+	return nil
 }
 
 // albumLabel names an album for the Corrections page: "Band – Record".
@@ -320,22 +314,21 @@ func albumLabel(al model.Album) string {
 }
 
 // undoAlbumCover deletes a cover choice or block and refreshes the albums in its folder, which go
-// back to the default cover order (with a block, their tracks' art too).
+// back to the default cover order, and their tracks' art.
 func (c *corrections) undoAlbumCover(ctx context.Context, cr *model.Correction) (*Applied, error) {
 	if err := c.ds.Correction(ctx).Delete(cr.ID); err != nil {
 		return nil, err
 	}
 	log.Info(ctx, "Corrections: undoing an album cover Correction", "kind", cr.Kind, "album", cr.From, "image", cr.To)
-	// A choice is the album's cover only, never its tracks'
-	if err := c.refreshFolderCovers(ctx, cr.MatchKey, cr.Kind == model.CorrectionAlbumCoverBlock); err != nil {
+	if err := c.refreshFolderCovers(ctx, cr.MatchKey); err != nil {
 		return nil, err
 	}
 	return &Applied{Correction: *cr, Done: true}, nil
 }
 
 // refreshFolderCovers refreshes the covers of every album an album cover Correction keyed by the
-// folder applies to (albums sharing a folder share its Corrections).
-func (c *corrections) refreshFolderCovers(ctx context.Context, folderKey string, withTracks bool) error {
+// folder applies to (albums sharing a folder share its Corrections), and their tracks' art.
+func (c *corrections) refreshFolderCovers(ctx context.Context, folderKey string) error {
 	albums, err := c.ds.Album(ctx).GetAll(model.QueryOptions{
 		Filters: squirrel.Expr("exists (select 1 from json_each(album.folder_ids) af where af.value = ?)", folderKey),
 	})
@@ -343,22 +336,16 @@ func (c *corrections) refreshFolderCovers(ctx context.Context, folderKey string,
 		return err
 	}
 	for _, al := range albums {
-		c.refreshCover(ctx, al, withTracks)
+		c.refreshCover(ctx, al)
 	}
 	return nil
 }
 
-// refreshCover resolves the album's cover again, and its tracks' own art when a block changed. A
-// failure is only logged: the Correction is saved either way, and applies whenever they are next
-// resolved.
-func (c *corrections) refreshCover(ctx context.Context, al model.Album, withTracks bool) {
-	var err error
-	if withTracks {
-		err = artwork.RefreshAlbumCover(ctx, c.ds, al.ID)
-	} else {
-		err = artwork.Refresh(ctx, c.ds, model.KindAlbumArtwork, al.ID)
-	}
-	if err != nil {
+// refreshCover resolves the album's cover again, and its tracks' own art, which follow its choice
+// and blocks. A failure is only logged: the Correction is saved either way, and applies whenever
+// they are next resolved.
+func (c *corrections) refreshCover(ctx context.Context, al model.Album) {
+	if err := artwork.RefreshAlbumCover(ctx, c.ds, al.ID); err != nil {
 		log.Warn(ctx, "Corrections: could not refresh the album's cover", "album", al.Name, err)
 	}
 }

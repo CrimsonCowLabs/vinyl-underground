@@ -253,27 +253,14 @@ func (r *resolver) resolveAlbum(ctx context.Context, albumID string) (resolution
 		return resolution{}, err
 	}
 
-	blocks, err := loadCoverBlocks(ctx, r.ds, *al)
+	covers, err := loadAlbumCovers(ctx, r.ds, *al)
 	if err != nil {
 		return resolution{}, err
 	}
-	chain := chainState{trace: traceFrom(ctx), blocks: blocks}
+	chain := chainState{trace: traceFrom(ctx), blocks: covers.blocks}
 	// An admin's choice outranks the configured order
-	chosen, chosenOK, err := resolveChosenCover(ctx, r.ds, *al)
-	if err != nil {
-		return resolution{}, err
-	}
-	if chosenOK || chosen.localError {
-		if res, ok := chain.try(ChosenSource, chosen, chosenOK); ok {
-			return res, nil
-		}
-		// Falling through would persist a lower-priority cover as if the choice were gone. A
-		// blocked choice is gone.
-		if chain.localErr {
-			return chain.exhausted(), nil
-		}
-	} else if chosen.source != "" {
-		chain.record(ChosenSource, OutcomeMiss, "")
+	if res, decided := chain.tryChoice(covers); decided {
+		return res, nil
 	}
 	for pattern := range strings.SplitSeq(strings.ToLower(conf.Server.CoverArtPriority), ",") {
 		pattern = strings.TrimSpace(pattern)
@@ -521,6 +508,14 @@ func (r *resolver) resolveMediaFile(ctx context.Context, id string) (resolution,
 	if err != nil {
 		return resolution{}, err
 	}
+	return r.resolveTrack(ctx, *mf)
+}
+
+// resolveTrack resolves the track's own art: its album's chosen cover, else its embedded art. A
+// track with no embedded art has none of its own (its art is its disc's or album's, which show
+// the choice themselves). Past the track's own row, this costs one album lookup and one query for
+// the album's cover Corrections (see loadAlbumCovers), next to reading the File.
+func (r *resolver) resolveTrack(ctx context.Context, mf model.MediaFile) (resolution, error) {
 	chain := chainState{trace: traceFrom(ctx)}
 	switch {
 	case !conf.Server.EnableMediaFileCoverArt:
@@ -534,10 +529,16 @@ func (r *resolver) resolveMediaFile(ctx context.Context, id string) (resolution,
 	if err != nil {
 		return resolution{}, err
 	}
-	// An image blocked for the album is wrong for its tracks too: they fall back to its cover
+	// The album's cover is its tracks' too: a choice wins over their embedded art, and an image
+	// blocked for the album is wrong for them, so they fall back to its cover
 	if al, err := r.ds.Album(ctx).Get(mf.AlbumID); err == nil {
-		if chain.blocks, err = loadCoverBlocks(ctx, r.ds, *al); err != nil {
+		covers, err := loadAlbumCovers(ctx, r.ds, *al)
+		if err != nil {
 			return resolution{}, err
+		}
+		chain.blocks = covers.blocks
+		if res, decided := chain.tryChoice(covers); decided {
+			return res, nil
 		}
 	} else if !errors.Is(err, model.ErrNotFound) {
 		return resolution{}, err

@@ -51,7 +51,7 @@ func (m *MockCorrectionRepo) GetByMatchKey(kind model.CorrectionKind, key string
 	return nil, model.ErrNotFound
 }
 
-func (m *MockCorrectionRepo) FindByMatchKeys(kind model.CorrectionKind, keys []string) (model.Corrections, error) {
+func (m *MockCorrectionRepo) FindByMatchKeys(keys []string, kinds ...model.CorrectionKind) (model.Corrections, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.Err != nil {
@@ -59,7 +59,7 @@ func (m *MockCorrectionRepo) FindByMatchKeys(kind model.CorrectionKind, keys []s
 	}
 	res := model.Corrections{}
 	for _, c := range m.All {
-		if c.Kind == kind && slices.Contains(keys, c.MatchKey) {
+		if slices.Contains(kinds, c.Kind) && slices.Contains(keys, c.MatchKey) {
 			res = append(res, c)
 		}
 	}

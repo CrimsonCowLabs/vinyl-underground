@@ -2,12 +2,9 @@ package artwork
 
 import (
 	"bytes"
-	"context"
 	"io"
 	"slices"
 	"strings"
-
-	"github.com/navidrome/navidrome/model"
 )
 
 // coverBlocks is the set of images, by content hash, an admin marked wrong for an album (album
@@ -18,19 +15,8 @@ import (
 // album's current cover is blocked by its item artwork hash, with no image to re-read. Checking a
 // candidate means hashing its bytes, but only for an album that has blocks, and only for the
 // candidate that would win; the bytes are then handed on in memory, so they are read once.
+// They are loaded with the album's choice, see loadAlbumCovers.
 type coverBlocks map[string]struct{}
-
-func loadCoverBlocks(ctx context.Context, ds model.DataStore, al model.Album) (coverBlocks, error) {
-	all, err := model.AlbumCorrections(ds.Correction(ctx), model.CorrectionAlbumCoverBlock, al)
-	if err != nil || len(all) == 0 {
-		return nil, err
-	}
-	b := make(coverBlocks, len(all))
-	for _, c := range all {
-		b[c.ImageHash] = struct{}{}
-	}
-	return b, nil
-}
 
 // screen hands back a hit unless its image is blocked. It reads the hit's bytes (capped like the
 // processor) only when there are blocks, returning the error of a read that failed.

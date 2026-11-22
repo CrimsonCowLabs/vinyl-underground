@@ -115,7 +115,7 @@ func AlbumCorrection(repo CorrectionRepository, kind CorrectionKind, al Album) (
 // AlbumCorrections returns every Correction of the kind keyed by any of the album's folders,
 // skipping those being undone.
 func AlbumCorrections(repo CorrectionRepository, kind CorrectionKind, al Album) (Corrections, error) {
-	all, err := repo.FindByMatchKeys(kind, al.FolderIDs)
+	all, err := repo.FindByMatchKeys(al.FolderIDs, kind)
 	if err != nil {
 		return nil, err
 	}
@@ -128,9 +128,9 @@ type CorrectionRepository interface {
 	Get(id string) (*Correction, error)
 	// GetByMatchKey returns the Correction of the kind matching key, or ErrNotFound.
 	GetByMatchKey(kind CorrectionKind, key string) (*Correction, error)
-	// FindByMatchKeys returns every Correction of the kind matching any of the keys, oldest first,
-	// for kinds with several per key (CorrectionAlbumCoverBlock).
-	FindByMatchKeys(kind CorrectionKind, keys []string) (Corrections, error)
+	// FindByMatchKeys returns every Correction of the kinds matching any of the keys, oldest first,
+	// for kinds with several per key (CorrectionAlbumCoverBlock), or several kinds in one query.
+	FindByMatchKeys(keys []string, kinds ...CorrectionKind) (Corrections, error)
 	// Add stores a new Correction, setting its ID and CreatedAt. It returns ErrAlreadyExists if a
 	// Correction of the same Kind already has its MatchKey (for CorrectionAlbumCoverBlock: its
 	// MatchKey and ImageHash).

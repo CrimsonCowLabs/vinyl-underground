@@ -294,15 +294,15 @@ func (s *service) serveMediaFile(ctx context.Context, artID model.ArtworkID, siz
 	return s.Get(ctx, mf.DiscCoverArtID(), size, square)
 }
 
-// provisionalEmbedded serves a track's embedded art immediately, leaving the state row to the worker.
+// provisionalEmbedded serves a track's own art (its album's choice, else its embedded art)
+// immediately, leaving the state row to the worker.
 func (s *service) provisionalEmbedded(ctx context.Context, artID model.ArtworkID, mf model.MediaFile, size int, square bool) (*Image, error) {
-	lib, err := loadLibraryView(ctx, s.ds, mf.LibraryID)
+	res, err := newLocalResolver(s.ds, s.ffmpeg).resolveTrack(ctx, mf)
 	if err != nil {
 		return nil, err
 	}
-	res, ok := resolveEmbedded(ctx, lib, s.ffmpeg, mf.Path)
 	s.enqueue(ctx, artID, model.ArtworkPriorityBump)
-	if !ok {
+	if res.reader == nil {
 		// Eligible but unextractable: fall back the way CoverArtID does, not to a placeholder.
 		return s.Get(ctx, mf.DiscCoverArtID(), size, square)
 	}
@@ -322,9 +322,9 @@ func (s *service) serveDisc(ctx context.Context, artID model.ArtworkID, size int
 	}
 	albumArtID := model.ArtworkID{Kind: model.KindAlbumArtwork, ID: dr.album.ID}
 	// Disc art has no state row, hence no content hash: keying on id, album mtime, DiscArtPriority
-	// and the album's blocked images lets a warm cache answer without running the chain or
-	// touching the disk.
-	key := fmt.Sprintf("%s|%d|%s|%s", artID.ID, dr.cacheTime().UnixNano(), conf.Server.DiscArtPriority, dr.blocks.key())
+	// and the album's chosen and blocked images lets a warm cache answer without running the chain
+	// or touching the disk.
+	key := fmt.Sprintf("%s|%d|%s|%s", artID.ID, dr.cacheTime().UnixNano(), conf.Server.DiscArtPriority, dr.covers.key())
 	img, err := s.serveSource(ctx, key, "", dr.cacheTime(), size, square, selectImage)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
