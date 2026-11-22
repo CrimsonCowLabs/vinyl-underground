@@ -2,18 +2,17 @@ import React, { useEffect, useState } from 'react'
 import { useTranslate } from 'react-admin'
 import TimerIcon from '@material-ui/icons/Timer'
 import { NowPlayingToolButton } from '../nowPlaying/NowPlayingToolbar'
-import { sleepTimer } from './sleepTimer'
+import { END_OF_TRACK, sleepTimer } from './sleepTimer'
 import ToolSheet from './ToolSheet'
 
-const MINUTES = [15, 30, 45, 60]
-const END_OF_TRACK = 'endOfTrack'
+const MINUTE_CHOICES = [15, 30, 45, 60]
 const OFF = 'off'
 
 // m:ss
 const formatRemaining = (seconds) =>
   `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
 
-const read = () => ({
+const readTimer = () => ({
   ...sleepTimer.state(),
   remaining: sleepTimer.remainingSeconds(),
 })
@@ -21,15 +20,15 @@ const read = () => ({
 // useSleepTimer follows the sleep timer, and the time it has left each second
 // while it is on
 const useSleepTimer = () => {
-  const [timer, setTimer] = useState(read)
+  const [timer, setTimer] = useState(readTimer)
   useEffect(() => {
-    const update = () => setTimer(read())
+    const update = () => setTimer(readTimer())
     update()
     return sleepTimer.subscribe(update)
   }, [])
   useEffect(() => {
     if (!timer.mode) return
-    const tick = setInterval(() => setTimer(read()), 1000)
+    const tick = setInterval(() => setTimer(readTimer()), 1000)
     return () => clearInterval(tick)
   }, [timer.mode])
   return timer
@@ -46,7 +45,7 @@ const SleepTool = () => {
     timer.mode === END_OF_TRACK ? END_OF_TRACK : (timer.minutes ?? OFF)
 
   const choices = [
-    ...MINUTES.map((minutes) => ({
+    ...MINUTE_CHOICES.map((minutes) => ({
       value: minutes,
       label: translate('nowPlaying.sleep.minutes', { smart_count: minutes }),
     })),

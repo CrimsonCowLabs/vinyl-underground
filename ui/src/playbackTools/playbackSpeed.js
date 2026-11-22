@@ -12,7 +12,7 @@ export const formatSpeed = (speed) => `${speed}×`
 
 // applyPlaybackSpeed sets the element's speed, keeping the pitch where the
 // browser can. defaultPlaybackRate is what a newly loaded source starts at.
-export const applyPlaybackSpeed = (audio, speed) => {
+const applyPlaybackSpeed = (audio, speed) => {
   audio.defaultPlaybackRate = speed
   audio.playbackRate = speed
   audio.preservesPitch = true

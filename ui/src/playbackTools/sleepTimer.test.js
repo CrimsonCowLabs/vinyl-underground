@@ -75,6 +75,40 @@ describe('sleep timer', () => {
     expect(stored).toEqual([0.5])
   })
 
+  it('lets the Listener take the volume back during the fade, and stops', () => {
+    const player = fakeAudio()
+    const heard = []
+    player.addEventListener('volumechange', () => heard.push(player.volume))
+    timer.attach(player)
+    timer.start(15)
+    vi.advanceTimersByTime(minutes(15) - 2000)
+
+    player.volume = 0.5 // the Listener's slider
+    vi.advanceTimersByTime(0)
+
+    expect(heard).toEqual([0.5])
+    expect(timer.state().mode).toBe(null)
+    vi.advanceTimersByTime(5000)
+    expect(player.volume).toBe(0.5)
+    expect(player.pause).not.toHaveBeenCalled()
+  })
+
+  it('waits for the new end when the Listener seeks back during an "End of this Track" fade', () => {
+    timer.startEndOfTrack()
+    audio.currentTime = 249
+    audio.dispatchEvent(new Event('timeupdate'))
+    vi.advanceTimersByTime(1000)
+    expect(audio.volume).toBeLessThan(0.6)
+
+    audio.currentTime = 100
+    audio.dispatchEvent(new Event('timeupdate'))
+    vi.advanceTimersByTime(3000)
+
+    expect(audio.pause).not.toHaveBeenCalled()
+    expect(audio.volume).toBeCloseTo(0.64)
+    expect(timer.state().mode).toBe('endOfTrack')
+  })
+
   it('at "End of this Track", fades as the Track ends and pauses before the next one starts', () => {
     timer.startEndOfTrack()
     const playTo = (seconds) => {

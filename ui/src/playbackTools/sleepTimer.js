@@ -10,28 +10,38 @@
 // fades back in to on play), so the timer stops the events its fade causes
 // before the package hears them: its listener is a capture one, which runs
 // first at the element.
-export const SLEEP_FADE_MS = 6000
+const SLEEP_FADE_MS = 6000
 const FADE_STEP_MS = 100
+
+// The timer's modes, besides null for off
+export const MINUTES = 'minutes'
+export const END_OF_TRACK = 'endOfTrack'
 // "End of this Track" pauses this long before the Track's end, so the player
 // never gets to start the next one
 const END_OF_TRACK_MARGIN_MS = 400
 
 export const createSleepTimer = ({ fadeMs = SLEEP_FADE_MS } = {}) => {
   let audio = null
-  let mode = null // null, 'minutes' or 'endOfTrack'
-  let minutes = null // for 'minutes', as chosen
-  let endsAt = null // for 'minutes', as Date.now()
+  let mode = null // null, MINUTES or END_OF_TRACK
+  let minutes = null // for MINUTES, as chosen
+  let endsAt = null // for MINUTES, as Date.now()
   let fadeTimeout = null
-  let fade = null // { from, startedAt, duration, interval }
+  let fade = null // { from, interval }
   let restoring = null // the volume being put back, until it is announced
+  let lastSet = null // the volume the timer last gave the element
   const listeners = new Set()
 
   const notify = () => listeners.forEach((listener) => listener())
 
+  const setVolume = (volume) => {
+    audio.volume = volume
+    lastSet = audio.volume
+  }
+
   const restoreVolume = (volume) => {
     if (!audio || audio.volume === volume) return
     restoring = volume
-    audio.volume = volume
+    setVolume(volume)
   }
 
   const stopFade = ({ restore }) => {
@@ -69,12 +79,10 @@ export const createSleepTimer = ({ fadeMs = SLEEP_FADE_MS } = {}) => {
     const startedAt = Date.now()
     fade = {
       from: audio.volume,
-      startedAt,
-      duration,
       interval: setInterval(() => {
         const progress = (Date.now() - startedAt) / duration
         if (progress >= 1) finish()
-        else audio.volume = fade.from * (1 - progress)
+        else setVolume(fade.from * (1 - progress))
       }, FADE_STEP_MS),
     }
     notify()
@@ -90,13 +98,21 @@ export const createSleepTimer = ({ fadeMs = SLEEP_FADE_MS } = {}) => {
   // Each timeupdate checks the clock too, in case a background tab held the
   // timeout back
   const onTimeUpdate = () => {
-    if (fade) return
-    if (mode === 'endOfTrack') {
+    if (fade) {
+      // Seeking back, or on to another Track, puts the end further off
+      const left = mode === END_OF_TRACK && trackLeftMs()
+      if (left && left - END_OF_TRACK_MARGIN_MS > fadeMs) {
+        stopFade({ restore: true })
+        notify()
+      }
+      return
+    }
+    if (mode === END_OF_TRACK) {
       const left = trackLeftMs()
       if (left !== null && left - END_OF_TRACK_MARGIN_MS <= fadeMs) {
         beginFade(left - END_OF_TRACK_MARGIN_MS)
       }
-    } else if (mode === 'minutes' && Date.now() >= endsAt - fadeMs) {
+    } else if (mode === MINUTES && Date.now() >= endsAt - fadeMs) {
       clearTimeout(fadeTimeout)
       beginFade(endsAt - Date.now())
     }
@@ -112,8 +128,20 @@ export const createSleepTimer = ({ fadeMs = SLEEP_FADE_MS } = {}) => {
   // reaches the package. Events are announced late, so each reads the volume
   // as it is by then; once one reads the restored volume, the rest are the
   // package's again.
+  //
+  // A volume the timer didn't set is the Listener's (their slider, or the
+  // package's own fade as they pause): it goes through, and the timer stops.
   const onVolumeChange = (event) => {
     if (!fade && restoring === null) return
+    if (audio.volume !== lastSet) {
+      restoring = null
+      if (fade) {
+        stopFade({ restore: false })
+        clear()
+        notify()
+      }
+      return
+    }
     event.stopImmediatePropagation()
     if (!fade && audio.volume === restoring) restoring = null
   }
@@ -135,7 +163,7 @@ export const createSleepTimer = ({ fadeMs = SLEEP_FADE_MS } = {}) => {
     start(chosenMinutes) {
       api.cancel()
       const ms = chosenMinutes * 60 * 1000
-      mode = 'minutes'
+      mode = MINUTES
       minutes = chosenMinutes
       endsAt = Date.now() + ms
       fadeTimeout = setTimeout(
@@ -148,7 +176,7 @@ export const createSleepTimer = ({ fadeMs = SLEEP_FADE_MS } = {}) => {
     // Starts the timer for the rest of the Track playing.
     startEndOfTrack() {
       api.cancel()
-      mode = 'endOfTrack'
+      mode = END_OF_TRACK
       notify()
     },
 
@@ -160,7 +188,7 @@ export const createSleepTimer = ({ fadeMs = SLEEP_FADE_MS } = {}) => {
       if (wasOn) notify()
     },
 
-    state: () => ({ mode, minutes, endsAt, fading: !!fade }),
+    state: () => ({ mode, minutes, fading: !!fade }),
 
     // Whether the end of the Track playing is known, which it isn't on
     // Internet Radio
@@ -169,10 +197,10 @@ export const createSleepTimer = ({ fadeMs = SLEEP_FADE_MS } = {}) => {
     // The whole seconds left before playback pauses, or null when the timer
     // is off or the end of the Track can't be known (Internet Radio).
     remainingSeconds() {
-      if (mode === 'minutes') {
+      if (mode === MINUTES) {
         return Math.max(0, Math.ceil((endsAt - Date.now()) / 1000))
       }
-      if (mode === 'endOfTrack') {
+      if (mode === END_OF_TRACK) {
         const left = trackLeftMs()
         return left === null ? null : Math.ceil(left / 1000)
       }

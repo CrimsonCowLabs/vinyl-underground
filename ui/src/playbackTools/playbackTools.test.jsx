@@ -4,14 +4,17 @@ import { combineReducers, legacy_createStore as createStore } from 'redux'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { ThemeProvider, createTheme } from '@material-ui/core/styles'
-import { settingsReducer } from '../reducers'
+import { createMemoryHistory } from 'history'
+import { playerReducer, settingsReducer } from '../reducers'
+import createAdminStore from '../store/createAdminStore'
 import NowPlayingToolbar from '../nowPlaying/NowPlayingToolbar'
 import { sleepTimer } from './sleepTimer'
 import { usePlaybackSpeed } from './playbackSpeed'
 // Registers the Sleep and Speed tools, as the app does at load
 import './index'
 
-vi.mock('react-admin', () => ({
+vi.mock('react-admin', async (importOriginal) => ({
+  ...(await importOriginal()),
   useTranslate: () => (key, opts) =>
     opts?.smart_count != null ? `${key}:${opts.smart_count}` : key,
 }))
@@ -40,11 +43,22 @@ const PlayerWiring = ({ audio, isRadio }) => {
   return null
 }
 
-const setup = ({ settings, isRadio = false } = {}) => {
-  const store = createStore(
-    combineReducers({ settings: settingsReducer }),
-    settings ? { settings } : undefined,
-  )
+// The app's own store, which keeps settings in localStorage
+const appStore = () =>
+  createAdminStore({
+    authProvider: {},
+    dataProvider: {},
+    history: createMemoryHistory(),
+    customReducers: { settings: settingsReducer, player: playerReducer },
+  })
+
+const setup = ({ settings, isRadio = false, store: given } = {}) => {
+  const store =
+    given ||
+    createStore(
+      combineReducers({ settings: settingsReducer }),
+      settings ? { settings } : undefined,
+    )
   const audio = fakeAudio()
   sleepTimer.attach(audio)
   render(
@@ -120,8 +134,8 @@ describe('Sleep and Speed tools', () => {
       expect(audio.pause).not.toHaveBeenCalled()
     })
 
-    it("doesn't offer the end of the Track on Internet Radio", () => {
-      const { audio } = setup({ isRadio: true })
+    it("doesn't offer the end of the Track when it can't be known (Internet Radio)", () => {
+      const { audio } = setup()
       audio.duration = Infinity
       fireEvent.click(sleepButton())
 
@@ -158,14 +172,15 @@ describe('Sleep and Speed tools', () => {
     })
 
     it('is kept on this device', () => {
-      const { store } = setup()
+      localStorage.removeItem('state')
+      setup({ store: appStore() })
       fireEvent.click(speedButton())
       choose('0.75×')
-      expect(store.getState().settings.playbackSpeed).toBe(0.75)
+      act(() => vi.advanceTimersByTime(1500)) // the store saves, throttled
       cleanup()
 
-      // A reload starts from the settings kept in localStorage
-      const { audio } = setup({ settings: store.getState().settings })
+      // A reload starts from what was kept in localStorage
+      const { audio } = setup({ store: appStore() })
 
       expect(audio.playbackRate).toBe(0.75)
       expect(speedButton()).toHaveTextContent('0.75×')
