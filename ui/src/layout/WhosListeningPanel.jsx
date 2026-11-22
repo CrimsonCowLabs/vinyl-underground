@@ -182,40 +182,35 @@ WhosListeningButton.propTypes = {
 }
 
 const WhosListeningItem = React.memo(
-  ({ nowPlayingEntry, onLinkClick, getArtistLink, now }) => {
+  ({ entry, onLinkClick, getArtistLink, now }) => {
     const classes = useStyles()
-    const isPaused = nowPlayingEntry.state === 'paused'
-    const isPlaying =
-      nowPlayingEntry.state === 'playing' ||
-      nowPlayingEntry.state === 'starting'
-    const basePositionMs = nowPlayingEntry.positionMs || 0
-    const rate = nowPlayingEntry.playbackRate || 1
-    const elapsedSinceFetch = now - (nowPlayingEntry._fetchedAt || now)
+    const isPaused = entry.state === 'paused'
+    const isPlaying = entry.state === 'playing' || entry.state === 'starting'
+    const basePositionMs = entry.positionMs || 0
+    const rate = entry.playbackRate || 1
+    const elapsedSinceFetch = now - (entry._fetchedAt || now)
     const interpolatedMs = isPlaying
       ? basePositionMs + elapsedSinceFetch * rate
       : basePositionMs
-    const durationMs = (nowPlayingEntry.duration || 0) * 1000
+    const durationMs = (entry.duration || 0) * 1000
     const clampedMs = Math.max(0, interpolatedMs)
     const positionMs =
       durationMs > 0 ? Math.min(clampedMs, durationMs) : clampedMs
     const positionSec = positionMs / 1000
-    const durationSec = nowPlayingEntry.duration || 0
+    const durationSec = entry.duration || 0
     const progress = durationSec > 0 ? (positionSec / durationSec) * 100 : 0
-    const artistId = nowPlayingEntry.albumArtistId || nowPlayingEntry.artistId
-    const artistName = nowPlayingEntry.albumArtist || nowPlayingEntry.artist
+    const artistId = entry.albumArtistId || entry.artistId
+    const artistName = entry.albumArtist || entry.artist
 
     return (
       <ListItem className={classes.listItem}>
         <div className={classes.avatarContainer}>
-          <Link
-            to={`/album/${nowPlayingEntry.albumId}/show`}
-            onClick={onLinkClick}
-          >
+          <Link to={`/album/${entry.albumId}/show`} onClick={onLinkClick}>
             <Avatar
               className={classes.avatar}
-              src={subsonic.getCoverArtUrl(nowPlayingEntry, 80)}
+              src={subsonic.getCoverArtUrl(entry, 80)}
               variant="square"
-              alt={`${nowPlayingEntry.album} cover art`}
+              alt={`${entry.album} cover art`}
               loading="lazy"
             />
           </Link>
@@ -226,11 +221,8 @@ const WhosListeningItem = React.memo(
           )}
         </div>
         <div className={classes.entryContent}>
-          <Typography
-            className={classes.trackTitle}
-            title={nowPlayingEntry.title}
-          >
-            {nowPlayingEntry.title}
+          <Typography className={classes.trackTitle} title={entry.title}>
+            {entry.title}
           </Typography>
           {artistId ? (
             <Link
@@ -245,11 +237,8 @@ const WhosListeningItem = React.memo(
               {artistName}
             </Typography>
           )}
-          <Typography
-            className={classes.trackDetail}
-            title={nowPlayingEntry.album}
-          >
-            {nowPlayingEntry.album}
+          <Typography className={classes.trackDetail} title={entry.album}>
+            {entry.album}
           </Typography>
           <div className={classes.progressRow}>
             <span className={classes.progressTime}>
@@ -265,10 +254,8 @@ const WhosListeningItem = React.memo(
             </span>
           </div>
           <Typography className={classes.userInfo}>
-            {nowPlayingEntry.username}
-            {nowPlayingEntry.playerName
-              ? ` (${nowPlayingEntry.playerName})`
-              : ''}
+            {entry.username}
+            {entry.playerName ? ` (${entry.playerName})` : ''}
           </Typography>
         </div>
       </ListItem>
@@ -279,7 +266,7 @@ const WhosListeningItem = React.memo(
 WhosListeningItem.displayName = 'WhosListeningItem'
 
 WhosListeningItem.propTypes = {
-  nowPlayingEntry: PropTypes.shape({
+  entry: PropTypes.shape({
     playerId: PropTypes.oneOfType([PropTypes.string, PropTypes.number])
       .isRequired,
     albumId: PropTypes.oneOfType([PropTypes.string, PropTypes.number])
@@ -329,10 +316,10 @@ const WhosListeningList = React.memo(
                 dense
                 aria-label={translate('whosListening.title')}
               >
-                {entries.map((nowPlayingEntry) => (
+                {entries.map((entry) => (
                   <WhosListeningItem
-                    key={`${nowPlayingEntry.username}-${nowPlayingEntry.playerName}`}
-                    nowPlayingEntry={nowPlayingEntry}
+                    key={`${entry.username}-${entry.playerName}`}
+                    entry={entry}
                     onLinkClick={onLinkClick}
                     getArtistLink={getArtistLink}
                     now={now}
@@ -410,15 +397,15 @@ const WhosListeningPanel = () => {
       .then((resp) => resp.json['subsonic-response'])
       .then((data) => {
         if (data.status === 'ok') {
-          const nowPlayingEntries = data.nowPlaying?.entry || []
+          const fetchedEntries = data.nowPlaying?.entry || []
           const fetchTime = Date.now()
           setEntries(
-            nowPlayingEntries.map((e) => ({ ...e, _fetchedAt: fetchTime })),
+            fetchedEntries.map((e) => ({ ...e, _fetchedAt: fetchTime })),
           )
-          dispatch(nowPlayingCountSync({ count: nowPlayingEntries.length }))
+          dispatch(nowPlayingCountSync({ count: fetchedEntries.length }))
         } else {
           throw new Error(
-            data.error?.message || 'Failed to fetch who is listening',
+            data.error?.message || "Failed to fetch Who's Listening",
           )
         }
       })
