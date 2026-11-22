@@ -148,10 +148,12 @@ func (mf MediaFile) CoverArtID() ArtworkID {
 }
 
 // DiscCoverArtID returns the disc artwork ID when the media file has a disc number,
-// otherwise it returns the album artwork ID.
+// otherwise it returns the album artwork ID. Disc art keeps no state row, so it is versioned by
+// the album's image: it falls back to the album cover, and shows the album's chosen cover, so a
+// choice saved, replaced or undone changes the ID clients cache it by.
 func (mf MediaFile) DiscCoverArtID() ArtworkID {
 	if mf.DiscNumber > 0 {
-		return ArtworkID{Kind: KindDiscArtwork, ID: DiscArtworkID(mf.AlbumID, mf.DiscNumber), Hash: mf.ImageHash}
+		return ArtworkID{Kind: KindDiscArtwork, ID: DiscArtworkID(mf.AlbumID, mf.DiscNumber), Hash: mf.AlbumImage.ImageHash}
 	}
 	return mf.AlbumCoverArtID()
 }

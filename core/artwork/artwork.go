@@ -288,15 +288,15 @@ func (s *service) serveMediaFile(ctx context.Context, artID model.ArtworkID, siz
 		return nil, err
 	}
 	if noRow && conf.Server.EnableMediaFileCoverArt && mf.HasCoverArt {
-		return s.provisionalEmbedded(ctx, artID, *mf, size, square)
+		return s.provisionalTrack(ctx, artID, *mf, size, square)
 	}
 	// Mirror MediaFile.CoverArtID: a track defers to its disc art, which falls back to the album.
 	return s.Get(ctx, mf.DiscCoverArtID(), size, square)
 }
 
-// provisionalEmbedded serves a track's own art (its album's choice, else its embedded art)
+// provisionalTrack serves a Track's own art (its album's choice, else its embedded art)
 // immediately, leaving the state row to the worker.
-func (s *service) provisionalEmbedded(ctx context.Context, artID model.ArtworkID, mf model.MediaFile, size int, square bool) (*Image, error) {
+func (s *service) provisionalTrack(ctx context.Context, artID model.ArtworkID, mf model.MediaFile, size int, square bool) (*Image, error) {
 	res, err := newLocalResolver(s.ds, s.ffmpeg).resolveTrack(ctx, mf)
 	if err != nil {
 		return nil, err

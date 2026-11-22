@@ -402,7 +402,7 @@ var _ = Describe("Corrections", func() {
 			Expect(got.ImageHash).To(Equal(cover.Hash))
 			Expect(got.ImageMime).To(Equal(cover.Mime))
 			Expect(queued(al.ID)).To(BeTrue())
-			Expect(trackQueued("t-1")).To(BeTrue())   // the choice is the tracks' art too
+			Expect(trackQueued("t-1")).To(BeTrue())   // the choice is the Tracks' art too
 			Expect(refresher.scanned()).To(BeEmpty()) // a cover is no tag: nothing to rescan
 		})
 

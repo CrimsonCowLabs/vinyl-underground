@@ -7,10 +7,8 @@ import (
 	"image/color"
 	"image/png"
 	"io"
-	"time"
-
-	_ "image/jpeg"
 	"os"
+	"time"
 
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/conf/configtest"
@@ -143,6 +141,7 @@ var _ = Describe("Chosen album covers on disc and Track art", func() {
 		conf.Server.CoverArtPriority = "cover.*, embedded"
 		conf.Server.DiscArtPriority = "cover.*, embedded"
 		conf.Server.EnableMediaFileCoverArt = true
+		ctx = withTrace(context.Background(), &ChainTrace{})
 		repoRoot, err := os.Getwd()
 		Expect(err).ToNot(HaveOccurred())
 		libRepo := &tests.MockLibraryRepo{}
@@ -157,7 +156,6 @@ var _ = Describe("Chosen album covers on disc and Track art", func() {
 			{ID: "mf1", AlbumID: "al1", DiscNumber: 1, FolderID: "cd1", Path: embedPath, HasCoverArt: true},
 			{ID: "mf2", AlbumID: "al1", DiscNumber: 1, FolderID: "cd1", Path: embedPath},
 		})
-		ctx = withTrace(context.Background(), &ChainTrace{})
 		r = newResolver(ds, agents.GetAgents(&tests.MockDataStore{}, nil), tests.NewMockFFmpeg(""), nil)
 		red = pngOf(color.RGBA{R: 255, A: 255})
 	})
@@ -176,6 +174,12 @@ var _ = Describe("Chosen album covers on disc and Track art", func() {
 		Expect(err).ToNot(HaveOccurred())
 		return res
 	}
+	resolveTrack := func(id string) resolution {
+		GinkgoHelper()
+		res, err := r.resolve(ctx, model.ArtworkQueueItem{ItemKind: "mf", ItemID: id})
+		Expect(err).ToNot(HaveOccurred())
+		return res
+	}
 
 	It("shows the chosen image as the album's disc art, over DiscArtPriority", func() {
 		Expect(resolveDisc().source).To(Equal("folder"))
@@ -186,14 +190,7 @@ var _ = Describe("Chosen album covers on disc and Track art", func() {
 		Expect(readAll(res.reader)).To(Equal(string(red)))
 	})
 
-	resolveTrack := func(id string) resolution {
-		GinkgoHelper()
-		res, err := r.resolve(ctx, model.ArtworkQueueItem{ItemKind: "mf", ItemID: id})
-		Expect(err).ToNot(HaveOccurred())
-		return res
-	}
-
-	It("shows the chosen image as a track's own art, over its embedded art, until undone", func() {
+	It("shows the chosen image as a Track's own art, over its embedded art, until undone", func() {
 		Expect(resolveTrack("mf1").source).To(Equal("embedded"))
 		choose(red)
 
@@ -241,8 +238,8 @@ var _ = Describe("Chosen album covers on disc and Track art", func() {
 			GinkgoHelper()
 			img, _, err := image.Decode(bytes.NewReader(data))
 			Expect(err).ToNot(HaveOccurred())
-			r, g, b, _ := img.At(0, 0).RGBA()
-			return r > 0xe000 && g < 0x2000 && b < 0x2000
+			red, green, blue, _ := img.At(0, 0).RGBA()
+			return red > 0xe000 && green < 0x2000 && blue < 0x2000
 		}
 
 		It("serves a track with embedded art and no state row yet the chosen image", func() {

@@ -167,8 +167,7 @@ func (d *discArtworkReader) discCandidates(ctx context.Context, ffmpeg ffmpeg.FF
 // and pays nothing for it.
 func (d *discArtworkReader) selectImage(ctx context.Context, ffmpeg ffmpeg.FFmpeg, priority string,
 	chain *chainState) (resolution, error) {
-	chain.blocks = d.covers.blocks
-	if res, decided := chain.tryChoice(d.covers); decided {
+	if res, decided := chain.tryCovers(d.covers); decided {
 		return res, nil
 	}
 	for _, c := range d.discCandidates(ctx, ffmpeg, priority) {

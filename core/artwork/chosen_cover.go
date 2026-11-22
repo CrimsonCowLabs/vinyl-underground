@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/consts"
@@ -56,38 +55,25 @@ func StoreChosenCover(data []byte) (StoredCover, error) {
 }
 
 // albumCovers is what admins decided about an album's cover: the image they chose or uploaded, if
-// any, and the images they marked wrong. The album's cover, its disc art and its tracks' own art
+// any, and the images they marked wrong. The album's cover, its disc art and its Tracks' own art
 // all follow it: the choice is tried before their priority order, and the blocks are skipped.
 type albumCovers struct {
 	choice *model.Correction // nil when the album has none
 	blocks coverBlocks
 }
 
-// loadAlbumCovers loads both with one indexed query on the album's folders, so it costs a track's
-// own art no more than the blocks alone did.
+// loadAlbumCovers loads both with one indexed query on the album's folders (see
+// model.AlbumCoverCorrections), so it costs a Track's own art no more than the blocks alone did.
 func loadAlbumCovers(ctx context.Context, ds model.DataStore, al model.Album) (albumCovers, error) {
-	all, err := ds.Correction(ctx).FindByMatchKeys(al.FolderIDs,
-		model.CorrectionAlbumCover, model.CorrectionAlbumCoverBlock)
+	choice, blocks, err := model.AlbumCoverCorrections(ds.Correction(ctx), al)
 	if err != nil {
 		return albumCovers{}, err
 	}
-	var covers albumCovers
-	choiceAt := len(al.FolderIDs)
-	for _, c := range all {
-		if c.Undoing {
-			continue
-		}
-		switch c.Kind {
-		case model.CorrectionAlbumCoverBlock:
-			if covers.blocks == nil {
-				covers.blocks = coverBlocks{}
-			}
-			covers.blocks[c.ImageHash] = struct{}{}
-		case model.CorrectionAlbumCover:
-			// Like model.AlbumCorrection: the choice keyed by the album's earliest folder wins
-			if at := slices.Index(al.FolderIDs, c.MatchKey); at >= 0 && at < choiceAt {
-				choiceAt, covers.choice = at, &c
-			}
+	covers := albumCovers{choice: choice}
+	if len(blocks) > 0 {
+		covers.blocks = make(coverBlocks, len(blocks))
+		for _, b := range blocks {
+			covers.blocks[b.ImageHash] = struct{}{}
 		}
 	}
 	return covers, nil
@@ -111,15 +97,16 @@ func (a albumCovers) key() string {
 	return choice + ";" + a.blocks.key()
 }
 
-// tryChoice tries the album's choice ahead of a priority walk, screened by the walk's blocks.
-// decided means the walk is over: the choice won, or its image could not be read, as falling
-// through would show (and persist) a lower-priority image as if the choice were gone. A blocked
-// choice is gone.
-func (c *chainState) tryChoice(covers albumCovers) (_ resolution, decided bool) {
-	chosen, ok := covers.openChoice()
+// tryCovers starts a priority walk under the album's covers: the walk skips its blocks from here
+// on, and its choice is tried first. decided means the walk is over: the choice won, or its image
+// could not be read, as falling through would show (and persist) a lower-priority image as if the
+// choice were gone. A blocked choice is gone.
+func (c *chainState) tryCovers(covers albumCovers) (_ resolution, decided bool) {
+	c.blocks = covers.blocks
+	chosen, opened := covers.openChoice()
 	switch {
-	case ok || chosen.localError:
-		if res, ok := c.try(ChosenSource, chosen, ok); ok {
+	case opened || chosen.localError:
+		if res, ok := c.try(ChosenSource, chosen, opened); ok {
 			return res, true
 		}
 		if c.localErr {
