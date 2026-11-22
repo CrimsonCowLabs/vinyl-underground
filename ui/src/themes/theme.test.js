@@ -1,6 +1,28 @@
 import themes from './index'
 import { describe, it, expect } from 'vitest'
 
+describe('the theme list', () => {
+  it('offers the Vinyl Underground theme first, then the 27 inherited themes', () => {
+    const names = Object.values(themes).map((t) => t.themeName)
+    expect(names.slice(0, 2)).toEqual([
+      'Vinyl Underground Dark',
+      'Vinyl Underground Light',
+    ])
+    expect(names.slice(2)).toHaveLength(27)
+    expect(names).toEqual(
+      expect.arrayContaining(['Dark', 'Light', 'Nord', 'Spotify-ish']),
+    )
+  })
+
+  it.each(Object.entries(themes))(
+    '%s has a name and a player theme',
+    (id, theme) => {
+      expect(theme.themeName).toBeTruthy()
+      expect(['dark', 'light']).toContain(theme.player.theme)
+    },
+  )
+})
+
 describe('NDPlaylistDetails styles', () => {
   const themeEntries = Object.entries(themes)
 

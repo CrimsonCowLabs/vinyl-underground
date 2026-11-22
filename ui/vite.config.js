@@ -66,8 +66,8 @@ function manifest() {
     categories: ['music', 'entertainment'],
     display: 'standalone',
     start_url: './',
-    background_color: 'white',
-    theme_color: '#c8102e',
+    background_color: '#0F1216',
+    theme_color: '#0F1216',
     icons: [
       {
         src: './android-chrome-192x192.png',

@@ -5,13 +5,14 @@ import themes from '../themes'
 import { HelpMsg } from './HelpMsg'
 import { docsUrl, openInNewTab } from '../utils'
 import { changeTheme } from '../actions'
+import { currentThemeId } from '../reducers/themeReducer'
 
 const helpKey = '_help'
 
 export const SelectTheme = (props) => {
   const translate = useTranslate()
   const dispatch = useDispatch()
-  const currentTheme = useSelector((state) => state.theme)
+  const currentTheme = useSelector(currentThemeId)
   const themeChoices = [
     {
       id: AUTO_THEME_ID,
