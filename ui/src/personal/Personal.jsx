@@ -3,6 +3,7 @@ import { Card } from '@material-ui/core'
 import { makeStyles } from '@material-ui/core/styles'
 import { SelectLanguage } from './SelectLanguage'
 import { SelectTheme } from './SelectTheme'
+import { SelectAccent } from './SelectAccent'
 import { SelectDefaultView } from './SelectDefaultView'
 import { NotificationsToggle } from './NotificationsToggle'
 import { ListenBrainzScrobbleToggle } from './ListenBrainzScrobbleToggle'
@@ -27,6 +28,7 @@ const Personal = () => {
       <Title title={APP_NAME + ' - ' + translate('menu.personal.name')} />
       <SimpleForm toolbar={null} variant={'outlined'}>
         <SelectTheme />
+        <SelectAccent />
         <SelectLanguage />
         <SelectDefaultView />
         <SelectStreamingQuality />

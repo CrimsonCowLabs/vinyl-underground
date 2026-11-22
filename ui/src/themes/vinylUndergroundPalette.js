@@ -50,15 +50,29 @@ export const effects = {
 }
 
 // Each accent has a value per variant: the light one is darker so it still
-// reads on cream. #99 adds the other fixed accents and "From album art".
+// reads on cream. Text on an accent is Slate in dark and white in light. The
+// order is the picker's. "From album art" is in artAccent.js.
+export const ON_ACCENT = { dark: '#0F1216', light: '#FFFFFF' }
+
+const accent = (dark, light) => ({
+  dark: { main: dark, contrastText: ON_ACCENT.dark },
+  light: { main: light, contrastText: ON_ACCENT.light },
+})
+
 export const accents = {
-  teal: {
-    dark: { main: '#3EC1B0', contrastText: '#0F1216' },
-    light: { main: '#086A5F', contrastText: '#FFFFFF' },
-  },
+  teal: accent('#3EC1B0', '#086A5F'),
+  vermilion: accent('#FF5B2E', '#B0300F'),
+  amber: accent('#FF9A1F', '#934E00'),
+  mustard: accent('#E2B53A', '#765A00'),
+  olive: accent('#9DBB4E', '#4A6510'),
+  denim: accent('#6FA3F0', '#2F5DB0'),
+  plum: accent('#C08BF0', '#7A3FB0'),
+  rose: accent('#FF6F91', '#B42851'),
 }
 
 export const DEFAULT_ACCENT = 'teal'
+// The accent that colours Now Playing and the mini player from the cover
+export const ART_ACCENT = 'art'
 
 // A 180px tile of SVG noise, as a data URI: cool-white grain at 7% on dark,
 // brown grain at 8% on light.

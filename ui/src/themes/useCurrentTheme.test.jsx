@@ -5,7 +5,7 @@ import mediaQuery from 'css-mediaquery'
 import { renderHook } from '@testing-library/react-hooks'
 import useCurrentTheme from './useCurrentTheme'
 import { themeReducer } from '../reducers/themeReducer'
-import { changeTheme } from '../actions'
+import { changeAccent, changeTheme } from '../actions'
 import { AUTO_THEME_ID } from '../consts'
 
 function createMatchMedia(theme) {
@@ -100,6 +100,49 @@ describe('useCurrentTheme', () => {
     it('sets the Slate background for the Vinyl Underground theme', () => {
       renderWith(undefined)
       expect(document.body.style.backgroundColor).toBe('rgb(15, 18, 22)')
+    })
+  })
+
+  describe('the accent', () => {
+    describe.each([
+      ['dark', '#C08BF0', '#3EC1B0'],
+      ['light', '#7A3FB0', '#086A5F'],
+    ])('when the system prefers %s', (scheme, plum, teal) => {
+      beforeAll(() => {
+        window.matchMedia = createMatchMedia(scheme)
+      })
+
+      it('colours the Vinyl Underground theme with the chosen accent', () => {
+        const theme = renderWith(undefined, changeAccent('plum'))
+        expect(theme.palette.primary.main).toBe(plum)
+        expect(theme.player.stylesheet).toContain(plum)
+      })
+
+      it('keeps the accent once chosen, Auto or not', () => {
+        const variant =
+          scheme === 'dark'
+            ? 'VinylUndergroundDarkTheme'
+            : 'VinylUndergroundLightTheme'
+        expect(
+          renderWith(undefined, changeAccent('plum'), changeTheme(variant))
+            .palette.primary.main,
+        ).toBe(plum)
+      })
+
+      it('uses Teal across the app for From album art', () => {
+        expect(
+          renderWith(undefined, changeAccent('art')).palette.primary.main,
+        ).toBe(teal)
+      })
+    })
+
+    it('leaves the inherited themes alone', () => {
+      window.matchMedia = createMatchMedia('dark')
+      const nord = renderWith({ choice: 'NordTheme' })
+      expect(
+        renderWith(undefined, changeAccent('plum'), changeTheme('NordTheme'))
+          .palette,
+      ).toEqual(nord.palette)
     })
   })
 })

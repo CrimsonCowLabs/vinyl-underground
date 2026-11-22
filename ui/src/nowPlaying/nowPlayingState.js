@@ -31,7 +31,7 @@ export const isNowPlayingOpen = (state) => !!state.nowPlaying?.open
 // Whether it is open is kept per device, so a panel left open is there again
 // after a reload. Full screen never reopens by itself: a phone, or a narrow
 // window, starts on the page.
-export const savedNowPlaying = ({ open }) => ({ open })
+export const savedNowPlaying = (nowPlaying) => ({ open: !!nowPlaying?.open })
 export const restoredNowPlaying = (saved) => ({
   open: !!saved?.open && !!window.matchMedia?.(PANEL_QUERY).matches,
 })

@@ -222,7 +222,7 @@ A better player and a look of our own, built into the existing web UI ([ADR-0003
 
 - Dark is Slate, a cool blue-grey, chosen in review over the prototype's first warm brown (also tried: neutral Graphite, true-black Ink). Light stays warm cream.
 - Accents (`palette.primary.main`), dark / light: **Teal `#3EC1B0` / `#086A5F` (default)**, Vermilion `#FF5B2E` / `#B0300F`, Amber `#FF9A1F` / `#934E00`, Mustard `#E2B53A` / `#765A00`, Olive `#9DBB4E` / `#4A6510`, Denim `#6FA3F0` / `#2F5DB0`, Plum `#C08BF0` / `#7A3FB0`, Rose `#FF6F91` / `#B42851`. Text on an accent is `#0F1216` in dark and `#FFFFFF` in light.
-- "From album art" keeps the cover colour's hue, raises its saturation to at least 45%, and steps its lightness until it reaches 4.5:1 against the background and Surface 2. It fades over 0.7 s between Tracks, and a grey cover falls back to the default accent.
+- "From album art" keeps the cover colour's hue, raises its saturation to at least 45%, and steps its lightness until it reaches 4.5:1 against the background and Surface 2. It fades over 0.7 s between Tracks, and a grey cover falls back to the default accent, as does a missing one (the server's placeholder, the only image it sends `no-store`) or one that fails to load. Only the player's subtree takes it (`PlayerThemeProvider`, around the mini player, the player bar and Now Playing); the rest of the app keeps the default accent.
 - Grain: a 180px SVG noise tile at 7% (dark) and 8% (light) on the page background.
 - Shape: 12px radius for cards, sheets and the mini player; 6px for covers; fully round for chips, tabs and the play button. Type: the system font stack, then Roboto.
 
