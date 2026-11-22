@@ -77,6 +77,11 @@ type plan struct {
 	usedAt   time.Time
 }
 
+// isFor reports whether the plan was made for the DJ's current persona and the Theme.
+func (p *plan) isFor(dj DJ, theme string) bool {
+	return p.request == stationRequest(dj, theme)
+}
+
 // planKey names a plan: each Listener has one per DJ, so switching Station keeps the picks.
 type planKey struct {
 	userID, djID string
@@ -93,26 +98,31 @@ type plans struct {
 }
 
 // planFor returns the Listener's plan for the DJ and Theme, starting a new, empty one when
-// there is none or the DJ's persona or the Theme changed since. It marks the plan used at now
-// and drops plans unused for planIdle. ps.mu must be held.
+// there is none or the DJ's persona or the Theme changed since, and marks it used at now.
+// ps.mu must be held.
 func (ps *plans) planFor(userID string, dj DJ, theme string, now time.Time) *plan {
 	if ps.byKey == nil {
 		ps.byKey = map[planKey]*plan{}
 		ps.selecting = map[string]bool{}
 	}
+	key := planKey{userID, dj.ID}
+	p := ps.byKey[key]
+	if p == nil || !p.isFor(dj, theme) {
+		p = &plan{request: stationRequest(dj, theme)}
+		ps.byKey[key] = p
+	}
+	p.usedAt = now
+	return p
+}
+
+// dropIdle forgets every plan unused for planIdle, so memory stays bounded. A household has
+// a few Listeners and DJs, so a sweep is cheap. ps.mu must be held.
+func (ps *plans) dropIdle(now time.Time) {
 	for k, p := range ps.byKey {
 		if now.Sub(p.usedAt) > planIdle {
 			delete(ps.byKey, k)
 		}
 	}
-	key := planKey{userID, dj.ID}
-	p := ps.byKey[key]
-	if req := stationRequest(dj, theme); p == nil || p.request != req {
-		p = &plan{request: req}
-		ps.byKey[key] = p
-	}
-	p.usedAt = now
-	return p
 }
 
 // take serves up to n planned Tracks for the Listener's Station with the DJ and Theme, keeping
@@ -120,6 +130,7 @@ func (ps *plans) planFor(userID string, dj DJ, theme string, now time.Time) *pla
 func (ps *plans) take(userID string, dj DJ, theme string, history []Served, now time.Time, n int, rnd *rand.Rand, weights ...Weight) model.MediaFiles {
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
+	ps.dropIdle(now)
 	p := ps.planFor(userID, dj, theme, now)
 	picked, rest := pickRanked(p.tracks, history, now, n, rnd, weights...)
 	p.tracks = rest
@@ -133,7 +144,7 @@ func (ps *plans) selectAhead(ctx context.Context, sel Selector, userID string, d
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
 	p := ps.byKey[planKey{userID, dj.ID}]
-	if p == nil || p.request != stationRequest(dj, theme) || ps.selecting[userID] || len(p.tracks) >= planLowWater || time.Since(p.failedAt) < retryAfter {
+	if p == nil || !p.isFor(dj, theme) || ps.selecting[userID] || len(p.tracks) >= planLowWater || time.Since(p.failedAt) < retryAfter {
 		return
 	}
 	for _, mf := range p.tracks {

@@ -223,22 +223,31 @@ var _ = Describe("Stations with an LLM", Ordered, func() {
 		}
 	})
 
-	// owlAndSunny has the fake LLM pick n Tracks for each of two DJs, whatever the Theme.
-	owlAndSunny := func(n int) (owl, sunny model.MediaFiles) {
-		owl, sunny = llmPicks("owl", n), llmPicks("sunny", n)
+	// picksByDJ has the fake LLM pick n Tracks of its own for each named DJ, whatever the Theme.
+	picksByDJ := func(n int, djNames ...string) map[string]model.MediaFiles {
+		picks := map[string]model.MediaFiles{}
+		for _, name := range djNames {
+			picks[name] = llmPicks(name, n)
+		}
 		sel.pick = func(req string) model.MediaFiles {
-			switch {
-			case strings.Contains(req, "Night Owl"):
-				return owl
-			case strings.Contains(req, "Sunny"):
-				return sunny
+			for name, tracks := range picks {
+				if strings.Contains(req, "DJ "+name+".") {
+					return tracks
+				}
 			}
 			return nil
 		}
-		return owl, sunny
+		return picks
 	}
 
-	// next serves the Station's next Tracks and lets any selection it started finish.
+	// owlAndSunny has the fake LLM pick n Tracks for each of two built-in DJs.
+	owlAndSunny := func(n int) (owl, sunny model.MediaFiles) {
+		picks := picksByDJ(n, "Night Owl", "Sunny")
+		return picks["Night Owl"], picks["Sunny"]
+	}
+
+	// next serves the Station's next Tracks and lets any selection it started finish. Unlike
+	// listen, it serves from whatever is planned already.
 	next := func(djID, theme string, count int) model.MediaFiles {
 		tracks, err := svc.Next(ctx, djID, theme, count)
 		Expect(err).ToNot(HaveOccurred())
@@ -274,22 +283,15 @@ var _ = Describe("Stations with an LLM", Ordered, func() {
 		Expect(err).ToNot(HaveOccurred())
 		mine, err := svc.CreateDJ(ctx, "Mr. Mellow", "Slow, soft songs for a rainy afternoon.")
 		Expect(err).ToNot(HaveOccurred())
-		mellow, sunny := llmPicks("mellow", 10), llmPicks("sunny", 10)
-		sel.pick = func(req string) model.MediaFiles {
-			switch {
-			case strings.Contains(req, "Mr. Mellow"):
-				return mellow
-			case strings.Contains(req, "Sunny"):
-				return sunny
-			}
-			return nil
-		}
+		picks := picksByDJ(10, "Mr. Mellow", "Sunny")
+		mellow, sunny := picks["Mr. Mellow"], picks["Sunny"]
 		listen(mine.ID, "", 3)
 		stations.WaitForSelection(svc)
 		listen("sunny", "", 3)
 		stations.WaitForSelection(svc)
 
-		_, err = svc.UpdateDJ(ctx, mine.ID, "Mr. Loud", "Fast and loud.")
+		// Only the description changes, so the DJ is still Mr. Mellow to the fake LLM.
+		_, err = svc.UpdateDJ(ctx, mine.ID, "Mr. Mellow", "Fast and loud.")
 		Expect(err).ToNot(HaveOccurred())
 
 		Expect(ids(next(mine.ID, "", 3))).ToNot(ContainElement(BeElementOf(ids(mellow))))
