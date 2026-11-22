@@ -194,6 +194,14 @@ var _ = Describe("Corrections", func() {
 				Expect(mf.CorrectionIDs).To(Equal([]string{"a1", "c1"}))
 			})
 
+			It("wins over an artist merge of the tagged album artist too", func() {
+				merge := rename("c1", "Greatful Dead", "Grateful Dead")
+				merge.Kind = model.CorrectionArtistMerge
+				mf := read(tagged, album("a1", model.Correction{AlbumArtist: "The Dead"}), merge)
+				Expect(mf.AlbumArtist).To(Equal("The Dead"))
+				Expect(mf.Artist).To(Equal("Grateful Dead"))
+			})
+
 			It("follows a rename of the album artist it sets", func() {
 				ours := album("a1", model.Correction{AlbumArtist: "The Dead"})
 				mf := read(model.RawTags{"ARTIST": {"Someone"}, "ALBUM": {"Live"}}, ours, rename("c1", "The Dead", "Grateful Dead"))

@@ -53,12 +53,13 @@ const EditAlbumDialog = ({ record, onClose }) => {
   const yearValid =
     year.trim() === '' ||
     (/^\d{4}$/.test(year.trim()) && yearValue >= 1000 && yearValue <= 9999)
+  // Spaces are folded as the server folds them
+  const artist = albumArtist.split(/\s+/).filter(Boolean).join(' ')
   const unchanged =
     name.trim() === (record.name || '') &&
-    albumArtist.trim() === (record.albumArtist || '') &&
+    artist === (record.albumArtist || '') &&
     (yearValue === 0 || yearValue === Number(albumYear(record) || 0))
-  const canSave =
-    !saving && name.trim() && albumArtist.trim() && yearValid && !unchanged
+  const canSave = !saving && name.trim() && artist && yearValid && !unchanged
 
   const handleSave = useCallback(
     (e) => {
@@ -68,7 +69,7 @@ const EditAlbumDialog = ({ record, onClose }) => {
       dataProvider
         .correctAlbum(record.id, {
           name: name.trim(),
-          albumArtist: albumArtist.trim(),
+          albumArtist: artist,
           year: yearValue,
         })
         .then(({ data }) => {
@@ -87,7 +88,7 @@ const EditAlbumDialog = ({ record, onClose }) => {
           setError(
             translate(
               `resources.album.editor.errors.${knownErrors.includes(code) ? code : 'unknown'}`,
-              { name: albumArtist.trim() },
+              { name: artist },
             ),
           )
           setSaving(false)
@@ -97,7 +98,7 @@ const EditAlbumDialog = ({ record, onClose }) => {
       dataProvider,
       record.id,
       name,
-      albumArtist,
+      artist,
       yearValue,
       onClose,
       notify,

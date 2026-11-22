@@ -181,8 +181,8 @@ var _ = Describe("Scanning with an album Correction", Ordered, func() {
 
 		_, err = s.ScanAll(ctx, true)
 		Expect(err).ToNot(HaveOccurred())
-		expectCorrected := albumOf(cd1)
-		Expect(expectCorrected.AlbumArtist).To(Equal("The Band"))
+		al := albumOf(cd1)
+		Expect(al.AlbumArtist).To(Equal("The Band"))
 		mf, err := findByPath(cd1)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(mf.Artist).To(Equal("Bandd"), "the rename still applies to the Track artist")
