@@ -70,6 +70,13 @@ export const CorrectionStatusField = ({ record }) => {
 
 CorrectionStatusField.propTypes = { record: PropTypes.object }
 
+// What undoing says, by kind
+const undoContent = {
+  albumCover: 'resources.correction.message.undoContentAlbumCover',
+  albumCoverBlock: 'resources.correction.message.undoContentAlbumCoverBlock',
+  default: 'resources.correction.message.undoContent',
+}
+
 // Undo deletes the Correction and rescans the folders it applied to, restoring the tags' values.
 export const UndoCorrectionButton = ({ record }) => {
   const translate = useTranslate()
@@ -122,11 +129,7 @@ export const UndoCorrectionButton = ({ record }) => {
       <Confirm
         isOpen={open}
         title="resources.correction.message.undoTitle"
-        content={
-          record.kind === 'albumCover'
-            ? 'resources.correction.message.undoContentAlbumCover'
-            : 'resources.correction.message.undoContent'
-        }
+        content={undoContent[record.kind] ?? undoContent.default}
         translateOptions={{ from: record.from, to: record.to }}
         onConfirm={handleConfirm}
         onClose={() => setOpen(false)}

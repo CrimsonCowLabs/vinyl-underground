@@ -31,6 +31,7 @@ type discArtworkReader struct {
 	// Newest ImagesUpdatedAt across the album's and this disc's folders: an image can be
 	// replaced without the album row changing, so this is what makes a cache key notice it.
 	imagesUpdatedAt time.Time
+	blocks          coverBlocks // images blocked for the album, which its disc art skips too
 }
 
 // cacheTime is the disc image's validity stamp: any of these moving means the selection may
@@ -74,6 +75,10 @@ func newDiscArtworkReader(ctx context.Context, ds model.DataStore, artID model.A
 	if err != nil {
 		return nil, err
 	}
+	blocks, err := loadCoverBlocks(ctx, ds, *al)
+	if err != nil {
+		return nil, err
+	}
 
 	// Build disc folder set and find first track. mf.Path is already library-relative.
 	var firstTrackRel string
@@ -110,6 +115,7 @@ func newDiscArtworkReader(ctx context.Context, ds model.DataStore, artID model.A
 		firstTrackRel:   firstTrackRel,
 		lib:             lib,
 		imagesUpdatedAt: imagesUpdatedAt,
+		blocks:          blocks,
 	}, nil
 }
 
@@ -160,6 +166,7 @@ func (d *discArtworkReader) discCandidates(ctx context.Context, ffmpeg ffmpeg.FF
 // chain records the walk; the serving path passes an untraced one and pays nothing for it.
 func (d *discArtworkReader) selectImage(ctx context.Context, ffmpeg ffmpeg.FFmpeg, priority string,
 	chain *chainState) (resolution, error) {
+	chain.blocks = d.blocks
 	for _, c := range d.discCandidates(ctx, ffmpeg, priority) {
 		if err := ctx.Err(); err != nil {
 			return resolution{}, err

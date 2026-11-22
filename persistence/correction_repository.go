@@ -39,8 +39,9 @@ const albumFolderTrackCount = `(select count(*) from media_file
 
 func (r *correctionRepository) GetAll() (model.Corrections, error) {
 	var res model.Corrections
-	sq := Select("correction.*", "case correction.kind when '"+string(model.CorrectionAlbumCover)+"' then "+
-		albumFolderTrackCount+" else coalesce(tc.track_count, 0) end as track_count").From(r.tableName).
+	sq := Select("correction.*", "case when correction.kind in ('"+string(model.CorrectionAlbumCover)+"', '"+
+		string(model.CorrectionAlbumCoverBlock)+"') then "+albumFolderTrackCount+
+		" else coalesce(tc.track_count, 0) end as track_count").From(r.tableName).
 		LeftJoin(trackCounts+" on tc.correction_id = correction.id").
 		OrderBy("correction.created_at desc", "correction.rowid desc")
 	err := r.queryAll(sq, &res)
@@ -63,6 +64,16 @@ func (r *correctionRepository) GetByMatchKey(kind model.CorrectionKind, key stri
 	return &res, nil
 }
 
+func (r *correctionRepository) FindByMatchKeys(kind model.CorrectionKind, keys []string) (model.Corrections, error) {
+	res := model.Corrections{}
+	if len(keys) == 0 {
+		return res, nil
+	}
+	sq := Select("*").From(r.tableName).Where(Eq{"kind": kind, "match_key": keys}).OrderBy("created_at", "rowid")
+	err := r.queryAll(sq, &res)
+	return res, err
+}
+
 func (r *correctionRepository) Add(c *model.Correction) error {
 	c.ID = id.NewRandom()
 	c.CreatedAt = time.Now()
@@ -72,7 +83,8 @@ func (r *correctionRepository) Add(c *model.Correction) error {
 			"image_hash", "image_mime", "album_name", "album_artist", "year").
 		Values(c.ID, c.Kind, c.MatchKey, c.From, c.To, c.CreatedBy, c.CreatedAt, false, c.ImageHash, c.ImageMime,
 			c.AlbumName, c.AlbumArtist, c.Year).
-		Suffix("ON CONFLICT (kind, match_key) DO NOTHING")
+		// Whichever unique index it breaks: one per kind and key, or one per image for cover blocks
+		Suffix("ON CONFLICT DO NOTHING")
 	count, err := r.executeSQL(ins)
 	if err != nil {
 		return err

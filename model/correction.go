@@ -25,12 +25,23 @@ const (
 	// the other Artist's, and undoing it moves only those back (see
 	// CorrectionRepository.MergeArtistAnnotations).
 	CorrectionArtistMerge CorrectionKind = "artistMerge"
+	// CorrectionAlbumCoverBlock marks an image wrong for the album in a folder: resolving the
+	// album's cover skips it, falling back to the next source. Its MatchKey is keyed like
+	// CorrectionAlbumCover's, and its ImageHash is the blocked image's content hash. An album can
+	// have several.
+	CorrectionAlbumCoverBlock CorrectionKind = "albumCoverBlock"
 	// CorrectionAlbum corrects an album's title, album artist and year (its AlbumName,
 	// AlbumArtist and Year; an empty one keeps the tagged value). Like CorrectionAlbumCover it is
 	// keyed by the album's folder (see AlbumFolderKey), as the tag values are what is wrong and
 	// two albums can share them, and it applies to every File in the album's folders.
 	CorrectionAlbum CorrectionKind = "album"
 )
+
+// IsAlbumCover says whether the Correction is about an album's cover (a choice or a block). It
+// changes no tag, so saving or undoing it refreshes only the album's artwork.
+func (k CorrectionKind) IsAlbumCover() bool {
+	return k == CorrectionAlbumCover || k == CorrectionAlbumCoverBlock
+}
 
 // IsArtistRename says whether the Correction renames an Artist, merging it or not.
 func (k CorrectionKind) IsArtistRename() bool {
@@ -53,8 +64,8 @@ type Correction struct {
 	// Undoing marks a Correction being undone: the scanner no longer applies it, but moves what
 	// followed it (e.g. an Artist's stars) back. It is deleted once its folders are rescanned.
 	Undoing bool `structs:"undoing" json:"undoing"`
-	// ImageHash and ImageMime name the image a cover Correction makes the album's cover; empty
-	// for other kinds.
+	// ImageHash and ImageMime name the image a cover Correction makes the album's cover. A cover
+	// block has only the ImageHash of the image it blocks. Empty for other kinds.
 	ImageHash string `structs:"image_hash" json:"-"`
 	ImageMime string `structs:"image_mime" json:"-"`
 	// AlbumName, AlbumArtist and Year are what an album Correction sets (see CorrectionAlbum):
@@ -101,14 +112,28 @@ func AlbumCorrection(repo CorrectionRepository, kind CorrectionKind, al Album) (
 	return nil, ErrNotFound
 }
 
+// AlbumCorrections returns every Correction of the kind keyed by any of the album's folders,
+// skipping those being undone.
+func AlbumCorrections(repo CorrectionRepository, kind CorrectionKind, al Album) (Corrections, error) {
+	all, err := repo.FindByMatchKeys(kind, al.FolderIDs)
+	if err != nil {
+		return nil, err
+	}
+	return slices.DeleteFunc(all, func(c Correction) bool { return c.Undoing }), nil
+}
+
 type CorrectionRepository interface {
 	// GetAll returns every Correction, newest first, with its TrackCount.
 	GetAll() (Corrections, error)
 	Get(id string) (*Correction, error)
 	// GetByMatchKey returns the Correction of the kind matching key, or ErrNotFound.
 	GetByMatchKey(kind CorrectionKind, key string) (*Correction, error)
+	// FindByMatchKeys returns every Correction of the kind matching any of the keys, oldest first,
+	// for kinds with several per key (CorrectionAlbumCoverBlock).
+	FindByMatchKeys(kind CorrectionKind, keys []string) (Corrections, error)
 	// Add stores a new Correction, setting its ID and CreatedAt. It returns ErrAlreadyExists if a
-	// Correction of the same Kind already has its MatchKey.
+	// Correction of the same Kind already has its MatchKey (for CorrectionAlbumCoverBlock: its
+	// MatchKey and ImageHash).
 	Add(c *Correction) error
 	// SetUndoing marks the Correction as being undone (see Correction.Undoing).
 	SetUndoing(id string) error

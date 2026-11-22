@@ -265,6 +265,22 @@ const wrapperDataProvider = {
       method: 'POST',
       body: JSON.stringify({ albumId, candidateId }),
     }).then(({ json }) => ({ data: { id: json.correction.id, ...json } })),
+  // Uploading an image makes it the album's cover, like a chosen candidate. Marking the cover
+  // wrong blocks the image the album shows (its imageHash, as the admin saw it).
+  uploadAlbumCover: (albumId, file) => {
+    const body = new FormData()
+    body.append('albumId', albumId)
+    body.append('image', file)
+    return httpClient(`${REST_URL}/correction/albumCoverUpload`, {
+      method: 'POST',
+      body,
+    }).then(({ json }) => ({ data: { id: json.correction.id, ...json } }))
+  },
+  blockAlbumCover: (albumId, imageHash) =>
+    httpClient(`${REST_URL}/correction/albumCoverBlock`, {
+      method: 'POST',
+      body: JSON.stringify({ albumId, imageHash }),
+    }).then(({ json }) => ({ data: { id: json.correction.id, ...json } })),
   mergeArtist: (artistId, intoId) =>
     httpClient(`${REST_URL}/correction/artistMerge`, {
       method: 'POST',

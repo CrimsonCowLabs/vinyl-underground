@@ -51,6 +51,21 @@ func (m *MockCorrectionRepo) GetByMatchKey(kind model.CorrectionKind, key string
 	return nil, model.ErrNotFound
 }
 
+func (m *MockCorrectionRepo) FindByMatchKeys(kind model.CorrectionKind, keys []string) (model.Corrections, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.Err != nil {
+		return nil, m.Err
+	}
+	res := model.Corrections{}
+	for _, c := range m.All {
+		if c.Kind == kind && slices.Contains(keys, c.MatchKey) {
+			res = append(res, c)
+		}
+	}
+	return res, nil
+}
+
 func (m *MockCorrectionRepo) Add(c *model.Correction) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -58,7 +73,8 @@ func (m *MockCorrectionRepo) Add(c *model.Correction) error {
 		return m.Err
 	}
 	for _, o := range m.All {
-		if o.Kind == c.Kind && o.MatchKey == c.MatchKey {
+		if o.Kind == c.Kind && o.MatchKey == c.MatchKey &&
+			(c.Kind != model.CorrectionAlbumCoverBlock || o.ImageHash == c.ImageHash) {
 			return model.ErrAlreadyExists
 		}
 	}

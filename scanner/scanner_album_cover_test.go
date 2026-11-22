@@ -3,6 +3,7 @@ package scanner_test
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"image"
 	"image/color"
 	"image/png"
@@ -24,6 +25,7 @@ import (
 	"github.com/navidrome/navidrome/tests"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/zeebo/xxh3"
 )
 
 var _ = Describe("Scanning with a chosen album cover", Ordered, func() {
@@ -124,5 +126,43 @@ var _ = Describe("Scanning with a chosen album cover", Ordered, func() {
 		_, err = svc.Undo(ctx, res.Correction.ID)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(coverSource()).ToNot(Equal(artwork.ChosenSource))
+	})
+
+	It("keeps a cover marked wrong blocked across rescans, until undone", func() {
+		var buf bytes.Buffer
+		Expect(png.Encode(&buf, image.NewRGBA(image.Rect(0, 0, 2, 2)))).To(Succeed())
+		wrong := buf.Bytes()
+		record := template(_t{"albumartist": "Band", "artist": "Band", "album": "Record", "year": 1999})
+		createFS(fstest.MapFS{
+			"Band/Record/01 - One.mp3": record(track(1, "One")),
+			"Band/Record/02 - Two.mp3": record(track(2, "Two")),
+			"Band/Record/cover.png":    {Data: wrong},
+		})
+		_, err := s.ScanAll(ctx, true)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(coverSource()).To(Equal("folder"))
+
+		// The album shows the folder image, as the artwork worker stored it
+		hash := fmt.Sprintf("%016x", xxh3.Hash(wrong))
+		Expect(ds.Artwork(ctx).PutImage(&model.Artwork{Hash: hash, Mime: "image/png"})).To(Succeed())
+		Expect(ds.Artwork(ctx).PutItemArtwork(&model.ItemArtwork{ItemKind: model.KindAlbumArtwork.Prefix(),
+			ItemID: theAlbum().ID, ImageType: model.ImageTypePrimary, Hash: hash, Source: "folder", SourcePath: "/music/Band/Record/cover.png"})).To(Succeed())
+		res, err := svc.BlockAlbumCover(ctx, theAlbum().ID, hash)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(res.Correction.To).To(Equal("cover.png"))
+		Expect(coverSource()).ToNot(Equal("folder"))
+
+		_, err = s.ScanAll(ctx, true)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(coverSource()).ToNot(Equal("folder"))
+		all, err := svc.GetAll(ctx)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(all).To(HaveLen(1))
+		Expect(all[0].Kind).To(Equal(model.CorrectionAlbumCoverBlock))
+		Expect(all[0].TrackCount).To(Equal(2))
+
+		_, err = svc.Undo(ctx, res.Correction.ID)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(coverSource()).To(Equal("folder"))
 	})
 })

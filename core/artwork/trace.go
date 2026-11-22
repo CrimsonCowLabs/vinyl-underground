@@ -19,6 +19,8 @@ const (
 	OutcomeUnreadable Outcome = "unreadable"
 	OutcomeSkipped    Outcome = "skipped"
 	OutcomeError      Outcome = "error"
+	// OutcomeBlocked is a hit on an image an admin marked wrong for the album (see coverBlocks).
+	OutcomeBlocked Outcome = "blocked"
 )
 
 const (

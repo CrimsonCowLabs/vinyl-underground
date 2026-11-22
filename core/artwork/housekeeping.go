@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/Masterminds/squirrel"
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/consts"
 	"github.com/navidrome/navidrome/log"
@@ -158,6 +159,32 @@ func discArtworkName(ctx context.Context, ds model.DataStore, id string) (string
 		name += ": " + subtitle
 	}
 	return name, nil
+}
+
+// RefreshAlbumCover refreshes the album's cover, and re-queues its tracks' own art (each keeps
+// serving what it has until it is resolved again), as an image blocked for the album, or no longer
+// blocked, changes theirs too.
+func RefreshAlbumCover(ctx context.Context, ds model.DataStore, albumID string) error {
+	if err := Refresh(ctx, ds, model.KindAlbumArtwork, albumID); err != nil {
+		return err
+	}
+	tracks, err := ds.MediaFile(ctx).GetAll(model.QueryOptions{
+		Filters: squirrel.Eq{"album_id": albumID, "has_cover_art": true}})
+	if err != nil {
+		return fmt.Errorf("listing the album's tracks: %w", err)
+	}
+	if len(tracks) == 0 {
+		return nil
+	}
+	items := make([]model.ArtworkQueueItem, len(tracks))
+	for i, mf := range tracks {
+		items[i] = model.ArtworkQueueItem{ItemKind: model.KindMediaFileArtwork.Prefix(), ItemID: mf.ID,
+			ImageType: model.ImageTypePrimary, Priority: model.ArtworkPriorityBump}
+	}
+	if err := ds.ArtworkQueue(ctx).Enqueue(items...); err != nil {
+		return fmt.Errorf("enqueuing the album's tracks' art: %w", err)
+	}
+	return nil
 }
 
 // Refresh drops an item's resolved artwork state and re-queues it at Bump priority.

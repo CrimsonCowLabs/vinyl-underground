@@ -321,9 +321,10 @@ func (s *service) serveDisc(ctx context.Context, artID model.ArtworkID, size int
 		return res.reader, err
 	}
 	albumArtID := model.ArtworkID{Kind: model.KindAlbumArtwork, ID: dr.album.ID}
-	// Disc art has no state row, hence no content hash: keying on id, album mtime and
-	// DiscArtPriority lets a warm cache answer without running the chain or touching the disk.
-	key := fmt.Sprintf("%s|%d|%s", artID.ID, dr.cacheTime().UnixNano(), conf.Server.DiscArtPriority)
+	// Disc art has no state row, hence no content hash: keying on id, album mtime, DiscArtPriority
+	// and the album's blocked images lets a warm cache answer without running the chain or
+	// touching the disk.
+	key := fmt.Sprintf("%s|%d|%s|%s", artID.ID, dr.cacheTime().UnixNano(), conf.Server.DiscArtPriority, dr.blocks.key())
 	img, err := s.serveSource(ctx, key, "", dr.cacheTime(), size, square, selectImage)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {

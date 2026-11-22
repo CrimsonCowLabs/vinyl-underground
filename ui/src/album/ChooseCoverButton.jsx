@@ -21,8 +21,11 @@ import {
   Typography,
 } from '@material-ui/core'
 import { makeStyles } from '@material-ui/core/styles'
+import BlockIcon from '@material-ui/icons/Block'
+import CloudUploadIcon from '@material-ui/icons/CloudUpload'
 import ImageSearchIcon from '@material-ui/icons/ImageSearch'
 import { REST_URL } from '../consts'
+import subsonic from '../subsonic'
 import { baseUrl } from '../utils'
 
 const useStyles = makeStyles((theme) => ({
@@ -53,6 +56,24 @@ const useStyles = makeStyles((theme) => ({
   label: { marginTop: theme.spacing(0.5), fontWeight: 500 },
   note: { color: theme.palette.text.secondary },
   error: { color: theme.palette.error.main, marginRight: 'auto' },
+  current: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: theme.spacing(2),
+    marginTop: theme.spacing(2),
+  },
+  currentImage: {
+    width: 120,
+    height: 120,
+    objectFit: 'cover',
+    borderRadius: 6,
+    background: theme.palette.action.hover,
+  },
+  currentActions: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+  },
 }))
 
 // The sources, each asked on its own so a slow or failing one never holds the others up. The
@@ -72,7 +93,75 @@ const coverPreviewUrl = (albumId, candidateId) => {
   return token ? `${url}?jwt=${token}` : url
 }
 
-const knownErrors = ['unavailable', 'invalid', 'notFound']
+const knownErrors = [
+  'unavailable',
+  'invalid',
+  'notFound',
+  'coverChanged',
+  'tooLarge',
+]
+
+// The error message for a failed choice, upload or block: a code the server answered with
+// with the action's own wording for some codes ({ notFound: 'albumNotFound' }).
+const errorKey = (err, overrides) => {
+  const code = err?.body?.error
+  const key = overrides[code] ?? (knownErrors.includes(code) ? code : 'unknown')
+  return `resources.correction.errors.${key}`
+}
+
+// What the album shows now, to mark wrong, and the upload of an image of the admin's own.
+const CurrentCover = ({ record, busy, onMarkWrong, onUpload }) => {
+  const classes = useStyles()
+  const translate = useTranslate()
+  return (
+    <section className={classes.current}>
+      <img
+        className={classes.currentImage}
+        src={subsonic.getCoverArtUrl(record, 300, true)}
+        alt={translate('resources.album.coverPicker.current')}
+      />
+      <div className={classes.currentActions}>
+        <Typography variant="subtitle1">
+          {translate('resources.album.coverPicker.current')}
+        </Typography>
+        <MuiButton
+          size="small"
+          startIcon={<BlockIcon />}
+          onClick={onMarkWrong}
+          disabled={busy || !record.imageHash}
+        >
+          {translate('resources.album.coverPicker.markWrong')}
+        </MuiButton>
+        <MuiButton
+          size="small"
+          component="label"
+          startIcon={<CloudUploadIcon />}
+          disabled={busy}
+        >
+          {translate('resources.album.coverPicker.uploadButton')}
+          <input
+            type="file"
+            accept="image/*"
+            hidden
+            aria-label={translate('resources.album.coverPicker.upload')}
+            onChange={(e) => {
+              const file = e.target.files?.[0]
+              e.target.value = ''
+              if (file) onUpload(file)
+            }}
+          />
+        </MuiButton>
+      </div>
+    </section>
+  )
+}
+
+CurrentCover.propTypes = {
+  record: PropTypes.object.isRequired,
+  busy: PropTypes.bool,
+  onMarkWrong: PropTypes.func.isRequired,
+  onUpload: PropTypes.func.isRequired,
+}
 
 const CandidateTile = ({ albumId, candidate, selected, onSelect }) => {
   const classes = useStyles()
@@ -199,28 +288,59 @@ const ChooseCoverDialog = ({ record, onClose }) => {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
 
-  const handleUse = useCallback(() => {
-    setSaving(true)
-    setError(null)
-    dataProvider
-      .chooseAlbumCover(record.id, selected)
-      .then(() => {
-        onClose()
-        notify('resources.album.coverPicker.chosen', { type: 'info' })
-        refresh()
-      })
-      .catch((err) => {
-        const code = err?.body?.error
-        setError(
-          translate(
-            code === 'notFound'
-              ? 'resources.correction.errors.coverNotFound'
-              : `resources.correction.errors.${knownErrors.includes(code) ? code : 'unknown'}`,
-          ),
-        )
-        setSaving(false)
-      })
-  }, [dataProvider, record.id, selected, onClose, notify, refresh, translate])
+  // Runs one of the dialog's actions, closing it once saved, or showing why it failed
+  const save = useCallback(
+    (request, done, errorFor) => {
+      setSaving(true)
+      setError(null)
+      request()
+        .then(() => {
+          onClose()
+          notify(done, { type: 'info' })
+          refresh()
+        })
+        .catch((err) => {
+          setError(translate(errorFor(err)))
+          setSaving(false)
+        })
+    },
+    [onClose, notify, refresh, translate],
+  )
+
+  const handleUse = useCallback(
+    () =>
+      save(
+        () => dataProvider.chooseAlbumCover(record.id, selected),
+        'resources.album.coverPicker.chosen',
+        (err) =>
+          errorKey(err, { notFound: 'coverNotFound', invalid: 'invalidImage' }),
+      ),
+    [save, dataProvider, record.id, selected],
+  )
+  const handleMarkWrong = useCallback(
+    () =>
+      save(
+        () => dataProvider.blockAlbumCover(record.id, record.imageHash),
+        'resources.album.coverPicker.markedWrong',
+        (err) =>
+          errorKey(err, {
+            notFound: 'albumNotFound',
+            invalid: 'unknown',
+            alreadyCorrected: 'alreadyBlocked',
+          }),
+      ),
+    [save, dataProvider, record.id, record.imageHash],
+  )
+  const handleUpload = useCallback(
+    (file) =>
+      save(
+        () => dataProvider.uploadAlbumCover(record.id, file),
+        'resources.album.coverPicker.uploaded',
+        (err) =>
+          errorKey(err, { notFound: 'albumNotFound', invalid: 'invalidImage' }),
+      ),
+    [save, dataProvider, record.id],
+  )
 
   const classes = useStyles()
   return (
@@ -238,6 +358,12 @@ const ChooseCoverDialog = ({ record, onClose }) => {
         <DialogContentText>
           {translate('resources.album.coverPicker.help')}
         </DialogContentText>
+        <CurrentCover
+          record={record}
+          busy={saving}
+          onMarkWrong={handleMarkWrong}
+          onUpload={handleUpload}
+        />
         {sourcesFor(record).map((source) => (
           <CandidateSection
             key={source}
