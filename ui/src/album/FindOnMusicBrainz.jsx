@@ -87,7 +87,12 @@ export const FindOnMusicBrainz = ({
   const [searching, setSearching] = useState(false)
   const [error, setError] = useState(null)
   const mounted = useRef(true)
-  useEffect(() => () => (mounted.current = false), [])
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+    }
+  }, [])
 
   const search = useCallback(() => {
     setSearching(true)
@@ -97,6 +102,7 @@ export const FindOnMusicBrainz = ({
       .then(({ data }) => mounted.current && setReleases(data))
       .catch((err) => {
         if (!mounted.current) return
+        setReleases(null)
         const code = err?.body?.error
         setError(
           translate(

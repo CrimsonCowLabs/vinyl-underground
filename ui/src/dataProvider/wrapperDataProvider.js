@@ -302,8 +302,8 @@ const wrapperDataProvider = {
       body: JSON.stringify({ albumId, name, albumArtist, year, ...mbz }),
     }).then(({ json }) => ({ data: { id: json.correction.id, ...json } })),
   // Find on MusicBrainz (admin only): the MusicBrainz releases matching an album artist and
-  // title, [{ id, releaseGroupId, title, artist, year, country, format, description,
-  // thumbnailUrl }]. A failure's body has an `error` code to translate.
+  // title, [{ id, releaseGroupId, title, artist, year, country, format, status, score,
+  // description, thumbnailUrl }]. A failure's body has an `error` code to translate.
   findMusicBrainzReleases: (artist, title) =>
     httpClient(
       `${REST_URL}/musicbrainz/release?artist=${encodeURIComponent(artist)}&title=${encodeURIComponent(title)}`,

@@ -50,11 +50,11 @@ func (c *corrections) CorrectAlbum(ctx context.Context, albumID string, fix Albu
 		return nil, fmt.Errorf("%w: the album artist is empty", model.ErrValidation)
 	case fix.Year != 0 && (fix.Year < 1000 || fix.Year > 9999):
 		return nil, fmt.Errorf("%w: %d is no year", model.ErrValidation, fix.Year)
-	case fix.MbzAlbumID != "" && !isMbzID(fix.MbzAlbumID),
-		fix.MbzReleaseGroupID != "" && !isMbzID(fix.MbzReleaseGroupID):
-		return nil, fmt.Errorf("%w: not a MusicBrainz ID", model.ErrValidation)
-	case fix.MbzAlbumID == "" && fix.MbzReleaseGroupID != "":
-		return nil, fmt.Errorf("%w: a release group without its release", model.ErrValidation)
+	// A release and its release group are picked together, so the tagged release group never
+	// stays next to another release
+	case (fix.MbzAlbumID != "" || fix.MbzReleaseGroupID != "") &&
+		(!isMbzID(fix.MbzAlbumID) || !isMbzID(fix.MbzReleaseGroupID)):
+		return nil, fmt.Errorf("%w: a release and its release group need both their MusicBrainz IDs", model.ErrValidation)
 	}
 	al, err := c.ds.Album(ctx).Get(albumID)
 	if err != nil {
@@ -96,7 +96,7 @@ func (c *corrections) CorrectAlbum(ctx context.Context, albumID string, fix Albu
 	// release group belongs to the tagged release
 	if fix.MbzAlbumID != "" && (fix.MbzAlbumID != al.MbzAlbumID || fix.MbzReleaseGroupID != al.MbzReleaseGroupID) {
 		cr.MbzAlbumID, cr.MbzReleaseGroupID, changed = fix.MbzAlbumID, fix.MbzReleaseGroupID, true
-		cr.To += mbzLabel + releaseLabel(fix)
+		cr.To += mbzLabel + pickedReleaseLabel(fix)
 	} else if old != nil && cr.MbzAlbumID != "" {
 		if i := strings.Index(old.To, mbzLabel); i >= 0 {
 			cr.To += old.To[i:]
@@ -200,9 +200,9 @@ func isMbzID(s string) bool {
 
 var mbzIDPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
-// releaseLabel names the picked release for the Corrections page, by the name the client gave it
+// pickedReleaseLabel names the picked release for the Corrections page, by the name the client gave it
 // (folded onto one line and capped), else by its ID.
-func releaseLabel(fix AlbumFix) string {
+func pickedReleaseLabel(fix AlbumFix) string {
 	label := strings.Join(strings.Fields(fix.MbzRelease), " ")
 	if r := []rune(label); len(r) > maxReleaseLabel {
 		label = string(r[:maxReleaseLabel]) + "…"

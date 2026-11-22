@@ -1,7 +1,6 @@
 package nativeapi
 
 import (
-	"cmp"
 	"context"
 	"errors"
 	"net/http"
@@ -70,15 +69,10 @@ func (api *Router) searchReleases(w http.ResponseWriter, r *http.Request) {
 	}
 	res := make([]releaseMatch, 0, len(releases))
 	for _, rel := range releases {
-		m := releaseMatch{ID: rel.ID, ReleaseGroupID: rel.ReleaseGroup.ID, Title: rel.Title,
-			Artist: rel.ArtistCredit.String(), Year: rel.Date[:min(len(rel.Date), 4)], Country: rel.Country,
-			Format: rel.Formats(), Status: rel.Status, Score: rel.Score,
-			ThumbnailURL: coverArtNames.ReleaseFront(rel.ID).ThumbnailURL}
-		m.Description = rel.Title
-		if detail := rel.Detail(); detail != "" {
-			m.Description = cmp.Or(rel.Title, "?") + " (" + detail + ")"
-		}
-		res = append(res, m)
+		res = append(res, releaseMatch{ID: rel.ID, ReleaseGroupID: rel.ReleaseGroup.ID, Title: rel.Title,
+			Artist: rel.ArtistCredit.String(), Year: rel.Year(), Country: rel.Country,
+			Format: rel.Formats(), Status: rel.Status, Score: rel.Score, Description: rel.Description(),
+			ThumbnailURL: coverArtNames.ReleaseFront(rel.ID).ThumbnailURL})
 	}
 	_ = rest.RespondWithJSON(w, http.StatusOK, res)
 }

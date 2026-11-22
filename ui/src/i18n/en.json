@@ -123,15 +123,15 @@
       },
       "musicbrainz": {
         "find": "Find on MusicBrainz",
-        "picked": "MusicBrainz release: %{release}. Saving brings in its cover and info.",
+        "picked": "MusicBrainz release: %{release}. Saving brings in its info, and its Cover Art Archive cover unless the album has a cover image of its own (then Choose Cover offers it).",
         "clear": "Remove",
         "noResults": "MusicBrainz has no release with this album artist and title.",
         "errors": {
-          "busy": "MusicBrainz is busy. Try again in a minute; the other edits can still be saved.",
-          "unavailable": "Couldn't reach MusicBrainz. The other edits can still be saved.",
+          "busy": "MusicBrainz is busy. Try again in a minute; the rest of the dialog can still be saved.",
+          "unavailable": "Couldn't reach MusicBrainz. The rest of the dialog can still be saved.",
           "disabled": "External services are turned off, so MusicBrainz can't be searched.",
           "invalid": "Enter a title to search for.",
-          "unknown": "Couldn't search MusicBrainz. The other edits can still be saved."
+          "unknown": "Couldn't search MusicBrainz. The rest of the dialog can still be saved."
         }
       },
       "lists": {

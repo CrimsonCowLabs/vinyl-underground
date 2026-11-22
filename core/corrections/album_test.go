@@ -201,6 +201,7 @@ var _ = Describe("CorrectAlbum", func() {
 				{Name: "Recrod", AlbumArtist: "Band", MbzAlbumID: "not-an-id"},
 				{Name: "Recrod", AlbumArtist: "Band", MbzAlbumID: release, MbzReleaseGroupID: "nope"},
 				{Name: "Recrod", AlbumArtist: "Band", MbzReleaseGroupID: group},
+				{Name: "Recrod", AlbumArtist: "Band", MbzAlbumID: release},
 			} {
 				_, err := svc.CorrectAlbum(ctx, al.ID, bad)
 				Expect(err).To(MatchError(model.ErrValidation), "%+v", bad)
