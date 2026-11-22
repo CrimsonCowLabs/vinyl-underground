@@ -70,12 +70,26 @@ const DJEditor = ({ open, dj, onClose, onSaved }) => {
   // pickedNow is true once the Listener picked them in this editor, so they
   // are sent with the DJ.
   const [pickedNow, setPickedNow] = useState(false)
+  // matched is true once the genres shown are what matching the name and
+  // description found, so an empty list means nothing matched.
+  const [matched, setMatched] = useState(false)
   const [library, setLibrary] = useState([])
   const [adding, setAdding] = useState('')
   const [saving, setSaving] = useState(false)
   // match counts genre matches, so only the latest one is shown, and none
   // once the Listener picks the genres by hand.
   const match = useRef(0)
+
+  const runMatch = (forName, forDescription) => {
+    const id = ++match.current
+    matchGenres(forName, forDescription)
+      .then((found) => {
+        if (id !== match.current) return
+        setGenres(found)
+        setMatched(true)
+      })
+      .catch(() => {})
+  }
 
   useEffect(() => {
     if (!open) return
@@ -84,8 +98,14 @@ const DJEditor = ({ open, dj, onClose, onSaved }) => {
     setGenres(dj?.genres || [])
     setPicked(!!dj?.genresEdited)
     setPickedNow(false)
+    setMatched(false)
     setAdding('')
     match.current++
+    // A DJ with no genres, and none picked by hand, may predate them, or have
+    // had nothing match: matching again shows which.
+    if (dj && !dj.genresEdited && !dj.genres?.length) {
+      runMatch(dj.name, dj.description)
+    }
     fetchLibraryGenres()
       .then(setLibrary)
       .catch(() => setLibrary([]))
@@ -94,13 +114,7 @@ const DJEditor = ({ open, dj, onClose, onSaved }) => {
   const valid = name.trim() !== '' && description.trim() !== ''
 
   const rematch = () => {
-    if (picked || !valid) return
-    const id = ++match.current
-    matchGenres(name.trim(), description.trim())
-      .then((matched) => {
-        if (id === match.current) setGenres(matched)
-      })
-      .catch(() => {})
+    if (!picked && valid) runMatch(name.trim(), description.trim())
   }
 
   const pick = (next) => {
@@ -131,9 +145,7 @@ const DJEditor = ({ open, dj, onClose, onSaved }) => {
   }
 
   const unmatched =
-    genres.length === 0 &&
-    description.trim() !== '' &&
-    !config.enableStationThemes
+    matched && !picked && genres.length === 0 && !config.enableStationThemes
 
   return (
     <Dialog

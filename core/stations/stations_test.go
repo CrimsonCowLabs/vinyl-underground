@@ -86,7 +86,7 @@ var _ = Describe("Stations", Ordered, func() {
 		})
 
 		It("are listed after the built-in ones, for that Listener only", func() {
-			mine, err := svc.CreateDJ(aliceCtx, stations.DJEdit{Name: "  Mr.   Mellow ", Description: "  "+mellow+"\n"})
+			mine, err := svc.CreateDJ(aliceCtx, stations.DJEdit{Name: "  Mr.   Mellow ", Description: "  " + mellow + "\n"})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(mine.ID).ToNot(BeEmpty())
 			Expect(mine.Name).To(Equal("Mr. Mellow"))
@@ -387,6 +387,10 @@ var _ = Describe("Stations", Ordered, func() {
 				library("New Wave", "New Age", "World Music", "R&B", "Rock")
 				Expect(svc.MatchGenres(aliceCtx, "Wendy", "New wave, and new songs from the world.")).To(ConsistOf("New Wave", "World Music"))
 				Expect(svc.MatchGenres(aliceCtx, "Rita", "Some R&B, nothing that rocks.")).To(ConsistOf("R&B"))
+
+				library("Love Songs", "Late Night Jazz")
+				Expect(svc.MatchGenres(aliceCtx, "Nina", "Songs I love, late at night.")).To(BeEmpty())
+				Expect(svc.MatchGenres(aliceCtx, "Nina", "Old love songs.")).To(ConsistOf("Love Songs"))
 			})
 
 			It("are matched again when the name or description changes", func() {

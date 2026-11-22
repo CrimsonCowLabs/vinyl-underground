@@ -407,6 +407,42 @@ describe('StationList', () => {
         ).toBeInTheDocument()
       })
 
+      it('only warns once matching found nothing, not while typing', async () => {
+        await openNew()
+        fill('Mr. Mellow', 'Slow, soft songs.')
+        expect(
+          screen.queryByText('resources.station.dj.noGenresWarning'),
+        ).not.toBeInTheDocument()
+      })
+
+      it("doesn't warn when the Listener removed every genre", async () => {
+        serveDJs([...djs, techno])
+        renderPage()
+        fireEvent.click(
+          await screen.findByRole('button', { name: 'ra.action.edit Tina' }),
+        )
+        fireEvent.click(
+          screen.getByRole('button', { name: 'ra.action.remove House' }),
+        )
+        fireEvent.click(
+          screen.getByRole('button', { name: 'ra.action.remove Techno' }),
+        )
+        expect(genreTags()).toEqual([])
+        expect(
+          screen.queryByText('resources.station.dj.noGenresWarning'),
+        ).not.toBeInTheDocument()
+      })
+
+      it('matches them on opening a DJ saved before it had any', async () => {
+        const old = { ...techno, genres: undefined }
+        serveDJs([...djs, old])
+        renderPage()
+        fireEvent.click(
+          await screen.findByRole('button', { name: 'ra.action.edit Tina' }),
+        )
+        await waitFor(() => expect(genreTags()).toEqual(['House', 'Techno']))
+      })
+
       it("doesn't warn when an LLM is configured", async () => {
         config.enableStationThemes = true
         await openNew()

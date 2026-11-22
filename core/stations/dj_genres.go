@@ -70,7 +70,9 @@ var genericWords = map[string]bool{
 	"a": true, "an": true, "and": true, "the": true, "of": true, "n": true, "music": true,
 	"song": true, "songs": true, "track": true, "tracks": true, "tune": true, "tunes": true,
 	"sound": true, "sounds": true, "style": true, "new": true, "old": true, "other": true,
-	"misc": true, "various": true, "general": true,
+	"misc": true, "various": true, "general": true, "all": true, "my": true, "your": true,
+	"best": true, "good": true, "great": true, "love": true, "night": true, "day": true,
+	"time": true, "late": true, "early": true, "only": true, "with": true, "for": true,
 }
 
 // matchGenreWords returns the Library genres the text names, case-insensitively: a genre
