@@ -37,14 +37,22 @@ type Item struct {
 }
 
 type Refresher interface {
-	// Refresh rescans the folders holding the item (an album's folders, or the folders of all
-	// of an Artist's albums), then refreshes its artwork and external info. It returns
-	// model.ErrNotFound for an unknown item.
+	// Refresh rescans the folders holding the item (see ScanTargets), then refreshes its artwork
+	// and external info, as ScanThenRefresh does. It returns model.ErrNotFound for an unknown item.
 	Refresh(ctx context.Context, kind model.Kind, id string) error
-	// ScanThenRefresh fully rescans only the given folders, so every File in them is read again,
-	// then refreshes the items' artwork and external info. It returns once the scan is done and
-	// the artwork re-queued; external info is fetched in the background. The library root is
-	// never scanned, and no targets means no scan: a refresh never rescans a whole library.
+	// ScanTargets returns the folders holding the item: an album's folders, or the folders of all
+	// the albums an Artist is album artist or Track artist on (the albums its page lists). Other
+	// kinds have none.
+	ScanTargets(ctx context.Context, kind model.Kind, id string) ([]model.ScanTarget, error)
+	// ScanThenRefresh fully rescans only the given folders, so every File in them is read again
+	// even if unchanged on disk, then refreshes the items' artwork and external info. An album or
+	// Artist whose ID the scan changed (its name was changed) is replaced by the albums, or their
+	// album artists, now in those folders.
+	//
+	// It waits for a scan already running (returning scanner.ErrAlreadyScanning if that outlasts
+	// Options), and returns once its own scan is done and the artwork re-queued; external info is
+	// fetched in the background. The library root is never scanned, and no targets means no
+	// scan: a refresh never rescans a whole library.
 	ScanThenRefresh(ctx context.Context, targets []model.ScanTarget, items ...Item) error
 }
 
@@ -76,7 +84,7 @@ func (r *refresher) Refresh(ctx context.Context, kind model.Kind, id string) err
 	if _, err := artwork.ItemName(ctx, r.ds, kind, id); err != nil {
 		return err
 	}
-	targets, err := r.folders(ctx, kind, id)
+	targets, err := r.ScanTargets(ctx, kind, id)
 	if err != nil {
 		return err
 	}
@@ -84,11 +92,18 @@ func (r *refresher) Refresh(ctx context.Context, kind model.Kind, id string) err
 }
 
 func (r *refresher) ScanThenRefresh(ctx context.Context, targets []model.ScanTarget, items ...Item) error {
-	targets = slices.DeleteFunc(slices.Clone(targets), isLibraryRoot)
-	if len(targets) > 0 {
-		if err := r.scan(ctx, targets); err != nil {
+	scanned := slices.DeleteFunc(slices.Clone(targets), isLibraryRoot)
+	if len(scanned) < len(targets) {
+		log.Warn(ctx, "Refresh: not rescanning the library root, as that would rescan the whole library")
+	}
+	if len(scanned) > 0 {
+		if err := r.scan(ctx, scanned); err != nil {
 			return fmt.Errorf("scanning folders: %w", err)
 		}
+	}
+	items, err := r.current(ctx, scanned, items)
+	if err != nil {
+		return err
 	}
 	for _, it := range items {
 		if err := artwork.Refresh(ctx, r.ds, it.Kind, it.ID); err != nil {
@@ -110,8 +125,8 @@ func (r *refresher) ScanThenRefresh(ctx context.Context, targets []model.ScanTar
 	return nil
 }
 
-// scan fully scans the targets, so every File is read again whatever its time (a Correction
-// changes no File), waiting for any other scan to finish first.
+// scan fully scans the targets, so every File is read again whatever its time, waiting for any
+// other scan to finish first.
 func (r *refresher) scan(ctx context.Context, targets []model.ScanTarget) error {
 	var err error
 	for attempt := range r.opts.ScanAttempts {
@@ -130,16 +145,62 @@ func (r *refresher) scan(ctx context.Context, targets []model.ScanTarget) error 
 	return err
 }
 
+// current returns the items as they are after the scan. Album and Artist IDs come from names,
+// so one the scan read a new name for is gone: it is replaced by the albums in the scanned
+// folders, or by their album artists.
+func (r *refresher) current(ctx context.Context, scanned []model.ScanTarget, items []Item) ([]Item, error) {
+	var res []Item
+	var albums model.Albums // in the scanned folders, loaded on first need
+	for _, it := range items {
+		_, err := artwork.ItemName(ctx, r.ds, it.Kind, it.ID)
+		if err == nil || !errors.Is(err, model.ErrNotFound) ||
+			(it.Kind != model.KindAlbumArtwork && it.Kind != model.KindArtistArtwork) {
+			res = append(res, it)
+			continue
+		}
+		if albums == nil {
+			if albums, err = r.albumsIn(ctx, scanned); err != nil {
+				return nil, err
+			}
+		}
+		log.Debug(ctx, "Refresh: item renamed by the scan, refreshing what its folders now hold", "kind", it.Kind, "id", it.ID)
+		for _, al := range albums {
+			if it.Kind == model.KindAlbumArtwork {
+				res = append(res, Item{Kind: model.KindAlbumArtwork, ID: al.ID})
+				continue
+			}
+			for _, p := range al.Participants[model.RoleAlbumArtist] {
+				res = append(res, Item{Kind: model.KindArtistArtwork, ID: p.ID})
+			}
+		}
+	}
+	slices.SortFunc(res, func(a, b Item) int {
+		return cmp.Or(cmp.Compare(a.Kind.Prefix(), b.Kind.Prefix()), cmp.Compare(a.ID, b.ID))
+	})
+	return slices.Compact(res), nil
+}
+
+// albumsIn returns the albums with Tracks in the given folders.
+func (r *refresher) albumsIn(ctx context.Context, targets []model.ScanTarget) (model.Albums, error) {
+	if len(targets) == 0 {
+		return model.Albums{}, nil
+	}
+	folderIDs := make([]string, 0, len(targets))
+	for _, t := range targets {
+		folderIDs = append(folderIDs, model.FolderID(model.Library{ID: t.LibraryID}, t.FolderPath))
+	}
+	return r.ds.Album(ctx).GetAll(model.QueryOptions{
+		Filters: persistence.Exists("json_each(album.folder_ids) je", squirrel.Eq{"je.value": folderIDs}),
+	})
+}
+
 // isLibraryRoot reports whether scanning the target would rescan its whole library: the scanner
 // reads an empty path, or the root itself, as the entire library, subfolders included.
 func isLibraryRoot(t model.ScanTarget) bool {
 	return path.Clean("/"+t.FolderPath) == "/"
 }
 
-// folders returns the scan targets holding the item: an album's folders, or the folders of all
-// of an Artist's albums (as album artist or Track artist, the albums its page lists). Other
-// kinds have none.
-func (r *refresher) folders(ctx context.Context, kind model.Kind, id string) ([]model.ScanTarget, error) {
+func (r *refresher) ScanTargets(ctx context.Context, kind model.Kind, id string) ([]model.ScanTarget, error) {
 	var albums model.Albums
 	switch kind {
 	case model.KindAlbumArtwork:

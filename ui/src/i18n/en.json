@@ -743,7 +743,7 @@
     "coverRemoved": "Cover art removed",
     "coverUploadError": "Error uploading cover art",
     "coverRemoveError": "Error removing cover art",
-    "metadataRefreshed": "Folders rescanned. Refreshing artwork and info in the background",
+    "metadataRefreshed": "Rescanned. Refreshing artwork and info in the background",
     "metadataRefreshBusy": "Another scan is running. Try again once it finishes",
     "note": "NOTE",
     "transcodingDisabled": "Changing the transcoding configuration through the web interface is disabled for security reasons. If you would like to change (edit or add) transcoding options, restart the server with the %{config} configuration option.",

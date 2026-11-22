@@ -166,14 +166,19 @@ var _ = Describe("ScanFolders", Ordered, func() {
 			return id
 		}
 
-		It("picks up the tag changes in the album's folder, and no other", func() {
-			id := findID(func() (string, error) {
-				als, err := ds.Album(ctx).GetAll(model.QueryOptions{Filters: squirrel.Eq{"album.name": "Rock Album"}})
-				if err != nil || len(als) != 1 {
+		albumID := func(name string) string {
+			return findID(func() (string, error) {
+				als, err := ds.Album(ctx).GetAll(model.QueryOptions{Filters: squirrel.Eq{"album.name": name}})
+				if err != nil {
 					return "", err
 				}
+				Expect(als).To(HaveLen(1))
 				return als[0].ID, nil
 			})
+		}
+
+		It("picks up the tag changes in the album's folder, and no other", func() {
+			id := albumID("Rock Album")
 
 			Expect(refresher.Refresh(ctx, model.KindAlbumArtwork, id)).To(Succeed())
 
@@ -192,6 +197,42 @@ var _ = Describe("ScanFolders", Ordered, func() {
 			Expect(refresher.Refresh(ctx, model.KindArtistArtwork, id)).To(Succeed())
 
 			Expect(comments()).To(Equal(map[string]string{"Rock Track 1": "edited", "Rock Live Track": "edited", "Pop Track 1": ""}))
+		})
+
+		It("picks up a new cover in the album's folder, and no other", func() {
+			id := albumID("Rock Album")
+			fsys.Add("rock/album/cover.jpg", &fstest.MapFile{Data: []byte("cover")})
+			fsys.Add("pop/cover.jpg", &fstest.MapFile{Data: []byte("cover")})
+
+			Expect(refresher.Refresh(ctx, model.KindAlbumArtwork, id)).To(Succeed())
+
+			folders, err := ds.Folder(ctx).GetAll()
+			Expect(err).ToNot(HaveOccurred())
+			images := map[string][]string{}
+			for _, f := range folders {
+				images[f.Name] = f.ImageFiles
+			}
+			Expect(images).To(HaveKeyWithValue("album", []string{"cover.jpg"}))
+			Expect(images).To(HaveKeyWithValue("pop", BeEmpty()))
+		})
+
+		It("refreshes the album under its new ID when the scan reads a new album name", func() {
+			oldID := albumID("Rock Album")
+			fsys.UpdateTags("rock/album/track1.mp3", _t{"album": "Rock Album (Remaster)"}, fsys.MapFS["rock/album/track1.mp3"].ModTime)
+
+			Expect(refresher.Refresh(ctx, model.KindAlbumArtwork, oldID)).To(Succeed())
+
+			newID := albumID("Rock Album (Remaster)")
+			Expect(newID).ToNot(Equal(oldID))
+			queued, err := ds.ArtworkQueue(ctx).DequeueBatch(1000)
+			Expect(err).ToNot(HaveOccurred())
+			bumped := map[string]bool{}
+			for _, q := range queued {
+				if q.Priority == model.ArtworkPriorityBump {
+					bumped[q.ItemKind+"/"+q.ItemID] = true
+				}
+			}
+			Expect(bumped).To(Equal(map[string]bool{"al/" + newID: true}))
 		})
 	})
 

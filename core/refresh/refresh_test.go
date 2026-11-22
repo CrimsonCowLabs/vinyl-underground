@@ -184,6 +184,10 @@ var _ = Describe("Refresher", func() {
 	Describe("ScanThenRefresh", func() {
 		targets := []model.ScanTarget{{LibraryID: 1, FolderPath: "Radiohead/Kid A"}}
 
+		BeforeEach(func() {
+			addAlbum("al-1", addArtist("ar-1", "Radiohead"), addFolder("Radiohead/Kid A"))
+		})
+
 		It("scans the folders, then refreshes every item", func() {
 			Expect(refresher.ScanThenRefresh(ctx, targets,
 				refresh.Item{Kind: model.KindArtistArtwork, ID: "ar-1"},
@@ -192,7 +196,17 @@ var _ = Describe("Refresher", func() {
 
 			Expect(scanner.targets).To(Equal([][]model.ScanTarget{targets}))
 			Expect(queued()).To(ConsistOf("ar/ar-1", "al/al-1"))
-			Eventually(log.all).Should(Equal([]string{"scan", "info ar/ar-1", "info al/al-1"}))
+			Eventually(log.all).Should(ConsistOf("scan", "info ar/ar-1", "info al/al-1"))
+			Expect(log.all()[0]).To(Equal("scan"))
+		})
+
+		It("refreshes what the folders now hold in place of an album or Artist the scan renamed", func() {
+			Expect(refresher.ScanThenRefresh(ctx, targets,
+				refresh.Item{Kind: model.KindArtistArtwork, ID: "ar-old"},
+				refresh.Item{Kind: model.KindAlbumArtwork, ID: "al-old"},
+			)).To(Succeed())
+
+			Expect(queued()).To(ConsistOf("ar/ar-1", "al/al-1"))
 		})
 
 		It("waits for a scan already running to finish", func() {
