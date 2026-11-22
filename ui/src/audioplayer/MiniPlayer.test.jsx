@@ -40,8 +40,20 @@ const fakeAudio = () => {
   })
 }
 
-// setup plays song, or with station, starts the Night Owl's Station on it
-const setup = ({ station = false, played = true } = {}) => {
+const radio = {
+  id: 'r1',
+  name: 'Night FM',
+  streamUrl: 'http://radio.example/',
+  isRadio: true,
+}
+
+// setup plays song (or with radio, an Internet Radio station), or with
+// station, starts the Night Owl's Station on song
+const setup = ({
+  station = false,
+  radio: onRadio = false,
+  played = true,
+} = {}) => {
   const store = createStore(
     combineReducers({
       player: playerReducer,
@@ -53,7 +65,7 @@ const setup = ({ station = false, played = true } = {}) => {
     store.dispatch(
       station
         ? startStation('night-owl', [song], '', 'Night Owl')
-        : playTracks({ [song.id]: song }),
+        : playTracks(onRadio ? { [radio.id]: radio } : { [song.id]: song }),
     )
     if (played) {
       store.dispatch(currentPlaying({ ...store.getState().player.queue[0] }))
@@ -149,30 +161,7 @@ describe('MiniPlayer', () => {
   })
 
   it('draws no progress for Internet Radio, a stream with no end', () => {
-    const store = createStore(
-      combineReducers({
-        player: playerReducer,
-        station: stationReducer,
-        nowPlaying: nowPlayingReducer,
-      }),
-    )
-    const radio = {
-      id: 'r1',
-      name: 'Night FM',
-      streamUrl: 'http://x/',
-      isRadio: true,
-    }
-    act(() => {
-      store.dispatch(playTracks({ [radio.id]: radio }))
-      store.dispatch(currentPlaying({ ...store.getState().player.queue[0] }))
-    })
-    render(
-      <Provider store={store}>
-        <ThemeProvider theme={createTheme()}>
-          <MiniPlayer audioInstance={fakeAudio()} />
-        </ThemeProvider>
-      </Provider>,
-    )
+    setup({ radio: true })
 
     expect(screen.getByText('Night FM')).toBeInTheDocument()
     expect(screen.queryByRole('progressbar')).toBeNull()

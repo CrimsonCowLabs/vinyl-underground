@@ -29,6 +29,7 @@ const useStyles = makeStyles(
         zIndex: theme.zIndex.appBar,
         display: 'grid',
         gridTemplateColumns: 'minmax(0, 1fr) auto auto',
+        columnGap: 4,
         alignItems: 'center',
         padding: '8px 6px 8px 8px',
         borderRadius: 12,
@@ -56,7 +57,7 @@ const useStyles = makeStyles(
       cover: {
         width: 44,
         height: 44,
-        borderRadius: 4,
+        borderRadius: 6,
         display: 'block',
         objectFit: 'cover',
         backgroundColor: vu.surface3,
@@ -83,6 +84,10 @@ const useStyles = makeStyles(
   },
   { name: 'NDMiniPlayer' },
 )
+
+// MINI_PLAYER_ROOM is the room the MiniPlayer takes along the bottom of the
+// page: its 60px, the 8px below it and 8px above, over the home indicator
+export const MINI_PLAYER_ROOM = 'calc(env(safe-area-inset-bottom) + 76px)'
 
 // useQueued is the Track playing, or before anything has played since a
 // reload, the one the queue would play
@@ -112,7 +117,7 @@ const MiniPlayer = ({ audioInstance }) => {
     ? Math.min(100, Math.round((currentTime / duration) * 100))
     : 0
   // A tap anywhere opens Now Playing, except on play/pause and next
-  const control = (action) => (e) => {
+  const withoutOpening = (action) => (e) => {
     e.stopPropagation()
     action()
   }
@@ -147,14 +152,14 @@ const MiniPlayer = ({ audioInstance }) => {
       <IconButton
         className={classes.button}
         aria-label={translate(playing ? 'nowPlaying.pause' : 'nowPlaying.play')}
-        onClick={control(playback.togglePlay)}
+        onClick={withoutOpening(playback.togglePlay)}
       >
         {playing ? <PauseIcon /> : <PlayArrowIcon />}
       </IconButton>
       <IconButton
         className={classes.button}
         aria-label={translate('nowPlaying.next')}
-        onClick={control(playback.next)}
+        onClick={withoutOpening(playback.next)}
       >
         <SkipNextIcon />
       </IconButton>
