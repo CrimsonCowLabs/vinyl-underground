@@ -6,8 +6,9 @@
 // random sample, the Listener's favorites and most played, and Tracks that suit the DJ), and
 // Pick chooses among them by the DJ's Taste while keeping Tracks from repeating within
 // RepeatWindow and artists within ArtistGap Tracks. With an LLM, the DJ's persona and an
-// optional Theme choose the Tracks instead, selected ahead so playback never waits on it (see
-// themes.go); rule-based selection fills in until those picks are ready. What each
+// optional Theme choose the Tracks instead, selected ahead so refills never wait on it (see
+// themes.go); rule-based selection fills in until those picks are ready. Only a Station's start
+// waits for them, up to StartWait. What each
 // Listener's Station served is kept in the station_track table, so Stations are independent
 // and survive a restart.
 //
@@ -77,6 +78,11 @@ type Service interface {
 	// Station with the DJ and the optional Theme, and remembers them so later refills don't
 	// repeat them. The Theme only counts with an LLM.
 	Next(ctx context.Context, djID, theme string, count int) (model.MediaFiles, error)
+	// Start serves a Station's first Tracks as Next does, but with an LLM and none of its picks
+	// planned for the Station, it first waits for them, up to StartWait. Past that, the first
+	// Tracks are rule-based and the picks join later refills. It doesn't wait when the
+	// Listener's last selection failed within the last couple of minutes.
+	Start(ctx context.Context, djID, theme string, count int) (model.MediaFiles, error)
 	// Skip records that the logged-in Listener skipped a Track their Station served lately, so
 	// their Station with the DJ plays it, and its artist, a little less for a while.
 	Skip(ctx context.Context, djID, trackID string) error
@@ -88,7 +94,7 @@ type Service interface {
 // New returns the Service. A nil selector means no LLM is configured: selection is rule-based
 // and the Theme is ignored. A nil writer means there are no Blurbs.
 func New(ds model.DataStore, selector Selector, writer BlurbWriter) Service {
-	return &service{ds: ds, selector: selector, blurbs: blurbs{writer: writer}}
+	return &service{ds: ds, selector: selector, blurbs: blurbs{writer: writer}, startWait: StartWait}
 }
 
 type service struct {
@@ -97,12 +103,25 @@ type service struct {
 	plans    plans
 	blurbs   blurbs
 	locks    sync.Map // Listener ID -> *sync.Mutex, so one Listener's refills don't race; a household has few
+	// startWait is how long a Station start waits for the LLM's picks: StartWait, but
+	// shorter in tests.
+	startWait time.Duration
 }
 
-func (s *service) Next(ctx context.Context, djID, theme string, count int) (model.MediaFiles, error) {
+// tracksRequest is a checked request for a Station's Tracks, to start it or refill it.
+type tracksRequest struct {
+	usr   model.User
+	dj    DJ
+	theme string
+	count int
+}
+
+// checkRequest checks a request for count Tracks of the logged-in Listener's Station with the
+// DJ and Theme.
+func (s *service) checkRequest(ctx context.Context, djID, theme string, count int) (tracksRequest, error) {
 	dj, err := s.DJ(ctx, djID)
 	if err != nil {
-		return nil, err
+		return tracksRequest{}, err
 	}
 	// Without an LLM the Theme has no say, so it is ignored rather than checked.
 	if s.selector == nil {
@@ -110,18 +129,74 @@ func (s *service) Next(ctx context.Context, djID, theme string, count int) (mode
 	}
 	theme, err = cleanTheme(theme)
 	if err != nil {
-		return nil, err
+		return tracksRequest{}, err
 	}
 	if count == 0 {
 		count = DefaultCount
 	}
 	if count < 1 || count > MaxCount {
-		return nil, ErrInvalidCount
+		return tracksRequest{}, ErrInvalidCount
 	}
 	usr, ok := request.UserFrom(ctx)
 	if !ok {
-		return nil, errors.New("a Station needs a logged-in Listener")
+		return tracksRequest{}, errors.New("a Station needs a logged-in Listener")
 	}
+	return tracksRequest{usr: usr, dj: dj, theme: theme, count: count}, nil
+}
+
+func (s *service) Start(ctx context.Context, djID, theme string, count int) (model.MediaFiles, error) {
+	r, err := s.checkRequest(ctx, djID, theme, count)
+	if err != nil {
+		return nil, err
+	}
+	if s.selector != nil {
+		// What the Listener's Stations served lately is for the LLM to leave out. The wait
+		// holds no Listener lock, so their other requests go on meanwhile.
+		history, err := s.history(ctx, time.Now())
+		if err != nil {
+			return nil, err
+		}
+		if err := s.plans.awaitPicks(ctx, s.selector, r.usr.ID, r.dj, r.theme, trackIDs(history), s.startWait); err != nil {
+			return nil, err
+		}
+	}
+	return s.next(ctx, r)
+}
+
+func (s *service) Next(ctx context.Context, djID, theme string, count int) (model.MediaFiles, error) {
+	r, err := s.checkRequest(ctx, djID, theme, count)
+	if err != nil {
+		return nil, err
+	}
+	return s.next(ctx, r)
+}
+
+// history returns what the Listener's Stations served since RepeatWindow before now, newest
+// first.
+func (s *service) history(ctx context.Context, now time.Time) ([]Served, error) {
+	served, err := s.ds.StationTrack(ctx).Since(now.Add(-RepeatWindow))
+	if err != nil {
+		return nil, fmt.Errorf("loading the Station's Tracks: %w", err)
+	}
+	history := make([]Served, len(served))
+	for i, t := range served {
+		history[i] = Served{TrackID: t.MediaFileID, Artist: t.Artist, At: t.ServedAt}
+	}
+	return history, nil
+}
+
+// trackIDs returns the IDs of the served Tracks.
+func trackIDs(history []Served) []string {
+	ids := make([]string, len(history))
+	for i, h := range history {
+		ids[i] = h.TrackID
+	}
+	return ids
+}
+
+// next serves the checked request.
+func (s *service) next(ctx context.Context, r tracksRequest) (model.MediaFiles, error) {
+	usr, dj, theme, count := r.usr, r.dj, r.theme, r.count
 	defer s.lock(usr.ID)()
 
 	now := time.Now()
@@ -129,13 +204,9 @@ func (s *service) Next(ctx context.Context, djID, theme string, count int) (mode
 	if err := repo.DeleteBefore(now.Add(-RepeatWindow)); err != nil {
 		return nil, fmt.Errorf("forgetting old Station Tracks: %w", err)
 	}
-	served, err := repo.Since(now.Add(-RepeatWindow))
+	history, err := s.history(ctx, now)
 	if err != nil {
-		return nil, fmt.Errorf("loading the Station's Tracks: %w", err)
-	}
-	history := make([]Served, len(served))
-	for i, t := range served {
-		history[i] = Served{TrackID: t.MediaFileID, Artist: t.Artist, At: t.ServedAt}
+		return nil, err
 	}
 
 	skips, err := s.skips(ctx, dj, now)
@@ -172,10 +243,7 @@ func (s *service) Next(ctx context.Context, djID, theme string, count int) (mode
 	}
 	logRefill(ctx, usr.UserName, dj, picked, fromPlan)
 	if s.selector != nil {
-		exclude := make([]string, 0, len(history)+len(picked))
-		for _, h := range history {
-			exclude = append(exclude, h.TrackID)
-		}
+		exclude := trackIDs(history)
 		for _, mf := range picked {
 			exclude = append(exclude, mf.ID)
 		}

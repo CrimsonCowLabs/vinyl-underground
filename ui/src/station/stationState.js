@@ -26,6 +26,32 @@ export const startStation = (djId, tracks, theme = '') => {
 }
 
 export const STATION_STOP = 'STATION_STOP'
+export const STATION_PICKING = 'STATION_PICKING'
+export const STATION_PICKING_FAILED = 'STATION_PICKING_FAILED'
+
+// stationPicking says a Station with the DJ is starting: with an LLM, the
+// server may take up to a minute picking its first Tracks.
+// Each start gets its own token, so the answer to a start given up on (the
+// Listener played something else, then started again) is never taken for a
+// later start's.
+let starts = 0
+export const stationPicking = (dj) => ({
+  type: STATION_PICKING,
+  djId: dj.id,
+  djName: dj.name,
+  token: ++starts,
+})
+
+// stationPickingFailed says the start with the token couldn't, or that the
+// Listener gave up on it.
+export const stationPickingFailed = (token) => ({
+  type: STATION_PICKING_FAILED,
+  token,
+})
+
+// isPicking reports whether the start with the token is still under way.
+export const isPicking = (state, token) =>
+  state.station?.picking?.token === token
 
 // stopStation takes the DJ off air, as when the Listener deletes it, leaving
 // the queued Tracks to play out without refills.
@@ -36,22 +62,39 @@ export const addStationTracks = (tracks) => addTracks(toQueueData(tracks))
 
 // The Station on air, if any. Playing anything else ends it. Each start gets a
 // new session, so a refill asked for by an earlier Station is never queued in
-// a later one, even with the same DJ.
+// a later one, even with the same DJ. picking is the DJ ({djId, djName}) and
+// token of a Station starting, while its first Tracks are picked. Playing anything else
+// meanwhile gives up that start.
 export const stationReducer = (
-  state = { djId: null, theme: '', session: 0 },
+  state = { djId: null, theme: '', session: 0, picking: null },
   action,
 ) => {
   switch (action.type) {
+    case STATION_PICKING:
+      return {
+        ...state,
+        picking: {
+          djId: action.djId,
+          djName: action.djName,
+          token: action.token,
+        },
+      }
+    case STATION_PICKING_FAILED:
+      return state.picking?.token === action.token
+        ? { ...state, picking: null }
+        : state
     case PLAYER_PLAY_TRACKS:
       return action.station
         ? {
             djId: action.station,
             theme: action.theme || '',
             session: (state.session || 0) + 1,
+            picking: null,
           }
-        : { ...state, djId: null }
+        : { ...state, djId: null, picking: null }
     case PLAYER_SET_TRACK:
     case PLAYER_CLEAR_QUEUE:
+      return { ...state, djId: null, picking: null }
     case STATION_STOP:
       return { ...state, djId: null }
     default:

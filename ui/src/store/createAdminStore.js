@@ -63,7 +63,8 @@ const createAdminStore = ({
           volume,
           savedPlayIndex,
         }))(state.player),
-        station: state.station,
+        // A Station still starting at a reload never gets its Tracks.
+        station: { ...state.station, picking: null },
         albumView: state.albumView,
         settings: state.settings,
       })
