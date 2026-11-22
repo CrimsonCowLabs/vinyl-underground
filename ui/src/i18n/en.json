@@ -149,14 +149,18 @@
         "topSongs": "Top Songs",
         "shuffle": "Shuffle",
         "radio": "Radio",
-        "rename": "Rename"
+        "rename": "Rename",
+        "merge": "Merge"
       },
       "message": {
-        "renameHelp": "The new name is used everywhere in the Library, also for Files added later, in every app. The Files are not changed. You can undo it on the Corrections page."
+        "renameHelp": "The new name is used everywhere in the Library, also for Files added later, in every app. The Files are not changed. You can undo it on the Corrections page.",
+        "mergeWarning": "This merges into %{name} (1 album). Their albums, Tracks, stars and play counts become one Artist's. |||| This merges into %{name} (%{smart_count} albums). Their albums, Tracks, stars and play counts become one Artist's."
       },
       "notifications": {
         "renamed": "Artist renamed",
-        "renaming": "Rename saved. The Library is being updated in the background"
+        "renaming": "Rename saved. The Library is being updated in the background",
+        "merged": "Artists merged",
+        "merging": "Merge saved. The Library is being updated in the background"
       }
     },
     "user": {
@@ -385,7 +389,8 @@
         "status": "Applies to"
       },
       "kinds": {
-        "artistRename": "Artist rename"
+        "artistRename": "Artist rename",
+        "artistMerge": "Artist merge"
       },
       "status": {
         "tracks": "1 Track |||| %{smart_count} Tracks",
@@ -404,7 +409,8 @@
         "undoing": "Undoing. The Library is being updated in the background"
       },
       "errors": {
-        "artistExists": "An Artist named \"%{name}\" already exists. Merging Artists is not supported yet.",
+        "artistExists": "An Artist named \"%{name}\" already exists. Pick it from the suggestions to merge into it.",
+        "undoLaterFirst": "A later Correction builds on this one. Undo that one first.",
         "renamedAway": "A Correction renames \"%{name}\" away. Undo it on the Corrections page instead.",
         "alreadyCorrected": "This Artist already has a Correction.",
         "invalid": "Enter a new, different name.",

@@ -13,15 +13,15 @@ import (
 // Corrections are the admin's fixes to tag values (see model.Correction), ready to apply to Files
 // as they are read. The zero value applies nothing.
 type Corrections struct {
-	renames  map[string]model.Correction // artist renames being applied, by MatchKey
-	undoings []model.Correction          // artist renames being undone
+	renames  map[string]model.Correction // artist renames (and merges) being applied, by MatchKey
+	undoings []model.Correction          // artist renames (and merges) being undone
 }
 
 // NewCorrections prepares the Corrections for reading Files.
 func NewCorrections(cs model.Corrections) Corrections {
 	c := Corrections{renames: make(map[string]model.Correction)}
 	for _, cr := range cs {
-		if cr.Kind != model.CorrectionArtistRename {
+		if !cr.Kind.IsArtistRename() {
 			continue
 		}
 		if cr.Undoing {
@@ -38,6 +38,10 @@ func NewCorrections(cs model.Corrections) Corrections {
 type IDMove struct {
 	CorrectionID string
 	From, To     string
+	// Merge: To is an Artist of its own (an artist merge), so what is moved joins what To has, and
+	// Undo moves back only what the merge moved in, not all of To's.
+	Merge bool
+	Undo  bool
 }
 
 // ArtistIDMoves returns where each renamed Artist's ID moves: from the old name's ID to the new
@@ -45,16 +49,18 @@ type IDMove struct {
 // the ID, so it moves nothing.
 func (c Corrections) ArtistIDMoves() []IDMove {
 	var moves []IDMove
-	add := func(id, from, to string) {
-		if m := (IDMove{CorrectionID: id, From: ArtistID(from), To: ArtistID(to)}); m.From != m.To {
+	add := func(cr model.Correction, from, to string, undo bool) {
+		m := IDMove{CorrectionID: cr.ID, From: ArtistID(from), To: ArtistID(to),
+			Merge: cr.Kind == model.CorrectionArtistMerge, Undo: undo}
+		if m.From != m.To {
 			moves = append(moves, m)
 		}
 	}
 	for _, cr := range c.renames {
-		add(cr.ID, cr.From, c.resolve(cr.To, nil))
+		add(cr, cr.From, c.resolve(cr.To, nil), false)
 	}
 	for _, cr := range c.undoings {
-		add(cr.ID, c.resolve(cr.To, nil), cr.From)
+		add(cr, c.resolve(cr.To, nil), cr.From, true)
 	}
 	return moves
 }

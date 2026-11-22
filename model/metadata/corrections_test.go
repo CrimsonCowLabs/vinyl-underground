@@ -113,7 +113,18 @@ var _ = Describe("Corrections", func() {
 
 			Expect(c.ArtistIDMoves()).To(ConsistOf(
 				metadata.IDMove{CorrectionID: "c1", From: metadata.ArtistID("Greatful Dead"), To: metadata.ArtistID("Grateful Dead")},
-				metadata.IDMove{CorrectionID: "c2", From: metadata.ArtistID("Jimi Hendrix Experience"), To: metadata.ArtistID("Jimi Hendrix")},
+				metadata.IDMove{CorrectionID: "c2", From: metadata.ArtistID("Jimi Hendrix Experience"), To: metadata.ArtistID("Jimi Hendrix"), Undo: true},
+			))
+		})
+
+		It("applies an artist merge like a rename, and marks its moves as merges", func() {
+			merge := rename("c1", "The Grateful Dead", "Grateful Dead")
+			merge.Kind = model.CorrectionArtistMerge
+			c := metadata.NewCorrections(model.Corrections{merge})
+
+			Expect(read(model.RawTags{"ARTIST": {"the grateful dead"}}, merge).Artist).To(Equal("Grateful Dead"))
+			Expect(c.ArtistIDMoves()).To(ConsistOf(
+				metadata.IDMove{CorrectionID: "c1", From: metadata.ArtistID("The Grateful Dead"), To: metadata.ArtistID("Grateful Dead"), Merge: true},
 			))
 		})
 	})

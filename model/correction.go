@@ -14,7 +14,17 @@ const (
 	// CorrectionArtistRename renames an Artist everywhere in the Library: a Track artist or album
 	// artist whose name has the Correction's MatchKey (see ArtistNameKey) gets its To name.
 	CorrectionArtistRename CorrectionKind = "artistRename"
+	// CorrectionArtistMerge renames an Artist to the name of another, existing Artist, merging
+	// them. It matches like CorrectionArtistRename, but its stars, ratings and play counts join
+	// the other Artist's, and undoing it moves only those back (see
+	// CorrectionRepository.MergeArtistAnnotations).
+	CorrectionArtistMerge CorrectionKind = "artistMerge"
 )
+
+// IsArtistRename says whether the Correction renames an Artist, merging it or not.
+func (k CorrectionKind) IsArtistRename() bool {
+	return k == CorrectionArtistRename || k == CorrectionArtistMerge
+}
 
 // Correction is an admin's fix to wrong tag values. It is kept in the app's database, never
 // written to the Files, and the scanner applies it whenever it reads a File's tags, so every
@@ -60,4 +70,14 @@ type CorrectionRepository interface {
 	Delete(id string) error
 	// FolderIDs returns the folders of the Tracks the Correction applies to now.
 	FolderIDs(id string) ([]string, error)
+
+	// MergeArtistAnnotations merges every Listener's star, rating and play count of Artist fromID into
+	// Artist toID's, for the artist merge Correction with correctionID: play counts are added
+	// together, and toID keeps its own star and rating, taking fromID's only where it has none.
+	// What it moved is kept with the Correction, for SplitArtistAnnotations.
+	MergeArtistAnnotations(correctionID, fromID, toID string) error
+	// SplitArtistAnnotations moves back from Artist fromID to Artist toID what the merge with
+	// correctionID moved in: the play counts it added, and the star and rating it gave fromID
+	// unless they have changed since.
+	SplitArtistAnnotations(correctionID, fromID, toID string) error
 }

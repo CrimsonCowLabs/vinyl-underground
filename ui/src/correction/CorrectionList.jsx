@@ -92,7 +92,14 @@ export const UndoCorrectionButton = ({ record }) => {
           { type: 'info' },
         ),
       )
-      .catch(() => notify('ra.page.error', { type: 'warning' }))
+      .catch((err) =>
+        notify(
+          err?.body?.error === 'undoLaterFirst'
+            ? 'resources.correction.errors.undoLaterFirst'
+            : 'ra.page.error',
+          { type: 'warning' },
+        ),
+      )
       .finally(() => {
         setRunning(false)
         refresh()

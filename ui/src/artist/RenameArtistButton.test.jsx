@@ -3,13 +3,27 @@ import { render, fireEvent, waitFor, screen } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { RenameArtistButton } from './RenameArtistButton'
 
-const { mockPermissions, mockRenameArtist, mockNotify, mockRedirect } =
-  vi.hoisted(() => ({
-    mockPermissions: { value: 'admin' },
-    mockRenameArtist: vi.fn(),
-    mockNotify: vi.fn(),
-    mockRedirect: vi.fn(),
-  }))
+const {
+  mockPermissions,
+  mockRenameArtist,
+  mockMergeArtist,
+  mockGetList,
+  mockNotify,
+  mockRedirect,
+} = vi.hoisted(() => ({
+  mockPermissions: { value: 'admin' },
+  mockRenameArtist: vi.fn(),
+  mockMergeArtist: vi.fn(),
+  mockGetList: vi.fn(),
+  mockNotify: vi.fn(),
+  mockRedirect: vi.fn(),
+}))
+// The dataProvider is the same object across renders, as react-admin's is
+const mockDataProvider = {
+  renameArtist: mockRenameArtist,
+  mergeArtist: mockMergeArtist,
+  getList: mockGetList,
+}
 
 vi.mock('react-admin', async (importOriginal) => {
   const actual = await importOriginal()
@@ -21,7 +35,7 @@ vi.mock('react-admin', async (importOriginal) => {
         {children}
       </button>
     ),
-    useDataProvider: () => ({ renameArtist: mockRenameArtist }),
+    useDataProvider: () => mockDataProvider,
     useNotify: () => mockNotify,
     useRedirect: () => mockRedirect,
     usePermissions: () => ({ permissions: mockPermissions.value }),
@@ -42,6 +56,7 @@ describe('RenameArtistButton', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockPermissions.value = 'admin'
+    mockGetList.mockResolvedValue({ data: [] })
   })
 
   it('is not offered to regular users', () => {
@@ -89,6 +104,60 @@ describe('RenameArtistButton', () => {
     )
     expect(mockRedirect).toHaveBeenCalledWith('/artist')
     expect(screen.queryByRole('textbox')).toBeNull()
+  })
+
+  it('suggests existing Artists as you type', async () => {
+    mockGetList.mockResolvedValue({
+      data: [
+        { id: 'ar1', name: 'Greatful Dead' },
+        { id: 'ar2', name: 'Grateful Dead', albumCount: 12 },
+      ],
+    })
+    render(<RenameArtistButton record={record} />)
+    fireEvent.click(screen.getByText('resources.artist.actions.rename'))
+    fireEvent.change(screen.getByRole('textbox'), {
+      target: { value: 'Grat' },
+    })
+
+    expect(await screen.findByText('Grateful Dead')).toBeTruthy()
+    expect(mockGetList).toHaveBeenLastCalledWith(
+      'artist',
+      expect.objectContaining({ filter: { name: 'Grat' } }),
+    )
+    // Not the Artist being renamed
+    expect(screen.queryByRole('option', { name: 'Greatful Dead' })).toBeNull()
+    expect(screen.queryByText(/mergeWarning/)).toBeNull()
+  })
+
+  it('warns, naming the Artist and its albums, before merging into an existing Artist', async () => {
+    mockGetList.mockResolvedValue({
+      data: [{ id: 'ar2', name: 'Grateful Dead', albumCount: 12 }],
+    })
+    mockMergeArtist.mockResolvedValue({
+      data: { artistId: 'ar2', done: true },
+    })
+    render(<RenameArtistButton record={record} />)
+    fireEvent.click(screen.getByText('resources.artist.actions.rename'))
+    fireEvent.change(screen.getByRole('textbox'), {
+      target: { value: 'grateful  dead' },
+    })
+
+    expect(
+      await screen.findByText(
+        'resources.artist.message.mergeWarning {"name":"Grateful Dead","smart_count":12}',
+      ),
+    ).toBeTruthy()
+    fireEvent.click(screen.getByText('resources.artist.actions.merge'))
+
+    await waitFor(() =>
+      expect(mockRedirect).toHaveBeenCalledWith('/artist/ar2/show'),
+    )
+    expect(mockMergeArtist).toHaveBeenCalledWith('ar1', 'ar2')
+    expect(mockRenameArtist).not.toHaveBeenCalled()
+    expect(mockNotify).toHaveBeenCalledWith(
+      'resources.artist.notifications.merged',
+      expect.anything(),
+    )
   })
 
   it('explains a refused rename and stays open', async () => {
