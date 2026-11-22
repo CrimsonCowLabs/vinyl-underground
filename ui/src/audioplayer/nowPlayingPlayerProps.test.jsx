@@ -114,4 +114,15 @@ describe('the player package on desktop', () => {
     const bar = document.querySelector('.music-player-panel')
     expect(getComputedStyle(bar).display).not.toBe('none')
   })
+
+  it("hides its own queue pop-up and the button opening it, for Now Playing's Queue", () => {
+    renderPlayer(true)
+    const button = document.querySelector('.audio-lists-btn')
+    expect(getComputedStyle(button).display).toBe('none')
+
+    // Even if it were opened somehow, the pop-up stays hidden
+    fireEvent.click(button)
+    const popUp = document.querySelector('.audio-lists-panel')
+    expect(getComputedStyle(popUp).display).toBe('none')
+  })
 })

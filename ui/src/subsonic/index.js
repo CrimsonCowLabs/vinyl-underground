@@ -131,6 +131,10 @@ const getTopSongs = (artist, count = 50) => {
   return httpClient(url('getTopSongs', null, { artist, count }))
 }
 
+// getLyricsBySongId answers a Track's structured lyrics, from wherever the
+// server's LyricsPriority finds them (a sidecar .lrc or .txt, or embedded)
+const getLyricsBySongId = (id) => httpClient(url('getLyricsBySongId', id))
+
 const streamUrl = (id, options) => {
   return baseUrl(
     url('stream', id, {
@@ -160,4 +164,5 @@ export default {
   getArtistInfo,
   getTopSongs,
   getSimilarSongs2,
+  getLyricsBySongId,
 }

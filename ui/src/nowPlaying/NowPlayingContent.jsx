@@ -9,7 +9,11 @@ import { StarToggle, TrackRating } from './StarAndRating'
 import { useTrackRecord } from './useTrackRecord'
 import StationCard from './StationCard'
 import { useStationDJ } from './useStationDJ'
-import RecordArt from './RecordArt'
+import ArtTab from './ArtTab'
+import NowPlayingTabs from './NowPlayingTabs'
+import LyricsView from './lyrics/LyricsView'
+import QueueView from './queue/QueueView'
+import { nowPlayingTab, panelId, tabId } from './nowPlayingState'
 import Transport from './Transport'
 import NowPlayingToolbar from './NowPlayingToolbar'
 import { usePlayback } from './usePlayback'
@@ -41,7 +45,10 @@ const useStyles = makeStyles(
     meta: { minWidth: 0 },
     stage: {
       flex: '1 1 auto',
-      minHeight: 200,
+      // As tall as the art, whichever tab shows, so switching never moves
+      // what's below (the art's size is RecordArt's)
+      minHeight: 'max(200px, min(68cqi, 38vh, 420px))',
+      position: 'relative',
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
@@ -160,6 +167,7 @@ const NowPlayingContent = ({ audioInstance, onNavigate, closeButton }) => {
       ? 'nowPlaying.radio'
       : 'nowPlaying.playingFromAlbum'
   const source = dj ? dj.name : isRadio ? title : song.album
+  const tab = useSelector(nowPlayingTab)
 
   return (
     <div className={classes.root}>
@@ -176,12 +184,25 @@ const NowPlayingContent = ({ audioInstance, onNavigate, closeButton }) => {
           <div className={classes.source}>{source}</div>
         </div>
       </div>
-      <div className={classes.stage}>
-        <RecordArt
-          cover={cover}
-          alt={translate('nowPlaying.cover', { name: song.album || title })}
-          playing={playback.playing}
-        />
+      <NowPlayingTabs />
+      <div
+        className={classes.stage}
+        id={panelId}
+        role="tabpanel"
+        aria-labelledby={tabId(tab)}
+      >
+        {tab === 'lyrics' ? (
+          <LyricsView current={current} playback={playback} />
+        ) : tab === 'queue' ? (
+          <QueueView playback={playback} dj={dj} />
+        ) : (
+          <ArtTab
+            cover={cover}
+            alt={translate('nowPlaying.cover', { name: song.album || title })}
+            playing={playback.playing}
+            audioInstance={audioInstance}
+          />
+        )}
       </div>
       <div className={classes.track}>
         <Typography component="h2" className={classes.title}>

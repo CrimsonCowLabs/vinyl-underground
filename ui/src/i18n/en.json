@@ -1084,6 +1084,22 @@
     "speed": {
       "label": "Speed",
       "title": "Playback speed"
+    },
+    "tabs": {
+      "label": "Now Playing view",
+      "art": "Art",
+      "lyrics": "Lyrics",
+      "queue": "Queue"
+    },
+    "lyrics": {
+      "notSynced": "Lyrics aren't synced for this Track",
+      "none": "No lyrics for this Track"
+    },
+    "queue": {
+      "upNext": "Up next",
+      "upNextStation": "Up next, picked by %{name}",
+      "move": "Move %{name}",
+      "remove": "Remove %{name} from the queue"
     }
   },
   "help": {

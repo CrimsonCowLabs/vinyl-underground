@@ -35,6 +35,8 @@ import { useStationSkips } from '../station/useStationSkips'
 import StationBlurb from '../station/StationBlurb'
 import StationPicking from '../station/StationPicking'
 import NowPlaying from '../nowPlaying/NowPlaying'
+// Registers the Lyrics and Queue tools in Now Playing's toolbar
+import '../nowPlaying/tabTools'
 import { closeNowPlaying } from '../nowPlaying/nowPlayingState'
 import { nowPlayingPlayerProps } from './nowPlayingPlayerProps'
 import { sleepTimer, usePlaybackSpeed } from '../playbackTools'

@@ -13,6 +13,9 @@ import {
   PLAYER_SYNC_QUEUE,
   PLAYER_SET_MODE,
   PLAYER_REFRESH_QUEUE,
+  PLAYER_PLAY_FROM_QUEUE,
+  PLAYER_MOVE_IN_QUEUE,
+  PLAYER_REMOVE_FROM_QUEUE,
 } from '../actions'
 import config from '../config'
 
@@ -213,6 +216,62 @@ const reduceMode = (state, { data: { mode } }) => {
   }
 }
 
+// The queue edits from Now Playing (#92). The player package takes a new list
+// in place of its own when clear is set: with quietUpdate it keeps playing the
+// Track it has if that Track is still in the list (matched by uuid), so an
+// edit never restarts it. Without clear it would only append what's new.
+
+const reducePlayFromQueue = (state, { data: { index } }) => ({
+  ...state,
+  playIndex: index,
+})
+
+// indexOf finds the queued item with the uuid in queue, or undefined
+const indexOf = (queue, uuid) => {
+  const i = uuid ? queue.findIndex((item) => item.uuid === uuid) : -1
+  return i < 0 ? undefined : i
+}
+
+// editQueue gives state a new queue, keeping the Track playing (or, before
+// anything plays, queued to play) and any switch pending pointed at the same
+// Tracks they were.
+const editQueue = (state, queue) => {
+  const queued = state.queue[state.savedPlayIndex || 0]
+  const pending = state.playIndex != null && state.queue[state.playIndex]
+  return {
+    ...state,
+    queue,
+    clear: true,
+    savedPlayIndex: indexOf(queue, state.current?.uuid || queued?.uuid) ?? 0,
+    playIndex: pending ? indexOf(queue, pending.uuid) : undefined,
+  }
+}
+
+const reduceMoveInQueue = (state, { data: { from, to } }) => {
+  if (from === to) return state
+  const queue = [...state.queue]
+  queue.splice(to, 0, ...queue.splice(from, 1))
+  return editQueue(state, queue)
+}
+
+const reduceRemoveFromQueue = (state, { data: { index } }) => {
+  if (state.queue.length <= 1) return state
+  const queue = state.queue.filter((_, i) => i !== index)
+  const playingIndex =
+    indexOf(state.queue, state.current?.uuid) ?? state.savedPlayIndex ?? 0
+  if (index !== playingIndex) return editQueue(state, queue)
+  // The Track in play is gone: the one after it (or, at the end, the one
+  // before) takes its place
+  const next = Math.min(index, queue.length - 1)
+  return {
+    ...state,
+    queue,
+    clear: true,
+    savedPlayIndex: next,
+    playIndex: next,
+  }
+}
+
 export const playerReducer = (previousState = initialState, payload) => {
   const { type } = payload
   switch (type) {
@@ -234,6 +293,12 @@ export const playerReducer = (previousState = initialState, payload) => {
       return reduceCurrent(previousState, payload)
     case PLAYER_SET_MODE:
       return reduceMode(previousState, payload)
+    case PLAYER_PLAY_FROM_QUEUE:
+      return reducePlayFromQueue(previousState, payload)
+    case PLAYER_MOVE_IN_QUEUE:
+      return reduceMoveInQueue(previousState, payload)
+    case PLAYER_REMOVE_FROM_QUEUE:
+      return reduceRemoveFromQueue(previousState, payload)
     case PLAYER_REFRESH_QUEUE: {
       const resolvedUrls = payload.data || {}
       return {
