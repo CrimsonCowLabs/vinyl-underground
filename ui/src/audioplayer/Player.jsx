@@ -43,6 +43,7 @@ import StationPicking from '../station/StationPicking'
 import NowPlaying from '../nowPlaying/NowPlaying'
 import { closeNowPlaying } from '../nowPlaying/nowPlayingState'
 import { nowPlayingPlayerProps } from './nowPlayingPlayerProps'
+import { sleepTimer, usePlaybackSpeed } from '../playbackTools'
 
 const Player = () => {
   const theme = useCurrentTheme()
@@ -157,6 +158,11 @@ const Player = () => {
   useEffect(() => {
     if (audioInstance) audioChain.attach(audioInstance)
   }, [audioInstance])
+
+  useEffect(() => {
+    if (audioInstance) sleepTimer.attach(audioInstance)
+  }, [audioInstance])
+  usePlaybackSpeed(audioInstance, isRadio)
 
   useEffect(() => {
     const song = playerState.current?.song || {}
