@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 
@@ -25,6 +26,7 @@ type fakeCorrections struct {
 	merged  []string
 	undone  []string
 	covers  []string
+	albums  []string
 }
 
 func (f *fakeCorrections) GetAll(context.Context) (model.Corrections, error) { return f.all, f.err }
@@ -51,6 +53,14 @@ func (f *fakeCorrections) MergeArtist(_ context.Context, artistID, intoID string
 	}
 	f.merged = append(f.merged, artistID+"->"+intoID)
 	return &corrections.Applied{Correction: model.Correction{ID: "c2"}, ArtistID: intoID, Done: true}, nil
+}
+
+func (f *fakeCorrections) CorrectAlbum(_ context.Context, albumID string, fix corrections.AlbumFix) (*corrections.Applied, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	f.albums = append(f.albums, fmt.Sprintf("%s->%s|%s|%d", albumID, fix.AlbumArtist, fix.Name, fix.Year))
+	return &corrections.Applied{Correction: model.Correction{ID: "c3"}, AlbumID: "new-album", Done: true}, nil
 }
 
 func (f *fakeCorrections) Undo(_ context.Context, id string) (*corrections.Applied, error) {

@@ -21,6 +21,7 @@ func (api *Router) addCorrectionRoute(r chi.Router) {
 		r.Post("/artistRename", api.renameArtist)
 		r.Post("/albumCover", api.chooseAlbumCover)
 		r.Post("/artistMerge", api.mergeArtist)
+		r.Post("/album", api.correctAlbum)
 		r.Post("/{id}/undo", api.undoCorrection)
 	})
 }
@@ -72,6 +73,23 @@ func (api *Router) mergeArtist(w http.ResponseWriter, r *http.Request) {
 	_ = rest.RespondWithJSON(w, http.StatusOK, res)
 }
 
+func (api *Router) correctAlbum(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		AlbumID string `json:"albumId"`
+		corrections.AlbumFix
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeCorrectionError(w, r, fmt.Errorf("%w: %w", model.ErrValidation, err))
+		return
+	}
+	res, err := api.corrections.CorrectAlbum(r.Context(), body.AlbumID, body.AlbumFix)
+	if err != nil {
+		writeCorrectionError(w, r, err)
+		return
+	}
+	_ = rest.RespondWithJSON(w, http.StatusOK, res)
+}
+
 func (api *Router) undoCorrection(w http.ResponseWriter, r *http.Request) {
 	res, err := api.corrections.Undo(r.Context(), chi.URLParam(r, "id"))
 	if err != nil {
@@ -92,6 +110,8 @@ func writeCorrectionError(w http.ResponseWriter, r *http.Request, err error) {
 		status, code = http.StatusBadRequest, "renamedAway"
 	case errors.Is(err, corrections.ErrUndoLaterFirst):
 		status, code = http.StatusBadRequest, "undoLaterFirst"
+	case errors.Is(err, corrections.ErrSharedFolder):
+		status, code = http.StatusBadRequest, "sharedFolder"
 	case errors.Is(err, model.ErrAlreadyExists):
 		status, code = http.StatusConflict, "alreadyCorrected"
 	case errors.Is(err, model.ErrValidation):

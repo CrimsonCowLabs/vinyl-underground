@@ -105,6 +105,105 @@ var _ = Describe("Corrections", func() {
 		})
 	})
 
+	Describe("album Correction", func() {
+		album := func(id string, fix model.Correction) model.Correction {
+			fix.ID, fix.Kind, fix.MatchKey = id, model.CorrectionAlbum, "folderID"
+			return fix
+		}
+		tagged := model.RawTags{"ARTIST": {"Greatful Dead"}, "ALBUMARTIST": {"Greatful Dead"}, "ALBUM": {"Liv"},
+			"TITLE": {"Ripple"}, "DATE": {"1970"}, "ALBUMSORT": {"Liv"}}
+		fix := album("a1", model.Correction{AlbumName: "Live", AlbumArtist: "Grateful Dead", Year: 1971})
+
+		It("reads the File as if tagged with the corrected title, album artist and year", func() {
+			mf := read(tagged, fix)
+			want := read(model.RawTags{"ARTIST": {"Greatful Dead"}, "ALBUMARTIST": {"Grateful Dead"}, "ALBUM": {"Live"},
+				"TITLE": {"Ripple"}, "DATE": {"1971"}})
+
+			Expect(mf.Album).To(Equal("Live"))
+			Expect(mf.SortAlbumName).To(BeEmpty())
+			Expect(mf.AlbumArtist).To(Equal("Grateful Dead"))
+			Expect(mf.AlbumArtistID).To(Equal(want.AlbumArtistID))
+			Expect(mf.Participants[model.RoleAlbumArtist]).To(Equal(want.Participants[model.RoleAlbumArtist]))
+			Expect(mf.Year).To(Equal(1971))
+			Expect(mf.Date).To(Equal("1971"))
+			Expect(mf.AlbumID).To(Equal(want.AlbumID))
+			Expect(mf.Artist).To(Equal("Greatful Dead"), "the Track artist is no album value")
+			Expect(mf.CorrectionIDs).To(Equal([]string{"a1"}))
+		})
+
+		It("keeps the persistent ID of the uncorrected tags, so the Track is still the same Track", func() {
+			Expect(read(tagged, fix).PID).To(Equal(read(tagged).PID))
+		})
+
+		It("leaves what it does not correct as tagged", func() {
+			mf := read(tagged, album("a1", model.Correction{Year: 1971}))
+			Expect(mf.Album).To(Equal("Liv"))
+			Expect(mf.AlbumArtist).To(Equal("Greatful Dead"))
+			Expect(mf.Year).To(Equal(1971))
+		})
+
+		It("applies only to Files in the album's folders", func() {
+			other := fix
+			other.MatchKey = "otherFolder"
+			Expect(read(tagged, other).Album).To(Equal("Liv"))
+
+			c := metadata.NewCorrections(model.Corrections{other})
+			c.MatchAlbumFolders("otherFolder", []string{"otherFolder", "folderID"})
+			props.Tags = tagged
+			mf := metadata.New("Greatful Dead/Live/01.mp3", props).ToCorrectedMediaFile(1, "folderID", c)
+			Expect(mf.Album).To(Equal("Live"), "the album's other folders (e.g. its other discs) match too")
+		})
+
+		It("ignores a Correction being undone", func() {
+			undoing := fix
+			undoing.Undoing = true
+			Expect(read(tagged, undoing).Album).To(Equal("Liv"))
+		})
+
+		Describe("year", func() {
+			year := album("a1", model.Correction{Year: 1971})
+
+			It("sets the year of every date the File has, dropping a month and day of another year", func() {
+				mf := read(model.RawTags{"ALBUM": {"Live"}, "DATE": {"1970-05-01"}, "ORIGINALDATE": {"1969"},
+					"RELEASEDATE": {"1971-02-03"}}, year)
+				Expect(mf.Date).To(Equal("1971"))
+				Expect(mf.OriginalYear).To(Equal(1971))
+				Expect(mf.OriginalDate).To(Equal("1971"))
+				Expect(mf.ReleaseDate).To(Equal("1971-02-03"), "a date already in that year is kept whole")
+			})
+
+			It("gives a File with no date the year", func() {
+				mf := read(model.RawTags{"ALBUM": {"Live"}}, year)
+				Expect(mf.Year).To(Equal(1971))
+				Expect(mf.OriginalDate).To(BeEmpty())
+				Expect(mf.ReleaseDate).To(BeEmpty())
+			})
+
+			It("feeds the corrected release date to the album ID", func() {
+				mf := read(model.RawTags{"ALBUM": {"Live"}, "RELEASEDATE": {"1970"}}, year)
+				Expect(mf.AlbumID).To(Equal(read(model.RawTags{"ALBUM": {"Live"}, "RELEASEDATE": {"1971"}}).AlbumID))
+			})
+		})
+
+		Describe("and artist renames", func() {
+			It("wins over a rename of the tagged album artist, which still renames the Track artist", func() {
+				ours := album("a1", model.Correction{AlbumArtist: "The Dead"})
+				mf := read(tagged, ours, rename("c1", "Greatful Dead", "Grateful Dead"))
+				Expect(mf.AlbumArtist).To(Equal("The Dead"))
+				Expect(mf.Artist).To(Equal("Grateful Dead"))
+				Expect(mf.CorrectionIDs).To(Equal([]string{"a1", "c1"}))
+			})
+
+			It("follows a rename of the album artist it sets", func() {
+				ours := album("a1", model.Correction{AlbumArtist: "The Dead"})
+				mf := read(model.RawTags{"ARTIST": {"Someone"}, "ALBUM": {"Live"}}, ours, rename("c1", "The Dead", "Grateful Dead"))
+				Expect(mf.AlbumArtist).To(Equal("Grateful Dead"))
+				Expect(mf.AlbumArtistID).To(Equal(metadata.ArtistID("Grateful Dead")))
+				Expect(mf.CorrectionIDs).To(Equal([]string{"a1", "c1"}))
+			})
+		})
+	})
+
 	Describe("ArtistIDMoves", func() {
 		It("maps the ID of each renamed Artist to the ID of its new name, and back for one being undone", func() {
 			undoing := rename("c2", "Jimi Hendrix", "Jimi Hendrix Experience")

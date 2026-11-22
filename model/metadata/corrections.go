@@ -1,6 +1,8 @@
 package metadata
 
 import (
+	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"unicode"
@@ -15,12 +17,17 @@ import (
 type Corrections struct {
 	renames  map[string]model.Correction // artist renames (and merges) being applied, by MatchKey
 	undoings []model.Correction          // artist renames (and merges) being undone
+	albums   map[string]model.Correction // album Corrections being applied, by the folders they match
 }
 
-// NewCorrections prepares the Corrections for reading Files.
+// NewCorrections prepares the Corrections for reading Files. An album Correction matches only the
+// folder it is keyed by until MatchAlbumFolders adds the album's other folders.
 func NewCorrections(cs model.Corrections) Corrections {
-	c := Corrections{renames: make(map[string]model.Correction)}
+	c := Corrections{renames: make(map[string]model.Correction), albums: make(map[string]model.Correction)}
 	for _, cr := range cs {
+		if cr.Kind == model.CorrectionAlbum && !cr.Undoing {
+			c.albums[cr.MatchKey] = cr
+		}
 		if !cr.Kind.IsArtistRename() {
 			continue
 		}
@@ -31,6 +38,68 @@ func NewCorrections(cs model.Corrections) Corrections {
 		c.renames[cr.MatchKey] = cr
 	}
 	return c
+}
+
+// MatchAlbumFolders makes the album Correction keyed by key also match Files in the folders (see
+// model.CorrectionRepository.AlbumFolderIDs). A folder keeps the Correction keyed by it.
+func (c Corrections) MatchAlbumFolders(key string, folderIDs []string) {
+	cr, ok := c.albums[key]
+	if !ok {
+		return
+	}
+	for _, f := range folderIDs {
+		if _, taken := c.albums[f]; !taken {
+			c.albums[f] = cr
+		}
+	}
+}
+
+// correctAlbum returns the File's tags with the album Correction matching its folder applied, as
+// if the File were tagged with the corrected values, and the Correction's ID. ok is false when no
+// album Correction matches.
+func (c Corrections) correctAlbum(md Metadata, folderID string) (corrected Metadata, id string, ok bool) {
+	cr, ok := c.albums[folderID]
+	if !ok {
+		return md, "", false
+	}
+	tags := maps.Clone(md.tags)
+	if cr.AlbumName != "" {
+		tags[model.TagAlbum] = []string{cr.AlbumName}
+		delete(tags, model.TagAlbumSort)
+	}
+	if cr.AlbumArtist != "" {
+		tags[model.TagAlbumArtist] = []string{cr.AlbumArtist}
+		for _, t := range []model.TagName{model.TagAlbumArtists, model.TagAlbumArtistSort,
+			model.TagAlbumArtistsSort, model.TagMusicBrainzAlbumArtistID} {
+			delete(tags, t)
+		}
+	}
+	if cr.Year > 0 {
+		correctYear(tags, cr.Year)
+	}
+	md.tags = tags
+	return md, cr.ID, true
+}
+
+// correctYear makes every date tag the File has a date in the year: a date in another year
+// becomes just the year (its month and day are as doubtful), one in that year is kept whole. A
+// File with no date gets the year as its date. So the album shows that one year in every client,
+// whichever of its dates each uses.
+func correctYear(tags model.Tags, year int) {
+	found := false
+	for _, t := range []model.TagName{model.TagRecordingDate, model.TagOriginalDate, model.TagReleaseDate} {
+		v := tags[t]
+		if len(v) == 0 || v[0] == "" {
+			continue
+		}
+		found = true
+		if Date(v[0]).Year() != year {
+			tags[t] = []string{fmt.Sprintf("%04d", year)}
+		}
+	}
+	if !found {
+		tags[model.TagRecordingDate] = []string{fmt.Sprintf("%04d", year)}
+	}
 }
 
 // IDMove says that what was attached to one ID (e.g. stars and play counts) belongs to another,
@@ -89,12 +158,13 @@ func (c Corrections) resolve(name string, applied *[]string) string {
 }
 
 // renameArtists applies the artist renames to the Track artists and album artists, and to their
-// display names. Other credits, like composers, keep the tagged names.
+// display names, adding them to the Track's CorrectionIDs. Other credits, like composers, keep the
+// tagged names.
 func (c Corrections) renameArtists(mf *model.MediaFile) {
 	if len(c.renames) == 0 {
 		return
 	}
-	var applied []string
+	applied := mf.CorrectionIDs
 	renameRole := func(role model.Role, display string) string {
 		list := mf.Participants[role]
 		renamed := make(model.ParticipantList, 0, len(list))

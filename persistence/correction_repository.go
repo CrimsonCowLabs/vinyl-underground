@@ -2,6 +2,7 @@ package persistence
 
 import (
 	"context"
+	"slices"
 	"time"
 
 	. "github.com/Masterminds/squirrel"
@@ -68,8 +69,9 @@ func (r *correctionRepository) Add(c *model.Correction) error {
 	c.CreatedBy = loggedUser(r.ctx).UserName
 	ins := Insert(r.tableName).
 		Columns("id", "kind", "match_key", "from_value", "to_value", "created_by", "created_at", "undoing",
-			"image_hash", "image_mime").
-		Values(c.ID, c.Kind, c.MatchKey, c.From, c.To, c.CreatedBy, c.CreatedAt, false, c.ImageHash, c.ImageMime).
+			"image_hash", "image_mime", "album_name", "album_artist", "year").
+		Values(c.ID, c.Kind, c.MatchKey, c.From, c.To, c.CreatedBy, c.CreatedAt, false, c.ImageHash, c.ImageMime,
+			c.AlbumName, c.AlbumArtist, c.Year).
 		Suffix("ON CONFLICT (kind, match_key) DO NOTHING")
 	count, err := r.executeSQL(ins)
 	if err != nil {
@@ -105,6 +107,21 @@ func (r *correctionRepository) FolderIDs(id string) ([]string, error) {
 		OrderBy("media_file.folder_id")
 	err := r.queryAllSlice(sq, &res)
 	return res, err
+}
+
+func (r *correctionRepository) AlbumFolderIDs(key string) ([]string, error) {
+	var res []string
+	sq := Select("distinct af.value").From("album").
+		Join("json_each(album.folder_ids) af").
+		Where(Expr("exists (select 1 from json_each(album.folder_ids) k where k.value = ?)", key))
+	if err := r.queryAllSlice(sq, &res); err != nil {
+		return nil, err
+	}
+	if !slices.Contains(res, key) {
+		res = append(res, key)
+	}
+	slices.Sort(res)
+	return res, nil
 }
 
 // The SQL below works on the artist annotations of both Artists, for every Listener. Dates compare
