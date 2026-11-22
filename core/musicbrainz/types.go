@@ -24,14 +24,16 @@ type Recording struct {
 type Release struct {
 	ID    string `json:"id"`
 	Title string `json:"title"`
+	// Score is how well the release matches a search, out of 100 (only from SearchReleases).
+	Score int `json:"score"`
 	// Status is "Official", "Promotion", "Bootleg", "Pseudo-Release"... or empty.
 	Status string `json:"status"`
 	// Date is "YYYY", "YYYY-MM" or "YYYY-MM-DD", or empty.
 	Date         string        `json:"date"`
 	ArtistCredit ArtistCredits `json:"artist-credit"`
 	ReleaseGroup ReleaseGroup  `json:"release-group"`
-	// Country is where it was issued ("GB", "XE" for Europe...), or empty. Media and
-	// CoverArtArchive are only filled in by ReleaseGroupReleases.
+	// Country is where it was issued ("GB", "XE" for Europe...), or empty. Media is filled in by
+	// ReleaseGroupReleases and SearchReleases, CoverArtArchive only by ReleaseGroupReleases.
 	Country         string  `json:"country"`
 	Media           []Media `json:"media"`
 	CoverArtArchive struct {
@@ -67,6 +69,31 @@ func (r Release) Formats() string {
 		}
 	}
 	return strings.Join(parts, " + ")
+}
+
+// Detail tells the release apart from the other releases of its album: its country, formats
+// and year, "GB, 2×CD, 1999", leaving out what is unknown.
+func (r Release) Detail() string {
+	var detail []string
+	for _, s := range []string{r.Country, r.Formats(), r.Year()} {
+		if s != "" {
+			detail = append(detail, s)
+		}
+	}
+	return strings.Join(detail, ", ")
+}
+
+// Year is the year of the release's date, "" when unknown.
+func (r Release) Year() string {
+	return r.Date[:min(len(r.Date), 4)]
+}
+
+// Description names the release among the others of its album: "Record (GB, 2×CD, 1999)".
+func (r Release) Description() string {
+	if detail := r.Detail(); detail != "" {
+		return r.Title + " (" + detail + ")"
+	}
+	return r.Title
 }
 
 // ReleaseGroup is an album, EP or single, whatever its editions.

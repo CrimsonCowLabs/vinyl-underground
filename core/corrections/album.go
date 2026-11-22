@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/Masterminds/squirrel"
@@ -17,16 +18,31 @@ import (
 // too: an album Correction is keyed by folder, so it would correct that album as well.
 var ErrSharedFolder = fmt.Errorf("%w: another album shares this album's folder", model.ErrValidation)
 
-// AlbumFix is an album's title, album artist and year as the admin corrects them.
+// AlbumFix is an album's title, album artist and year as the admin corrects them, and the
+// MusicBrainz release picked for it with Find on MusicBrainz, if any.
 type AlbumFix struct {
 	Name        string `json:"name"`
 	AlbumArtist string `json:"albumArtist"`
 	Year        int    `json:"year"`
+	// MbzAlbumID and MbzReleaseGroupID are the picked release's MusicBrainz IDs: empty keeps the
+	// album's (as tagged, or as an earlier Correction set them). MbzRelease names the release
+	// for the Corrections page: "Record (GB, CD, 1999)".
+	MbzAlbumID        string `json:"mbzAlbumId"`
+	MbzReleaseGroupID string `json:"mbzReleaseGroupId"`
+	MbzRelease        string `json:"mbzRelease"`
 }
+
+// mbzLabel joins the picked release to an album Correction's To label.
+const mbzLabel = " · MusicBrainz: "
+
+// maxReleaseLabel caps how much of the release's name the label keeps.
+const maxReleaseLabel = 200
 
 func (c *corrections) CorrectAlbum(ctx context.Context, albumID string, fix AlbumFix) (*Applied, error) {
 	fix.Name = strings.TrimSpace(fix.Name)
 	fix.AlbumArtist = strings.Join(strings.Fields(fix.AlbumArtist), " ")
+	fix.MbzAlbumID = strings.ToLower(strings.TrimSpace(fix.MbzAlbumID))
+	fix.MbzReleaseGroupID = strings.ToLower(strings.TrimSpace(fix.MbzReleaseGroupID))
 	switch {
 	case fix.Name == "":
 		return nil, fmt.Errorf("%w: the title is empty", model.ErrValidation)
@@ -34,6 +50,11 @@ func (c *corrections) CorrectAlbum(ctx context.Context, albumID string, fix Albu
 		return nil, fmt.Errorf("%w: the album artist is empty", model.ErrValidation)
 	case fix.Year != 0 && (fix.Year < 1000 || fix.Year > 9999):
 		return nil, fmt.Errorf("%w: %d is no year", model.ErrValidation, fix.Year)
+	// A release and its release group are picked together, so the tagged release group never
+	// stays next to another release
+	case (fix.MbzAlbumID != "" || fix.MbzReleaseGroupID != "") &&
+		(!isMbzID(fix.MbzAlbumID) || !isMbzID(fix.MbzReleaseGroupID)):
+		return nil, fmt.Errorf("%w: a release and its release group need both their MusicBrainz IDs", model.ErrValidation)
 	}
 	al, err := c.ds.Album(ctx).Get(albumID)
 	if err != nil {
@@ -52,6 +73,7 @@ func (c *corrections) CorrectAlbum(ctx context.Context, albumID string, fix Albu
 	old, err := model.AlbumCorrection(c.ds.Correction(ctx), model.CorrectionAlbum, *al)
 	if err == nil {
 		cr.From, cr.AlbumName, cr.AlbumArtist, cr.Year = old.From, old.AlbumName, old.AlbumArtist, old.Year
+		cr.MbzAlbumID, cr.MbzReleaseGroupID = old.MbzAlbumID, old.MbzReleaseGroupID
 	} else if !errors.Is(err, model.ErrNotFound) {
 		return nil, err
 	}
@@ -69,6 +91,16 @@ func (c *corrections) CorrectAlbum(ctx context.Context, albumID string, fix Albu
 	}
 	if fix.Year != 0 && fix.Year != albumYear(*al) {
 		cr.Year, changed = fix.Year, true
+	}
+	// A picked release replaces the album's release and release group together: the tagged
+	// release group belongs to the tagged release
+	if fix.MbzAlbumID != "" && (fix.MbzAlbumID != al.MbzAlbumID || fix.MbzReleaseGroupID != al.MbzReleaseGroupID) {
+		cr.MbzAlbumID, cr.MbzReleaseGroupID, changed = fix.MbzAlbumID, fix.MbzReleaseGroupID, true
+		cr.To += mbzLabel + pickedReleaseLabel(fix)
+	} else if old != nil && cr.MbzAlbumID != "" {
+		if i := strings.Index(old.To, mbzLabel); i >= 0 {
+			cr.To += old.To[i:]
+		}
 	}
 	if !changed {
 		return nil, fmt.Errorf("%w: nothing changed", model.ErrValidation)
@@ -159,6 +191,23 @@ func (c *corrections) albumIn(ctx context.Context, folderIDs []string, def strin
 // albumYear is the year clients show for the album: its original year when it has one.
 func albumYear(al model.Album) int {
 	return cmp.Or(al.MaxOriginalYear, al.MaxYear)
+}
+
+// isMbzID says whether s is a MusicBrainz ID (a UUID).
+func isMbzID(s string) bool {
+	return mbzIDPattern.MatchString(s)
+}
+
+var mbzIDPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+
+// pickedReleaseLabel names the picked release for the Corrections page, by the name the client gave it
+// (folded onto one line and capped), else by its ID.
+func pickedReleaseLabel(fix AlbumFix) string {
+	label := strings.Join(strings.Fields(fix.MbzRelease), " ")
+	if r := []rune(label); len(r) > maxReleaseLabel {
+		label = string(r[:maxReleaseLabel]) + "…"
+	}
+	return cmp.Or(label, fix.MbzAlbumID)
 }
 
 // albumInfoLabel names an album for the Corrections page: "Band – Record (1999)".

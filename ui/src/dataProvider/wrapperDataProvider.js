@@ -293,12 +293,21 @@ const wrapperDataProvider = {
       method: 'POST',
       body: JSON.stringify({ artistId, intoId }),
     }).then(({ json }) => ({ data: { id: json.correction.id, ...json } })),
-  // An album Correction of its title, album artist and year: { correction, albumId, done }.
-  correctAlbum: (albumId, { name, albumArtist, year }) =>
+  // An album Correction of its title, album artist and year, and the MusicBrainz release picked
+  // with Find on MusicBrainz (mbzAlbumId, mbzReleaseGroupId, mbzRelease), if any:
+  // { correction, albumId, done }.
+  correctAlbum: (albumId, { name, albumArtist, year, ...mbz }) =>
     httpClient(`${REST_URL}/correction/album`, {
       method: 'POST',
-      body: JSON.stringify({ albumId, name, albumArtist, year }),
+      body: JSON.stringify({ albumId, name, albumArtist, year, ...mbz }),
     }).then(({ json }) => ({ data: { id: json.correction.id, ...json } })),
+  // Find on MusicBrainz (admin only): the MusicBrainz releases matching an album artist and
+  // title, [{ id, releaseGroupId, title, artist, year, country, format, status, score,
+  // description, thumbnailUrl }]. A failure's body has an `error` code to translate.
+  findMusicBrainzReleases: (artist, title) =>
+    httpClient(
+      `${REST_URL}/musicbrainz/release?artist=${encodeURIComponent(artist)}&title=${encodeURIComponent(title)}`,
+    ).then(({ json }) => ({ data: json })),
   undoCorrection: (id) =>
     httpClient(`${REST_URL}/correction/${id}/undo`, { method: 'POST' }).then(
       ({ json }) => ({ data: { id, ...json } }),

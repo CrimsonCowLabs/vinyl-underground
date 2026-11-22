@@ -30,8 +30,9 @@ const (
 	// CorrectionAlbumCover's, and its ImageHash is the blocked image's content hash. An album can
 	// have several.
 	CorrectionAlbumCoverBlock CorrectionKind = "albumCoverBlock"
-	// CorrectionAlbum corrects an album's title, album artist and year (its AlbumName,
-	// AlbumArtist and Year; an empty one keeps the tagged value). Like CorrectionAlbumCover it is
+	// CorrectionAlbum corrects an album's title, album artist, year and MusicBrainz release (its
+	// AlbumName, AlbumArtist, Year, MbzAlbumID and MbzReleaseGroupID; an empty one keeps the
+	// tagged value). Like CorrectionAlbumCover it is
 	// keyed by the album's folder (see AlbumFolderKey), as the tag values are what is wrong and
 	// two albums can share them, and it applies to every File in the album's folders.
 	CorrectionAlbum CorrectionKind = "album"
@@ -69,11 +70,15 @@ type Correction struct {
 	ImageHash string `structs:"image_hash" json:"-"`
 	ImageMime string `structs:"image_mime" json:"-"`
 	// AlbumName, AlbumArtist and Year are what an album Correction sets (see CorrectionAlbum):
-	// empty or zero for what it leaves as tagged, and for other kinds. The album's MusicBrainz
-	// IDs (#125) belong here too.
+	// empty or zero for what it leaves as tagged, and for other kinds.
 	AlbumName   string `structs:"album_name" json:"albumName,omitempty"`
 	AlbumArtist string `structs:"album_artist" json:"albumArtist,omitempty"`
 	Year        int    `structs:"year" json:"year,omitempty"`
+	// MbzAlbumID and MbzReleaseGroupID are the MusicBrainz release and release group an album
+	// Correction sets (Find on MusicBrainz), as if tagged musicbrainz_albumid and
+	// musicbrainz_releasegroupid. Empty when it leaves them as tagged.
+	MbzAlbumID        string `structs:"mbz_album_id" json:"mbzAlbumId,omitempty"`
+	MbzReleaseGroupID string `structs:"mbz_release_group_id" json:"mbzReleaseGroupId,omitempty"`
 
 	// TrackCount is how many Tracks in the Library the Correction applies to now. Zero means it
 	// is orphaned: it matches nothing.

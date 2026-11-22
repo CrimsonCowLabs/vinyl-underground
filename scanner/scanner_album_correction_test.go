@@ -172,6 +172,39 @@ var _ = Describe("Scanning with an album Correction", Ordered, func() {
 		Expect(err).To(MatchError(model.ErrNotFound))
 	})
 
+	It("gives the album a MusicBrainz release, which keys it, with its stars following and Track IDs kept", func() {
+		const release, group = "8a7f5c4e-0d5b-4f1e-9d3c-3b2a1f0e9d8c", "1b2c3d4e-5f60-4718-9a0b-c1d2e3f40516"
+		before := trackIDs()
+		oldAlbum := albumOf(cd1)
+		Expect(ds.Album(ctx).SetStar(true, oldAlbum.ID)).To(Succeed())
+
+		res := correct(corrections.AlbumFix{Name: "Recrod", AlbumArtist: "Band", Year: 1998,
+			MbzAlbumID: release, MbzReleaseGroupID: group, MbzRelease: "Record (GB, CD, 1998)"})
+		for _, p := range []string{cd1, cd2} {
+			al := albumOf(p)
+			Expect(al.ID).To(Equal(res.AlbumID), p)
+			Expect(al.MbzAlbumID).To(Equal(release), p)
+			Expect(al.MbzReleaseGroupID).To(Equal(group), p)
+			Expect(al.Name).To(Equal("Recrod"), "the rest stays as tagged")
+		}
+		Expect(res.AlbumID).ToNot(Equal(oldAlbum.ID), "the default album PID starts with the MusicBrainz album ID")
+		Expect(albumOf(cd1).Starred).To(BeTrue())
+		Expect(albumOf(other).MbzAlbumID).To(BeEmpty())
+		Expect(trackIDs()).To(Equal(before))
+
+		_, err := s.ScanAll(ctx, true)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(albumOf(cd1).MbzAlbumID).To(Equal(release))
+		Expect(trackIDs()).To(Equal(before))
+
+		_, err = svc.Undo(ctx, res.Correction.ID)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(albumOf(cd1).ID).To(Equal(oldAlbum.ID))
+		Expect(albumOf(cd1).MbzAlbumID).To(BeEmpty())
+		Expect(albumOf(cd1).Starred).To(BeTrue())
+		Expect(trackIDs()).To(Equal(before))
+	})
+
 	It("wins over an Artist rename for the album's album artist", func() {
 		ar, err := ds.Artist(ctx).Get(metadata.ArtistID("Band"))
 		Expect(err).ToNot(HaveOccurred())
