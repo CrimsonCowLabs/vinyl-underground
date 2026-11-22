@@ -964,6 +964,24 @@
     "empty": "Nothing playing",
     "minutesAgo": "%{smart_count} minute ago |||| %{smart_count} minutes ago"
   },
+  "nowPlaying": {
+    "title": "Now Playing",
+    "close": "Close Now Playing",
+    "playingFromAlbum": "Playing from album",
+    "station": "Station",
+    "radio": "Internet Radio",
+    "cover": "Cover of %{name}",
+    "star": "Star",
+    "rating": "%{smart_count} star |||| %{smart_count} stars",
+    "djCard": "Station DJ",
+    "dj": "DJ",
+    "seek": "Seek",
+    "play": "Play",
+    "pause": "Pause",
+    "previous": "Previous track",
+    "next": "Next track",
+    "tools": "Now Playing tools"
+  },
   "help": {
     "title": "Vinyl Underground Hotkeys",
     "hotkeys": {

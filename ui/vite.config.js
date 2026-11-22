@@ -47,6 +47,9 @@ export default defineConfig({
     setupFiles: './src/setupTests.js',
     css: true,
     reporters: ['verbose'],
+    // Run the player package through Vite, as the app does, so a test can
+    // load its ES build and swap in sortablejs's (Node's build lacks Swap)
+    server: { deps: { inline: ['navidrome-music-player'] } },
     // reporters: ['default', 'hanging-process'],
     coverage: {
       reporter: ['text', 'json', 'html'],
