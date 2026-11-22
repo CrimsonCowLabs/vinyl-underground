@@ -1,17 +1,21 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import wrapperDataProvider from './wrapperDataProvider'
 
-const { mockProvider, mockHttpClient } = vi.hoisted(() => ({
+const { mockProvider, mockHttpClient, mockFetchImage } = vi.hoisted(() => ({
   mockProvider: {
     update: vi.fn(),
     create: vi.fn(),
     getOne: vi.fn(),
   },
   mockHttpClient: vi.fn(),
+  mockFetchImage: vi.fn(),
 }))
 
 vi.mock('ra-data-json-server', () => ({ default: () => mockProvider }))
-vi.mock('./httpClient', () => ({ default: mockHttpClient }))
+vi.mock('./httpClient', () => ({
+  default: mockHttpClient,
+  fetchImage: mockFetchImage,
+}))
 
 describe('wrapperDataProvider', () => {
   beforeEach(() => {
@@ -118,6 +122,25 @@ describe('wrapperDataProvider', () => {
       await expect(
         wrapperDataProvider.refreshMetadata('album', 'al-1'),
       ).resolves.toEqual({ data: { id: 'al-1' } })
+    })
+  })
+
+  describe('getCoverPreview', () => {
+    it('fetches the preview as an image, with nothing but its path in the URL', async () => {
+      const blob = new Blob(['img'], { type: 'image/png' })
+      mockFetchImage.mockResolvedValue(blob)
+      const signal = new AbortController().signal
+      // As react-admin's useDataProvider calls it: (resource, payload), answering { data }
+      await expect(
+        wrapperDataProvider.getCoverPreview('al-1', {
+          candidateId: 'c-1',
+          signal,
+        }),
+      ).resolves.toEqual({ data: blob })
+      expect(mockFetchImage).toHaveBeenCalledWith(
+        '/api/albumCover/al-1/candidates/c-1/preview',
+        { signal },
+      )
     })
   })
 })

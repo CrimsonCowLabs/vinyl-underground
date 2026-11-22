@@ -4,6 +4,7 @@ import { describe, it, expect, vi, beforeAll, afterEach } from 'vitest'
 import ReactJkMusicPlayer from 'navidrome-music-player/es/index.js'
 import { nowPlayingReducer } from '../nowPlaying/nowPlayingState'
 import { nowPlayingPlayerProps } from './nowPlayingPlayerProps'
+import useStyle from './styles'
 
 // Under Node, sortablejs resolves to a build without the Swap plugin the
 // package imports; the browser build has it.
@@ -34,13 +35,20 @@ const phoneScreen = (matches) => {
   }))
 }
 
+// The package as Player mounts it, with Player's styles
+const StyledPlayer = ({ isDesktop, ...props }) => {
+  const classes = useStyle({ visible: true, isDesktop })
+  return <ReactJkMusicPlayer className={classes.player} {...props} />
+}
+
 const renderPlayer = (isDesktop) => {
   let state = nowPlayingReducer(undefined, { type: '@@INIT' })
   const dispatch = (action) => {
     state = nowPlayingReducer(state, action)
   }
   render(
-    <ReactJkMusicPlayer
+    <StyledPlayer
+      isDesktop={isDesktop}
       audioLists={audioLists}
       autoPlay={false}
       {...nowPlayingPlayerProps(isDesktop, dispatch)}
@@ -77,6 +85,14 @@ describe('the player package on a phone', () => {
       document.querySelector('.react-jinke-music-player-mobile'),
     ).toBeNull()
   })
+
+  it('hides its floating cover for our mini player, and keeps its audio', () => {
+    renderPlayer(false)
+
+    const cover = document.querySelector('.react-jinke-music-player')
+    expect(getComputedStyle(cover).display).toBe('none')
+    expect(document.querySelector('audio')).not.toBeNull()
+  })
 })
 
 describe('the player package on desktop', () => {
@@ -95,5 +111,7 @@ describe('the player package on desktop', () => {
     fireEvent.click(cover)
     expect(isOpen()).toBe(false)
     expect(window.location.hash).toBe('')
+    const bar = document.querySelector('.music-player-panel')
+    expect(getComputedStyle(bar).display).not.toBe('none')
   })
 })

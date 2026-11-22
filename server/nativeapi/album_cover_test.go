@@ -126,6 +126,19 @@ var _ = Describe("Album cover API", func() {
 		Expect(w.Body.String()).To(HaveSuffix("al-1/cand-1"))
 	})
 
+	It("refuses a preview authenticated only by a token in the URL", func() {
+		w := httptest.NewRecorder()
+		req := createUnauthenticatedRequest("GET", "/albumCover/al-1/candidates/cand-1/preview?jwt="+adminToken, nil)
+		router.ServeHTTP(w, req)
+		Expect(w.Code).To(Equal(http.StatusUnauthorized))
+		Expect(w.Header().Get("Content-Type")).ToNot(HavePrefix("image/"))
+	})
+
+	It("refuses a preview whose URL carries a token, even with the header", func() {
+		w := do("GET", "/albumCover/al-1/candidates/cand-1/preview?jwt="+adminToken, adminToken, nil)
+		Expect(w.Code).To(Equal(http.StatusUnauthorized))
+	})
+
 	It("never serves a preview that isn't an image", func() {
 		picker.preview = "<html><script>alert(1)</script></html>"
 		w := do("GET", "/albumCover/al-1/candidates/cand-1/preview", adminToken, nil)
