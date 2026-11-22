@@ -61,7 +61,7 @@ func (pub *Router) handleStream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	stream, err := pub.streamer.NewStream(ctx, mf, streampkg.Request{
-		Format: info.format, BitRate: info.bitrate,
+		Format: info.format, BitRate: info.bitrate, Range: r.Header.Get("Range"),
 	})
 	if err != nil {
 		if errors.Is(err, streampkg.ErrTooManyTranscodes) {

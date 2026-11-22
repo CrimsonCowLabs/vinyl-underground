@@ -425,6 +425,7 @@ func (api *Router) GetTranscodeStream(w http.ResponseWriter, r *http.Request) (*
 	}
 
 	// Create stream
+	streamReq.Range = r.Header.Get("Range")
 	stream, err := api.streamer.NewStream(ctx, mf, streamReq)
 	if err != nil {
 		log.Error(ctx, "Error creating stream", "mediaID", mediaID, err)

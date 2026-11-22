@@ -68,9 +68,14 @@ func (ms *mediaStreamer) NewStream(ctx context.Context, mf *model.MediaFile, req
 	var bitRate int
 	var cached bool
 	defer func() {
-		log.Info(ctx, "Streaming file", "title", mf.Title, "artist", mf.Artist, "format", format, "cached", cached,
+		// A Range continuing a play is logged at debug, so the info log shows one line per play.
+		level := log.LevelInfo
+		if req.continuesPlay() {
+			level = log.LevelDebug
+		}
+		log.Log(level, ctx, "Streaming file", "title", mf.Title, "artist", mf.Artist, "format", format, "cached", cached,
 			"bitRate", bitRate, "sampleRate", req.SampleRate, "bitDepth", req.BitDepth, "channels", req.Channels,
-			"user", userName(ctx), "transcoding", format != "raw",
+			"user", userName(ctx), "transcoding", format != "raw", "range", req.Range,
 			"originalFormat", mf.Suffix, "originalBitRate", mf.BitRate)
 	}()
 
