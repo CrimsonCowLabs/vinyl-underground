@@ -108,20 +108,20 @@ type service struct {
 	startWait time.Duration
 }
 
-// refill is one checked request for a Station's Tracks.
-type refill struct {
+// tracksRequest is a checked request for a Station's Tracks, to start it or refill it.
+type tracksRequest struct {
 	usr   model.User
 	dj    DJ
 	theme string
 	count int
 }
 
-// checkRefill checks a request for count Tracks of the logged-in Listener's Station with the
+// checkRequest checks a request for count Tracks of the logged-in Listener's Station with the
 // DJ and Theme.
-func (s *service) checkRefill(ctx context.Context, djID, theme string, count int) (refill, error) {
+func (s *service) checkRequest(ctx context.Context, djID, theme string, count int) (tracksRequest, error) {
 	dj, err := s.DJ(ctx, djID)
 	if err != nil {
-		return refill{}, err
+		return tracksRequest{}, err
 	}
 	// Without an LLM the Theme has no say, so it is ignored rather than checked.
 	if s.selector == nil {
@@ -129,38 +129,34 @@ func (s *service) checkRefill(ctx context.Context, djID, theme string, count int
 	}
 	theme, err = cleanTheme(theme)
 	if err != nil {
-		return refill{}, err
+		return tracksRequest{}, err
 	}
 	if count == 0 {
 		count = DefaultCount
 	}
 	if count < 1 || count > MaxCount {
-		return refill{}, ErrInvalidCount
+		return tracksRequest{}, ErrInvalidCount
 	}
 	usr, ok := request.UserFrom(ctx)
 	if !ok {
-		return refill{}, errors.New("a Station needs a logged-in Listener")
+		return tracksRequest{}, errors.New("a Station needs a logged-in Listener")
 	}
-	return refill{usr: usr, dj: dj, theme: theme, count: count}, nil
+	return tracksRequest{usr: usr, dj: dj, theme: theme, count: count}, nil
 }
 
 func (s *service) Start(ctx context.Context, djID, theme string, count int) (model.MediaFiles, error) {
-	r, err := s.checkRefill(ctx, djID, theme, count)
+	r, err := s.checkRequest(ctx, djID, theme, count)
 	if err != nil {
 		return nil, err
 	}
 	if s.selector != nil {
-		// What the Listener's Stations served lately, for the LLM to leave out. The wait
+		// What the Listener's Stations served lately is for the LLM to leave out. The wait
 		// holds no Listener lock, so their other requests go on meanwhile.
-		served, err := s.ds.StationTrack(ctx).Since(time.Now().Add(-RepeatWindow))
+		history, err := s.history(ctx, time.Now())
 		if err != nil {
-			return nil, fmt.Errorf("loading the Station's Tracks: %w", err)
+			return nil, err
 		}
-		exclude := make([]string, len(served))
-		for i, t := range served {
-			exclude[i] = t.MediaFileID
-		}
-		if err := s.plans.awaitPicks(ctx, s.selector, r.usr.ID, r.dj, r.theme, exclude, s.startWait); err != nil {
+		if err := s.plans.awaitPicks(ctx, s.selector, r.usr.ID, r.dj, r.theme, trackIDs(history), s.startWait); err != nil {
 			return nil, err
 		}
 	}
@@ -168,15 +164,38 @@ func (s *service) Start(ctx context.Context, djID, theme string, count int) (mod
 }
 
 func (s *service) Next(ctx context.Context, djID, theme string, count int) (model.MediaFiles, error) {
-	r, err := s.checkRefill(ctx, djID, theme, count)
+	r, err := s.checkRequest(ctx, djID, theme, count)
 	if err != nil {
 		return nil, err
 	}
 	return s.next(ctx, r)
 }
 
-// next serves the checked refill.
-func (s *service) next(ctx context.Context, r refill) (model.MediaFiles, error) {
+// history returns what the Listener's Stations served since RepeatWindow before now, newest
+// first.
+func (s *service) history(ctx context.Context, now time.Time) ([]Served, error) {
+	served, err := s.ds.StationTrack(ctx).Since(now.Add(-RepeatWindow))
+	if err != nil {
+		return nil, fmt.Errorf("loading the Station's Tracks: %w", err)
+	}
+	history := make([]Served, len(served))
+	for i, t := range served {
+		history[i] = Served{TrackID: t.MediaFileID, Artist: t.Artist, At: t.ServedAt}
+	}
+	return history, nil
+}
+
+// trackIDs returns the IDs of the served Tracks.
+func trackIDs(history []Served) []string {
+	ids := make([]string, len(history))
+	for i, h := range history {
+		ids[i] = h.TrackID
+	}
+	return ids
+}
+
+// next serves the checked request.
+func (s *service) next(ctx context.Context, r tracksRequest) (model.MediaFiles, error) {
 	usr, dj, theme, count := r.usr, r.dj, r.theme, r.count
 	defer s.lock(usr.ID)()
 
@@ -185,13 +204,9 @@ func (s *service) next(ctx context.Context, r refill) (model.MediaFiles, error) 
 	if err := repo.DeleteBefore(now.Add(-RepeatWindow)); err != nil {
 		return nil, fmt.Errorf("forgetting old Station Tracks: %w", err)
 	}
-	served, err := repo.Since(now.Add(-RepeatWindow))
+	history, err := s.history(ctx, now)
 	if err != nil {
-		return nil, fmt.Errorf("loading the Station's Tracks: %w", err)
-	}
-	history := make([]Served, len(served))
-	for i, t := range served {
-		history[i] = Served{TrackID: t.MediaFileID, Artist: t.Artist, At: t.ServedAt}
+		return nil, err
 	}
 
 	skips, err := s.skips(ctx, dj, now)
@@ -228,10 +243,7 @@ func (s *service) next(ctx context.Context, r refill) (model.MediaFiles, error) 
 	}
 	logRefill(ctx, usr.UserName, dj, picked, fromPlan)
 	if s.selector != nil {
-		exclude := make([]string, 0, len(history)+len(picked))
-		for _, h := range history {
-			exclude = append(exclude, h.TrackID)
-		}
+		exclude := trackIDs(history)
 		for _, mf := range picked {
 			exclude = append(exclude, mf.ID)
 		}

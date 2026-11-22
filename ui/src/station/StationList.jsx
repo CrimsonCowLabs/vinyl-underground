@@ -29,6 +29,7 @@ import config from '../config'
 import { setPlayMode } from '../actions'
 import {
   startStation,
+  isPicking,
   stationPicking,
   stationPickingFailed,
   stopStation,
@@ -101,8 +102,13 @@ const StationList = () => {
     setDeleting(null)
     httpClient(`${REST_URL}/station/dj/${dj.id}`, { method: 'DELETE' })
       .then(() => {
-        // Its Station can't refill any more; what's queued plays out.
+        // Its Station can't refill any more; what's queued plays out. One
+        // still starting won't start.
         if (onAir === dj.id) dispatch(stopStation())
+        const { picking } = store.getState().station
+        if (picking?.djId === dj.id) {
+          dispatch(stationPickingFailed(picking.token))
+        }
       })
       .catch((err) => notify(stationErrorKey(err), { type: 'warning' }))
       .finally(loadDJs)
@@ -111,17 +117,18 @@ const StationList = () => {
   const start = (dj) => {
     const theme = config.enableStationThemes ? stationTheme.trim() : ''
     // With an LLM, the server may wait up to a minute for the DJ's first picks.
-    dispatch(stationPicking(dj))
+    const { token } = dispatch(stationPicking(dj))
     fetchStationTracks(dj.id, START_COUNT, theme, true)
       .then((tracks) => {
         // The Listener may have played something else meanwhile.
-        if (store.getState().station?.picking?.djId !== dj.id) return
+        if (!isPicking(store.getState(), token)) return
         // Shuffle or repeat would replay Tracks and break the DJ's order.
         dispatch(setPlayMode('order'))
         dispatch(startStation(dj.id, tracks, theme))
       })
       .catch((err) => {
-        dispatch(stationPickingFailed())
+        if (!isPicking(store.getState(), token)) return
+        dispatch(stationPickingFailed(token))
         notify(stationErrorKey(err), { type: 'warning' })
       })
   }

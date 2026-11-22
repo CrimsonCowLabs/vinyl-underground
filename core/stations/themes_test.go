@@ -441,7 +441,8 @@ var _ = Describe("Starting a Station with an LLM", Ordered, func() {
 		}
 		sel = &fakeSelector{pick: func(string) model.MediaFiles { return nil }}
 		svc = stations.New(ds, sel, nil)
-		stations.SetStartWait(svc, 300*time.Millisecond)
+		// Long enough that a start which waits never looks like one that starts at once.
+		stations.SetStartWait(svc, 10*time.Second)
 		DeferCleanup(func() { stations.WaitForSelection(svc) })
 		for _, table := range []string{"library_tag", "tag"} {
 			_, err := db.Db().Exec("delete from " + table)
@@ -483,7 +484,8 @@ var _ = Describe("Starting a Station with an LLM", Ordered, func() {
 		sel.release = make(chan struct{})
 
 		var tracks model.MediaFiles
-		Eventually(start("night-owl", 5), time.Second).Should(Receive(&tracks))
+		stations.SetStartWait(svc, 300*time.Millisecond)
+		Eventually(start("night-owl", 5), 3*time.Second).Should(Receive(&tracks))
 		Expect(tracks).To(HaveLen(5))
 		Expect(ids(tracks)).To(HaveEach(BeElementOf(jazz)))
 
@@ -504,7 +506,7 @@ var _ = Describe("Starting a Station with an LLM", Ordered, func() {
 		DeferCleanup(func() { close(sel.release) })
 
 		var tracks model.MediaFiles
-		Eventually(start("night-owl", 5), 100*time.Millisecond).Should(Receive(&tracks))
+		Eventually(start("night-owl", 5), 2*time.Second).Should(Receive(&tracks))
 		Expect(ids(tracks)).To(Equal(ids(owl[3:8])))
 	})
 
@@ -517,7 +519,7 @@ var _ = Describe("Starting a Station with an LLM", Ordered, func() {
 		sel.release = make(chan struct{})
 		DeferCleanup(func() { close(sel.release) })
 		var tracks model.MediaFiles
-		Eventually(start("night-owl", 5), 100*time.Millisecond).Should(Receive(&tracks))
+		Eventually(start("night-owl", 5), 2*time.Second).Should(Receive(&tracks))
 		Expect(ids(tracks)).To(HaveEach(BeElementOf(jazz)))
 		Expect(sel.asked()).To(HaveLen(1))
 	})
@@ -527,7 +529,7 @@ var _ = Describe("Starting a Station with an LLM", Ordered, func() {
 		stations.SetStartWait(svc, time.Hour)
 
 		var tracks model.MediaFiles
-		Eventually(start("night-owl", 5), 100*time.Millisecond).Should(Receive(&tracks))
+		Eventually(start("night-owl", 5), 2*time.Second).Should(Receive(&tracks))
 		Expect(tracks).To(HaveLen(5))
 		Expect(ids(tracks)).To(HaveEach(BeElementOf(jazz)))
 	})

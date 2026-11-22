@@ -138,7 +138,7 @@ describe('StationList', () => {
     expect(screen.getByText('resources.station.onAir')).toBeInTheDocument()
   })
 
-  it('says the DJ is picking the first songs until the Station starts', async () => {
+  it('says the DJ is picking the first Tracks until the Station starts', async () => {
     let answer
     serveDJs(djs, {
       'POST /next': () =>
@@ -159,7 +159,7 @@ describe('StationList', () => {
       await screen.findByText('resources.station.picking'),
     ).toBeInTheDocument()
     expect(screen.getByRole('progressbar')).toBeInTheDocument()
-    expect(store.getState().station.picking).toEqual({
+    expect(store.getState().station.picking).toMatchObject({
       djId: 'night-owl',
       djName: 'Night Owl',
     })
@@ -205,6 +205,45 @@ describe('StationList', () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(store.getState().station.djId).toBeNull()
     expect(store.getState().player.queue.map((i) => i.trackId)).toEqual(['x'])
+  })
+
+  it("starts the Station started last, whatever an earlier start's answer", async () => {
+    const answers = []
+    serveDJs(djs, {
+      'POST /next': () =>
+        new Promise((resolve, reject) => answers.push({ resolve, reject })),
+    })
+    const store = renderPage()
+    await screen.findByText('Night Owl')
+    const startDJ = (name) =>
+      fireEvent.click(
+        screen.getByRole('button', {
+          name: `resources.station.actions.start ${name}`,
+        }),
+      )
+
+    startDJ('Night Owl')
+    await screen.findByText('resources.station.picking')
+    act(() => {
+      store.dispatch(playTracks({ x: { id: 'x', title: 'X' } }))
+    })
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', {
+          name: 'resources.station.actions.start Sunny',
+        }),
+      ).toBeEnabled(),
+    )
+    startDJ('Sunny')
+    await waitFor(() => expect(answers).toHaveLength(2))
+
+    answers[0].reject(httpError(504, 'timeout'))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(store.getState().station.picking?.djId).toBe('sunny')
+    answers[1].resolve({ json: { tracks: firstTracks } })
+
+    await waitFor(() => expect(store.getState().station.djId).toBe('sunny'))
+    expect(notify).not.toHaveBeenCalled()
   })
 
   it('hides the Theme field when no LLM is configured', async () => {

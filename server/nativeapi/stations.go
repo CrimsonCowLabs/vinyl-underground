@@ -141,6 +141,9 @@ func nextStationTracks(svc stations.Service) http.HandlerFunc {
 		}
 		tracks, err := next(r.Context(), body.DJ, body.Theme, body.Count)
 		switch {
+		case r.Context().Err() != nil:
+			// The Listener left while their Station was starting; there's no one to answer.
+			log.Debug(r.Context(), "Station start abandoned", err)
 		case err == nil:
 			writeStationJSON(w, r, map[string]any{"tracks": tracks})
 		case errors.Is(err, stations.ErrUnknownDJ):

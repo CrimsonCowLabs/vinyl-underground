@@ -30,15 +30,28 @@ export const STATION_PICKING = 'STATION_PICKING'
 export const STATION_PICKING_FAILED = 'STATION_PICKING_FAILED'
 
 // stationPicking says a Station with the DJ is starting: with an LLM, the
-// server may take up to a minute picking its first songs.
+// server may take up to a minute picking its first Tracks.
+// Each start gets its own token, so the answer to a start given up on (the
+// Listener played something else, then started again) is never taken for a
+// later start's.
+let starts = 0
 export const stationPicking = (dj) => ({
   type: STATION_PICKING,
   djId: dj.id,
   djName: dj.name,
+  token: ++starts,
 })
 
-// stationPickingFailed says the Station starting couldn't.
-export const stationPickingFailed = () => ({ type: STATION_PICKING_FAILED })
+// stationPickingFailed says the start with the token couldn't, or that the
+// Listener gave up on it.
+export const stationPickingFailed = (token) => ({
+  type: STATION_PICKING_FAILED,
+  token,
+})
+
+// isPicking reports whether the start with the token is still under way.
+export const isPicking = (state, token) =>
+  state.station?.picking?.token === token
 
 // stopStation takes the DJ off air, as when the Listener deletes it, leaving
 // the queued Tracks to play out without refills.
@@ -49,8 +62,8 @@ export const addStationTracks = (tracks) => addTracks(toQueueData(tracks))
 
 // The Station on air, if any. Playing anything else ends it. Each start gets a
 // new session, so a refill asked for by an earlier Station is never queued in
-// a later one, even with the same DJ. picking is the DJ ({djId, djName}) of a
-// Station starting, while its first songs are picked. Playing anything else
+// a later one, even with the same DJ. picking is the DJ ({djId, djName}) and
+// token of a Station starting, while its first Tracks are picked. Playing anything else
 // meanwhile gives up that start.
 export const stationReducer = (
   state = { djId: null, theme: '', session: 0, picking: null },
@@ -60,10 +73,16 @@ export const stationReducer = (
     case STATION_PICKING:
       return {
         ...state,
-        picking: { djId: action.djId, djName: action.djName },
+        picking: {
+          djId: action.djId,
+          djName: action.djName,
+          token: action.token,
+        },
       }
     case STATION_PICKING_FAILED:
-      return { ...state, picking: null }
+      return state.picking?.token === action.token
+        ? { ...state, picking: null }
+        : state
     case PLAYER_PLAY_TRACKS:
       return action.station
         ? {

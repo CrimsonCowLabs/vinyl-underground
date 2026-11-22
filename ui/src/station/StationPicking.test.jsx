@@ -44,7 +44,7 @@ describe('StationPicking', () => {
     ).not.toBeInTheDocument()
   })
 
-  it("shows the DJ's name and a spinner while the DJ picks the first songs", () => {
+  it("shows the DJ's name and a spinner while the DJ picks the first Tracks", () => {
     act(() => {
       store.dispatch(stationPicking(nightOwl))
     })
@@ -68,8 +68,8 @@ describe('StationPicking', () => {
 
   it("goes if the Station couldn't start", () => {
     act(() => {
-      store.dispatch(stationPicking(nightOwl))
-      store.dispatch(stationPickingFailed())
+      const { token } = store.dispatch(stationPicking(nightOwl))
+      store.dispatch(stationPickingFailed(token))
     })
 
     expect(
