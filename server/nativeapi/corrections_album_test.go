@@ -63,6 +63,14 @@ var _ = Describe("Album Correction API", func() {
 		Expect(got).To(HaveKeyWithValue("done", true))
 	})
 
+	It("passes on the MusicBrainz release picked with Find on MusicBrainz", func() {
+		picked := map[string]any{"albumId": "al-1", "name": "Record", "albumArtist": "Band", "year": 1999,
+			"mbzAlbumId": "rel-1", "mbzReleaseGroupId": "rg-1", "mbzRelease": "Record (GB, CD, 1999)"}
+		Expect(post(adminToken, picked).Code).To(Equal(http.StatusOK))
+		Expect(svc.fixes).To(Equal([]corrections.AlbumFix{{Name: "Record", AlbumArtist: "Band", Year: 1999,
+			MbzAlbumID: "rel-1", MbzReleaseGroupID: "rg-1", MbzRelease: "Record (GB, CD, 1999)"}}))
+	})
+
 	It("refuses an album sharing its folder with another album", func() {
 		svc.err = corrections.ErrSharedFolder
 		w := post(adminToken, body)

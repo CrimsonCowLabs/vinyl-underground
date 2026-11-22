@@ -121,6 +121,19 @@
           "unknown": "Could not save the Correction. Try again later."
         }
       },
+      "musicbrainz": {
+        "find": "Find on MusicBrainz",
+        "picked": "MusicBrainz release: %{release}. Saving brings in its cover and info.",
+        "clear": "Remove",
+        "noResults": "MusicBrainz has no release with this album artist and title.",
+        "errors": {
+          "busy": "MusicBrainz is busy. Try again in a minute; the other edits can still be saved.",
+          "unavailable": "Couldn't reach MusicBrainz. The other edits can still be saved.",
+          "disabled": "External services are turned off, so MusicBrainz can't be searched.",
+          "invalid": "Enter a title to search for.",
+          "unknown": "Couldn't search MusicBrainz. The other edits can still be saved."
+        }
+      },
       "lists": {
         "all": "All",
         "random": "Random",

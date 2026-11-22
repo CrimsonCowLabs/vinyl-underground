@@ -193,4 +193,56 @@ var _ = Describe("Client", func() {
 			Expect(reqs[0].Header.Get("User-Agent")).To(HavePrefix("VinylUnderground/"))
 		})
 	})
+	Describe("SearchReleases", func() {
+		const releaseSearchJSON = `{"count": 2, "releases": [
+		  {"id": "rel-1", "score": 100, "title": "Record", "status": "Official", "date": "1999-05-01", "country": "GB",
+		   "artist-credit": [{"name": "Band", "artist": {"id": "a-1", "name": "Band"}}],
+		   "release-group": {"id": "rg-1", "title": "Record", "primary-type": "Album"},
+		   "media": [{"format": "CD", "track-count": 10}]},
+		  {"id": "rel-2", "score": 90, "title": "Record", "date": "2009", "country": "US",
+		   "artist-credit": [{"name": "Band", "artist": {"id": "a-1", "name": "Band"}}],
+		   "release-group": {"id": "rg-1", "title": "Record", "primary-type": "Album"},
+		   "media": [{"format": "12\" Vinyl"}, {"format": "12\" Vinyl"}]}]}`
+
+		BeforeEach(func() {
+			for range 3 {
+				replies = append(replies, func(w http.ResponseWriter) { _, _ = w.Write([]byte(releaseSearchJSON)) })
+			}
+		})
+
+		It("searches releases by album artist and title, quoting both, best first", func() {
+			rels, err := client.SearchReleases(context.Background(), `Band "X"`, "Record")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(rels).To(HaveLen(2))
+			Expect(rels[0].ID).To(Equal("rel-1"))
+			Expect(rels[0].Score).To(Equal(100))
+			Expect(rels[0].ReleaseGroup.ID).To(Equal("rg-1"))
+			Expect(rels[0].ArtistCredit.String()).To(Equal("Band"))
+			Expect(rels[0].Country).To(Equal("GB"))
+			Expect(rels[0].Formats()).To(Equal("CD"))
+			Expect(rels[1].Formats()).To(Equal(`2×12" Vinyl`))
+
+			reqs := served()
+			Expect(reqs).To(HaveLen(1))
+			Expect(reqs[0].URL.Path).To(Equal("/ws/2/release"))
+			Expect(reqs[0].URL.Query().Get("query")).To(Equal(`release:"Record" AND artist:"Band \"X\""`))
+			Expect(reqs[0].URL.Query().Get("limit")).To(Equal("25"))
+			Expect(reqs[0].Header.Get("User-Agent")).To(MatchRegexp(`^VinylUnderground/\S+ \( https://github\.com/CrimsonCowLabs/vinyl-underground \)$`))
+		})
+
+		It("sends searches at most one a second", func() {
+			for _, title := range []string{"Record", "Other", "Third"} {
+				_, err := client.SearchReleases(context.Background(), "Band", title)
+				Expect(err).ToNot(HaveOccurred())
+			}
+			Expect(served()).To(HaveLen(3))
+			Expect(clock.Waits()).To(Equal([]time.Duration{time.Second, time.Second}))
+		})
+
+		It("searches by title alone when the album has no album artist", func() {
+			_, err := client.SearchReleases(context.Background(), " ", "Record")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(served()[0].URL.Query().Get("query")).To(Equal(`release:"Record"`))
+		})
+	})
 })

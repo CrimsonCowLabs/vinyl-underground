@@ -136,13 +136,16 @@ var _ = Describe("CorrectionRepository", func() {
 
 		It("keeps what an album Correction sets", func() {
 			c := &model.Correction{Kind: model.CorrectionAlbum, MatchKey: "album-folder", From: "Band – Recrod",
-				To: "The Band – Record (1999)", AlbumName: "Record", AlbumArtist: "The Band", Year: 1999}
+				To: "The Band – Record (1999)", AlbumName: "Record", AlbumArtist: "The Band", Year: 1999,
+				MbzAlbumID: "rel-1", MbzReleaseGroupID: "rg-1"}
 			Expect(repo.Add(c)).To(Succeed())
 			got, err := repo.GetByMatchKey(model.CorrectionAlbum, "album-folder")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(got.AlbumName).To(Equal("Record"))
 			Expect(got.AlbumArtist).To(Equal("The Band"))
 			Expect(got.Year).To(Equal(1999))
+			Expect(got.MbzAlbumID).To(Equal("rel-1"))
+			Expect(got.MbzReleaseGroupID).To(Equal("rg-1"))
 		})
 
 		It("returns the folders an album Correction matches: its own and those of the albums in it", func() {

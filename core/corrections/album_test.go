@@ -135,6 +135,80 @@ var _ = Describe("CorrectAlbum", func() {
 		Expect(err).To(MatchError(corrections.ErrRenamedAway))
 	})
 
+	Describe("MusicBrainz release (Find on MusicBrainz)", func() {
+		const release, group = "8a7f5c4e-0d5b-4f1e-9d3c-3b2a1f0e9d8c", "1b2c3d4e-5f60-4718-9a0b-c1d2e3f40516"
+		picked := corrections.AlbumFix{Name: "Recrod", AlbumArtist: "Band", Year: 1998,
+			MbzAlbumID: release, MbzReleaseGroupID: group, MbzRelease: "Record (GB, CD, 1999)"}
+
+		It("saves the release and release group IDs alone, and rescans and refreshes the album", func() {
+			refresher.onScan = rekeyTracks("al-mbz")
+			res, err := svc.CorrectAlbum(ctx, al.ID, picked)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(res.AlbumID).To(Equal("al-mbz"))
+			Expect(res.Correction.From).To(Equal("Band – Recrod (1998)"))
+			Expect(res.Correction.To).To(Equal("Band – Recrod (1998) · MusicBrainz: Record (GB, CD, 1999)"))
+			Expect(refresher.scanned()).To(Equal([][]model.ScanTarget{targets}))
+
+			got, err := ds.Correction(ctx).GetByMatchKey(model.CorrectionAlbum, key())
+			Expect(err).ToNot(HaveOccurred())
+			Expect(got.MbzAlbumID).To(Equal(release))
+			Expect(got.MbzReleaseGroupID).To(Equal(group))
+			Expect(got.AlbumName).To(BeEmpty())
+			Expect(got.Year).To(BeZero())
+		})
+
+		It("saves it along with a corrected title", func() {
+			fix := picked
+			fix.Name = "Record"
+			res, err := svc.CorrectAlbum(ctx, al.ID, fix)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(res.Correction.To).To(Equal("Band – Record (1998) · MusicBrainz: Record (GB, CD, 1999)"))
+			Expect(res.Correction.AlbumName).To(Equal("Record"))
+			Expect(res.Correction.MbzAlbumID).To(Equal(release))
+		})
+
+		It("keeps the release when the album is edited again without picking one", func() {
+			_, err := svc.CorrectAlbum(ctx, al.ID, picked)
+			Expect(err).ToNot(HaveOccurred())
+			al.MbzAlbumID, al.MbzReleaseGroupID = release, group // as the rescan reads it now
+			Expect(ds.Album(ctx).Put(&al)).To(Succeed())
+
+			res, err := svc.CorrectAlbum(ctx, al.ID, corrections.AlbumFix{Name: "Record", AlbumArtist: "Band", Year: 1998})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(res.Correction.MbzAlbumID).To(Equal(release))
+			Expect(res.Correction.MbzReleaseGroupID).To(Equal(group))
+			Expect(res.Correction.To).To(Equal("Band – Record (1998) · MusicBrainz: Record (GB, CD, 1999)"))
+		})
+
+		It("replaces a release picked before", func() {
+			_, err := svc.CorrectAlbum(ctx, al.ID, picked)
+			Expect(err).ToNot(HaveOccurred())
+			other := picked
+			other.MbzAlbumID, other.MbzRelease = "00000000-0000-4000-8000-000000000001", "Record (US, 12\" Vinyl, 1999)"
+			res, err := svc.CorrectAlbum(ctx, al.ID, other)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(res.Correction.MbzAlbumID).To(Equal("00000000-0000-4000-8000-000000000001"))
+			Expect(res.Correction.To).To(HaveSuffix(`MusicBrainz: Record (US, 12" Vinyl, 1999)`))
+		})
+
+		It("rejects the release the album is already tagged with, and IDs that are no MusicBrainz IDs", func() {
+			al.MbzAlbumID, al.MbzReleaseGroupID = release, group
+			Expect(ds.Album(ctx).Put(&al)).To(Succeed())
+			_, err := svc.CorrectAlbum(ctx, al.ID, picked)
+			Expect(err).To(MatchError(ContainSubstring("nothing changed")))
+
+			for _, bad := range []corrections.AlbumFix{
+				{Name: "Recrod", AlbumArtist: "Band", MbzAlbumID: "not-an-id"},
+				{Name: "Recrod", AlbumArtist: "Band", MbzAlbumID: release, MbzReleaseGroupID: "nope"},
+				{Name: "Recrod", AlbumArtist: "Band", MbzReleaseGroupID: group},
+			} {
+				_, err := svc.CorrectAlbum(ctx, al.ID, bad)
+				Expect(err).To(MatchError(model.ErrValidation), "%+v", bad)
+			}
+			Expect(refresher.scanned()).To(BeEmpty())
+		})
+	})
+
 	Describe("Undo", func() {
 		var cr model.Correction
 

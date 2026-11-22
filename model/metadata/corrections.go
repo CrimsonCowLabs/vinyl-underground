@@ -77,6 +77,15 @@ func (c Corrections) correctAlbum(md Metadata, folderID string) (corrected Metad
 	if cr.Year > 0 {
 		correctYear(tags, cr.Year)
 	}
+	// The release and its release group, which key the album (the default album PID) and lead
+	// to its Cover Art Archive cover and its info. The Track's own MusicBrainz IDs and the album
+	// artist's stay as tagged.
+	if cr.MbzAlbumID != "" {
+		tags[model.TagMusicBrainzAlbumID] = []string{cr.MbzAlbumID}
+	}
+	if cr.MbzReleaseGroupID != "" {
+		tags[model.TagMusicBrainzReleaseGroupID] = []string{cr.MbzReleaseGroupID}
+	}
 	md.tags = tags
 	return md, cr.ID, true
 }
