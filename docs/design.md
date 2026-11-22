@@ -169,19 +169,20 @@ A better player and a look of our own, built into the existing web UI ([ADR-0003
 - Improve our own web UI rather than adopt a Subsonic client. Vibrdrome (an MIT Subsonic client) is inspiration only: a Subsonic client never shows Stations, Blurbs, Generated Playlists or our Downloads.
 - The player stays `navidrome-music-player` 4.25.4 (Navidrome's fork of react-jinke-music-player), which is built around one audio element. Our views sit on top of it; it keeps doing playback and the queue.
 - Order of work: Now Playing, then the equalizer, then visuals, then the look.
-- A prototype (#88) settles the look and the Now Playing layout on a real phone and desktop before they are built.
+- A prototype (#88, in `prototypes/ui-refresh/`) settled the look and the Now Playing layout on a real phone and desktop; its decisions are below.
 - Gapless playback and crossfade are deferred: both need two audio elements ([ADR-0009](./adr/0009-defer-gapless-playback-and-crossfade.md)).
 
 **Now Playing** (#90, #91, #92)
 - The inherited panel showing what other Listeners are playing is renamed **Who's Listening** (#89), freeing the name.
 - Phone: tapping the mini player opens Now Playing full screen, in place of the player package's own mobile panel. A down gesture, a button, Esc or back closes it; playback carries on.
 - Desktop: the cover in the player bar (or an expand button) opens a side panel docked on the right, fixed at about 400px and not resizable. It pushes the page content over rather than covering it, stays open as the Listener navigates, and whether it was open is remembered per device. Below about 1000px wide it falls back to full screen.
-- Content: large album art; title, artist and album, each a link; seek bar with elapsed and remaining time; previous, play/pause and next; star and rating.
+- Content: large album art; title, artist and album, each a link; seek bar with elapsed and remaining time; previous, play/pause and next; star and rating. The Star toggle is drawn as a star (filled when starred, outlined when not), not the heart the inherited `LoveButton` draws.
+- Art: on Art, the cover sits on a record that slides partly out of its sleeve.
 - Toolbar: Lyrics, Queue, EQ, Visuals, Sleep timer and Speed. A slot whose feature isn't built yet is hidden.
 - The art area has **Art · Lyrics · Queue** tabs (Art becomes Art/Visuals once visuals land). The selected tab is remembered per device. On desktop, the player package's own queue pop-up is hidden.
 - Lyrics: synced lyrics highlight the current line, and tapping a line seeks to it. Unsynced lyrics are shown as plain scrollable text instead of being dropped.
 - Queue: tap to play, drag to reorder, remove.
-- On a Station: the DJ's name and the latest Blurb (when Blurbs are enabled), updating as Tracks change.
+- On a Station: the DJ's name and the latest Blurb (when Blurbs are enabled) in a card under the title and rating, updating as Tracks change.
 - A Download plays and shows the same way offline.
 
 **Sleep timer and playback speed** (#93)
@@ -200,13 +201,30 @@ A better player and a look of our own, built into the existing web UI ([ADR-0003
 - A photosensitivity warning the first time visuals are turned on, and a setting that turns them off entirely. They stop drawing when hidden or in the background.
 
 **The look** (#98, #99, #100, #101)
-- A new **Vinyl Underground** colour theme (not a Station's Theme), dark and light: warm record-shop, near-black and warm-grey surfaces, one strong accent. It is the default, and "Auto" maps to it, following the system's light or dark mode. The 27 inherited colour themes are kept, and a Listener who picked one keeps it.
+- A new **Vinyl Underground** colour theme (not a Station's Theme), dark and light: a cool Slate dark and a warm cream light, a faint grain, and one strong accent (Teal by default). It is the default, and "Auto" maps to it, following the system's light or dark mode. The 27 inherited colour themes are kept, and a Listener who picked one keeps it.
 - Accents: about 8 fixed colours plus "From album art", which colours Now Playing and the mini player from the current cover, adjusted to stay readable. Only offered with the Vinyl Underground theme.
 - The mini player is restyled: cover, title and artist, play/pause and next, a thin progress line, and a hint of the DJ's name on a Station. Tapping it opens Now Playing.
 - Phones get a bottom tab bar in place of the side drawer: **Library · Playlists · Stations · Downloads · More**, with the mini player just above it. "More" holds Generated Playlists, the Inbox and Rips, settings and the admin pages. Desktop keeps its sidebar.
 
 **Palette** (from the prototype, #88)
-- To be decided: the palette values (dark and light) and the fixed accents are settled by the prototype in #88 and recorded here.
+- Values are CSS custom properties in the prototype, each mapped to an MUI v4 theme key; its README has the full tables and contrast ratios. Body and secondary text and every accent pass WCAG AA (4.5:1); disabled text is for large text and marks only (3:1).
+
+| Role | MUI v4 key | Dark (Slate) | Light (cream) |
+|---|---|---|---|
+| Background | `palette.background.default`, theme-color | `#0F1216` | `#F3EDE4` |
+| Paper (tab bar, player bar, sheets) | `palette.background.paper` | `#161A1F` | `#FBF8F3` |
+| Surface 2 (mini player, chips, DJ card) | custom | `#1F242B` | `#E9E1D5` |
+| Surface 3 (selected tab pill, slider track) | custom | `#2A3038` | `#FFFFFF` |
+| Divider | `palette.divider` | `#2E343C` | `#D6CBBC` |
+| Text | `palette.text.primary` | `#E8ECF1` | `#1E1915` |
+| Secondary text | `palette.text.secondary` | `#9AA4B0` | `#5E5247` |
+| Disabled text | `palette.text.disabled` | `#6B7480` | `#7E7163` |
+
+- Dark is Slate, a cool blue-grey, chosen in review over the prototype's first warm brown (also tried: neutral Graphite, true-black Ink). Light stays warm cream.
+- Accents (`palette.primary.main`), dark / light: **Teal `#3EC1B0` / `#086A5F` (default)**, Vermilion `#FF5B2E` / `#B0300F`, Amber `#FF9A1F` / `#934E00`, Mustard `#E2B53A` / `#765A00`, Olive `#9DBB4E` / `#4A6510`, Denim `#6FA3F0` / `#2F5DB0`, Plum `#C08BF0` / `#7A3FB0`, Rose `#FF6F91` / `#B42851`. Text on an accent is `#0F1216` in dark and `#FFFFFF` in light.
+- "From album art" keeps the cover colour's hue, raises its saturation to at least 45%, and steps its lightness until it reaches 4.5:1 against the background and Surface 2. It fades over 0.7 s between Tracks, and a grey cover falls back to the default accent.
+- Grain: a 180px SVG noise tile at 7% (dark) and 8% (light) on the page background.
+- Shape: 12px radius for cards, sheets and the mini player; 6px for covers; fully round for chips, tabs and the play button. Type: the system font stack, then Roboto.
 
 **Settings are per device**
 - Like the colour theme and the existing player settings, the new ones are kept per device in `localStorage`: the panel's open state, the selected tab, speed, the equalizer and its custom presets, the chosen visual, the accent and the Audio effects switch. Nothing new is stored on the server.
