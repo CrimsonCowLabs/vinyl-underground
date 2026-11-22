@@ -17,14 +17,17 @@ import (
 	"github.com/navidrome/navidrome/core/corrections"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
+	"github.com/navidrome/navidrome/server"
 )
 
 // addAlbumCoverRoute serves the cover picker (admin only, see routes): each source's candidates
 // for an album, and their previews. Choosing one is a Correction (POST /correction/albumCover).
+// The UI fetches previews with the Authorization header and shows them from blob URLs, so a
+// preview URL never carries the login token, and one that does is refused.
 func (api *Router) addAlbumCoverRoute(r chi.Router) {
 	r.Route("/albumCover/{albumId}/candidates", func(r chi.Router) {
 		r.Get("/", api.listCoverCandidates)
-		r.Get("/{candidateId}/preview", api.previewCoverCandidate)
+		r.With(server.NoTokenInURL).Get("/{candidateId}/preview", api.previewCoverCandidate)
 	})
 }
 

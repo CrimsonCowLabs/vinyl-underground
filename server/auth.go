@@ -187,6 +187,21 @@ func JWTVerifier(next http.Handler) http.Handler {
 	return jwtauth.Verify(auth.TokenAuth, tokenFromHeader, jwtauth.TokenFromCookie, jwtauth.TokenFromQuery)(next)
 }
 
+// NoTokenInURL refuses a request whose URL carries the login token (`?jwt=`), which
+// JWTVerifier would otherwise accept: a URL can end up in proxy logs, browser history or a
+// referrer. It's for routes the UI only calls with the Authorization header (the cover picker's
+// previews); the event stream and others still take the token from the URL.
+func NoTokenInURL(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Has("jwt") {
+			log.Warn(r.Context(), "Refused a request with the login token in its URL", "path", r.URL.Path)
+			http.Error(w, "Authorization header required, not a token in the URL", http.StatusUnauthorized)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 func tokenFromHeader(r *http.Request) string {
 	// Get token from authorization header.
 	bearer := r.Header.Get(consts.UIAuthorizationHeader)

@@ -22,11 +22,10 @@ import {
 } from '@material-ui/core'
 import { makeStyles } from '@material-ui/core/styles'
 import BlockIcon from '@material-ui/icons/Block'
+import BrokenImageIcon from '@material-ui/icons/BrokenImage'
 import CloudUploadIcon from '@material-ui/icons/CloudUpload'
 import ImageSearchIcon from '@material-ui/icons/ImageSearch'
-import { REST_URL } from '../consts'
 import subsonic from '../subsonic'
-import { baseUrl } from '../utils'
 
 const useStyles = makeStyles((theme) => ({
   section: { marginTop: theme.spacing(2) },
@@ -52,6 +51,11 @@ const useStyles = makeStyles((theme) => ({
     objectFit: 'cover',
     borderRadius: 6,
     background: theme.palette.action.hover,
+  },
+  placeholder: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   label: { marginTop: theme.spacing(0.5), fontWeight: 500 },
   note: { color: theme.palette.text.secondary },
@@ -83,14 +87,34 @@ const sourcesFor = (record) =>
     ? ['local', 'external', 'coverartarchive']
     : ['local', 'external']
 
-// An <img> can't send the Authorization header, so the preview carries the token, as the event
-// stream does.
-const coverPreviewUrl = (albumId, candidateId) => {
-  const url = baseUrl(
-    `${REST_URL}/albumCover/${albumId}/candidates/${candidateId}/preview`,
-  )
-  const token = localStorage.getItem('token')
-  return token ? `${url}?jwt=${token}` : url
+// A candidate's preview, as a blob URL, or { loading } or { failed }. An <img> can't send the
+// Authorization header, so the preview is fetched with it, and never with the login token in its
+// URL (the server refuses that). Each tile fetches its own, so a slow one never holds the others
+// up. The blob URL is revoked, and a fetch under way cancelled, when the tile goes: when the
+// picker closes or the candidates change.
+const useCoverPreview = (albumId, candidateId) => {
+  const dataProvider = useDataProvider()
+  const [preview, setPreview] = useState({ loading: true })
+
+  useEffect(() => {
+    const controller = new AbortController()
+    let url = null
+    setPreview({ loading: true })
+    dataProvider
+      .getCoverPreview(albumId, candidateId, { signal: controller.signal })
+      .then((blob) => {
+        if (controller.signal.aborted) return
+        url = URL.createObjectURL(blob)
+        setPreview({ url })
+      })
+      .catch(() => !controller.signal.aborted && setPreview({ failed: true }))
+    return () => {
+      controller.abort()
+      if (url) URL.revokeObjectURL(url)
+    }
+  }, [dataProvider, albumId, candidateId])
+
+  return preview
 }
 
 const knownErrors = [
@@ -170,18 +194,32 @@ const CandidateTile = ({ albumId, candidate, selected, onSelect }) => {
     `resources.album.coverPicker.candidateSources.${candidate.source}`,
     { _: candidate.source },
   )
+  const preview = useCoverPreview(albumId, candidate.id)
   return (
     <ButtonBase
       className={`${classes.tile} ${selected ? classes.selected : ''}`}
       onClick={() => onSelect(candidate.id)}
       aria-pressed={selected}
     >
-      <img
-        className={classes.image}
-        src={coverPreviewUrl(albumId, candidate.id)}
-        alt={candidate.label}
-        loading="lazy"
-      />
+      {preview.url ? (
+        <img
+          className={classes.image}
+          src={preview.url}
+          alt={candidate.label}
+        />
+      ) : (
+        <div
+          className={`${classes.image} ${classes.placeholder}`}
+          role="img"
+          aria-label={candidate.label}
+        >
+          {preview.loading ? (
+            <CircularProgress size={20} />
+          ) : (
+            <BrokenImageIcon color="disabled" />
+          )}
+        </div>
+      )}
       <Typography variant="body2" className={classes.label}>
         {candidate.label}
       </Typography>

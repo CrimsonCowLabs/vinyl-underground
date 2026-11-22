@@ -1,5 +1,5 @@
 import jsonServerProvider from 'ra-data-json-server'
-import httpClient from './httpClient'
+import httpClient, { fetchImage } from './httpClient'
 import { REST_URL } from '../consts'
 
 const dataProvider = jsonServerProvider(REST_URL, httpClient)
@@ -260,6 +260,13 @@ const wrapperDataProvider = {
     httpClient(
       `${REST_URL}/albumCover/${albumId}/candidates?source=${encodeURIComponent(source)}`,
     ).then(({ json }) => ({ data: json })),
+  // A candidate's preview, as a Blob, fetched with the Authorization header: never an <img> URL,
+  // which would have to carry the login token. Cancelled through signal.
+  getCoverPreview: (albumId, candidateId, { signal } = {}) =>
+    fetchImage(
+      `${REST_URL}/albumCover/${albumId}/candidates/${candidateId}/preview`,
+      { signal },
+    ),
   chooseAlbumCover: (albumId, candidateId) =>
     httpClient(`${REST_URL}/correction/albumCover`, {
       method: 'POST',
