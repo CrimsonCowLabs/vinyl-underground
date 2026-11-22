@@ -135,7 +135,13 @@
         "failed": "Couldn't reach this source",
         "partial": "Some covers couldn't be loaded",
         "use": "Use this cover",
-        "chosen": "Cover chosen. It shows once it has been processed"
+        "chosen": "Cover chosen. It shows once it has been processed",
+        "current": "Current cover",
+        "markWrong": "Mark wrong",
+        "markedWrong": "Cover marked wrong. The album uses the next cover once it has been processed",
+        "upload": "Upload a cover image",
+        "uploadButton": "Upload",
+        "uploaded": "Cover uploaded. It shows once it has been processed"
       }
     },
     "artist": {
@@ -413,7 +419,8 @@
       "kinds": {
         "artistRename": "Artist rename",
         "artistMerge": "Artist merge",
-        "albumCover": "Album cover"
+        "albumCover": "Album cover",
+        "albumCoverBlock": "Cover marked wrong"
       },
       "status": {
         "tracks": "1 Track |||| %{smart_count} Tracks",
@@ -426,7 +433,8 @@
       "message": {
         "undoTitle": "Undo Correction",
         "undoContent": "Undo \"%{from} → %{to}\"? The original names come back once the affected folders are rescanned.",
-        "undoContentAlbumCover": "Undo the cover choice for \"%{from}\"? The album goes back to its usual cover."
+        "undoContentAlbumCover": "Undo the cover choice for \"%{from}\"? The album goes back to its usual cover.",
+        "undoContentAlbumCoverBlock": "Stop blocking \"%{to}\" for \"%{from}\"? The album may show that image again."
       },
       "notifications": {
         "undone": "Correction undone",
@@ -441,7 +449,11 @@
         "notFound": "This Artist no longer exists.",
         "unknown": "Could not save the rename. Try again later.",
         "unavailable": "Couldn't fetch that cover. Try again, or choose another.",
-        "coverNotFound": "That cover is no longer on offer. Close the picker and open it again."
+        "coverNotFound": "That cover is no longer on offer. Close the picker and open it again.",
+        "coverChanged": "The album's cover has changed since. Reload the page and try again.",
+        "tooLarge": "That image is too large.",
+        "invalidImage": "That file isn't an image this server can read.",
+        "albumNotFound": "This album no longer exists."
       }
     },
     "library": {

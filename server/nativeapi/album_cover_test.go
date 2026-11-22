@@ -5,7 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"image"
+	"image/png"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,6 +17,7 @@ import (
 	"github.com/navidrome/navidrome/conf/configtest"
 	"github.com/navidrome/navidrome/core/artwork"
 	"github.com/navidrome/navidrome/core/auth"
+	"github.com/navidrome/navidrome/core/corrections"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/server"
 	"github.com/navidrome/navidrome/tests"
@@ -147,6 +151,84 @@ var _ = Describe("Album cover API", func() {
 		Entry("not an image", model.ErrValidation, http.StatusBadRequest, "invalid"),
 		Entry("source unreachable", errors.New("connection refused"), http.StatusBadGateway, "unavailable"),
 	)
+
+	Describe("uploading a cover", func() {
+		upload := func(token, albumID, filename string, data []byte) *httptest.ResponseRecorder {
+			GinkgoHelper()
+			var buf bytes.Buffer
+			mw := multipart.NewWriter(&buf)
+			Expect(mw.WriteField("albumId", albumID)).To(Succeed())
+			fw, err := mw.CreateFormFile("image", filename)
+			Expect(err).ToNot(HaveOccurred())
+			_, err = fw.Write(data)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(mw.Close()).To(Succeed())
+			req := createAuthenticatedRequest("POST", "/correction/albumCoverUpload", &buf, token)
+			req.Header.Set("Content-Type", mw.FormDataContentType())
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, req)
+			return w
+		}
+		pngBytes := func() []byte {
+			var buf bytes.Buffer
+			Expect(png.Encode(&buf, image.NewRGBA(image.Rect(0, 0, 2, 2)))).To(Succeed())
+			return buf.Bytes()
+		}
+
+		BeforeEach(func() {
+			conf.Server.DataFolder = conf.NewDir(GinkgoT().TempDir())
+		})
+
+		It("stores the image and saves it as the album's cover", func() {
+			w := upload(adminToken, "al-1", "front.png", pngBytes())
+			Expect(w.Code).To(Equal(http.StatusOK))
+			Expect(svc.covers).To(HaveLen(1))
+			Expect(svc.covers[0]).To(HavePrefix("al-1->"))
+			Expect(svc.covers[0]).To(HaveSuffix(" Upload: front.png"))
+			hash := strings.TrimSuffix(strings.TrimPrefix(svc.covers[0], "al-1->"), " Upload: front.png")
+			_, err := artwork.ChosenCoverStore().Open(hash, "image/png")
+			Expect(err).ToNot(HaveOccurred())
+		})
+
+		It("refuses a file that isn't an image, or is too large", func() {
+			w := upload(adminToken, "al-1", "evil.png", []byte("<html>not an image</html>"))
+			Expect(w.Code).To(Equal(http.StatusBadRequest))
+			Expect(w.Body.String()).To(ContainSubstring(`"invalid"`))
+
+			conf.Server.MaxImageUploadSize = "100"
+			w = upload(adminToken, "al-1", "big.png", bytes.Repeat([]byte{0}, 1000))
+			Expect(w.Code).To(Equal(http.StatusBadRequest))
+			Expect(w.Body.String()).To(ContainSubstring(`"tooLarge"`))
+			Expect(svc.covers).To(BeEmpty())
+		})
+
+		It("is admin only, even when artwork upload is enabled", func() {
+			conf.Server.EnableArtworkUpload = true
+			Expect(upload(userToken, "al-1", "front.png", pngBytes()).Code).To(Equal(http.StatusForbidden))
+			Expect(svc.covers).To(BeEmpty())
+		})
+	})
+
+	Describe("marking a cover wrong", func() {
+		It("blocks the image the admin saw", func() {
+			w := do("POST", "/correction/albumCoverBlock", adminToken, map[string]string{"albumId": "al-1", "imageHash": "0123456789abcdef"})
+			Expect(w.Code).To(Equal(http.StatusOK))
+			Expect(svc.blocks).To(Equal([]string{"al-1-x0123456789abcdef"}))
+		})
+
+		It("tells the admin when the cover has changed since", func() {
+			svc.err = corrections.ErrCoverChanged
+			w := do("POST", "/correction/albumCoverBlock", adminToken, map[string]string{"albumId": "al-1", "imageHash": "0123456789abcdef"})
+			Expect(w.Code).To(Equal(http.StatusConflict))
+			Expect(w.Body.String()).To(ContainSubstring(`"coverChanged"`))
+		})
+
+		It("is admin only", func() {
+			w := do("POST", "/correction/albumCoverBlock", userToken, map[string]string{"albumId": "al-1", "imageHash": "0123456789abcdef"})
+			Expect(w.Code).To(Equal(http.StatusForbidden))
+			Expect(svc.blocks).To(BeEmpty())
+		})
+	})
 
 	It("denies access to regular users", func() {
 		Expect(do("GET", "/albumCover/al-1/candidates?source=local", userToken, nil).Code).To(Equal(http.StatusForbidden))

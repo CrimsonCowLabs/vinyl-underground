@@ -7,6 +7,8 @@ const {
   mockPermissions,
   mockGetCandidates,
   mockChoose,
+  mockBlock,
+  mockUpload,
   mockNotify,
   mockRefresh,
   mockDataProvider,
@@ -14,6 +16,8 @@ const {
   mockPermissions: { value: 'admin' },
   mockGetCandidates: vi.fn(),
   mockChoose: vi.fn(),
+  mockBlock: vi.fn(),
+  mockUpload: vi.fn(),
   mockNotify: vi.fn(),
   mockRefresh: vi.fn(),
   mockDataProvider: {},
@@ -39,9 +43,16 @@ vi.mock('react-admin', async (importOriginal) => {
   }
 })
 
+vi.mock('../subsonic', () => ({
+  default: {
+    getCoverArtUrl: (record) => `/cover/al-${record.id}_${record.imageHash}`,
+  },
+}))
+
 const album = {
   id: 'al1',
   name: 'Record',
+  albumArtist: 'Band',
   mbzAlbumId: 'rel-1',
   mbzReleaseGroupId: 'rg-1',
 }
@@ -81,6 +92,8 @@ describe('ChooseCoverButton', () => {
     mockPermissions.value = 'admin'
     mockDataProvider.getCoverCandidates = mockGetCandidates
     mockDataProvider.chooseAlbumCover = mockChoose
+    mockDataProvider.blockAlbumCover = mockBlock
+    mockDataProvider.uploadAlbumCover = mockUpload
     mockGetCandidates.mockImplementation((albumId, source) =>
       Promise.resolve({ data: answers[source] }),
     )
@@ -169,5 +182,88 @@ describe('ChooseCoverButton', () => {
       await screen.findByText('resources.correction.errors.unavailable'),
     ).toBeTruthy()
     expect(screen.getByText('resources.album.coverPicker.use')).toBeTruthy()
+  })
+
+  describe('the current cover', () => {
+    const shown = { ...album, imageHash: '0123456789abcdef' }
+
+    it('shows the album’s cover, and marks it wrong', async () => {
+      mockBlock.mockResolvedValue({ data: { id: 'cr2', done: true } })
+      render(<ChooseCoverButton record={shown} />)
+      open()
+
+      const img = screen.getByAltText('resources.album.coverPicker.current')
+      expect(img.getAttribute('src')).toContain('al-al1_0123456789abcdef')
+      fireEvent.click(screen.getByText('resources.album.coverPicker.markWrong'))
+
+      await waitFor(() =>
+        expect(mockBlock).toHaveBeenCalledWith('al1', '0123456789abcdef'),
+      )
+      await waitFor(() =>
+        expect(mockNotify).toHaveBeenCalledWith(
+          'resources.album.coverPicker.markedWrong',
+          expect.anything(),
+        ),
+      )
+      expect(mockRefresh).toHaveBeenCalled()
+      expect(screen.queryByText('resources.album.coverPicker.use')).toBeNull()
+    })
+
+    it('can’t be marked wrong when the album has no cover', () => {
+      render(<ChooseCoverButton record={album} />)
+      open()
+      expect(
+        screen
+          .getByText('resources.album.coverPicker.markWrong')
+          .closest('button').disabled,
+      ).toBe(true)
+    })
+
+    it('explains when the cover has changed since', async () => {
+      mockBlock.mockRejectedValue({ body: { error: 'coverChanged' } })
+      render(<ChooseCoverButton record={shown} />)
+      open()
+      fireEvent.click(screen.getByText('resources.album.coverPicker.markWrong'))
+      expect(
+        await screen.findByText('resources.correction.errors.coverChanged'),
+      ).toBeTruthy()
+    })
+  })
+
+  describe('uploading a cover', () => {
+    const file = new File(['png'], 'front.png', { type: 'image/png' })
+    const pick = () =>
+      fireEvent.change(
+        screen.getByLabelText('resources.album.coverPicker.upload'),
+        { target: { files: [file] } },
+      )
+
+    it('makes the uploaded image the album’s cover', async () => {
+      mockUpload.mockResolvedValue({ data: { id: 'cr3', done: true } })
+      render(<ChooseCoverButton record={album} />)
+      open()
+      pick()
+
+      await waitFor(() => expect(mockUpload).toHaveBeenCalledWith('al1', file))
+      await waitFor(() =>
+        expect(mockNotify).toHaveBeenCalledWith(
+          'resources.album.coverPicker.uploaded',
+          expect.anything(),
+        ),
+      )
+      expect(mockRefresh).toHaveBeenCalled()
+    })
+
+    it('explains an upload refused as too large, and stays open', async () => {
+      mockUpload.mockRejectedValue({ body: { error: 'tooLarge' } })
+      render(<ChooseCoverButton record={album} />)
+      open()
+      pick()
+
+      expect(
+        await screen.findByText('resources.correction.errors.tooLarge'),
+      ).toBeTruthy()
+      expect(screen.getByText('resources.album.coverPicker.use')).toBeTruthy()
+    })
   })
 })

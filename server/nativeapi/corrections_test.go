@@ -25,6 +25,7 @@ type fakeCorrections struct {
 	merged  []string
 	undone  []string
 	covers  []string
+	blocks  []string
 }
 
 func (f *fakeCorrections) GetAll(context.Context) (model.Corrections, error) { return f.all, f.err }
@@ -43,6 +44,14 @@ func (f *fakeCorrections) ChooseAlbumCover(_ context.Context, albumID string, co
 	}
 	f.covers = append(f.covers, albumID+"->"+cover.Hash+" "+cover.Source)
 	return &corrections.Applied{Correction: model.Correction{ID: "c2", To: cover.Source}, Done: true}, nil
+}
+
+func (f *fakeCorrections) BlockAlbumCover(_ context.Context, albumID, imageHash string) (*corrections.Applied, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	f.blocks = append(f.blocks, albumID+"-x"+imageHash)
+	return &corrections.Applied{Correction: model.Correction{ID: "c3"}, Done: true}, nil
 }
 
 func (f *fakeCorrections) MergeArtist(_ context.Context, artistID, intoID string) (*corrections.Applied, error) {

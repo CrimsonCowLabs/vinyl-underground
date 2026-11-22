@@ -430,5 +430,127 @@ var _ = Describe("Corrections", func() {
 			Expect(queued(al.ID)).To(BeTrue())
 			Expect(refresher.scanned()).To(BeEmpty())
 		})
+
+		It("lifts a block on the image chosen", func() {
+			al := addAlbum("al-1", "folder-cd1")
+			Expect(ds.Correction(ctx).Add(&model.Correction{Kind: model.CorrectionAlbumCoverBlock, MatchKey: "folder-cd1",
+				ImageHash: cover.Hash})).To(Succeed())
+			Expect(ds.Correction(ctx).Add(&model.Correction{Kind: model.CorrectionAlbumCoverBlock, MatchKey: "folder-cd1",
+				ImageHash: "00000000000000aa"})).To(Succeed())
+
+			_, err := svc.ChooseAlbumCover(ctx, al.ID, cover)
+			Expect(err).ToNot(HaveOccurred())
+
+			blocks, err := model.AlbumCorrections(ds.Correction(ctx), model.CorrectionAlbumCoverBlock, al)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(blocks).To(HaveLen(1))
+			Expect(blocks[0].ImageHash).To(Equal("00000000000000aa"))
+		})
+
+		Describe("BlockAlbumCover", func() {
+			const shown = "1111111111111111"
+			showing := func(albumID, hash, source, path string) {
+				GinkgoHelper()
+				Expect(ds.Artwork(ctx).PutImage(&model.Artwork{Hash: hash, Mime: "image/jpeg"})).To(Succeed())
+				Expect(ds.Artwork(ctx).PutItemArtwork(&model.ItemArtwork{ItemKind: model.KindAlbumArtwork.Prefix(),
+					ItemID: albumID, ImageType: model.ImageTypePrimary, Hash: hash, Source: source, SourcePath: path,
+					AttemptedAt: time.Now()})).To(Succeed())
+				DeferCleanup(func() { _, _ = db.Db().Exec("delete from item_artwork") })
+			}
+			addTrack := func(id, albumID string) {
+				GinkgoHelper()
+				mf := model.MediaFile{ID: id, AlbumID: albumID, LibraryID: 1, Path: id + ".mp3", HasCoverArt: true}
+				Expect(ds.MediaFile(ctx).Put(&mf)).To(Succeed())
+			}
+			trackQueued := func(id string) bool {
+				_, err := ds.ArtworkQueue(ctx).Get(model.KindMediaFileArtwork, id, model.ImageTypePrimary)
+				return err == nil
+			}
+
+			It("blocks the image the album shows, and refreshes the album and its tracks' art", func() {
+				al := addAlbum("al-1", "folder-cd2", "folder-cd1")
+				addTrack("t-1", al.ID)
+				showing(al.ID, shown, "folder", "/music/Band/Record/cover.jpg")
+
+				res, err := svc.BlockAlbumCover(ctx, al.ID, shown)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(res.Done).To(BeTrue())
+				Expect(res.Correction.Kind).To(Equal(model.CorrectionAlbumCoverBlock))
+				Expect(res.Correction.From).To(Equal("Band – Record"))
+				Expect(res.Correction.To).To(Equal("cover.jpg"))
+				Expect(res.Correction.CreatedBy).To(Equal("admin"))
+
+				blocks, err := model.AlbumCorrections(ds.Correction(ctx), model.CorrectionAlbumCoverBlock, al)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(blocks).To(HaveLen(1))
+				Expect(blocks[0].MatchKey).To(Equal("folder-cd1"))
+				Expect(blocks[0].ImageHash).To(Equal(shown))
+				Expect(queued(al.ID)).To(BeTrue())
+				Expect(trackQueued("t-1")).To(BeTrue())
+				Expect(refresher.scanned()).To(BeEmpty())
+			})
+
+			It("keeps several blocks per album", func() {
+				al := addAlbum("al-1", "folder-cd1")
+				showing(al.ID, shown, "embedded", "/music/Band/Record/01.mp3")
+				_, err := svc.BlockAlbumCover(ctx, al.ID, shown)
+				Expect(err).ToNot(HaveOccurred())
+				showing(al.ID, "2222222222222222", "external:lastfm", "")
+				res, err := svc.BlockAlbumCover(ctx, al.ID, "2222222222222222")
+				Expect(err).ToNot(HaveOccurred())
+				Expect(res.Correction.To).To(Equal("lastfm"))
+
+				blocks, err := model.AlbumCorrections(ds.Correction(ctx), model.CorrectionAlbumCoverBlock, al)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(blocks).To(HaveLen(2))
+			})
+
+			It("removes the album's choice when its chosen cover is marked wrong", func() {
+				al := addAlbum("al-1", "folder-cd1")
+				_, err := svc.ChooseAlbumCover(ctx, al.ID, cover)
+				Expect(err).ToNot(HaveOccurred())
+				showing(al.ID, cover.Hash, artwork.ChosenSource, "/data/artwork/chosen/x.jpg")
+
+				res, err := svc.BlockAlbumCover(ctx, al.ID, cover.Hash)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(res.Correction.To).To(Equal(cover.Source))
+
+				_, err = model.AlbumCorrection(ds.Correction(ctx), model.CorrectionAlbumCover, al)
+				Expect(err).To(MatchError(model.ErrNotFound))
+			})
+
+			It("refuses when the album's cover is no longer the one shown, or there is none", func() {
+				al := addAlbum("al-1", "folder-cd1")
+				_, err := svc.BlockAlbumCover(ctx, al.ID, shown)
+				Expect(err).To(MatchError(corrections.ErrCoverChanged))
+
+				showing(al.ID, "2222222222222222", "folder", "/music/cover.jpg")
+				_, err = svc.BlockAlbumCover(ctx, al.ID, shown)
+				Expect(err).To(MatchError(corrections.ErrCoverChanged))
+
+				_, err = svc.BlockAlbumCover(ctx, "nope", shown)
+				Expect(err).To(MatchError(model.ErrNotFound))
+				all, err := svc.GetAll(ctx)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(all).To(BeEmpty())
+			})
+
+			It("undoes a block at once, refreshing the album and its tracks' art", func() {
+				al := addAlbum("al-1", "folder-cd1")
+				addTrack("t-1", al.ID)
+				showing(al.ID, shown, "folder", "/music/cover.jpg")
+				res, err := svc.BlockAlbumCover(ctx, al.ID, shown)
+				Expect(err).ToNot(HaveOccurred())
+				clearQueue()
+
+				undone, err := svc.Undo(ctx, res.Correction.ID)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(undone.Done).To(BeTrue())
+				_, err = ds.Correction(ctx).Get(res.Correction.ID)
+				Expect(err).To(MatchError(model.ErrNotFound))
+				Expect(queued(al.ID)).To(BeTrue())
+				Expect(trackQueued("t-1")).To(BeTrue())
+			})
+		})
 	})
 })

@@ -106,6 +106,25 @@ describe('Corrections page', () => {
     ).toBeTruthy()
   })
 
+  it('says undoing a cover marked wrong lets the album show it again', () => {
+    render(
+      <UndoCorrectionButton
+        record={{
+          ...rename,
+          kind: 'albumCoverBlock',
+          from: 'Band – Record',
+          to: 'cover.jpg',
+        }}
+      />,
+    )
+    fireEvent.click(screen.getByText('resources.correction.actions.undo'))
+    expect(
+      screen.getByText(
+        /resources.correction.message.undoContentAlbumCoverBlock .*cover.jpg/,
+      ),
+    ).toBeTruthy()
+  })
+
   it('says when an undo carries on in the background', async () => {
     mockUndo.mockResolvedValue({ data: { id: 'c1', done: false } })
     render(<UndoCorrectionButton record={rename} />)

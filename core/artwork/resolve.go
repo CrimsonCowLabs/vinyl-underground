@@ -39,11 +39,23 @@ type chainState struct {
 	extErr   error
 	localErr bool
 	trace    *ChainTrace // nil only where no caller attached one
+	blocks   coverBlocks // the album's blocked images, passed over like a miss
 }
 
-// try stamps the accumulated external failure onto a hit, and records the miss otherwise.
+// try stamps the accumulated external failure onto a hit, and records the miss otherwise. A hit
+// on a blocked image is a miss; one that can't be read to check it is unreadable.
 func (c *chainState) try(candidate string, res resolution, ok bool) (resolution, bool) {
 	if ok {
+		res, blocked, err := c.blocks.screen(res)
+		switch {
+		case err != nil:
+			c.localErr = true
+			c.record(candidate, OutcomeUnreadable, err.Error())
+			return resolution{}, false
+		case blocked:
+			c.record(candidate, OutcomeBlocked, "")
+			return resolution{}, false
+		}
 		res.extErr = c.extErr
 		c.record(candidate, OutcomeHit, res.sourcePath)
 		return res, true
@@ -55,6 +67,21 @@ func (c *chainState) try(candidate string, res resolution, ok bool) (resolution,
 		c.record(candidate, OutcomeMiss, "")
 	}
 	return resolution{}, false
+}
+
+// tryExternal passes an external hit unless its image is blocked; it is not recorded, as an
+// external hit names its agent in its source. A body that can't be read is an external failure.
+func (c *chainState) tryExternal(candidate string, res resolution) (resolution, bool) {
+	res, blocked, err := c.blocks.screen(res)
+	switch {
+	case err != nil:
+		c.extErr = longerRetry(c.extErr, err)
+		return resolution{}, false
+	case blocked:
+		c.record(candidate, OutcomeBlocked, "")
+		return resolution{}, false
+	}
+	return res, true
 }
 
 func (c *chainState) record(candidate string, out Outcome, detail string) {
@@ -225,7 +252,11 @@ func (r *resolver) resolveAlbum(ctx context.Context, albumID string) (resolution
 		return resolution{}, err
 	}
 
-	chain := chainState{trace: traceFrom(ctx)}
+	blocks, err := loadCoverBlocks(ctx, r.ds, *al)
+	if err != nil {
+		return resolution{}, err
+	}
+	chain := chainState{trace: traceFrom(ctx), blocks: blocks}
 	// An admin's choice outranks the configured order
 	chosen, chosenOK, err := resolveChosenCover(ctx, r.ds, *al)
 	if err != nil {
@@ -235,10 +266,12 @@ func (r *resolver) resolveAlbum(ctx context.Context, albumID string) (resolution
 		if res, ok := chain.try(ChosenSource, chosen, chosenOK); ok {
 			return res, nil
 		}
-		// Falling through would persist a lower-priority cover as if the choice were gone
-		return chosen, nil
-	}
-	if chosen.source != "" {
+		// Falling through would persist a lower-priority cover as if the choice were gone. A
+		// blocked choice is gone.
+		if chain.localErr {
+			return chain.exhausted(), nil
+		}
+	} else if chosen.source != "" {
 		chain.record(ChosenSource, OutcomeMiss, "")
 	}
 	for pattern := range strings.SplitSeq(strings.ToLower(conf.Server.CoverArtPriority), ",") {
@@ -254,7 +287,10 @@ func (r *resolver) resolveAlbum(ctx context.Context, albumID string) (resolution
 			}
 		case pattern == externalCandidate:
 			if rd, name, err := r.fetchExternalAlbum(ctx, *al); rd != nil {
-				return resolution{reader: rd, source: ExternalPrefix + name}, nil
+				res := resolution{reader: rd, source: ExternalPrefix + name}
+				if res, ok := chain.tryExternal(res.source, res); ok {
+					return res, nil
+				}
 			} else if err != nil {
 				chain.extErr = longerRetry(chain.extErr, err)
 			}
@@ -263,7 +299,10 @@ func (r *resolver) resolveAlbum(ctx context.Context, albumID string) (resolution
 				continue
 			}
 			if rd, err := fetchCoverArtArchive(ctx, r.ext.gate, *al); rd != nil {
-				return resolution{reader: rd, source: ExternalPrefix + coverArtArchiveCandidate}, nil
+				res := resolution{reader: rd, source: ExternalPrefix + coverArtArchiveCandidate}
+				if res, ok := chain.tryExternal(res.source, res); ok {
+					return res, nil
+				}
 			} else if err != nil {
 				chain.extErr = longerRetry(chain.extErr, err)
 			}
@@ -492,6 +531,14 @@ func (r *resolver) resolveMediaFile(ctx context.Context, id string) (resolution,
 	}
 	lib, err := loadLibraryView(ctx, r.ds, mf.LibraryID)
 	if err != nil {
+		return resolution{}, err
+	}
+	// An image blocked for the album is wrong for its tracks too: they fall back to its cover
+	if al, err := r.ds.Album(ctx).Get(mf.AlbumID); err == nil {
+		if chain.blocks, err = loadCoverBlocks(ctx, r.ds, *al); err != nil {
+			return resolution{}, err
+		}
+	} else if !errors.Is(err, model.ErrNotFound) {
 		return resolution{}, err
 	}
 	res, ok := resolveEmbedded(ctx, lib, r.ffmpeg, mf.Path)

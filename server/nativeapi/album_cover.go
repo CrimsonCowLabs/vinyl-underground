@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"path/filepath"
 	"strings"
 
 	"github.com/deluan/rest"
@@ -77,6 +78,70 @@ func (api *Router) chooseAlbumCover(w http.ResponseWriter, r *http.Request) {
 	}
 	res, err := api.corrections.ChooseAlbumCover(r.Context(), body.AlbumID,
 		corrections.AlbumCover{StoredCover: stored, Source: cand.Description()})
+	if err != nil {
+		writeCorrectionError(w, r, err)
+		return
+	}
+	_ = rest.RespondWithJSON(w, http.StatusOK, res)
+}
+
+// uploadAlbumCover stores an uploaded image and saves it as the album's cover Correction, as if it
+// were a chosen candidate. Its size is capped like other uploads (MaxImageUploadSize), and it must
+// decode as an image (artwork.StoreChosenCover).
+func (api *Router) uploadAlbumCover(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	r.Body = http.MaxBytesReader(w, r.Body, artwork.MaxImageUploadSize())
+	if err := r.ParseMultipartForm(min(artwork.MaxImageUploadSize(), 10<<20)); err != nil {
+		log.Debug(ctx, "Cover upload refused", err)
+		code := "invalid"
+		if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
+			code = "tooLarge"
+		}
+		_ = rest.RespondWithJSON(w, http.StatusBadRequest, map[string]string{"error": code})
+		return
+	}
+	defer func() {
+		if err := r.MultipartForm.RemoveAll(); err != nil {
+			log.Warn(ctx, "Error removing multipart temp files", err)
+		}
+	}()
+	file, header, err := r.FormFile("image")
+	if err != nil {
+		writeCorrectionError(w, r, fmt.Errorf("%w: no image: %w", model.ErrValidation, err))
+		return
+	}
+	defer file.Close()
+	data, err := io.ReadAll(file)
+	if err != nil {
+		writeCorrectionError(w, r, err)
+		return
+	}
+	stored, err := artwork.StoreChosenCover(data)
+	if err != nil {
+		writeCorrectionError(w, r, err)
+		return
+	}
+	res, err := api.corrections.ChooseAlbumCover(ctx, r.FormValue("albumId"),
+		corrections.AlbumCover{StoredCover: stored, Source: "Upload: " + filepath.Base(header.Filename)})
+	if err != nil {
+		writeCorrectionError(w, r, err)
+		return
+	}
+	_ = rest.RespondWithJSON(w, http.StatusOK, res)
+}
+
+// blockAlbumCover marks the image the album shows wrong for it: imageHash is the album's
+// imageHash as the admin saw it.
+func (api *Router) blockAlbumCover(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		AlbumID   string `json:"albumId"`
+		ImageHash string `json:"imageHash"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeCorrectionError(w, r, fmt.Errorf("%w: %w", model.ErrValidation, err))
+		return
+	}
+	res, err := api.corrections.BlockAlbumCover(r.Context(), body.AlbumID, body.ImageHash)
 	if err != nil {
 		writeCorrectionError(w, r, err)
 		return

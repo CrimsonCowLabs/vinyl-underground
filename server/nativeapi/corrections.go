@@ -20,6 +20,8 @@ func (api *Router) addCorrectionRoute(r chi.Router) {
 		r.Get("/", api.listCorrections)
 		r.Post("/artistRename", api.renameArtist)
 		r.Post("/albumCover", api.chooseAlbumCover)
+		r.Post("/albumCoverUpload", api.uploadAlbumCover)
+		r.Post("/albumCoverBlock", api.blockAlbumCover)
 		r.Post("/artistMerge", api.mergeArtist)
 		r.Post("/{id}/undo", api.undoCorrection)
 	})
@@ -92,6 +94,8 @@ func writeCorrectionError(w http.ResponseWriter, r *http.Request, err error) {
 		status, code = http.StatusBadRequest, "renamedAway"
 	case errors.Is(err, corrections.ErrUndoLaterFirst):
 		status, code = http.StatusBadRequest, "undoLaterFirst"
+	case errors.Is(err, corrections.ErrCoverChanged):
+		status, code = http.StatusConflict, "coverChanged"
 	case errors.Is(err, model.ErrAlreadyExists):
 		status, code = http.StatusConflict, "alreadyCorrected"
 	case errors.Is(err, model.ErrValidation):

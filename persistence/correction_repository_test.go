@@ -135,6 +135,39 @@ var _ = Describe("CorrectionRepository", func() {
 		})
 	})
 
+	Describe("album cover blocks", func() {
+		block := func(folderID, hash string) *model.Correction {
+			return &model.Correction{Kind: model.CorrectionAlbumCoverBlock, MatchKey: folderID, From: "Album",
+				To: "cover.jpg", ImageHash: hash}
+		}
+
+		It("keeps several blocks per album, but each image once", func() {
+			Expect(repo.Add(block("block-cd1", "0123456789abcdef"))).To(Succeed())
+			Expect(repo.Add(block("block-cd1", "fedcba9876543210"))).To(Succeed())
+			Expect(repo.Add(block("block-cd1", "0123456789abcdef"))).To(MatchError(model.ErrAlreadyExists))
+			// Other kinds still have one Correction per key
+			c := &model.Correction{Kind: model.CorrectionAlbumCover, MatchKey: "block-cd1", ImageHash: "0123456789abcdef", ImageMime: "image/png"}
+			Expect(repo.Add(c)).To(Succeed())
+			c = &model.Correction{Kind: model.CorrectionAlbumCover, MatchKey: "block-cd1", ImageHash: "fedcba9876543210", ImageMime: "image/png"}
+			Expect(repo.Add(c)).To(MatchError(model.ErrAlreadyExists))
+		})
+
+		It("finds the blocks keyed by any of an album's folders", func() {
+			Expect(repo.Add(block("block-cd1", "0123456789abcdef"))).To(Succeed())
+			Expect(repo.Add(block("block-cd2", "fedcba9876543210"))).To(Succeed())
+			Expect(repo.Add(block("block-other", "00000000000000aa"))).To(Succeed())
+
+			got, err := repo.FindByMatchKeys(model.CorrectionAlbumCoverBlock, []string{"block-cd1", "block-cd2"})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(got).To(HaveLen(2))
+			Expect([]string{got[0].ImageHash, got[1].ImageHash}).To(ConsistOf("0123456789abcdef", "fedcba9876543210"))
+
+			got, err = repo.FindByMatchKeys(model.CorrectionAlbumCoverBlock, nil)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(got).To(BeEmpty())
+		})
+	})
+
 	It("returns the folders of the Tracks a Correction applies to", func() {
 		c := rename("Greatful Dead", "Grateful Dead")
 		Expect(repo.Add(c)).To(Succeed())
