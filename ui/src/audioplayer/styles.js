@@ -27,6 +27,11 @@ const useStyle = makeStyles(
     },
     player: {
       display: (props) => (props.visible ? 'block' : 'none'),
+      // Phones get our MiniPlayer in place of the package's floating cover.
+      // The package stays mounted: its audio element and queue play on.
+      '& .react-jinke-music-player': {
+        display: (props) => (props.isDesktop ? undefined : 'none'),
+      },
       '@media screen and (max-width:810px)': {
         '& .sound-operation': {
           display: 'none',
