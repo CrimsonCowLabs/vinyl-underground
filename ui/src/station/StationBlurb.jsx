@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { useSelector } from 'react-redux'
+import { useDispatch, useSelector } from 'react-redux'
 import { useTranslate } from 'react-admin'
 import { IconButton, Snackbar, SnackbarContent } from '@material-ui/core'
 import { makeStyles } from '@material-ui/core/styles'
@@ -7,6 +7,7 @@ import CloseIcon from '@material-ui/icons/Close'
 import { httpClient } from '../dataProvider'
 import { REST_URL } from '../consts'
 import config from '../config'
+import { stationBlurb } from './stationState'
 
 // How long a Blurb stays on screen.
 export const BLURB_MS = 15000
@@ -26,11 +27,15 @@ export const fetchStationBlurb = (djId, track, after) =>
 // StationBlurb shows the DJ's Blurb on screen at each Track change on the
 // Station on air. Blurbs are written ahead on the server; one that isn't ready
 // when its Track starts is simply not shown, and the Track plays on regardless.
+// Now Playing shows the Blurb in its DJ card, so while it is open the Blurb
+// doesn't pop up over it as well.
 const StationBlurb = () => {
   const classes = useStyles()
   const translate = useTranslate()
+  const dispatch = useDispatch()
   const station = useSelector((state) => state.station)
   const current = useSelector((state) => state.player.current)
+  const nowPlayingOpen = useSelector((state) => !!state.nowPlaying?.open)
   const [blurb, setBlurb] = useState(null)
   const last = useRef(null) // the Track playing before, and the Station it played on
 
@@ -55,7 +60,10 @@ const StationBlurb = () => {
     fetchStationBlurb(onAir.djId, trackId, before.trackId)
       .then((res) => {
         // The Track may have changed again meanwhile.
-        if (res && last.current?.uuid === uuid) setBlurb(res)
+        if (res && last.current?.uuid === uuid) {
+          setBlurb(res)
+          dispatch(stationBlurb(uuid, res))
+        }
       })
       .catch((e) => {
         // eslint-disable-next-line no-console
@@ -69,7 +77,7 @@ const StationBlurb = () => {
     return () => clearTimeout(hide)
   }, [blurb])
 
-  if (!blurb) return null
+  if (!blurb || nowPlayingOpen) return null
   return (
     <Snackbar open anchorOrigin={{ vertical: 'top', horizontal: 'center' }}>
       <SnackbarContent

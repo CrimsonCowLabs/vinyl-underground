@@ -25,6 +25,7 @@ import library from './library'
 import plugin from './plugin'
 import rip from './rip'
 import station, { stationReducer } from './station'
+import { nowPlayingReducer } from './nowPlaying/nowPlayingState'
 import { Player } from './audioplayer'
 import customRoutes from './routes'
 import {
@@ -76,6 +77,7 @@ const adminStore = createAdminStore({
     library: libraryReducer,
     player: playerReducer,
     station: stationReducer,
+    nowPlaying: nowPlayingReducer,
     albumView: albumViewReducer,
     theme: themeReducer,
     addToPlaylistDialog: addToPlaylistDialogReducer,

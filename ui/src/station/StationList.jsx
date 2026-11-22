@@ -124,7 +124,7 @@ const StationList = () => {
         if (!isPicking(store.getState(), token)) return
         // Shuffle or repeat would replay Tracks and break the DJ's order.
         dispatch(setPlayMode('order'))
-        dispatch(startStation(dj.id, tracks, theme))
+        dispatch(startStation(dj.id, tracks, theme, dj.name))
       })
       .catch((err) => {
         if (!isPicking(store.getState(), token)) return

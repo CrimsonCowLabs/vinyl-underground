@@ -40,6 +40,9 @@ import { useStationRefill } from '../station/useStationRefill'
 import { useStationSkips } from '../station/useStationSkips'
 import StationBlurb from '../station/StationBlurb'
 import StationPicking from '../station/StationPicking'
+import NowPlaying from '../nowPlaying/NowPlaying'
+import { closeNowPlaying } from '../nowPlaying/nowPlayingState'
+import { nowPlayingPlayerProps } from './nowPlayingPlayerProps'
 
 const Player = () => {
   const theme = useCurrentTheme()
@@ -134,6 +137,12 @@ const Player = () => {
   }, [playerState.queue, playerState.savedPlayIndex])
 
   const visible = authenticated && playerState.queue.length > 0
+
+  // Now Playing is full screen on phones only (the desktop side panel is #91),
+  // and has nothing to show once the queue is cleared
+  useEffect(() => {
+    if (isDesktop || !visible) dispatch(closeNowPlaying())
+  }, [isDesktop, visible, dispatch])
   const isRadio = playerState.current?.isRadio || false
   const classes = useStyle({
     isRadio,
@@ -192,7 +201,6 @@ const Player = () => {
       theme: playerTheme,
       bounds: 'body',
       playMode: playerState.mode,
-      mode: 'full',
       loadAudioErrorPlayNext: false,
       autoPlayInitLoadPlayList: true,
       clearPriorAudioLists: false,
@@ -200,9 +208,10 @@ const Player = () => {
       showDownload: false,
       showLyric: true,
       showReload: false,
-      toggleMode: !isDesktop,
       glassBg: false,
       showThemeSwitch: false,
+      // Phones get Now Playing in place of the package's own mobile panel
+      ...nowPlayingPlayerProps(isDesktop, dispatch),
       showMediaSession: true,
       restartCurrentOnPrev: true,
       quietUpdate: true,
@@ -221,7 +230,7 @@ const Player = () => {
       locale: locale(translate),
       sortableOptions: { delay: 200, delayOnTouchOnly: true },
     }),
-    [gainInfo, isDesktop, playerTheme, translate, playerState.mode],
+    [gainInfo, isDesktop, playerTheme, translate, playerState.mode, dispatch],
   )
 
   const options = useMemo(() => {
@@ -350,12 +359,6 @@ const Player = () => {
     [dispatch, dataProvider, currentTrackId],
   )
 
-  const onCoverClick = useCallback((mode, audioLists, audioInfo) => {
-    if (mode === 'full' && audioInfo?.song?.albumId) {
-      window.location.href = `#/album/${audioInfo.song.albumId}/show`
-    }
-  }, [])
-
   const onAudioError = useCallback(
     (error, currentPlayId, audioLists, audioInfo) => {
       // Invalidate all cached decisions — token may be stale
@@ -451,12 +454,12 @@ const Player = () => {
         onAudioPause={onAudioPause}
         onPlayModeChange={(mode) => dispatch(setPlayMode(mode))}
         onAudioEnded={onAudioEnded}
-        onCoverClick={onCoverClick}
         onAudioError={onAudioError}
         onBeforeDestroy={onBeforeDestroy}
         getAudioInstance={setAudioInstance}
       />
       {visible && <StationBlurb />}
+      {visible && !isDesktop && <NowPlaying audioInstance={audioInstance} />}
       <StationPicking />
       <GlobalHotKeys handlers={handlers} keyMap={keyMap} allowChanges />
     </ThemeProvider>
