@@ -438,6 +438,8 @@ var _ = Describe("Corrections", func() {
 			Expect(ds.Correction(ctx).Add(&model.Correction{Kind: model.CorrectionAlbumCoverBlock, MatchKey: "folder-cd1",
 				ImageHash: "00000000000000aa"})).To(Succeed())
 
+			mf := model.MediaFile{ID: "t-1", AlbumID: al.ID, LibraryID: 1, Path: "t-1.mp3", HasCoverArt: true}
+			Expect(ds.MediaFile(ctx).Put(&mf)).To(Succeed())
 			_, err := svc.ChooseAlbumCover(ctx, al.ID, cover)
 			Expect(err).ToNot(HaveOccurred())
 
@@ -445,6 +447,9 @@ var _ = Describe("Corrections", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(blocks).To(HaveLen(1))
 			Expect(blocks[0].ImageHash).To(Equal("00000000000000aa"))
+			// The tracks' art showed the image no longer blocked, until it was blocked
+			_, err = ds.ArtworkQueue(ctx).Get(model.KindMediaFileArtwork, "t-1", model.ImageTypePrimary)
+			Expect(err).ToNot(HaveOccurred())
 		})
 
 		Describe("BlockAlbumCover", func() {
@@ -488,6 +493,16 @@ var _ = Describe("Corrections", func() {
 				Expect(queued(al.ID)).To(BeTrue())
 				Expect(trackQueued("t-1")).To(BeTrue())
 				Expect(refresher.scanned()).To(BeEmpty())
+			})
+
+			It("refreshes every album sharing the folder, as the block applies to them all", func() {
+				al := addAlbum("al-1", "folder-cd1")
+				other := addAlbum("al-2", "folder-cd1")
+				showing(al.ID, shown, "folder", "/music/Singles/folder.jpg")
+
+				_, err := svc.BlockAlbumCover(ctx, al.ID, shown)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(queued(other.ID)).To(BeTrue())
 			})
 
 			It("keeps several blocks per album", func() {

@@ -11,6 +11,8 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/navidrome/navidrome/conf"
@@ -66,11 +68,12 @@ var _ = Describe("Album cover API", func() {
 	var picker *fakeCoverPicker
 	var router http.Handler
 	var adminToken, userToken string
+	var ds *tests.MockDataStore
 
 	BeforeEach(func() {
 		DeferCleanup(configtest.SetupConfig())
 		conf.Server.EnableSharing = false
-		ds := &tests.MockDataStore{}
+		ds = &tests.MockDataStore{}
 		auth.Init(ds)
 		picker = &fakeCoverPicker{candidates: map[artwork.CoverSource]*artwork.CoverCandidates{
 			artwork.CoverSourceLocal:           {Candidates: []artwork.CoverCandidate{{ID: "cand-1", Source: "folder", Label: "cover.png"}}},
@@ -177,6 +180,7 @@ var _ = Describe("Album cover API", func() {
 
 		BeforeEach(func() {
 			conf.Server.DataFolder = conf.NewDir(GinkgoT().TempDir())
+			ds.Album(context.TODO()).(*tests.MockAlbumRepo).SetData(model.Albums{{ID: "al-1", Name: "Record"}})
 		})
 
 		It("stores the image and saves it as the album's cover", func() {
@@ -188,6 +192,14 @@ var _ = Describe("Album cover API", func() {
 			hash := strings.TrimSuffix(strings.TrimPrefix(svc.covers[0], "al-1->"), " Upload: front.png")
 			_, err := artwork.ChosenCoverStore().Open(hash, "image/png")
 			Expect(err).ToNot(HaveOccurred())
+		})
+
+		It("stores nothing for an unknown album", func() {
+			w := upload(adminToken, "nope", "front.png", pngBytes())
+			Expect(w.Code).To(Equal(http.StatusNotFound))
+			Expect(svc.covers).To(BeEmpty())
+			_, err := os.Stat(filepath.Join(conf.Server.DataFolder.String(), "artwork", "chosen"))
+			Expect(err).To(MatchError(os.ErrNotExist))
 		})
 
 		It("refuses a file that isn't an image, or is too large", func() {

@@ -111,6 +111,12 @@ func (api *Router) uploadAlbumCover(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer file.Close()
+	// Before storing: nothing sweeps the store, so an image for no album would stay there
+	albumID := r.FormValue("albumId")
+	if _, err := api.ds.Album(ctx).Get(albumID); err != nil {
+		writeCorrectionError(w, r, err)
+		return
+	}
 	data, err := io.ReadAll(file)
 	if err != nil {
 		writeCorrectionError(w, r, err)
@@ -121,7 +127,7 @@ func (api *Router) uploadAlbumCover(w http.ResponseWriter, r *http.Request) {
 		writeCorrectionError(w, r, err)
 		return
 	}
-	res, err := api.corrections.ChooseAlbumCover(ctx, r.FormValue("albumId"),
+	res, err := api.corrections.ChooseAlbumCover(ctx, albumID,
 		corrections.AlbumCover{StoredCover: stored, Source: "Upload: " + filepath.Base(header.Filename)})
 	if err != nil {
 		writeCorrectionError(w, r, err)

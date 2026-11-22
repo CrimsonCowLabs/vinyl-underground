@@ -219,6 +219,16 @@ describe('ChooseCoverButton', () => {
       ).toBe(true)
     })
 
+    it('explains a cover already marked wrong', async () => {
+      mockBlock.mockRejectedValue({ body: { error: 'alreadyCorrected' } })
+      render(<ChooseCoverButton record={shown} />)
+      open()
+      fireEvent.click(screen.getByText('resources.album.coverPicker.markWrong'))
+      expect(
+        await screen.findByText('resources.correction.errors.alreadyBlocked'),
+      ).toBeTruthy()
+    })
+
     it('explains when the cover has changed since', async () => {
       mockBlock.mockRejectedValue({ body: { error: 'coverChanged' } })
       render(<ChooseCoverButton record={shown} />)

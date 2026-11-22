@@ -453,7 +453,8 @@
         "coverChanged": "The album's cover has changed since. Reload the page and try again.",
         "tooLarge": "That image is too large.",
         "invalidImage": "That file isn't an image this server can read.",
-        "albumNotFound": "This album no longer exists."
+        "albumNotFound": "This album no longer exists.",
+        "alreadyBlocked": "This cover is already marked wrong. Reload the page to see the next one."
       }
     },
     "library": {

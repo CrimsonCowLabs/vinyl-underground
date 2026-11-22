@@ -76,6 +76,7 @@ func (c *chainState) tryExternal(candidate string, res resolution) (resolution, 
 	switch {
 	case err != nil:
 		c.extErr = longerRetry(c.extErr, err)
+		c.record(candidate, OutcomeError, err.Error())
 		return resolution{}, false
 	case blocked:
 		c.record(candidate, OutcomeBlocked, "")

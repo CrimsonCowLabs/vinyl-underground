@@ -102,11 +102,11 @@ const knownErrors = [
 ]
 
 // The error message for a failed choice, upload or block: a code the server answered with
-const errorKey = (err, notFoundKey, invalidKey = 'invalid') => {
+// with the action's own wording for some codes ({ notFound: 'albumNotFound' }).
+const errorKey = (err, overrides) => {
   const code = err?.body?.error
-  if (code === 'notFound') return notFoundKey
-  if (code === 'invalid') return `resources.correction.errors.${invalidKey}`
-  return `resources.correction.errors.${knownErrors.includes(code) ? code : 'unknown'}`
+  const key = overrides[code] ?? (knownErrors.includes(code) ? code : 'unknown')
+  return `resources.correction.errors.${key}`
 }
 
 // What the album shows now, to mark wrong, and the upload of an image of the admin's own.
@@ -312,7 +312,8 @@ const ChooseCoverDialog = ({ record, onClose }) => {
       save(
         () => dataProvider.chooseAlbumCover(record.id, selected),
         'resources.album.coverPicker.chosen',
-        (err) => errorKey(err, 'resources.correction.errors.coverNotFound'),
+        (err) =>
+          errorKey(err, { notFound: 'coverNotFound', invalid: 'invalidImage' }),
       ),
     [save, dataProvider, record.id, selected],
   )
@@ -321,7 +322,12 @@ const ChooseCoverDialog = ({ record, onClose }) => {
       save(
         () => dataProvider.blockAlbumCover(record.id, record.imageHash),
         'resources.album.coverPicker.markedWrong',
-        (err) => errorKey(err, 'resources.correction.errors.albumNotFound'),
+        (err) =>
+          errorKey(err, {
+            notFound: 'albumNotFound',
+            invalid: 'unknown',
+            alreadyCorrected: 'alreadyBlocked',
+          }),
       ),
     [save, dataProvider, record.id, record.imageHash],
   )
@@ -331,11 +337,7 @@ const ChooseCoverDialog = ({ record, onClose }) => {
         () => dataProvider.uploadAlbumCover(record.id, file),
         'resources.album.coverPicker.uploaded',
         (err) =>
-          errorKey(
-            err,
-            'resources.correction.errors.albumNotFound',
-            'invalidImage',
-          ),
+          errorKey(err, { notFound: 'albumNotFound', invalid: 'invalidImage' }),
       ),
     [save, dataProvider, record.id],
   )
