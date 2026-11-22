@@ -726,8 +726,7 @@
       "current_song": "Przejdź do Bieżącego Utworu"
     }
   },
-  "nowPlaying": {
-    "title": "Teraz Odtwarzane",
+  "whosListening": {
     "empty": "Nic nie jest odtwarzane",
     "minutesAgo": "%{smart_count} minutę temu |||| %{smart_count} minut temu"
   }

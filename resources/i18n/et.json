@@ -715,8 +715,7 @@
       "current_song": "Mine esitamisel loo juurde"
     }
   },
-  "nowPlaying": {
-    "title": "Hetkel esitamisel",
+  "whosListening": {
     "empty": "Mitte midagi pole hetkel esitamisel",
     "minutesAgo": "%{smart_count} minut tagasi |||| %{smart_count} minutit tagasi"
   }

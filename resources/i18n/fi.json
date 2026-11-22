@@ -737,8 +737,7 @@
       "current_song": "Siirry nykyiseen kappaleeseen"
     }
   },
-  "nowPlaying": {
-    "title": "Nyt soi",
+  "whosListening": {
     "empty": "Ei soita mitään",
     "minutesAgo": "%{smart_count} minuutti sitten |||| %{smart_count} minuuttia sitten"
   }

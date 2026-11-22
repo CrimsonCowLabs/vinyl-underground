@@ -726,8 +726,7 @@
       "current_song": "Μεταβείτε στο Τρέχον τραγούδι"
     }
   },
-  "nowPlaying": {
-    "title": "Αναπαραγωγή τώρα",
+  "whosListening": {
     "empty": "Δεν παίζει τίποτα",
     "minutesAgo": "%{smart_count} λεπτό πριν |||| %{smart_count} λεπτά πριν"
   }

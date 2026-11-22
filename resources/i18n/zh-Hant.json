@@ -726,8 +726,7 @@
       "current_song": "前往目前歌曲"
     }
   },
-  "nowPlaying": {
-    "title": "正在播放",
+  "whosListening": {
     "empty": "無播放內容",
     "minutesAgo": "1 分鐘前 |||| %{smart_count} 分鐘前"
   }

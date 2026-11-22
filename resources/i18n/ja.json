@@ -711,8 +711,7 @@
     "status": "スキャンエラー",
     "elapsedTime": "経過時間"
   },
-  "nowPlaying": {
-    "title": "再生中",
+  "whosListening": {
     "empty": "再生中の曲はありません",
     "minutesAgo": "%{smart_count} 分前"
   },

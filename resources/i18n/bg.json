@@ -707,8 +707,7 @@
       "current_song": "Премини към текущата песен"
     }
   },
-  "nowPlaying": {
-    "title": "Сега свири",
+  "whosListening": {
     "empty": "Нищо не се възпроизвежда",
     "minutesAgo": "преди %{smart_count} минута |||| преди %{smart_count} минути"
   }

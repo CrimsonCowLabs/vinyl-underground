@@ -703,8 +703,7 @@
     "status": "Errorea arakatzean",
     "elapsedTime": "Igarotako denbora"
   },
-  "nowPlaying": {
-    "title": "Une honetan erreproduzitzen",
+  "whosListening": {
     "empty": "Ez dago erreproduzitzeko ezer",
     "minutesAgo": "Duela minutu %{smart_count} |||| Duela %{smart_count} minutu"
   },

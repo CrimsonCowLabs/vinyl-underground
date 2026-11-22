@@ -715,8 +715,7 @@
       "current_song": "Mevcut Şarkıya Git"
     }
   },
-  "nowPlaying": {
-    "title": "Şu An Çalıyor",
+  "whosListening": {
     "empty": "Çalan şarkı yok",
     "minutesAgo": "%{smart_count} dakika önce"
   }

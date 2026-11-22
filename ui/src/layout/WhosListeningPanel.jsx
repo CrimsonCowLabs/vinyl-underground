@@ -148,17 +148,17 @@ const useStyles = makeStyles((theme) => ({
   },
 }))
 
-// NowPlayingButton component - handles the button with badge
-const NowPlayingButton = React.memo(({ count, onClick }) => {
+// WhosListeningButton component - handles the button with badge
+const WhosListeningButton = React.memo(({ count, onClick }) => {
   const classes = useStyles()
   const translate = useTranslate()
 
   return (
-    <Tooltip title={translate('nowPlaying.title')}>
+    <Tooltip title={translate('whosListening.title')}>
       <IconButton
         className={classes.button}
         onClick={onClick}
-        aria-label={translate('nowPlaying.title')}
+        aria-label={translate('whosListening.title')}
         aria-haspopup="true"
       >
         <Badge
@@ -174,14 +174,14 @@ const NowPlayingButton = React.memo(({ count, onClick }) => {
   )
 })
 
-NowPlayingButton.displayName = 'NowPlayingButton'
+WhosListeningButton.displayName = 'WhosListeningButton'
 
-NowPlayingButton.propTypes = {
+WhosListeningButton.propTypes = {
   count: PropTypes.number.isRequired,
   onClick: PropTypes.func.isRequired,
 }
 
-const NowPlayingItem = React.memo(
+const WhosListeningItem = React.memo(
   ({ nowPlayingEntry, onLinkClick, getArtistLink, now }) => {
     const classes = useStyles()
     const isPaused = nowPlayingEntry.state === 'paused'
@@ -276,9 +276,9 @@ const NowPlayingItem = React.memo(
   },
 )
 
-NowPlayingItem.displayName = 'NowPlayingItem'
+WhosListeningItem.displayName = 'WhosListeningItem'
 
-NowPlayingItem.propTypes = {
+WhosListeningItem.propTypes = {
   nowPlayingEntry: PropTypes.shape({
     playerId: PropTypes.oneOfType([PropTypes.string, PropTypes.number])
       .isRequired,
@@ -301,8 +301,8 @@ NowPlayingItem.propTypes = {
   now: PropTypes.number.isRequired,
 }
 
-// NowPlayingList component - handles the popover content
-const NowPlayingList = React.memo(
+// WhosListeningList component - handles the popover content
+const WhosListeningList = React.memo(
   ({ anchorEl, open, onClose, entries, onLinkClick, getArtistLink, now }) => {
     const classes = useStyles({ entryCount: entries.length })
     const translate = useTranslate()
@@ -321,16 +321,16 @@ const NowPlayingList = React.memo(
           <CardContent className={classes.cardContent}>
             {entries.length === 0 ? (
               <Typography id="now-playing-title">
-                {translate('nowPlaying.empty')}
+                {translate('whosListening.empty')}
               </Typography>
             ) : (
               <List
                 className={classes.list}
                 dense
-                aria-label={translate('nowPlaying.title')}
+                aria-label={translate('whosListening.title')}
               >
                 {entries.map((nowPlayingEntry) => (
-                  <NowPlayingItem
+                  <WhosListeningItem
                     key={`${nowPlayingEntry.username}-${nowPlayingEntry.playerName}`}
                     nowPlayingEntry={nowPlayingEntry}
                     onLinkClick={onLinkClick}
@@ -347,9 +347,9 @@ const NowPlayingList = React.memo(
   },
 )
 
-NowPlayingList.displayName = 'NowPlayingList'
+WhosListeningList.displayName = 'WhosListeningList'
 
-NowPlayingList.propTypes = {
+WhosListeningList.propTypes = {
   anchorEl: PropTypes.object,
   open: PropTypes.bool.isRequired,
   onClose: PropTypes.func.isRequired,
@@ -359,8 +359,8 @@ NowPlayingList.propTypes = {
   now: PropTypes.number.isRequired,
 }
 
-// Main NowPlayingPanel component
-const NowPlayingPanel = () => {
+// Main WhosListeningPanel component
+const WhosListeningPanel = () => {
   const dispatch = useDispatch()
   const count = useSelector((state) => state.activity.nowPlayingCount)
   const lastUpdate = useSelector((state) => state.activity.nowPlayingLastUpdate)
@@ -418,7 +418,7 @@ const NowPlayingPanel = () => {
           dispatch(nowPlayingCountSync({ count: nowPlayingEntries.length }))
         } else {
           throw new Error(
-            data.error?.message || 'Failed to fetch now playing data',
+            data.error?.message || 'Failed to fetch who is listening',
           )
         }
       })
@@ -446,7 +446,7 @@ const NowPlayingPanel = () => {
     if (serverUp) fetchList()
   }, [fetchList, serverUp, streamReconnected])
 
-  // Refresh when NowPlaying updates from SSE events (if panel is open)
+  // Refresh when Who's Listening updates from SSE events (if panel is open)
   useEffect(() => {
     if (open && serverUp) fetchList()
   }, [lastUpdate, open, fetchList, serverUp])
@@ -472,8 +472,8 @@ const NowPlayingPanel = () => {
 
   return (
     <div>
-      <NowPlayingButton count={count} onClick={handleMenuOpen} />
-      <NowPlayingList
+      <WhosListeningButton count={count} onClick={handleMenuOpen} />
+      <WhosListeningList
         anchorEl={anchorEl}
         open={open}
         onClose={handleMenuClose}
@@ -486,6 +486,6 @@ const NowPlayingPanel = () => {
   )
 }
 
-NowPlayingPanel.propTypes = {}
+WhosListeningPanel.propTypes = {}
 
-export default NowPlayingPanel
+export default WhosListeningPanel

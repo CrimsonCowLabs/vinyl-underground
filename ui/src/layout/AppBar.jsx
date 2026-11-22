@@ -19,7 +19,7 @@ import { Dialogs } from '../dialogs/Dialogs'
 import { AboutDialog, QuickConnectDialog } from '../dialogs'
 import PersonalMenu from './PersonalMenu'
 import ActivityPanel from './ActivityPanel'
-import NowPlayingPanel from './NowPlayingPanel'
+import WhosListeningPanel from './WhosListeningPanel'
 import UserMenu from './UserMenu'
 import config from '../config'
 import { OfflineIndicator } from '../download/OfflineIndicator'
@@ -130,7 +130,7 @@ const CustomUserMenu = ({ onClick, ...rest }) => {
       <OfflineIndicator />
       {config.devActivityPanel &&
         permissions === 'admin' &&
-        config.enableNowPlaying && <NowPlayingPanel />}
+        config.enableNowPlaying && <WhosListeningPanel />}
       {config.devActivityPanel && permissions === 'admin' && <ActivityPanel />}
       <UserMenu {...rest}>
         <PersonalMenu sidebarIsOpen={true} onClick={onClick} />

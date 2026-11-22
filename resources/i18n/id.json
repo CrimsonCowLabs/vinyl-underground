@@ -715,8 +715,7 @@
       "current_song": "Buka Lagu Saat Ini"
     }
   },
-  "nowPlaying": {
-    "title": "Sedang Diputar",
+  "whosListening": {
     "empty": "Tidak ada yang diputar",
     "minutesAgo": "%{smart_count} menit yang lalu |||| %{smart_count} menit yang lalu"
   }

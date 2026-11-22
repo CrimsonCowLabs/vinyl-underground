@@ -16,8 +16,8 @@ vi.mock('react-admin', () => ({
   getResources: () => [],
 }))
 
-vi.mock('./NowPlayingPanel', () => ({
-  default: () => <div data-testid="now-playing-panel" />,
+vi.mock('./WhosListeningPanel', () => ({
+  default: () => <div data-testid="whos-listening-panel" />,
 }))
 vi.mock('./ActivityPanel', () => ({
   default: () => <div data-testid="activity-panel" />,
@@ -46,23 +46,23 @@ describe('<AppBar />', () => {
     })
   })
 
-  it('renders NowPlayingPanel when enabled', () => {
+  it('renders WhosListeningPanel when enabled', () => {
     render(
       <Provider store={store}>
         <AppBar />
       </Provider>,
     )
-    expect(screen.getByTestId('now-playing-panel')).toBeInTheDocument()
+    expect(screen.getByTestId('whos-listening-panel')).toBeInTheDocument()
   })
 
-  it('hides NowPlayingPanel when disabled', () => {
+  it('hides WhosListeningPanel when disabled', () => {
     config.enableNowPlaying = false
     render(
       <Provider store={store}>
         <AppBar />
       </Provider>,
     )
-    expect(screen.queryByTestId('now-playing-panel')).toBeNull()
+    expect(screen.queryByTestId('whos-listening-panel')).toBeNull()
   })
 
   it('shows the Quick Connect menu item when enabled', () => {

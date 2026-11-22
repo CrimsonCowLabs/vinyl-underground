@@ -726,8 +726,7 @@
       "current_song": "ไปยังเพลงปัจจุบัน"
     }
   },
-  "nowPlaying": {
-    "title": "กำลังเล่น",
+  "whosListening": {
     "empty": "ไม่มีเพลงเล่น",
     "minutesAgo": "%{smart_count} นาทีที่แล้ว |||| %{smart_count} นาทีที่แล้ว"
   }

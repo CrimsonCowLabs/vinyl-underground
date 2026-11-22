@@ -715,8 +715,7 @@
       "current_song": "Prejsť na aktuálnu skladbu"
     }
   },
-  "nowPlaying": {
-    "title": "Práve hrá",
+  "whosListening": {
     "empty": "Nič sa neprehráva",
     "minutesAgo": "pred %{smart_count} minútou |||| pred %{smart_count} minútami"
   }

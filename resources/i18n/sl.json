@@ -707,8 +707,7 @@
       "current_song": "Skoči na predvajano"
     }
   },
-  "nowPlaying": {
-    "title": "Zdaj se predvaja",
+  "whosListening": {
     "empty": "Nič se ne predvaja",
     "minutesAgo": "Pred %{smart_count} minuto |||| Pred %{smart_count} minutami"
   }

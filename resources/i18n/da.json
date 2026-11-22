@@ -713,8 +713,7 @@
       "current_song": "Gå til den aktuelle sang"
     }
   },
-  "nowPlaying": {
-    "title": "Afspilles nu",
+  "whosListening": {
     "empty": "Intet afspilles nu",
     "minutesAgo": "for %{smart_count} minut siden |||| for %{smart_count} minutter siden"
   }

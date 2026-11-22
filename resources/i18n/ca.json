@@ -707,8 +707,7 @@
       "current_song": "Anar a la cançó actual"
     }
   },
-  "nowPlaying": {
-    "title": "Està sonant",
+  "whosListening": {
     "empty": "No s'està reproduint res",
     "minutesAgo": "Fa %{smart_count} minut |||| Fa %{smart_count} minuts"
   }

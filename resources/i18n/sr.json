@@ -703,8 +703,7 @@
     "status": "Грешка скенирања",
     "elapsedTime": "Протекло време"
   },
-  "nowPlaying": {
-    "title": "Сада се пушта",
+  "whosListening": {
     "empty": "Ништа се не пушта",
     "minutesAgo": "Пре %{smart_count} минут |||| Пре %{smart_count} минута"
   },
