@@ -29,6 +29,7 @@ import (
 	"time"
 
 	. "github.com/Masterminds/squirrel"
+	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/model/request"
 )
@@ -144,6 +145,7 @@ func (s *service) Next(ctx context.Context, djID, theme string, count int) (mode
 		picked = s.plans.take(usr.ID, dj, theme, history, now, count, rnd, skipWeight)
 		history = append(servedAt(picked, now), history...)
 	}
+	fromPlan := len(picked)
 	if len(picked) < count {
 		candidates, err := s.candidates(ctx, dj)
 		if err != nil {
@@ -163,6 +165,7 @@ func (s *service) Next(ctx context.Context, djID, theme string, count int) (mode
 	if err := repo.Add(records...); err != nil {
 		return nil, fmt.Errorf("remembering the Station's Tracks: %w", err)
 	}
+	logRefill(ctx, usr.UserName, dj, picked, fromPlan)
 	if s.selector != nil {
 		exclude := make([]string, 0, len(history)+len(picked))
 		for _, h := range history {
@@ -235,6 +238,22 @@ func (s *service) skips(ctx context.Context, dj DJ, now time.Time) ([]Skip, erro
 		res[i] = Skip{TrackID: sk.MediaFileID, Artist: sk.Artist, At: sk.SkippedAt}
 	}
 	return res, nil
+}
+
+// logRefill logs what a refill served and where each Track came from: the first fromPlan from
+// the LLM's plan, the rest from rule-based selection. It is how to tell, from the logs, why a
+// DJ played what it did.
+func logRefill(ctx context.Context, listener string, dj DJ, picked model.MediaFiles, fromPlan int) {
+	tracks := make([]string, len(picked))
+	for i, mf := range picked {
+		source := "plan"
+		if i >= fromPlan {
+			source = "rule"
+		}
+		tracks[i] = fmt.Sprintf("%s: %s - %s", source, mf.Artist, mf.Title)
+	}
+	log.Info(ctx, "Station refill", "listener", listener, "dj", dj.ID,
+		"planned", fromPlan, "byRule", len(picked)-fromPlan, "tracks", tracks)
 }
 
 // servedAt returns the Tracks as served at now, in order, newest first like a Station's history.

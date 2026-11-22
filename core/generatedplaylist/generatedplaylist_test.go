@@ -16,11 +16,14 @@ import (
 	"github.com/navidrome/navidrome/core/generatedplaylist"
 	"github.com/navidrome/navidrome/core/llm"
 	"github.com/navidrome/navidrome/db"
+	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/model/request"
 	"github.com/navidrome/navidrome/persistence"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus/hooks/test"
 )
 
 // fakeLLM answers the filters call with a fixed reply and the ranking call by asking rank
@@ -700,6 +703,39 @@ var _ = Describe("Generated Playlists", Ordered, func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(candidateLines(fake.request("ranking").User)).To(HaveLen(1))
 			Expect(titles(tracks)).To(Equal([]string{kept.Title}))
+		})
+
+		It("logs, at info, the filters it used and the Tracks it picked", func() {
+			l, hook := test.NewNullLogger()
+			prevLogger := log.SetDefaultLogger(l)
+			prevLevel := log.CurrentLevel()
+			log.SetLevel(log.LevelInfo)
+			DeferCleanup(func() {
+				log.SetDefaultLogger(prevLogger)
+				log.SetLevel(prevLevel)
+			})
+			addTrack("Miles Davis", "Blue in Green", 1959, "Jazz")
+			addTrack("Madonna", "Vogue", 1990, "Pop")
+			refreshGenres()
+			fake.filters = map[string]any{"name": "", "genres": []string{"Jazz"}, "seed_artists": []string{"Chet Baker"},
+				"year_from": 1950, "year_to": 1969}
+			fake.rank = firstN(1)
+
+			_, err := sel.Select(ctx, "late-night jazz", 1, nil)
+			Expect(err).ToNot(HaveOccurred())
+
+			var picked []*logrus.Entry
+			for _, e := range hook.AllEntries() {
+				if e.Message == "LLM picked Tracks" {
+					picked = append(picked, e)
+				}
+			}
+			Expect(picked).To(HaveLen(1))
+			Expect(picked[0].Level).To(Equal(logrus.InfoLevel))
+			Expect(picked[0].Data).To(HaveKeyWithValue("genres", "[`Jazz`]"))
+			Expect(picked[0].Data).To(HaveKeyWithValue("seedArtists", "[`Chet Baker`]"))
+			Expect(picked[0].Data).To(HaveKeyWithValue("years", "1950-1969"))
+			Expect(picked[0].Data).To(HaveKeyWithValue("picked", "[`Miles Davis - Blue in Green`]"))
 		})
 
 		It("refuses a length outside 1 to 100", func() {
