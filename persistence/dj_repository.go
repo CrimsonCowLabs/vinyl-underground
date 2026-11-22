@@ -51,14 +51,15 @@ func (r *djRepository) Put(dj *model.DJ) error {
 		dj.UserID = loggedUser(r.ctx).ID
 		dj.CreatedAt, dj.UpdatedAt = now, now
 		ins := Insert(r.tableName).
-			Columns("id", "user_id", "name", "description", "created_at", "updated_at").
-			Values(dj.ID, dj.UserID, dj.Name, dj.Description, dj.CreatedAt, dj.UpdatedAt)
+			Columns("id", "user_id", "name", "description", "genres", "genre_source", "created_at", "updated_at").
+			Values(dj.ID, dj.UserID, dj.Name, dj.Description, dj.Genres, dj.GenreSource, dj.CreatedAt, dj.UpdatedAt)
 		_, err := r.executeSQL(ins)
 		return err
 	}
 	dj.UpdatedAt = now
 	upd := Update(r.tableName).
-		Set("name", dj.Name).Set("description", dj.Description).Set("updated_at", dj.UpdatedAt).
+		Set("name", dj.Name).Set("description", dj.Description).
+		Set("genres", dj.Genres).Set("genre_source", dj.GenreSource).Set("updated_at", dj.UpdatedAt).
 		Where(And{r.mine(), Eq{"id": dj.ID}})
 	count, err := r.executeSQL(upd)
 	if err != nil {

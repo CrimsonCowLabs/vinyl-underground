@@ -146,7 +146,7 @@ var _ = Describe("Stations with an LLM", Ordered, func() {
 	It("asks with the persona of the Listener's own DJ, and starts over when they edit it", func() {
 		_, err := db.Db().Exec("delete from dj")
 		Expect(err).ToNot(HaveOccurred())
-		mine, err := svc.CreateDJ(ctx, "Mr. Mellow", "Slow, soft songs for a rainy afternoon.")
+		mine, err := svc.CreateDJ(ctx, stations.DJEdit{Name: "Mr. Mellow", Description: "Slow, soft songs for a rainy afternoon."})
 		Expect(err).ToNot(HaveOccurred())
 		mellow, loud := llmPicks("mellow", 8), llmPicks("loud", 8)
 		sel.pick = func(req string) model.MediaFiles {
@@ -162,7 +162,7 @@ var _ = Describe("Stations with an LLM", Ordered, func() {
 		Expect(ids(listen(mine.ID, "", 3))).To(Equal(ids(mellow[:3])))
 		stations.WaitForSelection(svc)
 
-		_, err = svc.UpdateDJ(ctx, mine.ID, "Mr. Loud", "Fast and loud.")
+		_, err = svc.UpdateDJ(ctx, mine.ID, stations.DJEdit{Name: "Mr. Loud", Description: "Fast and loud."})
 		Expect(err).ToNot(HaveOccurred())
 		Expect(ids(listen(mine.ID, "", 3))).To(Equal(ids(loud[:3])))
 	})
@@ -281,7 +281,7 @@ var _ = Describe("Stations with an LLM", Ordered, func() {
 	It("starts afresh only for the DJ the Listener edited", func() {
 		_, err := db.Db().Exec("delete from dj")
 		Expect(err).ToNot(HaveOccurred())
-		mine, err := svc.CreateDJ(ctx, "Mr. Mellow", "Slow, soft songs for a rainy afternoon.")
+		mine, err := svc.CreateDJ(ctx, stations.DJEdit{Name: "Mr. Mellow", Description: "Slow, soft songs for a rainy afternoon."})
 		Expect(err).ToNot(HaveOccurred())
 		picks := picksByDJ(10, "Mr. Mellow", "Sunny")
 		mellow, sunny := picks["Mr. Mellow"], picks["Sunny"]
@@ -291,7 +291,7 @@ var _ = Describe("Stations with an LLM", Ordered, func() {
 		stations.WaitForSelection(svc)
 
 		// Only the description changes, so the DJ is still Mr. Mellow to the fake LLM.
-		_, err = svc.UpdateDJ(ctx, mine.ID, "Mr. Mellow", "Fast and loud.")
+		_, err = svc.UpdateDJ(ctx, mine.ID, stations.DJEdit{Name: "Mr. Mellow", Description: "Fast and loud."})
 		Expect(err).ToNot(HaveOccurred())
 
 		Expect(ids(next(mine.ID, "", 3))).ToNot(ContainElement(BeElementOf(ids(mellow))))
@@ -535,7 +535,7 @@ var _ = Describe("Starting a Station with an LLM", Ordered, func() {
 	})
 
 	It("waits for the picks of the Listener's own DJ too", func() {
-		mine, err := svc.CreateDJ(ctx, "Mr. Mellow", "Slow, soft songs for a rainy afternoon.")
+		mine, err := svc.CreateDJ(ctx, stations.DJEdit{Name: "Mr. Mellow", Description: "Slow, soft songs for a rainy afternoon."})
 		Expect(err).ToNot(HaveOccurred())
 		mellow := picks("mellow", 10)
 		sel.pick = func(string) model.MediaFiles { return mellow }

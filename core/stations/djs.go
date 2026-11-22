@@ -16,8 +16,13 @@ type DJ struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
 	// BuiltIn DJs come with the app and can't be edited or deleted.
-	BuiltIn bool  `json:"builtIn"`
-	Taste   Taste `json:"-"`
+	BuiltIn bool `json:"builtIn"`
+	// Genres are a Listener's DJ's genres, by their names in the Library's genre tags, and
+	// GenresEdited says the Listener picked them by hand. Built-in DJs have none here: their
+	// genres are words in their Taste.
+	Genres       []string `json:"genres,omitempty"`
+	GenresEdited bool     `json:"genresEdited,omitempty"`
+	Taste        Taste    `json:"-"`
 }
 
 // Taste weighs a Track's existing metadata for a DJ. Every Track starts at a score of 1 and
@@ -29,6 +34,9 @@ type Taste struct {
 	// those, leaving out Tracks with no genre (see strictGenreTracks).
 	Genres      []string
 	GenreWeight float64
+	// WholeGenres matches Genres as whole genre names instead ("jazz" is only "Jazz"), for a
+	// Listener's DJ, whose genres are picked from the Library's.
+	WholeGenres bool
 	// MinBPM and MaxBPM are the tempo the DJ likes. Only Tracks tagged with a BPM are weighed.
 	MinBPM, MaxBPM int
 	TempoWeight    float64
@@ -153,12 +161,20 @@ func (t Taste) likesGenre(mf model.MediaFile) bool {
 			continue
 		}
 		for _, word := range t.Genres {
-			if strings.Contains(g, word) {
+			if t.namesGenre(word, g) {
 				return true
 			}
 		}
 	}
 	return false
+}
+
+// namesGenre says whether the DJ's genre word names the lower-case genre.
+func (t Taste) namesGenre(word, genre string) bool {
+	if t.WholeGenres {
+		return word == genre
+	}
+	return strings.Contains(genre, word)
 }
 
 // favorite is 1 for a starred or 5-star Track, 0.5 for a 4-star one, and 0 otherwise.

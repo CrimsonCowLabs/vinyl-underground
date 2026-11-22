@@ -66,11 +66,20 @@ type Service interface {
 	// DJ returns the DJ with the id, built-in or the logged-in Listener's own, or ErrUnknownDJ.
 	DJ(ctx context.Context, id string) (DJ, error)
 	// CreateDJ creates a DJ for the logged-in Listener from a name and a personality
-	// description (ErrInvalidDJName, ErrInvalidDJDescription).
-	CreateDJ(ctx context.Context, name, description string) (DJ, error)
-	// UpdateDJ changes the name and description of the logged-in Listener's DJ. Built-in DJs
-	// are read-only (ErrBuiltInDJ).
-	UpdateDJ(ctx context.Context, id, name, description string) (DJ, error)
+	// description (ErrInvalidDJName, ErrInvalidDJDescription), with the Library genres the
+	// Listener picked by hand, or else the ones its name and description name.
+	CreateDJ(ctx context.Context, edit DJEdit) (DJ, error)
+	// UpdateDJ changes the name and description of the logged-in Listener's DJ. Its genres
+	// become the ones the Listener picked, if they picked any now; otherwise genres picked by
+	// hand before stay, and any others are worked out again from the name and description.
+	// Built-in DJs are read-only (ErrBuiltInDJ).
+	UpdateDJ(ctx context.Context, id string, edit DJEdit) (DJ, error)
+	// Genres returns the genres in the logged-in Listener's Library, by name: the ones their
+	// DJs can have.
+	Genres(ctx context.Context) ([]string, error)
+	// MatchGenres returns the genres saving a DJ with the name and description would give it,
+	// unless the Listener picks them by hand, so the DJ form can show them before it is saved.
+	MatchGenres(ctx context.Context, name, description string) ([]string, error)
 	// DeleteDJ deletes the logged-in Listener's DJ (ErrBuiltInDJ for a built-in one). What its
 	// Stations served and played stays in the Listener's history.
 	DeleteDJ(ctx context.Context, id string) error
@@ -372,7 +381,7 @@ func (s *service) candidates(ctx context.Context, dj DJ) (model.MediaFiles, erro
 	t := dj.Taste
 	strict := false
 	if t.GenreWeight > 0 {
-		genres, err := s.matchingGenres(ctx, t.Genres)
+		genres, err := s.matchingGenres(ctx, t)
 		if err != nil {
 			return nil, err
 		}
@@ -411,18 +420,18 @@ func (s *service) candidates(ctx context.Context, dj DJ) (model.MediaFiles, erro
 	return all, nil
 }
 
-// matchingGenres returns the Library's genres that contain one of the DJ's genre words.
-func (s *service) matchingGenres(ctx context.Context, words []string) ([]string, error) {
-	genres, err := s.ds.Genre(ctx).GetAll()
+// matchingGenres returns the Library's genres that the DJ's genre words name.
+func (s *service) matchingGenres(ctx context.Context, t Taste) ([]string, error) {
+	genres, err := s.libraryGenres(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("listing genres for the Station: %w", err)
+		return nil, err
 	}
 	var res []string
 	for _, g := range genres {
-		name := strings.ToLower(g.Name)
-		for _, w := range words {
-			if strings.Contains(name, w) {
-				res = append(res, g.Name)
+		name := strings.ToLower(g)
+		for _, w := range t.Genres {
+			if t.namesGenre(w, name) {
+				res = append(res, g)
 				break
 			}
 		}

@@ -28,6 +28,8 @@ func (api *Router) addStationRoute(r chi.Router) {
 //   - GET /station/dj lists the DJs they can start a Station with, built-in then their own;
 //   - POST /station/dj creates one of their own DJs, PUT and DELETE /station/dj/{id} edit and
 //     delete it (built-in DJs are read-only);
+//   - GET /station/genres lists their Library's genres, which their DJs' genres are picked
+//     from, and GET /station/genres/match?name=…&description=… the ones a DJ would get;
 //   - POST /station/next serves their next Station Tracks; with "start": true it starts the
 //     Station, waiting up to stations.StartWait for the DJ's first picks from the LLM;
 //   - POST /station/skip records that they skipped one;
@@ -38,6 +40,8 @@ func stationRoutes(r chi.Router, svc stations.Service) {
 		r.Post("/dj", createDJ(svc))
 		r.Put("/dj/{id}", updateDJ(svc))
 		r.Delete("/dj/{id}", deleteDJ(svc))
+		r.Get("/genres", listGenres(svc))
+		r.Get("/genres/match", matchGenres(svc))
 		r.Post("/next", nextStationTracks(svc))
 		r.Post("/skip", skipStationTrack(svc))
 		r.Get("/blurb", stationBlurb(svc))
@@ -63,9 +67,17 @@ func listDJs(svc stations.Service) http.HandlerFunc {
 	}
 }
 
+// djRequest creates or edits a Listener's DJ. Genres are the genres the Listener picked by
+// hand: left out (or null) when they didn't touch them, so they are worked out from the name
+// and description, or kept when already picked.
 type djRequest struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	Genres      []string `json:"genres"`
+}
+
+func (b djRequest) edit() stations.DJEdit {
+	return stations.DJEdit{Name: b.Name, Description: b.Description, Genres: b.Genres}
 }
 
 func createDJ(svc stations.Service) http.HandlerFunc {
@@ -75,7 +87,7 @@ func createDJ(svc stations.Service) http.HandlerFunc {
 			writeStationError(w, r, http.StatusBadRequest, "badRequest", err)
 			return
 		}
-		dj, err := svc.CreateDJ(r.Context(), body.Name, body.Description)
+		dj, err := svc.CreateDJ(r.Context(), body.edit())
 		if err != nil {
 			writeDJError(w, r, err)
 			return
@@ -93,7 +105,7 @@ func updateDJ(svc stations.Service) http.HandlerFunc {
 			writeStationError(w, r, http.StatusBadRequest, "badRequest", err)
 			return
 		}
-		dj, err := svc.UpdateDJ(r.Context(), chi.URLParam(r, "id"), body.Name, body.Description)
+		dj, err := svc.UpdateDJ(r.Context(), chi.URLParam(r, "id"), body.edit())
 		if err != nil {
 			writeDJError(w, r, err)
 			return
@@ -109,6 +121,29 @@ func deleteDJ(svc stations.Service) http.HandlerFunc {
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+func listGenres(svc stations.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		genres, err := svc.Genres(r.Context())
+		if err != nil {
+			writeStationError(w, r, http.StatusInternalServerError, "internal", err)
+			return
+		}
+		writeStationJSON(w, r, genres)
+	}
+}
+
+func matchGenres(svc stations.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		genres, err := svc.MatchGenres(r.Context(), q.Get("name"), q.Get("description"))
+		if err != nil {
+			writeStationError(w, r, http.StatusInternalServerError, "internal", err)
+			return
+		}
+		writeStationJSON(w, r, genres)
 	}
 }
 

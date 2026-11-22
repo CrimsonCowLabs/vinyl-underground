@@ -57,15 +57,28 @@ const mellow = {
   builtIn: false,
 }
 
+// The Library's genres, and the ones the server matches from a DJ's name and
+// description: those whose name is in them.
+const libraryGenres = ['House', 'Rock', 'Techno']
+const matchGenres = (url) => {
+  const q = new URLSearchParams(url.split('?')[1])
+  const text = `${q.get('name')} ${q.get('description')}`.toLowerCase()
+  return libraryGenres.filter((g) => text.includes(g.toLowerCase()))
+}
+
 // serveDJs answers the DJ list with the DJs given (built-in ones by default),
-// and answers saving, deleting and starting a Station with what the server
-// would.
+// the Library's genres, and saving, deleting and starting a Station with what
+// the server would.
 const serveDJs = (list = djs, overrides = {}) =>
   httpClient.mockImplementation((url, opts = {}) => {
     const method = opts.method || 'GET'
     const key = `${method} ${url.replace(/^.*\/station/, '')}`
     if (overrides[key]) return overrides[key](opts)
     if (key === 'GET /dj') return Promise.resolve({ json: list })
+    if (key === 'GET /genres') return Promise.resolve({ json: libraryGenres })
+    if (key.startsWith('GET /genres/match?')) {
+      return Promise.resolve({ json: matchGenres(url) })
+    }
     return Promise.resolve({ json: { tracks: firstTracks } })
   })
 
@@ -450,6 +463,166 @@ describe('StationList', () => {
         ),
       )
       expect(editor()).toBeInTheDocument()
+    })
+
+    describe('genres', () => {
+      const description = () =>
+        screen.getByLabelText(/^resources.station.dj.fields.description/)
+      const genreTags = () =>
+        screen.queryAllByTestId('dj-genre').map((chip) => chip.textContent)
+      const matchCalls = () =>
+        httpClient.mock.calls.filter(([url]) =>
+          url.includes('/station/genres/match?'),
+        )
+      const openNew = async () => {
+        renderPage()
+        await screen.findByText('Night Owl')
+        fireEvent.click(
+          screen.getByRole('button', { name: 'resources.station.dj.new' }),
+        )
+      }
+      const techno = {
+        ...mellow,
+        name: 'Tina',
+        description: 'Techno and house all night.',
+        genres: ['Techno', 'House'],
+      }
+
+      it('shows the genres matched from the name and description, with a tip', async () => {
+        await openNew()
+        expect(
+          screen.getByText('resources.station.dj.fields.genresTip'),
+        ).toBeInTheDocument()
+        fill('Tina', 'Pounding techno all night.')
+        fireEvent.blur(description())
+
+        await waitFor(() => expect(genreTags()).toEqual(['Techno']))
+        const [[url]] = matchCalls()
+        expect(url).toContain('name=Tina')
+        expect(url).toContain('description=Pounding+techno+all+night.')
+        expect(
+          screen.queryByText('resources.station.dj.noGenresWarning'),
+        ).not.toBeInTheDocument()
+
+        save()
+        await waitFor(() => expect(calls('POST', '/dj')).toHaveLength(1))
+        // Left to the server, which matches them the same way.
+        expect(JSON.parse(calls('POST', '/dj')[0][1].body)).toEqual({
+          name: 'Tina',
+          description: 'Pounding techno all night.',
+        })
+      })
+
+      it('warns when no genre matched and no LLM is configured', async () => {
+        await openNew()
+        fill('Mr. Mellow', 'Slow, soft songs.')
+        fireEvent.blur(description())
+        expect(
+          await screen.findByText('resources.station.dj.noGenresWarning'),
+        ).toBeInTheDocument()
+      })
+
+      it('only warns once matching found nothing, not while typing', async () => {
+        await openNew()
+        fill('Mr. Mellow', 'Slow, soft songs.')
+        expect(
+          screen.queryByText('resources.station.dj.noGenresWarning'),
+        ).not.toBeInTheDocument()
+      })
+
+      it("doesn't warn when the Listener removed every genre", async () => {
+        serveDJs([...djs, techno])
+        renderPage()
+        fireEvent.click(
+          await screen.findByRole('button', { name: 'ra.action.edit Tina' }),
+        )
+        fireEvent.click(
+          screen.getByRole('button', { name: 'ra.action.remove House' }),
+        )
+        fireEvent.click(
+          screen.getByRole('button', { name: 'ra.action.remove Techno' }),
+        )
+        expect(genreTags()).toEqual([])
+        expect(
+          screen.queryByText('resources.station.dj.noGenresWarning'),
+        ).not.toBeInTheDocument()
+      })
+
+      it('matches them on opening a DJ saved before it had any', async () => {
+        const old = { ...techno, genres: undefined }
+        serveDJs([...djs, old])
+        renderPage()
+        fireEvent.click(
+          await screen.findByRole('button', { name: 'ra.action.edit Tina' }),
+        )
+        await waitFor(() => expect(genreTags()).toEqual(['House', 'Techno']))
+      })
+
+      it("doesn't warn when an LLM is configured", async () => {
+        config.enableStationThemes = true
+        await openNew()
+        fill('Mr. Mellow', 'Slow, soft songs.')
+        fireEvent.blur(description())
+        await waitFor(() => expect(matchCalls()).toHaveLength(1))
+        expect(
+          screen.queryByText('resources.station.dj.noGenresWarning'),
+        ).not.toBeInTheDocument()
+      })
+
+      it("can be removed and added from the Library's, saved as picked by hand", async () => {
+        serveDJs([...djs, techno], {
+          'PUT /dj/dj-1': (opts) =>
+            Promise.resolve({ json: { ...techno, ...JSON.parse(opts.body) } }),
+        })
+        renderPage()
+        fireEvent.click(
+          await screen.findByRole('button', { name: 'ra.action.edit Tina' }),
+        )
+        expect(genreTags()).toEqual(['Techno', 'House'])
+
+        fireEvent.click(
+          screen.getByRole('button', { name: 'ra.action.remove House' }),
+        )
+        const add = screen.getByLabelText(
+          'resources.station.dj.fields.addGenre',
+        )
+        fireEvent.change(add, { target: { value: 'ro' } })
+        fireEvent.click(await screen.findByRole('option', { name: 'Rock' }))
+        expect(genreTags()).toEqual(['Techno', 'Rock'])
+
+        // Picked by hand, so the description no longer changes them.
+        fill('Tina', 'Only house now.')
+        fireEvent.blur(description())
+        expect(matchCalls()).toHaveLength(0)
+        expect(genreTags()).toEqual(['Techno', 'Rock'])
+
+        save()
+        await waitFor(() => expect(calls('PUT', '/dj/dj-1')).toHaveLength(1))
+        expect(JSON.parse(calls('PUT', '/dj/dj-1')[0][1].body)).toEqual({
+          name: 'Tina',
+          description: 'Only house now.',
+          genres: ['Techno', 'Rock'],
+        })
+      })
+
+      it('stay as picked by hand when the description changes', async () => {
+        serveDJs([...djs, { ...techno, genresEdited: true }])
+        renderPage()
+        fireEvent.click(
+          await screen.findByRole('button', { name: 'ra.action.edit Tina' }),
+        )
+        fill('Tina', 'Rock now.')
+        fireEvent.blur(description())
+        expect(matchCalls()).toHaveLength(0)
+        expect(genreTags()).toEqual(['Techno', 'House'])
+
+        save()
+        await waitFor(() => expect(calls('PUT', '/dj/dj-1')).toHaveLength(1))
+        expect(JSON.parse(calls('PUT', '/dj/dj-1')[0][1].body)).toEqual({
+          name: 'Tina',
+          description: 'Rock now.',
+        })
+      })
     })
 
     it('deletes a DJ once the Listener confirms, ending its Station if on air', async () => {

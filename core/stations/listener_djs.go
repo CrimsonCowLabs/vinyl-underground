@@ -28,9 +28,13 @@ var (
 	ErrInvalidDJDescription = fmt.Errorf("a DJ needs a personality description of at most %d characters", MaxDJDescriptionLength)
 )
 
+// listenerGenreWeight is what a Listener's DJ's genres weigh, as much as a built-in DJ's.
+const listenerGenreWeight = 4
+
 // listenerTaste is how a Listener's own DJ chooses Tracks without an LLM. Its personality is
-// free text the rules can't read, so it leans on what the Listener loves and plays, with room
-// for Tracks they haven't heard. With an LLM, its name and description choose instead.
+// free text the rules can't read, so it leans on its genres (see listenerDJ), if it has any,
+// and on what the Listener loves and plays, with room for Tracks they haven't heard. With an
+// LLM, its name and description choose instead.
 var listenerTaste = Taste{
 	FavoriteWeight: 2.5,
 	HistoryWeight:  1.5,
@@ -67,9 +71,21 @@ func (s *service) DJ(ctx context.Context, id string) (DJ, error) {
 	return listenerDJ(*dj), nil
 }
 
-func (s *service) CreateDJ(ctx context.Context, name, description string) (DJ, error) {
-	dj, err := cleanDJ(name, description)
+// DJEdit is what a Listener gives to create or edit one of their DJs.
+type DJEdit struct {
+	Name, Description string
+	// Genres are the Library genres the Listener picked by hand, even none, or nil when they
+	// didn't touch them. Picked genres stay until the Listener picks again; otherwise they are
+	// worked out from the name and description.
+	Genres []string
+}
+
+func (s *service) CreateDJ(ctx context.Context, edit DJEdit) (DJ, error) {
+	dj, err := cleanDJ(edit.Name, edit.Description)
 	if err != nil {
+		return DJ{}, err
+	}
+	if err := s.setGenres(ctx, &dj, edit.Genres); err != nil {
 		return DJ{}, err
 	}
 	if err := s.ds.DJ(ctx).Put(&dj); err != nil {
@@ -78,15 +94,27 @@ func (s *service) CreateDJ(ctx context.Context, name, description string) (DJ, e
 	return listenerDJ(dj), nil
 }
 
-func (s *service) UpdateDJ(ctx context.Context, id, name, description string) (DJ, error) {
+func (s *service) UpdateDJ(ctx context.Context, id string, edit DJEdit) (DJ, error) {
 	if err := editable(id); err != nil {
 		return DJ{}, err
 	}
-	dj, err := cleanDJ(name, description)
+	dj, err := cleanDJ(edit.Name, edit.Description)
 	if err != nil {
 		return DJ{}, err
 	}
+	stored, err := s.ds.DJ(ctx).Get(id)
+	if errors.Is(err, model.ErrNotFound) {
+		return DJ{}, ErrUnknownDJ
+	}
+	if err != nil {
+		return DJ{}, fmt.Errorf("loading the DJ: %w", err)
+	}
 	dj.ID = id
+	if edit.Genres == nil && stored.GenreSource == model.DJGenresByListener {
+		dj.Genres, dj.GenreSource = stored.Genres, stored.GenreSource
+	} else if err := s.setGenres(ctx, &dj, edit.Genres); err != nil {
+		return DJ{}, err
+	}
 	err = s.ds.DJ(ctx).Put(&dj)
 	if errors.Is(err, model.ErrNotFound) {
 		return DJ{}, ErrUnknownDJ
@@ -108,6 +136,22 @@ func (s *service) DeleteDJ(ctx context.Context, id string) error {
 	if err != nil {
 		return fmt.Errorf("deleting the DJ: %w", err)
 	}
+	return nil
+}
+
+// setGenres gives the DJ the genres the Listener picked, the ones the Library has, or when
+// picked is nil the genres worked out from its name and description.
+func (s *service) setGenres(ctx context.Context, dj *model.DJ, picked []string) error {
+	var err error
+	if picked == nil {
+		dj.Genres, dj.GenreSource, err = s.deriveGenres(ctx, dj.Name, dj.Description)
+		return err
+	}
+	library, err := s.libraryGenres(ctx)
+	if err != nil {
+		return err
+	}
+	dj.Genres, dj.GenreSource = libraryOnly(picked, library), model.DJGenresByListener
 	return nil
 }
 
@@ -136,6 +180,17 @@ func cleanDJ(name, description string) (model.DJ, error) {
 	return model.DJ{Name: name, Description: description}, nil
 }
 
+// listenerDJ is the Listener's DJ as a Station plays it. Its genres weigh, and narrow, its
+// Tracks the way a built-in DJ's do.
 func listenerDJ(dj model.DJ) DJ {
-	return DJ{ID: dj.ID, Name: dj.Name, Description: dj.Description, Taste: listenerTaste}
+	res := DJ{ID: dj.ID, Name: dj.Name, Description: dj.Description, Taste: listenerTaste,
+		Genres: []string(dj.Genres), GenresEdited: dj.GenreSource == model.DJGenresByListener}
+	if len(dj.Genres) > 0 {
+		res.Taste.WholeGenres = true
+		res.Taste.GenreWeight = listenerGenreWeight
+		for _, g := range dj.Genres {
+			res.Taste.Genres = append(res.Taste.Genres, strings.ToLower(g))
+		}
+	}
+	return res
 }
