@@ -1,3 +1,7 @@
+import {
+  VinylUndergroundDarkTheme,
+  VinylUndergroundLightTheme,
+} from './vinylUnderground'
 import LightTheme from './light'
 import DarkTheme from './dark'
 import ExtraDarkTheme from './extradark'
@@ -27,6 +31,10 @@ import TokyoNightLightTheme from './tokyoNightLight'
 import TokyoNightTheme from './tokyoNight'
 
 export default {
+  // The default, which "Auto" maps to
+  VinylUndergroundDarkTheme,
+  VinylUndergroundLightTheme,
+
   // Classic default themes
   LightTheme,
   DarkTheme,

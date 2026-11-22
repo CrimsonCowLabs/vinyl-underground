@@ -2,7 +2,7 @@ import { useSelector } from 'react-redux'
 import useMediaQuery from '@material-ui/core/useMediaQuery'
 import themes from './index'
 import { AUTO_THEME_ID } from '../consts'
-import config from '../config'
+import { currentThemeId } from '../reducers/themeReducer'
 import { useEffect, useMemo } from 'react'
 
 const useCurrentTheme = () => {
@@ -11,18 +11,13 @@ const useCurrentTheme = () => {
   const prefersLightMode = useMediaQuery('(prefers-color-scheme: light)', {
     noSsr: true,
   })
-  const theme = useSelector((state) => {
-    if (state.theme === AUTO_THEME_ID) {
-      return prefersLightMode ? themes.LightTheme : themes.DarkTheme
-    }
-    const themeName =
-      Object.keys(themes).find((t) => t === state.theme) ||
-      Object.keys(themes).find(
-        (t) => themes[t].themeName === config.defaultTheme,
-      ) ||
-      'DarkTheme'
-    return themes[themeName]
-  })
+  const themeId = useSelector(currentThemeId)
+  const theme =
+    themeId === AUTO_THEME_ID
+      ? prefersLightMode
+        ? themes.VinylUndergroundLightTheme
+        : themes.VinylUndergroundDarkTheme
+      : themes[themeId]
 
   useEffect(() => {
     const styles = document.getElementsByTagName('style')
