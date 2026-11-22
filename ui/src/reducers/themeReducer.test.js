@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { AUTO_THEME_ID, AUTO_THEME_CONFIG_VALUE } from '../consts'
-import { CHANGE_THEME } from '../actions'
+import { CHANGE_ACCENT, CHANGE_THEME } from '../actions'
 
 const loadWithConfig = async (defaultTheme) => {
   vi.doMock('../config', () => ({ default: { defaultTheme } }))
@@ -107,6 +107,53 @@ describe('currentThemeId', () => {
     const { currentThemeId } = await loadWithConfig(AUTO_THEME_CONFIG_VALUE)
     expect(currentThemeId({ theme: { choice: 'GoneTheme' } })).toBe(
       AUTO_THEME_ID,
+    )
+  })
+})
+
+describe('the accent', () => {
+  beforeEach(() => {
+    vi.resetModules()
+  })
+
+  it('is Teal on a new device', async () => {
+    const { themeReducer, currentAccentId } = await loadWithConfig(
+      AUTO_THEME_CONFIG_VALUE,
+    )
+    const theme = themeReducer(undefined, { type: '@@INIT' })
+    expect(currentAccentId({ theme })).toBe('teal')
+  })
+
+  it.each(['plum', 'art'])('records choosing %s', async (id) => {
+    const { themeReducer, currentAccentId } = await loadWithConfig(
+      AUTO_THEME_CONFIG_VALUE,
+    )
+    const theme = themeReducer(undefined, { type: CHANGE_ACCENT, payload: id })
+    expect(currentAccentId({ theme })).toBe(id)
+  })
+
+  it('is kept when the colour theme changes, and across a reload', async () => {
+    const { themeReducer, currentAccentId, currentThemeId } =
+      await loadWithConfig(AUTO_THEME_CONFIG_VALUE)
+    let theme = themeReducer(undefined, {
+      type: CHANGE_ACCENT,
+      payload: 'rose',
+    })
+    theme = themeReducer(theme, { type: CHANGE_THEME, payload: 'NordTheme' })
+    theme = themeReducer(theme, {
+      type: CHANGE_THEME,
+      payload: AUTO_THEME_ID,
+    })
+    const persisted = JSON.parse(JSON.stringify(theme))
+    theme = themeReducer(persisted, { type: '@@INIT' })
+    expect(currentAccentId({ theme })).toBe('rose')
+    expect(currentThemeId({ theme })).toBe(AUTO_THEME_ID)
+  })
+
+  it('falls back to Teal for an accent that no longer exists', async () => {
+    const { currentAccentId } = await loadWithConfig(AUTO_THEME_CONFIG_VALUE)
+    expect(currentAccentId({ theme: { choice: null, accent: 'gone' } })).toBe(
+      'teal',
     )
   })
 })

@@ -915,6 +915,19 @@
       "name": "Personal",
       "options": {
         "theme": "Theme",
+        "accent": "Accent",
+        "accents": {
+          "teal": "Teal",
+          "vermilion": "Vermilion",
+          "amber": "Amber",
+          "mustard": "Mustard",
+          "olive": "Olive",
+          "denim": "Denim",
+          "plum": "Plum",
+          "rose": "Rose",
+          "art": "From album art"
+        },
+        "accentArtHelp": "Colours Now Playing and the player from the cover of the Track playing.",
         "language": "Language",
         "defaultView": "Default View",
         "streamingQuality": {

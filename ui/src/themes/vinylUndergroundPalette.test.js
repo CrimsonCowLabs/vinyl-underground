@@ -45,6 +45,32 @@ describe('Vinyl Underground palette', () => {
     })
   })
 
+  it('offers the eight reviewed accents, Teal first', () => {
+    const values = Object.entries(accents).map(([id, a]) => [
+      id,
+      a.dark.main,
+      a.light.main,
+    ])
+    expect(values).toEqual([
+      ['teal', '#3EC1B0', '#086A5F'],
+      ['vermilion', '#FF5B2E', '#B0300F'],
+      ['amber', '#FF9A1F', '#934E00'],
+      ['mustard', '#E2B53A', '#765A00'],
+      ['olive', '#9DBB4E', '#4A6510'],
+      ['denim', '#6FA3F0', '#2F5DB0'],
+      ['plum', '#C08BF0', '#7A3FB0'],
+      ['rose', '#FF6F91', '#B42851'],
+    ])
+  })
+
+  it.each(Object.keys(accents))(
+    'puts Slate text on %s in dark and white text in light',
+    (name) => {
+      expect(accents[name].dark.contrastText).toBe('#0F1216')
+      expect(accents[name].light.contrastText).toBe('#FFFFFF')
+    },
+  )
+
   describe.each(['dark', 'light'])('%s', (mode) => {
     const s = surfaces[mode]
 

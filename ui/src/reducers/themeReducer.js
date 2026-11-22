@@ -1,11 +1,17 @@
-import { CHANGE_THEME } from '../actions'
+import { CHANGE_ACCENT, CHANGE_THEME } from '../actions'
 import { AUTO_THEME_ID, AUTO_THEME_CONFIG_VALUE } from '../consts'
 import config from '../config'
 import themes from '../themes'
+import {
+  accents,
+  ART_ACCENT,
+  DEFAULT_ACCENT,
+} from '../themes/vinylUndergroundPalette'
 
 // The colour theme a Listener chose on this device, or null if they never
 // chose one, so the default (the Vinyl Underground theme, through "Auto")
-// can still change under them.
+// can still change under them. `accent`, once chosen, is the Vinyl
+// Underground theme's accent, kept while another theme is shown.
 const NO_CHOICE = { choice: null }
 
 const configuredDefaultId = () => {
@@ -39,12 +45,32 @@ export const currentThemeId = (state) => {
   return isKnown(choice) ? choice : configuredDefaultId()
 }
 
+// Whether the Vinyl Underground theme is shown (through Auto, or chosen), the
+// only theme whose accent can be chosen
+export const showsVinylUnderground = (state) => {
+  const id = currentThemeId(state)
+  return id === AUTO_THEME_ID || !!themes[id].palette.vu
+}
+
+// The id of the Vinyl Underground theme's accent: a key of its accents, or
+// ART_ACCENT ("From album art").
+export const currentAccentId = (state) => {
+  const accent = state.theme?.accent
+  return accent === ART_ACCENT ||
+    Object.prototype.hasOwnProperty.call(accents, accent)
+    ? accent
+    : DEFAULT_ACCENT
+}
+
 export const themeReducer = (previousState = NO_CHOICE, { type, payload }) => {
-  if (type === CHANGE_THEME) {
-    return { choice: payload }
-  }
   if (typeof previousState === 'string') {
-    return migrate(previousState)
+    previousState = migrate(previousState)
+  }
+  if (type === CHANGE_THEME) {
+    return { ...previousState, choice: payload }
+  }
+  if (type === CHANGE_ACCENT) {
+    return { ...previousState, accent: payload }
   }
   return previousState
 }

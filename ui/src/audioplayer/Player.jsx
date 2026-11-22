@@ -2,13 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useInterval } from '../common'
 import { useDispatch, useSelector } from 'react-redux'
 import { useMediaQuery } from '@material-ui/core'
-import { ThemeProvider } from '@material-ui/core/styles'
-import {
-  createMuiTheme,
-  useAuthState,
-  useDataProvider,
-  useTranslate,
-} from 'react-admin'
+import { useAuthState, useDataProvider, useTranslate } from 'react-admin'
 import ReactGA from 'react-ga'
 import { GlobalHotKeys } from 'react-hotkeys'
 import ReactJkMusicPlayer from 'navidrome-music-player'
@@ -44,6 +38,7 @@ import NowPlaying from '../nowPlaying/NowPlaying'
 import { closeNowPlaying } from '../nowPlaying/nowPlayingState'
 import { nowPlayingPlayerProps } from './nowPlayingPlayerProps'
 import { sleepTimer, usePlaybackSpeed } from '../playbackTools'
+import { PlayerThemeProvider } from './PlayerThemeProvider'
 
 const Player = () => {
   const theme = useCurrentTheme()
@@ -446,8 +441,14 @@ const Player = () => {
     }
   }, [audioInstance])
 
+  // The cover shown in the player, before playback starts too
+  const cover =
+    playerState.current?.cover ||
+    playerState.queue[playerState.savedPlayIndex || 0]?.cover
+
+  // With "From album art", everything below takes its accent from the cover
   return (
-    <ThemeProvider theme={createMuiTheme(theme)}>
+    <PlayerThemeProvider theme={theme} cover={cover}>
       <ReactJkMusicPlayer
         {...options}
         className={classes.player}
@@ -467,7 +468,7 @@ const Player = () => {
       {visible && <NowPlaying audioInstance={audioInstance} />}
       <StationPicking />
       <GlobalHotKeys handlers={handlers} keyMap={keyMap} allowChanges />
-    </ThemeProvider>
+    </PlayerThemeProvider>
   )
 }
 

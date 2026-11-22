@@ -2,8 +2,10 @@ import { useSelector } from 'react-redux'
 import useMediaQuery from '@material-ui/core/useMediaQuery'
 import themes from './index'
 import { AUTO_THEME_ID } from '../consts'
-import { currentThemeId } from '../reducers/themeReducer'
+import { currentAccentId, currentThemeId } from '../reducers/themeReducer'
 import { useEffect, useMemo } from 'react'
+import { withAccent } from './vinylUnderground'
+import { accents, ART_ACCENT } from './vinylUndergroundPalette'
 
 const useCurrentTheme = () => {
   // Runs above the ThemeProvider carrying the prop below, so it needs its own noSsr or the
@@ -12,12 +14,22 @@ const useCurrentTheme = () => {
     noSsr: true,
   })
   const themeId = useSelector(currentThemeId)
-  const theme =
+  const accentId = useSelector(currentAccentId)
+  const base =
     themeId === AUTO_THEME_ID
       ? prefersLightMode
         ? themes.VinylUndergroundLightTheme
         : themes.VinylUndergroundDarkTheme
       : themes[themeId]
+  // "From album art" colours only the player (useArtAccentTheme): the rest
+  // of the app keeps the default accent
+  const theme = useMemo(
+    () =>
+      accentId === ART_ACCENT
+        ? base
+        : withAccent(base, accents[accentId][base.palette?.type]),
+    [base, accentId],
+  )
 
   useEffect(() => {
     const styles = document.getElementsByTagName('style')
