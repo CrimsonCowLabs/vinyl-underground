@@ -18,6 +18,19 @@ A self-hosted music server for a small household's own Library, with offline Dow
 
 The plan is in [`docs/design.md`](docs/design.md), the vocabulary in [`GLOSSARY.md`](GLOSSARY.md), the key decisions in [`docs/adr/`](docs/adr/), and the work is tracked in this repo's issues. Capitalised terms (Library, File, Track, Listener, Station…) have precise meanings there.
 
+## What the player will look like
+
+> [!NOTE]
+> These are screenshots of the [UI refresh prototype](prototypes/ui-refresh/), not the app as it is today. They show the planned look: the Now Playing view, Slate and cream themes, a Teal accent and DJ Blurbs. It is being built in [#90](https://github.com/CrimsonCowLabs/vinyl-underground/issues/90)–[#101](https://github.com/CrimsonCowLabs/vinyl-underground/issues/101).
+
+<p>
+  <img src="prototypes/ui-refresh/screenshots/phone-dark-now-playing.jpg" alt="Now Playing on a phone, dark theme" width="200">
+  <img src="prototypes/ui-refresh/screenshots/phone-dark-station-lyrics-art-accent.jpg" alt="A Station on a phone: synced lyrics, the DJ's Blurb and an accent taken from the album art" width="200">
+  <img src="prototypes/ui-refresh/screenshots/phone-light-mini-player-tab-bar.jpg" alt="The light theme on a phone: album grid, mini player and bottom tab bar" width="200">
+</p>
+
+<img src="prototypes/ui-refresh/screenshots/desktop-dark-side-panel-station.jpg" alt="Desktop: the album grid with Now Playing docked as a side panel, playing a Station" width="820">
+
 ## How it's put together
 
 Vinyl Underground is opinionated. It is built for one household on one private network, and it leans on a handful of outside tools rather than reinventing them:
