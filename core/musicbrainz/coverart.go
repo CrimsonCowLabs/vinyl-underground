@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"path"
 	"slices"
 	"strings"
@@ -115,6 +116,13 @@ func (c *CoverArt) ReleaseCovers(ctx context.Context, releaseID string) ([]Cover
 // its front cover first. ErrNoCover means it has none.
 func (c *CoverArt) ReleaseGroupCovers(ctx context.Context, releaseGroupID string) ([]Cover, error) {
 	return c.covers(ctx, "release-group/"+releaseGroupID, true)
+}
+
+// ReleaseFront names the front cover of a release the caller already knows has one (see
+// Release.CoverArtArchive), through the archive's front-image redirects, without a request.
+func (c *CoverArt) ReleaseFront(releaseID string) Cover {
+	u := c.base + "release/" + url.PathEscape(releaseID) + "/front"
+	return Cover{ReleaseID: releaseID, Front: true, URL: u + "-1200", ThumbnailURL: u + "-250"}
 }
 
 func front(covers []Cover, err error) (Cover, error) {

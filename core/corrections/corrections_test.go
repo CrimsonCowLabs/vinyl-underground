@@ -243,4 +243,81 @@ var _ = Describe("Corrections", func() {
 			Expect(err).To(MatchError(model.ErrNotFound))
 		})
 	})
+	Describe("ChooseAlbumCover", func() {
+		cover := corrections.AlbumCover{Hash: "0123456789abcdef", Mime: "image/jpeg", Source: "Cover Art Archive: Record (GB, CD, 1999)"}
+
+		addAlbum := func(id string, folderIDs ...string) model.Album {
+			GinkgoHelper()
+			al := model.Album{ID: id, Name: "Record", AlbumArtist: "Band", LibraryID: 1, FolderIDs: folderIDs}
+			Expect(ds.Album(ctx).Put(&al)).To(Succeed())
+			DeferCleanup(func() { _, _ = db.Db().Exec("delete from album where id = ?", id) })
+			return al
+		}
+		queued := func(albumID string) bool {
+			_, err := ds.ArtworkQueue(ctx).Get(model.KindAlbumArtwork, albumID, model.ImageTypePrimary)
+			return err == nil
+		}
+		clearQueue := func() {
+			_, err := db.Db().Exec("delete from artwork_queue")
+			Expect(err).ToNot(HaveOccurred())
+		}
+
+		BeforeEach(clearQueue)
+
+		It("saves the choice, keyed by the album's folder, and refreshes the album's cover", func() {
+			al := addAlbum("al-1", "folder-cd2", "folder-cd1")
+
+			res, err := svc.ChooseAlbumCover(ctx, al.ID, cover)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(res.Done).To(BeTrue())
+			Expect(res.Correction.Kind).To(Equal(model.CorrectionAlbumCover))
+			Expect(res.Correction.From).To(Equal("Band – Record"))
+			Expect(res.Correction.To).To(Equal(cover.Source))
+			Expect(res.Correction.CreatedBy).To(Equal("admin"))
+
+			got, err := ds.Correction(ctx).GetByMatchKey(model.CorrectionAlbumCover, "folder-cd1")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(got.ImageHash).To(Equal(cover.Hash))
+			Expect(got.ImageMime).To(Equal(cover.Mime))
+			Expect(queued(al.ID)).To(BeTrue())
+			Expect(refresher.scanned()).To(BeEmpty()) // a cover is no tag: nothing to rescan
+		})
+
+		It("replaces the album's earlier choice", func() {
+			al := addAlbum("al-1", "folder-cd1")
+			_, err := svc.ChooseAlbumCover(ctx, al.ID, cover)
+			Expect(err).ToNot(HaveOccurred())
+			other := corrections.AlbumCover{Hash: "fedcba9876543210", Mime: "image/png", Source: "cover.png"}
+			_, err = svc.ChooseAlbumCover(ctx, al.ID, other)
+			Expect(err).ToNot(HaveOccurred())
+
+			all, err := svc.GetAll(ctx)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(all).To(HaveLen(1))
+			Expect(all[0].To).To(Equal("cover.png"))
+		})
+
+		It("rejects an incomplete choice, and an unknown album", func() {
+			al := addAlbum("al-1", "folder-cd1")
+			_, err := svc.ChooseAlbumCover(ctx, al.ID, corrections.AlbumCover{Source: "x"})
+			Expect(err).To(MatchError(model.ErrValidation))
+			_, err = svc.ChooseAlbumCover(ctx, "nope", cover)
+			Expect(err).To(MatchError(model.ErrNotFound))
+		})
+
+		It("undoes a choice at once, refreshing the album back to its default cover order", func() {
+			al := addAlbum("al-1", "folder-cd1")
+			res, err := svc.ChooseAlbumCover(ctx, al.ID, cover)
+			Expect(err).ToNot(HaveOccurred())
+			clearQueue()
+
+			undone, err := svc.Undo(ctx, res.Correction.ID)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(undone.Done).To(BeTrue())
+			_, err = ds.Correction(ctx).Get(res.Correction.ID)
+			Expect(err).To(MatchError(model.ErrNotFound))
+			Expect(queued(al.ID)).To(BeTrue())
+			Expect(refresher.scanned()).To(BeEmpty())
+		})
+	})
 })

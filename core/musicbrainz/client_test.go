@@ -164,4 +164,33 @@ var _ = Describe("Client", func() {
 		Expect(err).ToNot(HaveOccurred())
 		Expect(served()).To(HaveLen(2))
 	})
+	Describe("ReleaseGroupReleases", func() {
+		const releasesJSON = `{"release-count": 2, "releases": [
+		  {"id": "rel-1", "title": "Record", "status": "Official", "date": "1999-05-01", "country": "GB",
+		   "media": [{"format": "CD"}, {"format": "CD"}],
+		   "cover-art-archive": {"artwork": true, "front": true, "count": 3}},
+		  {"id": "rel-2", "title": "Record (Deluxe)", "date": "2009", "country": "US",
+		   "media": [{"format": "12\" Vinyl"}],
+		   "cover-art-archive": {"artwork": false, "front": false, "count": 0}}]}`
+
+		It("browses the releases of a release group, with their formats and whether they have a front cover", func() {
+			replies = []func(http.ResponseWriter){func(w http.ResponseWriter) { _, _ = w.Write([]byte(releasesJSON)) }}
+			rels, err := client.ReleaseGroupReleases(context.Background(), "rg-1")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(rels).To(HaveLen(2))
+			Expect(rels[0].ID).To(Equal("rel-1"))
+			Expect(rels[0].Country).To(Equal("GB"))
+			Expect(rels[0].Formats()).To(Equal("2×CD"))
+			Expect(rels[0].CoverArtArchive.Front).To(BeTrue())
+			Expect(rels[1].Formats()).To(Equal(`12" Vinyl`))
+			Expect(rels[1].CoverArtArchive.Front).To(BeFalse())
+
+			reqs := served()
+			Expect(reqs).To(HaveLen(1))
+			Expect(reqs[0].URL.Path).To(Equal("/ws/2/release"))
+			Expect(reqs[0].URL.Query().Get("release-group")).To(Equal("rg-1"))
+			Expect(reqs[0].URL.Query().Get("inc")).To(Equal("media"))
+			Expect(reqs[0].Header.Get("User-Agent")).To(HavePrefix("VinylUnderground/"))
+		})
+	})
 })

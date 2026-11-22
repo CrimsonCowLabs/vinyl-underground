@@ -1,6 +1,9 @@
 package musicbrainz
 
-import "strings"
+import (
+	"strconv"
+	"strings"
+)
 
 // VariousArtistsID is MusicBrainz's "Various Artists", the credit of most compilations.
 const VariousArtistsID = "89ad4ac3-39f7-470e-963a-56509c546377"
@@ -27,6 +30,43 @@ type Release struct {
 	Date         string        `json:"date"`
 	ArtistCredit ArtistCredits `json:"artist-credit"`
 	ReleaseGroup ReleaseGroup  `json:"release-group"`
+	// Country is where it was issued ("GB", "XE" for Europe...), or empty. Media and
+	// CoverArtArchive are only filled in by ReleaseGroupReleases.
+	Country         string  `json:"country"`
+	Media           []Media `json:"media"`
+	CoverArtArchive struct {
+		// Front is set when the Cover Art Archive holds a front cover for the release.
+		Front bool `json:"front"`
+	} `json:"cover-art-archive"`
+}
+
+// Media is one disc, tape, file set... of a release.
+type Media struct {
+	// Format is "CD", `12" Vinyl`, "Digital Media"... or empty.
+	Format string `json:"format"`
+}
+
+// Formats is the release's media as printed: "2×CD", "CD + DVD", leaving out media of unknown format.
+func (r Release) Formats() string {
+	var parts []string
+	var counts []int
+	for _, m := range r.Media {
+		f := m.Format
+		if f == "" {
+			continue
+		}
+		if n := len(parts); n > 0 && parts[n-1] == f {
+			counts[n-1]++
+			continue
+		}
+		parts, counts = append(parts, f), append(counts, 1)
+	}
+	for i, n := range counts {
+		if n > 1 {
+			parts[i] = strconv.Itoa(n) + "×" + parts[i]
+		}
+	}
+	return strings.Join(parts, " + ")
 }
 
 // ReleaseGroup is an album, EP or single, whatever its editions.

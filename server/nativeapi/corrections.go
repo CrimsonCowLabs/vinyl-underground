@@ -19,6 +19,7 @@ func (api *Router) addCorrectionRoute(r chi.Router) {
 	r.Route("/correction", func(r chi.Router) {
 		r.Get("/", api.listCorrections)
 		r.Post("/artistRename", api.renameArtist)
+		r.Post("/albumCover", api.chooseAlbumCover)
 		r.Post("/{id}/undo", api.undoCorrection)
 	})
 }

@@ -84,6 +84,17 @@ var _ = Describe("CoverArt", func() {
 
 	ok := func(body string) []cannedReply { return []cannedReply{{status: http.StatusOK, body: body}} }
 
+	Describe("ReleaseFront", func() {
+		It("names a release's front cover without asking the archive", func() {
+			cover := archive.ReleaseFront("rel-3")
+			Expect(cover).To(Equal(musicbrainz.Cover{
+				ReleaseID: "rel-3", Front: true,
+				URL: srv.URL + "/release/rel-3/front-1200", ThumbnailURL: srv.URL + "/release/rel-3/front-250",
+			}))
+			Expect(paths()).To(BeEmpty())
+		})
+	})
+
 	Describe("FrontCover", func() {
 		It("returns the exact release's front cover, at the 1200px thumbnail", func() {
 			routes["/release/rel-1"] = ok(releaseCoversJSON)

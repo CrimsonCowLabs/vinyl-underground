@@ -22,7 +22,7 @@ import (
 // resolution is one attempted acquisition outcome for an entity.
 type resolution struct {
 	reader     io.ReadCloser // nil when no source yielded an image
-	source     string        // model.ItemArtwork.Source value: "folder", "embedded", "external", "upload", "generated"
+	source     string        // model.ItemArtwork.Source value: "folder", "embedded", "external", "upload", "chosen", "generated"
 	sourcePath string        // backing library/upload file (folder/upload: the image; embedded: the audio file); "" otherwise
 	refMtime   int64         // sourcePath mtime (unix-nanoseconds) at resolution; 0 when no sourcePath
 	// a faulted external source, carrying the provider's requested delay when it named one.
@@ -226,6 +226,21 @@ func (r *resolver) resolveAlbum(ctx context.Context, albumID string) (resolution
 	}
 
 	chain := chainState{trace: traceFrom(ctx)}
+	// An admin's choice outranks the configured order
+	chosen, chosenOK, err := resolveChosenCover(ctx, r.ds, *al)
+	if err != nil {
+		return resolution{}, err
+	}
+	if chosenOK || chosen.localError {
+		if res, ok := chain.try(ChosenSource, chosen, chosenOK); ok {
+			return res, nil
+		}
+		// Falling through would persist a lower-priority cover as if the choice were gone
+		return chosen, nil
+	}
+	if chosen.source != "" {
+		chain.record(ChosenSource, OutcomeMiss, "")
+	}
 	for pattern := range strings.SplitSeq(strings.ToLower(conf.Server.CoverArtPriority), ",") {
 		pattern = strings.TrimSpace(pattern)
 		if pattern == "" {

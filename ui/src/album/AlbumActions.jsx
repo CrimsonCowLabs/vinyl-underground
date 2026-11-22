@@ -29,6 +29,7 @@ import { formatBytes } from '../utils'
 import config from '../config'
 import { RefreshMetadataButton, ToggleFieldsMenu } from '../common'
 import { DownloadButton } from '../download/DownloadButton'
+import { ChooseCoverButton } from './ChooseCoverButton'
 
 const useStyles = makeStyles({
   toolbar: { display: 'flex', justifyContent: 'space-between', width: '100%' },
@@ -147,6 +148,7 @@ const AlbumActions = ({
             record={record}
             size="small"
           />
+          <ChooseCoverButton record={record} size="small" />
         </div>
         <div>{isNotSmall && <ToggleFieldsMenu resource="albumSong" />}</div>
       </div>
