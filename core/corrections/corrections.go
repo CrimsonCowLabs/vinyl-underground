@@ -59,8 +59,7 @@ type Corrections interface {
 // AlbumCover is a stored image to make an album's cover, and where it came from, as shown to the
 // admin ("Cover Art Archive: Record (GB, CD, 1999)").
 type AlbumCover struct {
-	Hash   string
-	Mime   string
+	artwork.StoredCover
 	Source string
 }
 
@@ -159,9 +158,10 @@ func (c *corrections) ChooseAlbumCover(ctx context.Context, albumID string, cove
 		return nil, err
 	}
 	log.Info(ctx, "Corrections: choosing an album cover", "album", al.Name, "source", cover.Source, "hash", cover.Hash)
-	// A cover is no tag: nothing to rescan, only the album's artwork to resolve again
+	// A cover is no tag: nothing to rescan, only the album's artwork to resolve again. The choice
+	// is saved either way, and wins whenever the album is next resolved.
 	if err := artwork.Refresh(ctx, c.ds, model.KindAlbumArtwork, al.ID); err != nil {
-		return nil, err
+		log.Warn(ctx, "Corrections: could not refresh the album's cover", "album", al.Name, err)
 	}
 	return &Applied{Correction: cr, Done: true}, nil
 }
@@ -189,7 +189,7 @@ func (c *corrections) undoAlbumCover(ctx context.Context, cr *model.Correction) 
 	log.Info(ctx, "Corrections: undoing an album cover choice", "album", cr.From, "source", cr.To, "albums", len(albums))
 	for _, al := range albums {
 		if err := artwork.Refresh(ctx, c.ds, model.KindAlbumArtwork, al.ID); err != nil {
-			return nil, err
+			log.Warn(ctx, "Corrections: could not refresh the album's cover", "album", al.Name, err)
 		}
 	}
 	return &Applied{Correction: *cr, Done: true}, nil

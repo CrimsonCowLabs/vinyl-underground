@@ -98,7 +98,8 @@ type CoverCandidates struct {
 // hour, so a choice can only be one the picker offered.
 type CoverPicker interface {
 	Candidates(ctx context.Context, albumID string, source CoverSource) (*CoverCandidates, error)
-	// Preview opens a small version of the candidate's image, where the source has one.
+	// Preview opens a small version of the candidate's image, where the source has one, read up to
+	// the image size cap.
 	Preview(ctx context.Context, albumID, candidateID string) (io.ReadCloser, error)
 	// Store fetches the candidate's image and keeps it in the ChosenCoverStore.
 	Store(ctx context.Context, albumID, candidateID string) (StoredCover, CoverCandidate, error)
@@ -202,7 +203,11 @@ func (p *coverPicker) Preview(ctx context.Context, albumID, candidateID string) 
 	if err != nil {
 		return nil, err
 	}
-	return c.open(ctx, true)
+	r, err := c.open(ctx, true)
+	if err != nil {
+		return nil, err
+	}
+	return readCloser{Reader: io.LimitReader(r, maxImageBytes()), Closer: r}, nil
 }
 
 func (p *coverPicker) Store(ctx context.Context, albumID, candidateID string) (StoredCover, CoverCandidate, error) {
@@ -215,9 +220,14 @@ func (p *coverPicker) Store(ctx context.Context, albumID, candidateID string) (S
 		return StoredCover{}, c.CoverCandidate, err
 	}
 	defer r.Close()
-	data, err := readCapped(r)
+	// A failed download is the source's fault; only an oversized image is the image's
+	limit := maxImageBytes()
+	data, err := io.ReadAll(io.LimitReader(r, limit+1))
 	if err != nil {
-		return StoredCover{}, c.CoverCandidate, fmt.Errorf("%w: %w", model.ErrValidation, err)
+		return StoredCover{}, c.CoverCandidate, err
+	}
+	if int64(len(data)) > limit {
+		return StoredCover{}, c.CoverCandidate, fmt.Errorf("%w: the image exceeds the size cap %d", model.ErrValidation, limit)
 	}
 	stored, err := StoreChosenCover(data)
 	return stored, c.CoverCandidate, err
@@ -298,7 +308,7 @@ func (p *coverPicker) coverArtArchive(ctx context.Context, al model.Album) ([]li
 	if al.MbzAlbumID != "" {
 		covers, err := p.archive.ReleaseCovers(ctx, al.MbzAlbumID)
 		switch {
-		case err == nil && covers[0].Front:
+		case err == nil && len(covers) > 0 && covers[0].Front:
 			exact = &covers[0]
 		case err != nil && !errors.Is(err, musicbrainz.ErrNoCover):
 			log.Warn(ctx, "Cover picker: the Cover Art Archive failed", "album", al.Name, "release", al.MbzAlbumID, err)

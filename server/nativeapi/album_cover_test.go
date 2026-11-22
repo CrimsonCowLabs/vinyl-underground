@@ -25,6 +25,7 @@ type fakeCoverPicker struct {
 	candidates map[artwork.CoverSource]*artwork.CoverCandidates
 	err        error
 	stored     []string
+	preview    string // when set, what every preview answers
 }
 
 func (f *fakeCoverPicker) Candidates(_ context.Context, albumID string, source artwork.CoverSource) (*artwork.CoverCandidates, error) {
@@ -40,6 +41,9 @@ func (f *fakeCoverPicker) Candidates(_ context.Context, albumID string, source a
 func (f *fakeCoverPicker) Preview(_ context.Context, albumID, candidateID string) (io.ReadCloser, error) {
 	if f.err != nil {
 		return nil, f.err
+	}
+	if f.preview != "" {
+		return io.NopCloser(strings.NewReader(f.preview)), nil
 	}
 	return io.NopCloser(strings.NewReader("\x89PNG\r\n\x1a\n" + albumID + "/" + candidateID)), nil
 }
@@ -111,7 +115,15 @@ var _ = Describe("Album cover API", func() {
 		w := do("GET", "/albumCover/al-1/candidates/cand-1/preview", adminToken, nil)
 		Expect(w.Code).To(Equal(http.StatusOK))
 		Expect(w.Header().Get("Content-Type")).To(Equal("image/png"))
+		Expect(w.Header().Get("X-Content-Type-Options")).To(Equal("nosniff"))
 		Expect(w.Body.String()).To(HaveSuffix("al-1/cand-1"))
+	})
+
+	It("never serves a preview that isn't an image", func() {
+		picker.preview = "<html><script>alert(1)</script></html>"
+		w := do("GET", "/albumCover/al-1/candidates/cand-1/preview", adminToken, nil)
+		Expect(w.Code).To(Equal(http.StatusBadGateway))
+		Expect(w.Body.String()).ToNot(ContainSubstring("script"))
 	})
 
 	It("chooses a candidate, saving it as a Correction", func() {

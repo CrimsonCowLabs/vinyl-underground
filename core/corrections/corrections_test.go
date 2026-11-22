@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/navidrome/navidrome/core/artwork"
 	"github.com/navidrome/navidrome/core/corrections"
 	"github.com/navidrome/navidrome/core/refresh"
 	"github.com/navidrome/navidrome/db"
@@ -244,7 +245,8 @@ var _ = Describe("Corrections", func() {
 		})
 	})
 	Describe("ChooseAlbumCover", func() {
-		cover := corrections.AlbumCover{Hash: "0123456789abcdef", Mime: "image/jpeg", Source: "Cover Art Archive: Record (GB, CD, 1999)"}
+		cover := corrections.AlbumCover{StoredCover: artwork.StoredCover{Hash: "0123456789abcdef", Mime: "image/jpeg"},
+			Source: "Cover Art Archive: Record (GB, CD, 1999)"}
 
 		addAlbum := func(id string, folderIDs ...string) model.Album {
 			GinkgoHelper()
@@ -287,7 +289,7 @@ var _ = Describe("Corrections", func() {
 			al := addAlbum("al-1", "folder-cd1")
 			_, err := svc.ChooseAlbumCover(ctx, al.ID, cover)
 			Expect(err).ToNot(HaveOccurred())
-			other := corrections.AlbumCover{Hash: "fedcba9876543210", Mime: "image/png", Source: "cover.png"}
+			other := corrections.AlbumCover{StoredCover: artwork.StoredCover{Hash: "fedcba9876543210", Mime: "image/png"}, Source: "cover.png"}
 			_, err = svc.ChooseAlbumCover(ctx, al.ID, other)
 			Expect(err).ToNot(HaveOccurred())
 

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/deluan/rest"
 	"github.com/go-chi/chi/v5"
@@ -45,7 +46,14 @@ func (api *Router) previewCoverCandidate(w http.ResponseWriter, r *http.Request)
 	defer img.Close()
 	br := bufio.NewReader(img)
 	head, _ := br.Peek(512)
-	w.Header().Set("Content-Type", http.DetectContentType(head))
+	// The bytes may come from a remote server: only ever serve them as an image
+	contentType := http.DetectContentType(head)
+	if !strings.HasPrefix(contentType, "image/") {
+		writeCoverError(w, r, fmt.Errorf("the preview is %s, not an image", contentType))
+		return
+	}
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Cache-Control", "private, max-age=3600")
 	if _, err := io.Copy(w, br); err != nil && !errors.Is(err, context.Canceled) {
 		log.Debug(r.Context(), "Cover picker: could not send a preview", err)
@@ -68,7 +76,7 @@ func (api *Router) chooseAlbumCover(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	res, err := api.corrections.ChooseAlbumCover(r.Context(), body.AlbumID,
-		corrections.AlbumCover{Hash: stored.Hash, Mime: stored.Mime, Source: cand.Description()})
+		corrections.AlbumCover{StoredCover: stored, Source: cand.Description()})
 	if err != nil {
 		writeCorrectionError(w, r, err)
 		return

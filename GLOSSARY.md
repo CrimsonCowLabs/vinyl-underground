@@ -27,7 +27,7 @@ An album (with its album artist) kept on the drive as two separate copies in dif
 _Avoid_: Duplicate album (its Files are not Duplicates), double album (an album of two discs)
 
 **Correction**:
-An admin's fix to a wrong tag value (e.g. renaming the Artist "Greatful Dead" to "Grateful Dead"), kept in the app and applied whenever a File's tags are read. It is never written to the File, and it never changes a Track's identity.
+An admin's fix to a wrong tag value (e.g. renaming the Artist "Greatful Dead" to "Grateful Dead"), kept in the app and applied whenever a File's tags are read, or to a wrong album cover (an image chosen as the album's cover, applied whenever its cover is resolved). It is never written to the File, and it never changes a Track's identity.
 _Avoid_: Edit, override, retag (that writes the Files)
 
 **Quarantine**:

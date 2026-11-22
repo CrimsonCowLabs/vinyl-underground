@@ -90,7 +90,7 @@ var _ = Describe("Scanning with a chosen album cover", Ordered, func() {
 		stored, err := artwork.StoreChosenCover(buf.Bytes())
 		Expect(err).ToNot(HaveOccurred())
 		res, err := svc.ChooseAlbumCover(ctx, theAlbum().ID,
-			corrections.AlbumCover{Hash: stored.Hash, Mime: stored.Mime, Source: "Cover Art Archive: Record"})
+			corrections.AlbumCover{StoredCover: stored, Source: "Cover Art Archive: Record"})
 		Expect(err).ToNot(HaveOccurred())
 		return res
 	}
