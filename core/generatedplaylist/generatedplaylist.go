@@ -17,6 +17,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -182,9 +183,32 @@ func (s *service) generate(ctx context.Context, request string, length int, excl
 		return filters{}, nil, err
 	}
 	tracks, picked := pickTracks(candidates, picks, length)
-	log.Info(ctx, "LLM picked Tracks", "length", length, "candidates", len(candidates),
-		"llmPicks", len(picks), "validPicks", picked, "tracks", len(tracks))
+	described := make([]string, len(tracks))
+	for i, mf := range tracks {
+		described[i] = mf.Artist + " - " + mf.Title
+	}
+	// The request stays out: a Station's holds the persona of a Listener's private DJ. The
+	// debug line above has it.
+	log.Info(ctx, "LLM picked Tracks", "genres", f.Genres, "seedArtists", f.SeedArtists,
+		"years", yearRange(f), "length", length, "candidates", len(candidates),
+		"llmPicks", len(picks), "validPicks", picked, "picked", described)
 	return f, tracks, nil
+}
+
+// yearRange describes the filters' release years for the logs: "1990-1999", "1990-", "-1999",
+// or "any" when they don't limit the years.
+func yearRange(f filters) string {
+	if f.YearFrom <= 0 && f.YearTo <= 0 {
+		return "any"
+	}
+	var from, to string
+	if f.YearFrom > 0 {
+		from = strconv.Itoa(f.YearFrom)
+	}
+	if f.YearTo > 0 {
+		to = strconv.Itoa(f.YearTo)
+	}
+	return from + "-" + to
 }
 
 // candidateTarget is how many candidates to offer the LLM for a Playlist of length Tracks.
