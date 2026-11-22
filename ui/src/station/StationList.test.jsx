@@ -67,14 +67,25 @@ const matchGenres = (url) => {
 }
 
 // serveDJs answers the DJ list with the DJs given (built-in ones by default),
-// the Library's genres, and saving, deleting and starting a Station with what
-// the server would.
+// the Library's genres, opening, saving, deleting and starting a Station with
+// what the server would. Opening a DJ with no genres, nor picked by hand,
+// matches them.
 const serveDJs = (list = djs, overrides = {}) =>
   httpClient.mockImplementation((url, opts = {}) => {
     const method = opts.method || 'GET'
     const key = `${method} ${url.replace(/^.*\/station/, '')}`
     if (overrides[key]) return overrides[key](opts)
     if (key === 'GET /dj') return Promise.resolve({ json: list })
+    const opened = list.find((dj) => key === `GET /dj/${dj.id}`)
+    if (opened) {
+      const genres =
+        opened.genres?.length || opened.genresEdited
+          ? opened.genres
+          : matchGenres(
+              `?${new URLSearchParams({ name: opened.name, description: opened.description })}`,
+            )
+      return Promise.resolve({ json: { ...opened, genres } })
+    }
     if (key === 'GET /genres') return Promise.resolve({ json: libraryGenres })
     if (key.startsWith('GET /genres/match?')) {
       return Promise.resolve({ json: matchGenres(url) })
@@ -474,6 +485,14 @@ describe('StationList', () => {
         httpClient.mock.calls.filter(([url]) =>
           url.includes('/station/genres/match?'),
         )
+      // resuggestButton waits until the DJ opened, so the button is enabled.
+      const resuggestButton = async () => {
+        const button = screen.getByRole('button', {
+          name: 'resources.station.dj.resuggest',
+        })
+        await waitFor(() => expect(button).toBeEnabled())
+        return button
+      }
       const openNew = async () => {
         renderPage()
         await screen.findByText('Night Owl')
@@ -556,6 +575,94 @@ describe('StationList', () => {
           await screen.findByRole('button', { name: 'ra.action.edit Tina' }),
         )
         await waitFor(() => expect(genreTags()).toEqual(['House', 'Techno']))
+      })
+
+      it('show the genres the server maps on opening a DJ, while suggesting them', async () => {
+        let answer
+        serveDJs([...djs, techno], {
+          'GET /dj/dj-1': () =>
+            new Promise((resolve) => {
+              answer = resolve
+            }),
+        })
+        renderPage()
+        fireEvent.click(
+          await screen.findByRole('button', { name: 'ra.action.edit Tina' }),
+        )
+        expect(genreTags()).toEqual(['Techno', 'House'])
+        expect(
+          screen.getByText('resources.station.dj.suggestingGenres'),
+        ).toBeInTheDocument()
+
+        answer({ json: { ...techno, genres: ['Rock', 'House'] } })
+        await waitFor(() => expect(genreTags()).toEqual(['Rock', 'House']))
+        expect(
+          screen.queryByText('resources.station.dj.suggestingGenres'),
+        ).not.toBeInTheDocument()
+      })
+
+      it('keep the genres picked by hand while the DJ was opening', async () => {
+        let answer
+        serveDJs([...djs, techno], {
+          'GET /dj/dj-1': () =>
+            new Promise((resolve) => {
+              answer = resolve
+            }),
+        })
+        renderPage()
+        fireEvent.click(
+          await screen.findByRole('button', { name: 'ra.action.edit Tina' }),
+        )
+        fireEvent.click(
+          screen.getByRole('button', { name: 'ra.action.remove House' }),
+        )
+        answer({ json: { ...techno, genres: ['Rock', 'House'] } })
+        await waitFor(() =>
+          expect(
+            screen.queryByText('resources.station.dj.suggestingGenres'),
+          ).not.toBeInTheDocument(),
+        )
+        expect(genreTags()).toEqual(['Techno'])
+      })
+
+      it('are suggested again from the description on request, replacing the ones picked by hand', async () => {
+        serveDJs([...djs, { ...techno, genresEdited: true }], {
+          'PUT /dj/dj-1': (opts) =>
+            Promise.resolve({ json: { ...techno, ...JSON.parse(opts.body) } }),
+        })
+        renderPage()
+        fireEvent.click(
+          await screen.findByRole('button', { name: 'ra.action.edit Tina' }),
+        )
+        fill('Tina', 'Rock now.')
+        fireEvent.blur(description())
+        expect(genreTags()).toEqual(['Techno', 'House'])
+
+        fireEvent.click(await resuggestButton())
+        await waitFor(() => expect(genreTags()).toEqual(['Rock']))
+        const [[url]] = matchCalls()
+        expect(url).toContain('description=Rock+now.')
+
+        save()
+        await waitFor(() => expect(calls('PUT', '/dj/dj-1')).toHaveLength(1))
+        expect(JSON.parse(calls('PUT', '/dj/dj-1')[0][1].body)).toEqual({
+          name: 'Tina',
+          description: 'Rock now.',
+          resuggest: true,
+        })
+      })
+
+      it('follow the description again once suggested again', async () => {
+        serveDJs([...djs, { ...techno, genresEdited: true }])
+        renderPage()
+        fireEvent.click(
+          await screen.findByRole('button', { name: 'ra.action.edit Tina' }),
+        )
+        fireEvent.click(await resuggestButton())
+        await waitFor(() => expect(genreTags()).toEqual(['House', 'Techno']))
+        fill('Tina', 'Rock now.')
+        fireEvent.blur(description())
+        await waitFor(() => expect(genreTags()).toEqual(['Rock']))
       })
 
       it("doesn't warn when an LLM is configured", async () => {

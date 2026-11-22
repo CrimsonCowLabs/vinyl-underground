@@ -8,6 +8,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/navidrome/navidrome/model"
+	"github.com/navidrome/navidrome/model/request"
 )
 
 // A Listener can create their own DJs from a name and a personality description (#17). They
@@ -78,6 +79,37 @@ type DJEdit struct {
 	// didn't touch them. Picked genres stay until the Listener picks again; otherwise they are
 	// worked out from the name and description.
 	Genres []string
+	// Resuggest works the genres out again from the name and description, replacing ones
+	// picked by hand. It overrides Genres.
+	Resuggest bool
+}
+
+// picked returns the genres the Listener picked by hand, or nil when they are to be worked out.
+func (e DJEdit) picked() []string {
+	if e.Resuggest {
+		return nil
+	}
+	return e.Genres
+}
+
+// OpenDJ returns the logged-in Listener's own DJ for the DJ form, mapping its genres with the
+// LLM first when they still need it, and storing them.
+func (s *service) OpenDJ(ctx context.Context, id string) (DJ, error) {
+	if err := editable(id); err != nil {
+		return DJ{}, err
+	}
+	dj, err := s.DJ(ctx, id)
+	if err != nil {
+		return DJ{}, err
+	}
+	if dj, err = s.fillUnsetGenres(ctx, dj); err != nil || !s.needsMapping(dj) {
+		return dj, err
+	}
+	genres, source, err := s.deriveGenres(ctx, dj.Name, dj.Description)
+	if err != nil || source != model.DJGenresFromLLM {
+		return dj, err
+	}
+	return s.storeGenres(ctx, dj, genres, source)
 }
 
 func (s *service) CreateDJ(ctx context.Context, edit DJEdit) (DJ, error) {
@@ -85,7 +117,7 @@ func (s *service) CreateDJ(ctx context.Context, edit DJEdit) (DJ, error) {
 	if err != nil {
 		return DJ{}, err
 	}
-	if err := s.setGenres(ctx, &dj, edit.Genres); err != nil {
+	if err := s.setGenres(ctx, &dj, edit.picked()); err != nil {
 		return DJ{}, err
 	}
 	if err := s.ds.DJ(ctx).Put(&dj); err != nil {
@@ -110,12 +142,15 @@ func (s *service) UpdateDJ(ctx context.Context, id string, edit DJEdit) (DJ, err
 		return DJ{}, fmt.Errorf("loading the DJ: %w", err)
 	}
 	dj.ID = id
-	if edit.Genres == nil && stored.GenreSource == model.DJGenresByListener {
+	// Genres picked by hand stay, and so do the LLM's for the same name and description.
+	sameText := stored.Name == dj.Name && stored.Description == dj.Description
+	keep := stored.GenreSource == model.DJGenresByListener || (sameText && stored.GenreSource == model.DJGenresFromLLM)
+	if edit.picked() == nil && !edit.Resuggest && keep {
 		dj.Genres, dj.GenreSource = stored.Genres, stored.GenreSource
-	} else if err := s.setGenres(ctx, &dj, edit.Genres); err != nil {
+	} else if err := s.setGenres(ctx, &dj, edit.picked()); err != nil {
 		return DJ{}, err
 	}
-	err = s.ds.DJ(ctx).Put(&dj)
+	err = s.putDJ(ctx, &dj)
 	if errors.Is(err, model.ErrNotFound) {
 		return DJ{}, ErrUnknownDJ
 	}
@@ -123,6 +158,17 @@ func (s *service) UpdateDJ(ctx context.Context, id string, edit DJEdit) (DJ, err
 		return DJ{}, fmt.Errorf("saving the DJ: %w", err)
 	}
 	return listenerDJ(dj), nil
+}
+
+// putDJ saves the Listener's edited DJ, holding their lock so a background mapping of the DJ's
+// old description can't save over it (see storeGenres).
+func (s *service) putDJ(ctx context.Context, dj *model.DJ) error {
+	usr, ok := request.UserFrom(ctx)
+	if !ok {
+		return errors.New("editing a DJ needs a logged-in Listener")
+	}
+	defer s.lock(usr.ID)()
+	return s.ds.DJ(ctx).Put(dj)
 }
 
 func (s *service) DeleteDJ(ctx context.Context, id string) error {
@@ -184,7 +230,7 @@ func cleanDJ(name, description string) (model.DJ, error) {
 // Tracks the way a built-in DJ's do.
 func listenerDJ(dj model.DJ) DJ {
 	res := DJ{ID: dj.ID, Name: dj.Name, Description: dj.Description, Taste: listenerTaste,
-		Genres: []string(dj.Genres), GenresEdited: dj.GenreSource == model.DJGenresByListener}
+		Genres: []string(dj.Genres), GenresEdited: dj.GenreSource == model.DJGenresByListener, genreSource: dj.GenreSource}
 	if len(dj.Genres) > 0 {
 		res.Taste.WholeGenres = true
 		res.Taste.GenreWeight = listenerGenreWeight

@@ -307,8 +307,10 @@
           "descriptionHelp": "Their taste and tone, e.g. a dry, witty record-store clerk who loves 70s soul and obscure B-sides",
           "genres": "Genres",
           "addGenre": "Add a genre",
-          "genresTip": "Name genres or artists, e.g. techno, deep house. Genres you add or remove here stay as you pick them."
+          "genresTip": "Name genres or artists, e.g. techno, deep house. Genres you add or remove here stay as you pick them, until you re-suggest them."
         },
+        "resuggest": "Re-suggest from description",
+        "suggestingGenres": "Suggesting genres…",
         "noGenresWarning": "No genre in your Library matched, so this DJ will lean on your favorites and play history.",
         "deleteTitle": "Delete %{name}?",
         "deleteContent": "Your DJ is gone for good. Tracks its Stations played stay in your play history."

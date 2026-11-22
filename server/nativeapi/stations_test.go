@@ -278,6 +278,30 @@ var _ = Describe("DJ endpoints", func() {
 		Expect(dj).To(HaveKeyWithValue("genresEdited", true))
 	})
 
+	It("suggests the genres again on request, replacing the ones the Listener picked", func() {
+		_, dj, _ := call(alice, http.MethodPost, "/station/dj", `{"name":"Tina","description":"Techno all night.","genres":["House"]}`)
+		code, dj, _ := call(alice, http.MethodPut, "/station/dj/"+dj["id"].(string),
+			`{"name":"Tina","description":"Techno all night.","genres":["House"],"resuggest":true}`)
+		Expect(code).To(Equal(http.StatusOK))
+		Expect(dj).To(HaveKeyWithValue("genres", ConsistOf("Techno", "Hardcore Techno")))
+		Expect(dj).ToNot(HaveKey("genresEdited"))
+	})
+
+	It("opens a Listener's own DJ for the DJ form, with its genres", func() {
+		_, dj, _ := call(alice, http.MethodPost, "/station/dj", `{"name":"Tina","description":"Techno all night."}`)
+		code, opened, _ := call(alice, http.MethodGet, "/station/dj/"+dj["id"].(string), "")
+		Expect(code).To(Equal(http.StatusOK))
+		Expect(opened).To(HaveKeyWithValue("name", "Tina"))
+		Expect(opened).To(HaveKeyWithValue("genres", ConsistOf("Techno", "Hardcore Techno")))
+
+		code, res, _ := call(bob, http.MethodGet, "/station/dj/"+dj["id"].(string), "")
+		Expect(code).To(Equal(http.StatusNotFound))
+		Expect(res).To(HaveKeyWithValue("error", "unknownDJ"))
+		code, res, _ = call(alice, http.MethodGet, "/station/dj/sunny", "")
+		Expect(code).To(Equal(http.StatusForbidden))
+		Expect(res).To(HaveKeyWithValue("error", "builtInDJ"))
+	})
+
 	It("lists the Library's genres for the DJ form", func() {
 		code, _, genres := call(alice, http.MethodGet, "/station/genres", "")
 		Expect(code).To(Equal(http.StatusOK))

@@ -31,9 +31,13 @@ type DJGenreSource string
 const (
 	// DJGenresUnset is a DJ whose genres were never worked out (one saved before #106).
 	DJGenresUnset DJGenreSource = ""
-	// DJGenresFromWords are genres matched from the words of the DJ's name and description. They
-	// are matched again whenever those change.
+	// DJGenresFromWords are genres matched from the words of the DJ's name and description,
+	// without an LLM or when it failed, so the LLM is asked again on the DJ's next use. They are
+	// matched again whenever those change.
 	DJGenresFromWords DJGenreSource = "words"
+	// DJGenresFromLLM are genres the LLM mapped the DJ's name and description to (#107). They
+	// are mapped again whenever those change.
+	DJGenresFromLLM DJGenreSource = "llm"
 	// DJGenresByListener are genres the Listener picked by hand. Editing the DJ's name or
 	// description leaves them alone.
 	DJGenresByListener DJGenreSource = "listener"

@@ -70,10 +70,15 @@ type Service interface {
 	// Listener picked by hand, or else the ones its name and description name.
 	CreateDJ(ctx context.Context, edit DJEdit) (DJ, error)
 	// UpdateDJ changes the name and description of the logged-in Listener's DJ. Its genres
-	// become the ones the Listener picked, if they picked any now; otherwise genres picked by
+	// become the ones the Listener picked, if they picked any now, or the ones worked out from
+	// the name and description when they ask for a new suggestion; otherwise genres picked by
 	// hand before stay, and any others are worked out again from the name and description.
 	// Built-in DJs are read-only (ErrBuiltInDJ).
 	UpdateDJ(ctx context.Context, id string, edit DJEdit) (DJ, error)
+	// OpenDJ returns the logged-in Listener's own DJ for the DJ form (ErrBuiltInDJ for a
+	// built-in one). With an LLM, genres it hasn't mapped yet and nobody picked by hand are
+	// mapped first, waiting a little for it, and stored.
+	OpenDJ(ctx context.Context, id string) (DJ, error)
 	// Genres returns the genres in the logged-in Listener's Library, by name: the ones their
 	// DJs can have.
 	Genres(ctx context.Context) ([]string, error)
@@ -101,9 +106,14 @@ type Service interface {
 }
 
 // New returns the Service. A nil selector means no LLM is configured: selection is rule-based
-// and the Theme is ignored. A nil writer means there are no Blurbs.
-func New(ds model.DataStore, selector Selector, writer BlurbWriter) Service {
-	return &service{ds: ds, selector: selector, blurbs: blurbs{writer: writer}, startWait: StartWait}
+// and the Theme is ignored. A nil writer means there are no Blurbs. Without WithGenreLLM, a
+// Listener's DJs get the genres their words name.
+func New(ds model.DataStore, selector Selector, writer BlurbWriter, opts ...Option) Service {
+	s := &service{ds: ds, selector: selector, blurbs: blurbs{writer: writer}, startWait: StartWait}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 
 type service struct {
@@ -115,6 +125,8 @@ type service struct {
 	// startWait is how long a Station start waits for the LLM's picks: StartWait, but
 	// shorter in tests.
 	startWait time.Duration
+	// genreLLM maps a Listener's DJs to the Library's genres; nil without an LLM.
+	genreLLM *genreMapper
 }
 
 // tracksRequest is a checked request for a Station's Tracks, to start it or refill it.
@@ -133,6 +145,9 @@ type tracksRequest struct {
 func (s *service) checkRequest(ctx context.Context, djID, theme string, count int) (tracksRequest, error) {
 	dj, err := s.DJ(ctx, djID)
 	if err != nil {
+		return tracksRequest{}, err
+	}
+	if dj, err = s.fillUnsetGenres(ctx, dj); err != nil {
 		return tracksRequest{}, err
 	}
 	// Without an LLM the Theme has no say, so it is ignored rather than checked.
@@ -268,6 +283,7 @@ func (s *service) next(ctx context.Context, r tracksRequest) (model.MediaFiles, 
 		s.plans.selectAhead(ctx, s.selector, usr.ID, r.input, exclude)
 	}
 	s.blurbs.queueAhead(ctx, usr.ID, dj, theme, picked)
+	s.mapGenresAhead(ctx, usr.ID, dj)
 	return picked, nil
 }
 
