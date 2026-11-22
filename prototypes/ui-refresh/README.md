@@ -65,7 +65,8 @@ Things to look at:
 ## Palette
 
 Every colour is a CSS custom property in `styles.css`, so it maps straight onto an MUI v4 theme.
-All text pairs pass WCAG AA (4.5:1).
+Body and secondary text, and every accent, pass WCAG AA for normal text (4.5:1). `--vu-text-3` is
+only for large text and non-text marks, where AA asks for 3:1.
 
 ### Surfaces and text
 
@@ -78,7 +79,7 @@ All text pairs pass WCAG AA (4.5:1).
 | `--vu-divider`   | `palette.divider`                        | `#3A312A` | `#D6CBBC` | Borders                                          |
 | `--vu-text`      | `palette.text.primary`                   | `#F2EBE3` | `#1E1915` | Body text (15.9:1 dark, 15.0:1 light)            |
 | `--vu-text-2`    | `palette.text.secondary`                 | `#B3A698` | `#5E5247` | Secondary text (7.9:1 dark, 6.5:1 light)         |
-| `--vu-text-3`    | `palette.text.disabled`                  | `#7D7065` | `#948778` | Upcoming lyric lines, empty stars, drag handles  |
+| `--vu-text-3`    | `palette.text.disabled`                  | `#7D7065` | `#7E7163` | Large text and marks only (3.9:1 dark, 4.1:1 light): upcoming lyric lines, empty stars, drag handles |
 
 ### Accents
 
@@ -126,9 +127,11 @@ The accent fades over 0.7s between Tracks (CSS `@property` transitions here; in 
   `CssBaseline` `@global` body override). No blend modes or filters at runtime.
 - **Shape:** 12px radius for cards, sheets and the mini player (`shape.borderRadius: 12`), 6px for
   covers, fully round for chips, tabs and the play button.
-- **Type:** the system font stack (MUI's default Roboto works too). Titles 800 weight with -0.02em
+- **Type:** the system font stack (`system-ui`, then Roboto, which MUI already uses). Titles 800 weight with -0.02em
   tracking; small uppercase labels at 11px, 700 weight, 0.14em tracking (`typography.overline`).
-- **Icons:** the Material icon paths that `@material-ui/icons` already ships.
+- **Icons:** the Material icon paths that `@material-ui/icons` already ships. The Star toggle is
+  a heart, as the app's `LoveButton` draws it today; whether it should become a star is a question
+  for the review.
 - **Sizes:** the desktop side panel is 400px; it falls back to full screen below 1000px. The play
   button is 68px in Now Playing and 40px in the player bar.
 

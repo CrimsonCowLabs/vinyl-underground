@@ -75,7 +75,6 @@
   ]
   const BG = { dark: '#14110F', light: '#F3EDE4' }
   const SURFACE2 = { dark: '#28221E', light: '#E9E1D5' }
-  const INK = { dark: '#14110F', light: '#FFFFFF' }
 
   // ---------- Sample data (all fictional) ----------
   const ALBUMS = [
@@ -144,7 +143,8 @@
     { title: 'Damp Basement Blues', album: 7, dur: 229 },
   ]
 
-  const DJ = { name: 'Night Owl', initials: 'NO', station: 'After Hours Crate' }
+  const DJ = { name: 'Night Owl', initials: 'NO' }
+  const STATION = 'After Hours Crate' // a Station shaped by the Night Owl DJ
   const BLURBS = [
     'Past midnight, so we’re easing off the gas. The Lantern Pilots cut this in a church hall with the heating off; listen for the breath before the last chorus.',
     'Something with a bit of rust on it now. Moth Radio Collective recorded straight to tape in a garage that floods every spring.',
@@ -160,7 +160,7 @@
   const q = new URLSearchParams(location.search)
   const state = {
     theme: q.get('theme') === 'light' ? 'light' : 'dark',
-    accent: q.get('accent') || 'vermilion',
+    accent: ACCENTS.some((a) => a.id === q.get('accent')) || q.get('accent') === 'art' ? q.get('accent') : 'vermilion',
     frame: q.get('frame') === 'desktop' ? 'desktop' : 'phone',
     station: q.get('station') === '1',
     npOpen: q.get('np') !== '0',
@@ -291,14 +291,21 @@
       g.fillStyle = c[2]
       g.fillRect(0, 236, S, 8)
     }
-    // Sleeve text
-    g.shadowColor = 'rgba(0, 0, 0, 0.35)'
-    g.shadowBlur = 4
+    // Sleeve text, outlined in the opposite tone so it reads over any part of the art
+    const lightInk = parseInt(a.ink.slice(1, 3), 16) > 128
+    g.strokeStyle = lightInk ? 'rgba(0, 0, 0, 0.55)' : 'rgba(255, 255, 255, 0.6)'
+    g.lineWidth = 3
+    g.lineJoin = 'round'
     g.fillStyle = a.ink
-    g.font = '800 17px system-ui, sans-serif'
-    g.fillText(a.title.toUpperCase(), 16, S - 34)
-    g.font = '600 13px system-ui, sans-serif'
-    g.fillText(a.artist, 16, S - 15)
+    // shrink long titles so they fit the sleeve
+    const fit = (text, weight, px, y) => {
+      do g.font = `${weight} ${px--}px system-ui, sans-serif`
+      while (g.measureText(text).width > S - 32 && px > 8)
+      g.strokeText(text, 16, y)
+      g.fillText(text, 16, y)
+    }
+    fit(a.title.toUpperCase(), 800, 17, S - 34)
+    fit(a.artist, 600, 13, S - 15)
     return { canvas: cv, url: cv.toDataURL('image/png') }
   }
   ALBUMS.forEach((a) => Object.assign(a, drawCover(a)))
@@ -458,7 +465,7 @@
       `<div class="overline">Library</div>` +
       item('Albums', 'album', true) +
       item('Artists', 'person') +
-      item('Songs', 'note') +
+      item('Tracks', 'note') +
       `<div class="overline">Listen</div>` +
       item('Playlists', 'queue') +
       item('Stations', 'radio') +
@@ -571,7 +578,7 @@
           <button class="icon-btn btn-down" data-act="close" aria-label="Close Now Playing">${icon('down')}</button>
           <button class="icon-btn btn-close" data-act="close" aria-label="Close Now Playing">${icon('close')}</button>
           <div style="min-width:0"><div class="overline">${state.station ? 'Station' : 'Playing from album'}</div>
-            <div class="src">${state.station ? esc(DJ.station) : esc(a.title)}</div></div>
+            <div class="src">${state.station ? esc(STATION) : esc(a.title)}</div></div>
           <button class="icon-btn" data-nav="More options" aria-label="More options">${icon('more')}</button>
         </div>
         <div class="np-tabs" role="tablist" aria-label="Now Playing view">
@@ -579,7 +586,7 @@
         </div>
         <div class="np-stage" role="tabpanel">${stageHTML()}</div>
         <div class="meta">
-          <div class="title"><a href="#" data-nav="Song: ${esc(t.title)}">${esc(t.title)}</a></div>
+          <div class="title"><a href="#" data-nav="Track: ${esc(t.title)}">${esc(t.title)}</a></div>
           <div class="side"><button class="icon-btn ${state.starred ? 'on' : ''}" data-act="star" aria-label="Star" aria-pressed="${state.starred}">${icon(state.starred ? 'heart' : 'heartOutline')}</button></div>
           <div class="sub"><a href="#" data-nav="Artist: ${esc(a.artist)}">${esc(a.artist)}</a> · <a href="#" data-nav="Album: ${esc(a.title)}">${esc(a.title)}</a></div>
           <div class="rating" role="radiogroup" aria-label="Rating">${[1, 2, 3, 4, 5]
@@ -692,7 +699,10 @@
   setInterval(() => {
     if (!state.playing) return
     state.pos += SPEED[state.speed]
-    if (state.pos >= track().dur) return go(1)
+    if (state.pos >= track().dur) {
+      if (!state.repeat) return go(1)
+      state.pos = 0
+    }
     tick()
   }, 1000)
 
@@ -863,7 +873,8 @@
     if (e.key === 'Escape' && state.npOpen) {
       state.npOpen = false
       render()
-    } else if (e.key === 'Enter' && e.target.closest('.mini')) {
+    } else if ((e.key === 'Enter' || e.key === ' ') && e.target.classList.contains('mini')) {
+      e.preventDefault()
       state.npOpen = true
       render()
     } else if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
@@ -923,6 +934,7 @@
       station: state.station ? '1' : '0',
       np: state.npOpen ? '1' : '0',
       tab: state.tab,
+      playing: state.playing ? '1' : '0',
     })
     try {
       history.replaceState(null, '', '?' + p)

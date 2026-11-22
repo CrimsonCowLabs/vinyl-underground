@@ -22,7 +22,7 @@
 }
 
 :root {
-  --vu-font: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica,
+  --vu-font: system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica,
     Arial, sans-serif;
   --vu-radius: 12px;
   --vu-radius-sm: 6px;
@@ -61,7 +61,7 @@
   --vu-divider: #d6cbbc;
   --vu-text: #1e1915;
   --vu-text-2: #5e5247;
-  --vu-text-3: #948778;
+  --vu-text-3: #7e7163;
   --vu-shadow: 0 16px 34px rgba(60, 40, 20, 0.28);
   /* dark grain on light surfaces */
   --vu-noise: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .2 0 0 0 0 .12 0 0 0 0 .05 0 0 0 .08 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
