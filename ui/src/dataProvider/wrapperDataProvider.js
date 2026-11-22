@@ -254,6 +254,11 @@ const wrapperDataProvider = {
       method: 'POST',
       body: JSON.stringify({ artistId, name }),
     }).then(({ json }) => ({ data: { id: json.correction.id, ...json } })),
+  mergeArtist: (artistId, intoId) =>
+    httpClient(`${REST_URL}/correction/artistMerge`, {
+      method: 'POST',
+      body: JSON.stringify({ artistId, intoId }),
+    }).then(({ json }) => ({ data: { id: json.correction.id, ...json } })),
   undoCorrection: (id) =>
     httpClient(`${REST_URL}/correction/${id}/undo`, { method: 'POST' }).then(
       ({ json }) => ({ data: { id, ...json } }),

@@ -82,6 +82,9 @@ func (r *correctionRepository) SetUndoing(id string) error {
 }
 
 func (r *correctionRepository) Delete(id string) error {
+	if _, err := r.executeSQL(Delete("correction_annotation").Where(Eq{"correction_id": id})); err != nil {
+		return err
+	}
 	return r.deleteByID(id)
 }
 
@@ -93,6 +96,98 @@ func (r *correctionRepository) FolderIDs(id string) ([]string, error) {
 		OrderBy("media_file.folder_id")
 	err := r.queryAllSlice(sq, &res)
 	return res, err
+}
+
+// The SQL below works on the artist annotations of both Artists, for every user. Dates compare as
+// stored, which is how the split recognises a star or rating unchanged since the merge.
+
+// mergeArtistAnnotationsSQL keeps (adding to it) what fromID has, then merges it into toID's: play
+// counts added, the later play date, and toID's own star and rating unless it has none.
+var mergeArtistAnnotationsSQL = []string{
+	`insert into correction_annotation (correction_id, user_id, play_count, play_date, rating, rated_at,
+		starred, starred_at, star_taken, rating_taken)
+	select {:id}, a.user_id, coalesce(a.play_count, 0), a.play_date, coalesce(a.rating, 0), a.rated_at,
+		a.starred, a.starred_at,
+		a.starred and not coalesce(b.starred, 0), coalesce(a.rating, 0) > 0 and coalesce(b.rating, 0) = 0
+	from annotation a left join annotation b
+		on b.user_id = a.user_id and b.item_type = 'artist' and b.item_id = {:to}
+	where a.item_type = 'artist' and a.item_id = {:from}
+	on conflict (correction_id, user_id) do update set
+		play_count = correction_annotation.play_count + excluded.play_count`,
+	`update annotation set
+		play_count = coalesce(annotation.play_count, 0) + coalesce(a.play_count, 0),
+		play_date = case when annotation.play_date is null or a.play_date > annotation.play_date
+			then a.play_date else annotation.play_date end,
+		starred = annotation.starred or a.starred,
+		starred_at = case when not annotation.starred and a.starred then a.starred_at else annotation.starred_at end,
+		rating = case when coalesce(annotation.rating, 0) > 0 then annotation.rating else coalesce(a.rating, 0) end,
+		rated_at = case when coalesce(annotation.rating, 0) = 0 and coalesce(a.rating, 0) > 0
+			then a.rated_at else annotation.rated_at end
+	from annotation a
+	where annotation.item_type = 'artist' and annotation.item_id = {:to}
+		and a.item_type = 'artist' and a.item_id = {:from} and a.user_id = annotation.user_id`,
+	// Users who annotated only fromID: their row moves whole. The others' were merged above.
+	`update or ignore annotation set item_id = {:to} where item_type = 'artist' and item_id = {:from}`,
+	`delete from annotation where item_type = 'artist' and item_id = {:from}`,
+}
+
+// splitArtistAnnotationsSQL gives toID back what the merge kept, joining whatever toID has got
+// since, and takes from fromID the play counts the merge added (but not those since), and the star
+// and rating it gave, unless they have changed since.
+var splitArtistAnnotationsSQL = []string{
+	`insert into annotation (user_id, item_id, item_type, play_count, play_date, rating, rated_at, starred, starred_at)
+	select user_id, {:to}, 'artist', play_count, play_date, rating, rated_at, starred, starred_at
+	from correction_annotation
+	where correction_id = {:id} and user_id in (select id from user)
+	on conflict (user_id, item_id, item_type) do update set
+		play_count = coalesce(annotation.play_count, 0) + excluded.play_count,
+		play_date = case when annotation.play_date is null or excluded.play_date > annotation.play_date
+			then excluded.play_date else annotation.play_date end,
+		starred = annotation.starred or excluded.starred,
+		starred_at = case when not annotation.starred and excluded.starred then excluded.starred_at else annotation.starred_at end,
+		rating = case when coalesce(annotation.rating, 0) > 0 then annotation.rating else excluded.rating end,
+		rated_at = case when coalesce(annotation.rating, 0) = 0 and excluded.rating > 0
+			then excluded.rated_at else annotation.rated_at end`,
+	`update annotation set
+		play_count = max(coalesce(annotation.play_count, 0) - s.play_count, 0),
+		starred = case when s.star_taken and annotation.starred and annotation.starred_at is s.starred_at
+			then 0 else annotation.starred end,
+		starred_at = case when s.star_taken and annotation.starred and annotation.starred_at is s.starred_at
+			then null else annotation.starred_at end,
+		rating = case when s.rating_taken and annotation.rating = s.rating and annotation.rated_at is s.rated_at
+			then 0 else annotation.rating end,
+		rated_at = case when s.rating_taken and annotation.rating = s.rating and annotation.rated_at is s.rated_at
+			then null else annotation.rated_at end
+	from correction_annotation s
+	where s.correction_id = {:id} and s.user_id = annotation.user_id
+		and annotation.item_type = 'artist' and annotation.item_id = {:from}`,
+	`delete from correction_annotation where correction_id = {:id}`,
+}
+
+func (r *correctionRepository) MergeArtistAnnotations(correctionID, fromID, toID string) error {
+	return r.moveArtistAnnotations(mergeArtistAnnotationsSQL, correctionID, fromID, toID)
+}
+
+func (r *correctionRepository) SplitArtistAnnotations(correctionID, fromID, toID string) error {
+	return r.moveArtistAnnotations(splitArtistAnnotationsSQL, correctionID, fromID, toID)
+}
+
+func (r *correctionRepository) moveArtistAnnotations(stmts []string, correctionID, fromID, toID string) error {
+	params := dbx.Params{"id": correctionID, "from": fromID, "to": toID}
+	for _, stmt := range stmts {
+		if _, err := r.db.NewQuery(stmt).Bind(params).Execute(); err != nil {
+			return err
+		}
+	}
+	// Both Artists' rating populations changed, so their cached averages no longer match
+	for _, id := range []string{fromID, toID} {
+		upd := Update("artist").Where(Eq{"id": id}).Set("average_rating", Expr(
+			"coalesce((select round(avg(rating), 2) from annotation where item_id = ? and item_type = 'artist' and rating > 0), 0)", id))
+		if _, err := r.executeSQL(upd); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 var _ model.CorrectionRepository = (*correctionRepository)(nil)

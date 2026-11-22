@@ -22,6 +22,7 @@ type fakeCorrections struct {
 	all     model.Corrections
 	err     error
 	renamed []string
+	merged  []string
 	undone  []string
 }
 
@@ -33,6 +34,14 @@ func (f *fakeCorrections) RenameArtist(_ context.Context, artistID, name string)
 	}
 	f.renamed = append(f.renamed, artistID+"->"+name)
 	return &corrections.Applied{Correction: model.Correction{ID: "c1", To: name}, ArtistID: "new-id", Done: true}, nil
+}
+
+func (f *fakeCorrections) MergeArtist(_ context.Context, artistID, intoID string) (*corrections.Applied, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	f.merged = append(f.merged, artistID+"->"+intoID)
+	return &corrections.Applied{Correction: model.Correction{ID: "c2"}, ArtistID: intoID, Done: true}, nil
 }
 
 func (f *fakeCorrections) Undo(_ context.Context, id string) (*corrections.Applied, error) {
@@ -106,6 +115,22 @@ var _ = Describe("Corrections API", func() {
 		Expect(got).To(HaveKeyWithValue("done", true))
 	})
 
+	It("merges an Artist into another", func() {
+		w := do("POST", "/correction/artistMerge", adminToken, map[string]string{"artistId": "ar-1", "intoId": "ar-2"})
+		Expect(w.Code).To(Equal(http.StatusOK))
+		Expect(svc.merged).To(Equal([]string{"ar-1->ar-2"}))
+		var got map[string]any
+		Expect(json.Unmarshal(w.Body.Bytes(), &got)).To(Succeed())
+		Expect(got).To(HaveKeyWithValue("artistId", "ar-2"))
+	})
+
+	It("refuses an undo a later Correction builds on", func() {
+		svc.err = corrections.ErrUndoLaterFirst
+		w := do("POST", "/correction/c1/undo", adminToken, nil)
+		Expect(w.Code).To(Equal(http.StatusBadRequest))
+		Expect(errorCode(w)).To(Equal("undoLaterFirst"))
+	})
+
 	It("undoes a Correction", func() {
 		w := do("POST", "/correction/c1/undo", adminToken, nil)
 		Expect(w.Code).To(Equal(http.StatusOK))
@@ -130,8 +155,11 @@ var _ = Describe("Corrections API", func() {
 		Expect(do("GET", "/correction", userToken, nil).Code).To(Equal(http.StatusForbidden))
 		Expect(do("POST", "/correction/artistRename", userToken, map[string]string{"artistId": "ar-1", "name": "X"}).Code).
 			To(Equal(http.StatusForbidden))
+		Expect(do("POST", "/correction/artistMerge", userToken, map[string]string{"artistId": "ar-1", "intoId": "ar-2"}).Code).
+			To(Equal(http.StatusForbidden))
 		Expect(do("POST", "/correction/c1/undo", userToken, nil).Code).To(Equal(http.StatusForbidden))
 		Expect(svc.renamed).To(BeEmpty())
+		Expect(svc.merged).To(BeEmpty())
 		Expect(svc.undone).To(BeEmpty())
 	})
 })

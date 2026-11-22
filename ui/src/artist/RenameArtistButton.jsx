@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import PropTypes from 'prop-types'
 import {
   Button,
@@ -18,6 +18,7 @@ import {
   DialogTitle,
   TextField,
 } from '@material-ui/core'
+import { Alert, Autocomplete } from '@material-ui/lab'
 import EditIcon from '@material-ui/icons/Edit'
 
 // The server answers a refused Correction with a code; anything else is a generic error.
@@ -29,6 +30,43 @@ const knownErrors = [
   'notFound',
 ]
 
+// How the server matches Artist names: regardless of capitals and extra spaces.
+const nameKey = (name) =>
+  name.toLowerCase().split(/\s+/).filter(Boolean).join(' ')
+
+// useArtistSuggestions offers the other Artists whose name matches what is typed.
+const useArtistSuggestions = (name, artistId) => {
+  const dataProvider = useDataProvider()
+  const [artists, setArtists] = useState([])
+  useEffect(() => {
+    const q = name.trim()
+    if (!q) {
+      setArtists([])
+      return
+    }
+    let stale = false
+    const timer = setTimeout(() => {
+      dataProvider
+        .getList('artist', {
+          pagination: { page: 1, perPage: 10 },
+          sort: { field: 'name', order: 'ASC' },
+          filter: { name: q },
+        })
+        .then(({ data }) => {
+          if (!stale) setArtists(data.filter((a) => a.id !== artistId))
+        })
+        .catch(() => {
+          if (!stale) setArtists([])
+        })
+    }, 250)
+    return () => {
+      stale = true
+      clearTimeout(timer)
+    }
+  }, [dataProvider, name, artistId])
+  return artists
+}
+
 const RenameArtistDialog = ({ record, onClose }) => {
   const translate = useTranslate()
   const dataProvider = useDataProvider()
@@ -37,22 +75,34 @@ const RenameArtistDialog = ({ record, onClose }) => {
   const [name, setName] = useState(record.name)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
+  const suggestions = useArtistSuggestions(name, record.id)
+  // Renaming to another Artist's name merges into that Artist
+  const target = suggestions.find((a) => nameKey(a.name) === nameKey(name))
 
   const handleSave = useCallback(
     (e) => {
       e.preventDefault()
       setSaving(true)
       setError(null)
-      dataProvider
-        .renameArtist(record.id, name)
+      const save = target
+        ? dataProvider.mergeArtist(record.id, target.id)
+        : dataProvider.renameArtist(record.id, name)
+      const notifications = target
+        ? ['merged', 'merging']
+        : ['renamed', 'renaming']
+      save
         .then(({ data }) => {
           onClose()
           if (data.done) {
-            notify('resources.artist.notifications.renamed', { type: 'info' })
+            notify(`resources.artist.notifications.${notifications[0]}`, {
+              type: 'info',
+            })
             redirect(`/artist/${data.artistId}/show`)
           } else {
             // A large rename finishes in the background, and this page's Artist ID goes with it
-            notify('resources.artist.notifications.renaming', { type: 'info' })
+            notify(`resources.artist.notifications.${notifications[1]}`, {
+              type: 'info',
+            })
             redirect('/artist')
           }
         })
@@ -67,7 +117,16 @@ const RenameArtistDialog = ({ record, onClose }) => {
           setSaving(false)
         })
     },
-    [dataProvider, record.id, name, onClose, notify, redirect, translate],
+    [
+      dataProvider,
+      record.id,
+      name,
+      target,
+      onClose,
+      notify,
+      redirect,
+      translate,
+    ],
   )
 
   return (
@@ -86,16 +145,38 @@ const RenameArtistDialog = ({ record, onClose }) => {
           <DialogContentText>
             {translate('resources.artist.message.renameHelp')}
           </DialogContentText>
-          <TextField
-            autoFocus
-            fullWidth
-            label={translate('resources.artist.fields.name')}
+          <Autocomplete
+            freeSolo
+            disableClearable
+            options={suggestions}
+            filterOptions={(options) => options}
+            getOptionLabel={(a) => (typeof a === 'string' ? a : a.name)}
             value={name}
-            onChange={(e) => setName(e.target.value)}
-            error={!!error}
-            helperText={error}
+            onChange={(_, value) =>
+              setName(typeof value === 'string' ? value : value?.name || '')
+            }
+            inputValue={name}
+            onInputChange={(_, value) => setName(value)}
             disabled={saving}
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                autoFocus
+                fullWidth
+                label={translate('resources.artist.fields.name')}
+                error={!!error}
+                helperText={error}
+              />
+            )}
           />
+          {target && (
+            <Alert severity="warning" style={{ marginTop: 16 }}>
+              {translate('resources.artist.message.mergeWarning', {
+                name: target.name,
+                smart_count: target.albumCount || 0,
+              })}
+            </Alert>
+          )}
         </DialogContent>
         <DialogActions>
           <MuiButton onClick={onClose} disabled={saving}>
@@ -108,7 +189,9 @@ const RenameArtistDialog = ({ record, onClose }) => {
             disabled={saving || !name.trim() || name.trim() === record.name}
             startIcon={saving ? <CircularProgress size={16} /> : null}
           >
-            {translate('ra.action.save')}
+            {translate(
+              target ? 'resources.artist.actions.merge' : 'ra.action.save',
+            )}
           </MuiButton>
         </DialogActions>
       </form>
@@ -122,7 +205,8 @@ RenameArtistDialog.propTypes = {
 }
 
 // "Rename" on an Artist page (admin only): saves an artist rename Correction, which the server
-// applies to every File with that Artist and rescans their folders.
+// applies to every File with that Artist and rescans their folders. Renaming to an existing
+// Artist, offered as you type, merges into it instead, after a warning.
 export const RenameArtistButton = ({ record, className, size }) => {
   const translate = useTranslate()
   const { permissions } = usePermissions()
