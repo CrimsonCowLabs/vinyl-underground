@@ -138,11 +138,10 @@ const Player = () => {
 
   const visible = authenticated && playerState.queue.length > 0
 
-  // Now Playing is full screen on phones only (the desktop side panel is #91),
-  // and has nothing to show once the queue is cleared
+  // Now Playing has nothing to show once the queue is cleared
   useEffect(() => {
-    if (isDesktop || !visible) dispatch(closeNowPlaying())
-  }, [isDesktop, visible, dispatch])
+    if (!visible) dispatch(closeNowPlaying())
+  }, [visible, dispatch])
   const isRadio = playerState.current?.isRadio || false
   const classes = useStyle({
     isRadio,
@@ -459,7 +458,7 @@ const Player = () => {
         getAudioInstance={setAudioInstance}
       />
       {visible && <StationBlurb />}
-      {visible && !isDesktop && <NowPlaying audioInstance={audioInstance} />}
+      {visible && <NowPlaying audioInstance={audioInstance} />}
       <StationPicking />
       <GlobalHotKeys handlers={handlers} keyMap={keyMap} allowChanges />
     </ThemeProvider>

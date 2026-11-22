@@ -6,9 +6,11 @@ import { Dialog, IconButton, Slide } from '@material-ui/core'
 import { makeStyles } from '@material-ui/core/styles'
 import KeyboardArrowDownIcon from '@material-ui/icons/KeyboardArrowDown'
 import { closeNowPlaying, isNowPlayingOpen } from './nowPlayingState'
+import { useWideEnoughForPanel } from './useNowPlayingPanel'
 import { useBackToClose } from './useBackToClose'
 import { useSwipeDown } from './useSwipeDown'
 import NowPlayingContent from './NowPlayingContent'
+import NowPlayingPanel from './NowPlayingPanel'
 import { vuPalette } from './vuPalette'
 
 const useStyles = makeStyles(
@@ -40,10 +42,10 @@ const SlideUp = React.forwardRef((props, ref) => (
 ))
 SlideUp.displayName = 'SlideUp'
 
-// NowPlaying is the Listener's own full-screen view of what they are playing,
-// on phones. The player package keeps playing underneath, so closing it, by
-// its button, a down gesture, Esc or back, never touches playback.
-const NowPlaying = ({ audioInstance }) => {
+// FullScreen is Now Playing on phones and narrow windows. The player package
+// keeps playing underneath, so closing it, by its button, a down gesture, Esc
+// or back, never touches playback.
+const FullScreen = ({ audioInstance }) => {
   const translate = useTranslate()
   const dispatch = useDispatch()
   const router = useHistory()
@@ -90,6 +92,16 @@ const NowPlaying = ({ audioInstance }) => {
       </div>
     </Dialog>
   )
+}
+
+// NowPlaying is the Listener's own view of what they are playing: a side panel
+// on a wide window, full screen otherwise. Resizing across PANEL_QUERY swaps
+// one for the other, keeping it open or closed.
+const NowPlaying = ({ audioInstance }) => {
+  const open = useSelector(isNowPlayingOpen)
+  const wide = useWideEnoughForPanel()
+  if (!wide) return <FullScreen audioInstance={audioInstance} />
+  return open ? <NowPlayingPanel audioInstance={audioInstance} /> : null
 }
 
 export default NowPlaying

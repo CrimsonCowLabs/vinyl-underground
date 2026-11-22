@@ -1007,6 +1007,7 @@
   },
   "nowPlaying": {
     "title": "Now Playing",
+    "open": "Open Now Playing",
     "close": "Close Now Playing",
     "playingFromAlbum": "Playing from album",
     "station": "Station",

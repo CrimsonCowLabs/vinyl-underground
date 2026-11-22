@@ -8,6 +8,7 @@ import { RiSaveLine } from 'react-icons/ri'
 import { LoveButton, useToggleLove } from '../common'
 import { openSaveQueueDialog } from '../actions'
 import { keyMap } from '../hotkeys'
+import NowPlayingToggle from '../nowPlaying/NowPlayingToggle'
 import { makeStyles } from '@material-ui/core/styles'
 
 const useStyles = makeStyles((theme) => ({
@@ -106,6 +107,7 @@ const PlayerToolbar = ({ id, isRadio }) => {
         <li className={`${listItemClass} item`}>
           {saveQueueButton}
           {loveButton}
+          <NowPlayingToggle className={buttonClass} />
         </li>
       ) : (
         <>
