@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -18,19 +19,23 @@ import (
 )
 
 // fakeSelector stands in for the LLM candidate approach: pick decides which Tracks a request
-// gets. Until release is closed (when set), it hangs like a slow LLM.
+// gets, or pickIn, when set, which a request within genres gets. Until release is closed (when
+// set), it hangs like a slow LLM.
 type fakeSelector struct {
 	mu       sync.Mutex
 	requests []string
+	genres   [][]string
 	excludes [][]string
 	pick     func(request string) model.MediaFiles
+	pickIn   func(request string, genres []string) model.MediaFiles
 	release  chan struct{}
 	err      error
 }
 
-func (f *fakeSelector) Select(_ context.Context, request string, length int, exclude []string) (model.MediaFiles, error) {
+func (f *fakeSelector) Select(_ context.Context, request string, genres []string, length int, exclude []string) (model.MediaFiles, error) {
 	f.mu.Lock()
 	f.requests = append(f.requests, request)
+	f.genres = append(f.genres, genres)
 	f.excludes = append(f.excludes, exclude)
 	release := f.release
 	f.mu.Unlock()
@@ -40,8 +45,12 @@ func (f *fakeSelector) Select(_ context.Context, request string, length int, exc
 	if f.err != nil {
 		return nil, f.err
 	}
+	picks := f.pick
+	if f.pickIn != nil {
+		picks = func(request string) model.MediaFiles { return f.pickIn(request, genres) }
+	}
 	var res model.MediaFiles
-	for _, mf := range f.pick(request) {
+	for _, mf := range picks(request) {
 		if !contains(exclude, mf.ID) && len(res) < length {
 			res = append(res, mf)
 		}
@@ -53,6 +62,13 @@ func (f *fakeSelector) asked() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]string(nil), f.requests...)
+}
+
+// askedGenres returns the genres each selection was limited to, in order.
+func (f *fakeSelector) askedGenres() [][]string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([][]string(nil), f.genres...)
 }
 
 func contains(ids []string, id string) bool {
@@ -165,6 +181,82 @@ var _ = Describe("Stations with an LLM", Ordered, func() {
 		_, err = svc.UpdateDJ(ctx, mine.ID, stations.DJEdit{Name: "Mr. Loud", Description: "Fast and loud."})
 		Expect(err).ToNot(HaveOccurred())
 		Expect(ids(listen(mine.ID, "", 3))).To(Equal(ids(loud[:3])))
+	})
+
+	// The LLM picks only from the DJ's genres, resolved to the Library's genre names (#108).
+	Describe("within the DJ's genres", func() {
+		BeforeEach(func() {
+			for _, table := range []string{"library_tag", "tag", "dj"} {
+				_, err := db.Db().Exec("delete from " + table)
+				Expect(err).ToNot(HaveOccurred())
+			}
+			for _, g := range []string{"Cool Jazz", "Electronica & Dance", "K-Pop", "Polka", "Pop"} {
+				Expect(ds.Tag(ctx).Add(1, model.NewTag(model.TagGenre, g))).To(Succeed())
+			}
+		})
+
+		It("limits a built-in DJ to the Library genres its genre words name, whatever the Theme", func() {
+			listen("night-owl", "polka party", 3)
+			listen("sunny", "", 3)
+			stations.WaitForSelection(svc)
+
+			// Selections run in the background, so they are told apart by their DJ, not their order.
+			var owl, sunny [][]string
+			for i, req := range sel.asked() {
+				if strings.Contains(req, "DJ Night Owl.") {
+					owl = append(owl, sel.askedGenres()[i])
+				} else {
+					sunny = append(sunny, sel.askedGenres()[i])
+				}
+			}
+			Expect(owl).ToNot(BeEmpty())
+			Expect(owl).To(HaveEach(Equal([]string{"Cool Jazz"})))
+			Expect(sunny).ToNot(BeEmpty())
+			Expect(sunny).To(HaveEach(Equal([]string{"Electronica & Dance", "K-Pop", "Pop"})))
+		})
+
+		It("limits a Listener's DJ to its own genres, whole, and starts over when they change", func() {
+			mine, err := svc.CreateDJ(ctx, stations.DJEdit{Name: "Mr. Pop", Description: "Chart hits.", Genres: []string{"Pop"}})
+			Expect(err).ToNot(HaveOccurred())
+			pop, kpop := llmPicks("pop", 8), llmPicks("kpop", 8)
+			sel.pickIn = func(_ string, genres []string) model.MediaFiles {
+				switch {
+				case slices.Equal(genres, []string{"Pop"}):
+					return pop
+				case slices.Equal(genres, []string{"K-Pop"}):
+					return kpop
+				}
+				return nil
+			}
+
+			Expect(ids(listen(mine.ID, "", 3))).To(Equal(ids(pop[:3])))
+			stations.WaitForSelection(svc)
+
+			// Only the genres change, so the request's prose is the same.
+			_, err = svc.UpdateDJ(ctx, mine.ID, stations.DJEdit{Name: "Mr. Pop", Description: "Chart hits.", Genres: []string{"K-Pop"}})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(ids(listen(mine.ID, "", 3))).To(Equal(ids(kpop[:3])))
+		})
+
+		It("leaves the selection open for a DJ without genres", func() {
+			listen("crate-digger", "", 3)
+
+			Expect(sel.askedGenres()).ToNot(BeEmpty())
+			Expect(sel.askedGenres()).To(HaveEach(BeEmpty()))
+		})
+
+		It("leaves the selection open when none of the Library's genres are the DJ's", func() {
+			for _, table := range []string{"library_tag", "tag"} {
+				_, err := db.Db().Exec("delete from " + table)
+				Expect(err).ToNot(HaveOccurred())
+			}
+			Expect(ds.Tag(ctx).Add(1, model.NewTag(model.TagGenre, "Polka"))).To(Succeed())
+
+			listen("night-owl", "", 3)
+
+			Expect(sel.askedGenres()).ToNot(BeEmpty())
+			Expect(sel.askedGenres()).To(HaveEach(BeEmpty()))
+		})
 	})
 
 	It("asks with the DJ's persona alone when no Theme is given", func() {

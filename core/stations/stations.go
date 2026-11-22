@@ -123,10 +123,13 @@ type tracksRequest struct {
 	dj    DJ
 	theme string
 	count int
+	// input is what the LLM is asked for the Station, when there is one.
+	input selectionInput
 }
 
 // checkRequest checks a request for count Tracks of the logged-in Listener's Station with the
-// DJ and Theme.
+// DJ and Theme. With an LLM, it also works out what the LLM is asked, which looks up the
+// Library genres the DJ's genres name.
 func (s *service) checkRequest(ctx context.Context, djID, theme string, count int) (tracksRequest, error) {
 	dj, err := s.DJ(ctx, djID)
 	if err != nil {
@@ -150,7 +153,13 @@ func (s *service) checkRequest(ctx context.Context, djID, theme string, count in
 	if !ok {
 		return tracksRequest{}, errors.New("a Station needs a logged-in Listener")
 	}
-	return tracksRequest{usr: usr, dj: dj, theme: theme, count: count}, nil
+	r := tracksRequest{usr: usr, dj: dj, theme: theme, count: count}
+	if s.selector != nil {
+		if r.input, err = s.stationInput(ctx, dj, theme); err != nil {
+			return tracksRequest{}, err
+		}
+	}
+	return r, nil
 }
 
 func (s *service) Start(ctx context.Context, djID, theme string, count int) (model.MediaFiles, error) {
@@ -165,7 +174,7 @@ func (s *service) Start(ctx context.Context, djID, theme string, count int) (mod
 		if err != nil {
 			return nil, err
 		}
-		if err := s.plans.awaitPicks(ctx, s.selector, r.usr.ID, r.dj, r.theme, trackIDs(history), s.startWait); err != nil {
+		if err := s.plans.awaitPicks(ctx, s.selector, r.usr.ID, r.input, trackIDs(history), s.startWait); err != nil {
 			return nil, err
 		}
 	}
@@ -227,7 +236,7 @@ func (s *service) next(ctx context.Context, r tracksRequest) (model.MediaFiles, 
 
 	var picked model.MediaFiles
 	if s.selector != nil {
-		picked = s.plans.take(usr.ID, dj, theme, history, now, count, rnd, skipWeight)
+		picked = s.plans.take(usr.ID, r.input, history, now, count, rnd, skipWeight)
 		history = append(servedAt(picked, now), history...)
 	}
 	fromPlan := len(picked)
@@ -256,7 +265,7 @@ func (s *service) next(ctx context.Context, r tracksRequest) (model.MediaFiles, 
 		for _, mf := range picked {
 			exclude = append(exclude, mf.ID)
 		}
-		s.plans.selectAhead(ctx, s.selector, usr.ID, dj, theme, exclude)
+		s.plans.selectAhead(ctx, s.selector, usr.ID, r.input, exclude)
 	}
 	s.blurbs.queueAhead(ctx, usr.ID, dj, theme, picked)
 	return picked, nil

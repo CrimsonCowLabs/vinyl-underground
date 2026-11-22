@@ -682,7 +682,7 @@ var _ = Describe("Generated Playlists", Ordered, func() {
 				return []int{2, 1}
 			}
 
-			tracks, err := sel.Select(ctx, "Night Owl, low-key and late-night. Theme: late-night drive", 2, nil)
+			tracks, err := sel.Select(ctx, "Night Owl, low-key and late-night. Theme: late-night drive", nil, 2, nil)
 
 			Expect(err).ToNot(HaveOccurred())
 			Expect(fake.request("filters").User).To(ContainSubstring("Theme: late-night drive"))
@@ -698,7 +698,7 @@ var _ = Describe("Generated Playlists", Ordered, func() {
 			kept := addTrack("Miles Davis", "Blue in Green", 1959, "Jazz")
 			left := addTrack("John Coltrane", "Naima", 1959, "Jazz")
 
-			tracks, err := sel.Select(ctx, "anything", 5, []string{left.ID})
+			tracks, err := sel.Select(ctx, "anything", nil, 5, []string{left.ID})
 
 			Expect(err).ToNot(HaveOccurred())
 			Expect(candidateLines(fake.request("ranking").User)).To(HaveLen(1))
@@ -721,7 +721,7 @@ var _ = Describe("Generated Playlists", Ordered, func() {
 				"year_from": 1950, "year_to": 1969}
 			fake.rank = firstN(1)
 
-			_, err := sel.Select(ctx, "late-night jazz", 1, nil)
+			_, err := sel.Select(ctx, "late-night jazz", nil, 1, nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			var picked []*logrus.Entry
@@ -738,10 +738,85 @@ var _ = Describe("Generated Playlists", Ordered, func() {
 			Expect(picked[0].Data).To(HaveKeyWithValue("picked", "[`Miles Davis - Blue in Green`]"))
 		})
 
+		// A Station's DJ with genres limits the candidates to them (#108).
+		Describe("within genres", func() {
+			var offered []string
+
+			BeforeEach(func() {
+				offered = nil
+				fake.rank = func(c []string) []int {
+					offered = c
+					return []int{1}
+				}
+			})
+
+			// addGenreTracks fills the Library with Tracks in and out of the genres, and some with
+			// no genre at all, so the looser searches have plenty outside them to reach for.
+			addGenreTracks := func() {
+				for i := range 4 {
+					addTrack("Miles Davis", fmt.Sprintf("Jazz %d", i), 1959, "Jazz")
+					addTrack("Chet Baker", fmt.Sprintf("Cool %d", i), 1954, "Cool Jazz")
+					addTrack("Madonna", fmt.Sprintf("Pop %d", i), 1990, "Pop")
+					addTrack("Unknown", fmt.Sprintf("Untagged %d", i), 1990, "")
+				}
+				addTrack("Madonna", "Jazzy Vogue", 1990, "Jazz")
+				refreshGenres()
+			}
+
+			It("offers only Tracks in the genres, however the LLM reads the request", func() {
+				addGenreTracks()
+				// The LLM reads the request as 80s and 90s pop by Madonna, outside the genres.
+				fake.filters = map[string]any{"name": "", "genres": []string{"pop"}, "seed_artists": []string{"Madonna"},
+					"year_from": 1985, "year_to": 1995}
+
+				tracks, err := sel.Select(ctx, "Music for a Station hosted by the DJ Night Owl.", []string{"Jazz", "Cool Jazz"}, 5, nil)
+
+				Expect(err).ToNot(HaveOccurred())
+				// Every Jazz and Cool Jazz Track, the seed artist's first, and nothing else.
+				Expect(offered).To(HaveLen(9))
+				Expect(offered[0]).To(HaveSuffix("Madonna - Jazzy Vogue (1990, Jazz)"))
+				for _, line := range offered {
+					Expect(line).To(Or(HaveSuffix(", Jazz)"), HaveSuffix(", Cool Jazz)")))
+				}
+				Expect(tracks).To(HaveLen(5))
+				// The LLM chooses its filters from the genres alone.
+				Expect(fake.request("filters").User).To(HaveSuffix("Genres in the library: Jazz, Cool Jazz"))
+			})
+
+			It("lets a Theme narrow within the genres, never outside them", func() {
+				addGenreTracks()
+				// The Theme asks for cool jazz, and the LLM adds pop, outside the genres.
+				fake.filters = map[string]any{"name": "", "genres": []string{"cool jazz", "pop"}, "seed_artists": []string{},
+					"year_from": 0, "year_to": 0}
+
+				_, err := sel.Select(ctx, "Music for a Station hosted by the DJ Night Owl.\nTheme: cool jazz", []string{"Jazz", "Cool Jazz"}, 5, nil)
+
+				Expect(err).ToNot(HaveOccurred())
+				// The Theme's Cool Jazz Tracks come first, then the rest of the genres' Tracks.
+				Expect(offered).To(HaveLen(9))
+				for _, line := range offered[:4] {
+					Expect(line).To(HaveSuffix(", Cool Jazz)"))
+				}
+				for _, line := range offered[4:] {
+					Expect(line).To(HaveSuffix(", Jazz)"))
+				}
+			})
+
+			It("finds nothing when the Library has no Tracks in the genres", func() {
+				addTrack("Madonna", "Vogue", 1990, "Pop")
+				addTrack("Unknown", "Untagged", 1990, "")
+				refreshGenres()
+
+				_, err := sel.Select(ctx, "anything", []string{"Jazz"}, 5, nil)
+
+				Expect(err).To(MatchError(generatedplaylist.ErrNoTracks))
+			})
+		})
+
 		It("refuses a length outside 1 to 100", func() {
-			_, err := sel.Select(ctx, "anything", 0, nil)
+			_, err := sel.Select(ctx, "anything", nil, 0, nil)
 			Expect(err).To(MatchError(generatedplaylist.ErrInvalidLength))
-			_, err = sel.Select(ctx, "anything", 101, nil)
+			_, err = sel.Select(ctx, "anything", nil, 101, nil)
 			Expect(err).To(MatchError(generatedplaylist.ErrInvalidLength))
 		})
 	})
