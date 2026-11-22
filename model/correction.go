@@ -66,7 +66,9 @@ type Correction struct {
 	// followed it (e.g. an Artist's stars) back. It is deleted once its folders are rescanned.
 	Undoing bool `structs:"undoing" json:"undoing"`
 	// ImageHash and ImageMime name the image a cover Correction makes the album's cover. A cover
-	// block has only the ImageHash of the image it blocks. Empty for other kinds.
+	// block has only the ImageHash of the image it blocks. An album Correction with a picked
+	// MusicBrainz release has its Cover Art Archive front cover, when the archive had one (see
+	// AlbumCovers.Pick). Empty for other kinds.
 	ImageHash string `structs:"image_hash" json:"-"`
 	ImageMime string `structs:"image_mime" json:"-"`
 	// AlbumName, AlbumArtist and Year are what an album Correction sets (see CorrectionAlbum):
@@ -131,26 +133,39 @@ func albumCorrections(repo CorrectionRepository, al Album, kinds ...CorrectionKi
 	return slices.DeleteFunc(all, func(c Correction) bool { return c.Undoing }), nil
 }
 
-// AlbumCoverCorrections returns the album's cover choice (nil when it has none) and its cover
-// blocks, with one query, skipping those being undone. Like AlbumCorrection, the choice keyed by
-// the album's earliest folder wins.
-func AlbumCoverCorrections(repo CorrectionRepository, al Album) (choice *Correction, blocks Corrections, _ error) {
-	all, err := albumCorrections(repo, al, CorrectionAlbumCover, CorrectionAlbumCoverBlock)
+// AlbumCovers is what admins decided about an album's cover (see AlbumCoverCorrections).
+type AlbumCovers struct {
+	// Choice is the image chosen or uploaded as the album's cover, nil when it has none.
+	Choice *Correction
+	// Pick is the album Correction whose picked MusicBrainz release brought a Cover Art Archive
+	// cover (its ImageHash and ImageMime), nil when it has none. The Choice outranks it.
+	Pick *Correction
+	// Blocks are the images marked wrong for the album.
+	Blocks Corrections
+}
+
+// AlbumCoverCorrections returns the album's cover choice, its picked release's cover and its
+// cover blocks, with one query, skipping those being undone. Like AlbumCorrection, the choice (and
+// the pick) keyed by the album's earliest folder wins.
+func AlbumCoverCorrections(repo CorrectionRepository, al Album) (AlbumCovers, error) {
+	all, err := albumCorrections(repo, al, CorrectionAlbumCover, CorrectionAlbumCoverBlock, CorrectionAlbum)
 	if err != nil {
-		return nil, nil, err
+		return AlbumCovers{}, err
 	}
-	choiceAt := len(al.FolderIDs)
+	var res AlbumCovers
+	choiceAt, pickAt := len(al.FolderIDs), len(al.FolderIDs)
 	for _, c := range all {
-		switch c.Kind {
-		case CorrectionAlbumCoverBlock:
-			blocks = append(blocks, c)
-		case CorrectionAlbumCover:
-			if at := slices.Index(al.FolderIDs, c.MatchKey); at >= 0 && at < choiceAt {
-				choiceAt, choice = at, &c
-			}
+		at := slices.Index(al.FolderIDs, c.MatchKey)
+		switch {
+		case c.Kind == CorrectionAlbumCoverBlock:
+			res.Blocks = append(res.Blocks, c)
+		case c.Kind == CorrectionAlbumCover && at >= 0 && at < choiceAt:
+			choiceAt, res.Choice = at, &c
+		case c.Kind == CorrectionAlbum && c.ImageHash != "" && at >= 0 && at < pickAt:
+			pickAt, res.Pick = at, &c
 		}
 	}
-	return choice, blocks, nil
+	return res, nil
 }
 
 type CorrectionRepository interface {

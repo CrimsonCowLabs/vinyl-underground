@@ -320,7 +320,7 @@ func makeThumbnail(img image.Image, maxSize int) image.Image {
 // isFileBacked reports whether the bytes already live in a library, upload or chosen-cover file, so the
 // content-addressed store must not duplicate them.
 func isFileBacked(source string) bool {
-	return source == "folder" || source == "upload" || source == ChosenSource
+	return source == "folder" || source == "upload" || source == ChosenSource || source == PickSource
 }
 
 // isLocalSource reports whether the bytes came off disk rather than off the network.

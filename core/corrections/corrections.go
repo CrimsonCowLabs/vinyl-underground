@@ -48,6 +48,9 @@ type Applied struct {
 	AlbumID string `json:"albumId,omitempty"`
 	// Done is false when the rescan outlasted Options.Wait and carries on in the background.
 	Done bool `json:"done"`
+	// PickCover is what the Cover Art Archive answered for a release picked with Find on
+	// MusicBrainz, when saving asked it; empty otherwise.
+	PickCover PickCover `json:"pickCover,omitempty"`
 }
 
 type Corrections interface {
@@ -72,9 +75,11 @@ type Corrections interface {
 	// them: their stars, ratings and play counts are joined (see
 	// model.CorrectionRepository.MergeArtistAnnotations). It rescans like RenameArtist.
 	MergeArtist(ctx context.Context, artistID, intoID string) (*Applied, error)
-	// CorrectAlbum saves a Correction of the album's title, album artist and year, keyed by its
-	// folder (see model.AlbumFolderKey) and replacing an earlier one, then rescans the album's
-	// folders and refreshes it. Only what differs from the album now is corrected.
+	// CorrectAlbum saves a Correction of the album's title, album artist and year, and of its
+	// MusicBrainz release, keyed by its folder (see model.AlbumFolderKey) and replacing an earlier
+	// one, then rescans the album's folders and refreshes it. Only what differs from the album now
+	// is corrected. A picked release's Cover Art Archive cover is kept with it (Options.PickedCover)
+	// and outranks CoverArtPriority, for the album, its disc art and its Tracks' own art.
 	CorrectAlbum(ctx context.Context, albumID string, fix AlbumFix) (*Applied, error)
 	// Undo stops applying the Correction, rescans the folders of the Tracks it applied to, and
 	// then deletes it. If the rescan fails, it stays marked as undoing, and Undo can be retried.
@@ -89,13 +94,15 @@ type AlbumCover struct {
 }
 
 // Options: Wait is how long saving or undoing waits for its rescan before returning and letting
-// it finish in the background.
+// it finish in the background. PickedCover fetches and stores a picked release's Cover Art Archive
+// front cover (see artwork.FetchPickedCover); nil asks nothing, and a pick has no cover.
 type Options struct {
-	Wait time.Duration
+	Wait        time.Duration
+	PickedCover func(ctx context.Context, releaseID, releaseGroupID string) (artwork.StoredCover, error)
 }
 
 func New(ds model.DataStore, refresher refresh.Refresher) Corrections {
-	return NewWithOptions(ds, refresher, Options{})
+	return NewWithOptions(ds, refresher, Options{PickedCover: artwork.FetchPickedCover})
 }
 
 func NewWithOptions(ds model.DataStore, refresher refresh.Refresher, opts Options) Corrections {
@@ -276,6 +283,9 @@ func (c *corrections) BlockAlbumCover(ctx context.Context, albumID, imageHash st
 // coverSourceLabel names the image an album shows, for the Corrections page: its file name, or
 // where it came from.
 func coverSourceLabel(ia *model.ItemArtwork) string {
+	if ia.Source == artwork.PickSource {
+		return "Cover Art Archive (MusicBrainz release)"
+	}
 	if ia.SourcePath != "" {
 		switch ia.Source {
 		case "folder":

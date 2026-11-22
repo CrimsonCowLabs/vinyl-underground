@@ -123,7 +123,9 @@
       },
       "musicbrainz": {
         "find": "Find on MusicBrainz",
-        "picked": "MusicBrainz release: %{release}. Saving brings in its info, and its Cover Art Archive cover unless the album has a cover image of its own (then Choose Cover offers it).",
+        "picked": "MusicBrainz release: %{release}. Saving makes its Cover Art Archive cover the album's cover, over the album's own images (a cover chosen with Choose Cover still wins), and brings in its info.",
+        "noCover": "Album corrected. The Cover Art Archive has no cover for this release, so the album keeps its cover.",
+        "coverFailed": "Album corrected, but the Cover Art Archive couldn't be reached. Pick the release again later to bring in its cover.",
         "clear": "Remove",
         "noResults": "MusicBrainz has no release with this album artist and title.",
         "errors": {
