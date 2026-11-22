@@ -93,7 +93,7 @@ const fakeAudio = () =>
     pause: vi.fn(),
   })
 
-const setup = ({ station = false, path = '/album' } = {}) => {
+const setup = ({ station = false, path = '/album', started = true } = {}) => {
   const store = createStore(
     combineReducers({
       player: playerReducer,
@@ -107,7 +107,9 @@ const setup = ({ station = false, path = '/album' } = {}) => {
         ? startStation('night-owl', [song], '', 'Night Owl')
         : playTracks({ [song.id]: song }),
     )
-    store.dispatch(currentPlaying({ ...store.getState().player.queue[0] }))
+    if (started) {
+      store.dispatch(currentPlaying({ ...store.getState().player.queue[0] }))
+    }
   })
   const history = createMemoryHistory({ initialEntries: [path] })
   render(
@@ -205,6 +207,17 @@ describe('Now Playing on desktop', () => {
 
     fireEvent.click(toggle)
     expect(panel()).toBeNull()
+  })
+
+  it('shows the queued Track after a reload, before playback starts', () => {
+    // A reload restores the queue, but nothing is playing until the Listener
+    // presses play
+    const { dispatch } = setup({ started: false })
+
+    dispatch(openNowPlaying())
+
+    expect(panel()).toHaveTextContent('Lamplight Freeway')
+    expect(panel()).toHaveTextContent('The Lantern Pilots')
   })
 
   it("shows a Station's DJ", () => {

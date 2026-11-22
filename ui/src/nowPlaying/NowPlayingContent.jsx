@@ -133,12 +133,20 @@ const useCover = (current) => {
   return failed === large ? small : large
 }
 
+// trackShown is the Track playing or, before playback starts after a reload
+// (the queue is kept, but nothing plays until the Listener presses play), the
+// one queued to play
+const trackShown = (state) => {
+  const { current, queue, savedPlayIndex } = state.player
+  return current?.uuid ? current : queue[savedPlayIndex || 0] || current
+}
+
 // NowPlayingContent is what Now Playing shows: the full-screen view on
 // phones, and the desktop side panel (#91). closeButton is the host's own.
 const NowPlayingContent = ({ audioInstance, onNavigate, closeButton }) => {
   const classes = useStyles()
   const translate = useTranslate()
-  const current = useSelector((state) => state.player.current)
+  const current = useSelector(trackShown)
   const song = current?.song || {}
   const isRadio = !!current?.isRadio
   const record = useTrackRecord(current)

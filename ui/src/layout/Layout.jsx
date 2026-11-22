@@ -18,6 +18,9 @@ const useStyles = makeStyles({
     paddingBottom: (props) => (props.addPadding ? '80px' : 0),
     // Room for the Now Playing panel, so it sits beside the page, not over it
     paddingRight: (props) => (props.nowPlayingPanel ? PANEL_WIDTH : 0),
+    // Within react-admin's width: 100%, so the page narrows rather than
+    // running on under the panel
+    boxSizing: 'border-box',
   },
 })
 
