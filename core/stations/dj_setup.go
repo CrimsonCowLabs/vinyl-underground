@@ -26,8 +26,11 @@ import (
 // again if the LLM hasn't, and has the LLM select into the plan, its picks going after the
 // starter. Each try goes through the same selection as a Station's (awaitPicks), so a Listener
 // still has one selection at a time, a try waits for one under way, and none is made while
-// their last one failed within retryAfter. Editing the DJ again starts a new setup in place of
-// this one; deleting it stops the setup and drops its plan. Setups live in memory only.
+// their last one failed within retryAfter: a try comes setupRetryEvery after the last one
+// ended, and never before the Listener's back-off is over. A selection still running when the
+// setup step ran out is waited for first. When the time is up, what is left of the starter is
+// dropped, so the Station-start wait takes over. Editing the DJ again starts a new setup in
+// place of this one; deleting it stops the setup and drops its plan. Setups live in memory only.
 
 const (
 	// SetupWait is the longest a DJ's setup step takes, from saving it to a plan of the LLM's
@@ -112,21 +115,24 @@ func (ss *setups) endStep(st *setup, ready bool) {
 }
 
 // end ends the setup once it stopped trying. A setup that got the DJ ready is kept, so the
-// form asking after it finished learns it is; one that gave up is forgotten, unless another
-// took its place.
+// form asking after it finished learns it is (one small entry per DJ, until it is edited
+// again or deleted); one that gave up is forgotten, unless another took its place.
 func (ss *setups) end(key planKey, st *setup) {
-	ready := st.isReady(ss)
-	ss.endStep(st, ready)
 	ss.mu.Lock()
 	defer ss.mu.Unlock()
-	if !ready && ss.byKey[key] == st {
+	select {
+	case <-st.done:
+	default:
+		close(st.done)
+	}
+	if !st.ready && ss.byKey[key] == st {
 		delete(ss.byKey, key)
 	}
 	st.cancel()
 }
 
-// isReady reads the setup's ready.
-func (st *setup) isReady(ss *setups) bool {
+// isReady reports whether the setup got its DJ ready.
+func (ss *setups) isReady(st *setup) bool {
 	ss.mu.Lock()
 	defer ss.mu.Unlock()
 	return st.ready
@@ -161,7 +167,7 @@ func (s *service) AwaitSetup(ctx context.Context, id string) (SetupStatus, error
 	case <-ctx.Done():
 		return "", ctx.Err()
 	}
-	if st.isReady(&s.setups) {
+	if s.setups.isReady(st) {
 		return SetupReady, nil
 	}
 	return SetupSettingUp, nil
@@ -190,7 +196,7 @@ func (s *service) startSetup(ctx context.Context, dj DJ, began time.Time) {
 // ready, the time is up or ctx is done.
 func (s *service) runSetup(ctx context.Context, userID, djID string, st *setup, began time.Time) {
 	until := began.Add(s.setupTimes.retryFor)
-	dj, p, ok := s.trySetup(ctx, userID, djID, nil, began.Add(s.setupTimes.wait), false)
+	dj, p, ok := s.trySetup(ctx, userID, djID, nil, began.Add(s.setupTimes.wait))
 	if !ok {
 		return
 	}
@@ -204,30 +210,49 @@ func (s *service) runSetup(ctx context.Context, userID, djID string, st *setup, 
 		return
 	}
 	log.Info(ctx, "DJ still being set up; playing a starter meanwhile", "dj", djID)
-	for time.Now().Add(s.setupTimes.retryEvery).Before(until) {
-		select {
-		case <-time.After(s.setupTimes.retryEvery):
-		case <-ctx.Done():
-			return
-		}
-		if dj, p, ok = s.trySetup(ctx, userID, djID, p, until, true); !ok {
-			return
+	for {
+		// A selection under way, such as the one the setup step stopped waiting for, may
+		// still bring the picks; the next try is then due setupRetryEvery after it.
+		if done := s.selectionUnderWay(userID); done != nil {
+			select {
+			case <-done:
+			case <-ctx.Done():
+				return
+			}
 		}
 		if s.plans.isReady(p) {
 			s.setups.endStep(st, true)
 			log.Info(ctx, "DJ set up in the background", "dj", djID)
 			return
 		}
+		// Not before the Listener's back-off from a failure ends, whoever's call it was.
+		next := time.Now().Add(s.setupTimes.retryEvery)
+		if t := s.llmBackAt(userID); t.After(next) {
+			next = t
+		}
+		if !next.Before(until) {
+			break
+		}
+		select {
+		case <-time.After(time.Until(next)):
+		case <-ctx.Done():
+			return
+		}
+		if dj, p, ok = s.trySetup(ctx, userID, djID, p, until); !ok {
+			return
+		}
 	}
+	// The Station-start wait takes over from here, so the starter goes.
+	s.plans.dropUnpicked(p)
 	log.Info(ctx, "Gave up setting up a DJ for now; its Station start will wait for the LLM", "dj", djID)
 }
 
 // trySetup has the LLM select into the DJ's plan, waiting up to until for its picks, and
-// returns the DJ and its plan. With remap, it first maps the DJ's genres with the LLM when it
-// hasn't yet, and carries what the plan from before held into the one for the new genres. It
-// doesn't ask the LLM while a selection or a mapping of the Listener's failed within
-// retryAfter. ok is false when the DJ is gone or ctx is done.
-func (s *service) trySetup(ctx context.Context, userID, djID string, from *plan, until time.Time, remap bool) (DJ, *plan, bool) {
+// returns the DJ and its plan. When the LLM hasn't mapped the DJ's genres yet, it maps them
+// first, carrying what the plan from before held into the one for the new genres. It doesn't
+// ask the LLM while a selection or a mapping of the Listener's failed within retryAfter. ok is
+// false when the DJ is gone or ctx is done.
+func (s *service) trySetup(ctx context.Context, userID, djID string, from *plan, until time.Time) (DJ, *plan, bool) {
 	dj, err := s.DJ(ctx, djID)
 	if err != nil {
 		if !errors.Is(err, ErrUnknownDJ) {
@@ -235,22 +260,21 @@ func (s *service) trySetup(ctx context.Context, userID, djID string, from *plan,
 		}
 		return DJ{}, nil, false
 	}
-	if remap && s.needsMapping(dj) && !s.genresFailedRecently(userID) {
-		if dj, err = s.remapGenres(ctx, userID, dj); err != nil {
+	// Right after a save that mapped them, an answer without the Library's genres is still
+	// kept, so this asks nothing again.
+	if s.needsMapping(dj) && !s.llmDown(userID) {
+		if dj, err = s.mapGenresWhenFree(ctx, userID, dj, genreMapTimeout); err != nil && ctx.Err() == nil {
 			log.Warn(ctx, "Mapping a DJ to genres failed", "dj", djID, err)
 		}
-	}
-	if ctx.Err() != nil {
-		return DJ{}, nil, false
 	}
 	in, err := s.stationInput(ctx, dj, "")
 	if err != nil {
 		log.Warn(ctx, "Setting up a DJ failed", "dj", djID, err)
 		return DJ{}, nil, false
 	}
-	p := s.plans.carryInto(userID, in, from)
-	if s.genresFailedRecently(userID) {
-		return dj, p, true
+	p, ok := s.plans.carryInto(ctx, userID, in, from)
+	if !ok || s.llmDown(userID) {
+		return dj, p, ok
 	}
 	history, err := s.history(ctx, time.Now())
 	if err != nil {
@@ -265,75 +289,80 @@ func (s *service) trySetup(ctx context.Context, userID, djID string, from *plan,
 	return dj, p, true
 }
 
-// remapGenres maps the DJ's genres with the LLM, once the Listener's selection under way, if
-// any, has ended, and stores them unless the DJ was edited meanwhile.
-func (s *service) remapGenres(ctx context.Context, userID string, dj DJ) (DJ, error) {
-	if done := s.selectionUnderWay(userID); done != nil {
-		select {
-		case <-done:
-		case <-ctx.Done():
-			return dj, ctx.Err()
-		}
-	}
-	library, err := s.libraryGenres(ctx)
-	if err != nil {
-		return dj, err
-	}
-	mapCtx, cancel := context.WithTimeout(ctx, genreMapTimeout)
-	defer cancel()
-	genres, ok := s.llmGenres(mapCtx, dj.Name, dj.Description, library)
-	if !ok {
-		return dj, nil
-	}
-	return s.storeGenres(ctx, dj, genres, model.DJGenresFromLLM)
+// llmDown reports whether the LLM is down for the Listener: a selection or a genre mapping of
+// theirs failed within retryAfter.
+func (s *service) llmDown(userID string) bool {
+	return s.plans.failedLately(userID) || (s.genreLLM != nil && s.genreLLM.failedLately(userID))
 }
 
-// genresFailedRecently reports whether the Listener's last genre mapping failed within
-// retryAfter: the LLM is down for them.
-func (s *service) genresFailedRecently(userID string) bool {
-	m := s.genreLLM
-	if m == nil {
-		return false
+// llmBackAt is when the Listener's back-off from their last failed selection or genre mapping
+// ends: the zero time when they have none.
+func (s *service) llmBackAt(userID string) time.Time {
+	at := s.plans.backAt(userID)
+	if s.genreLLM != nil {
+		if g := s.genreLLM.backAt(userID); g.After(at) {
+			at = g
+		}
 	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.failedRecently(userID, time.Now())
+	return at
 }
 
 // carryInto returns the Listener's plan for the input, holding what the plan from held too,
-// when it was another (the DJ's genres were mapped since).
-func (ps *plans) carryInto(userID string, in selectionInput, from *plan) *plan {
+// when it was another (the DJ's genres were mapped since). It makes no plan once ctx is done,
+// so a setup the DJ's deletion stopped can't bring its plan back.
+func (ps *plans) carryInto(ctx context.Context, userID string, in selectionInput, from *plan) (*plan, bool) {
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
+	if ctx.Err() != nil {
+		return nil, false
+	}
 	p := ps.planFor(userID, in, time.Now())
 	if from != nil && from != p {
 		p.tracks = appendNew(p.tracks, from.tracks)
 		p.picked = p.picked || from.picked
 	}
-	return p
+	return p, true
+}
+
+// dropUnpicked empties the plan unless the LLM picked for it, dropping a starter nobody played.
+func (ps *plans) dropUnpicked(p *plan) {
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
+	if !p.picked {
+		p.tracks = nil
+	}
 }
 
 // addStarter gives the DJ's empty plan starterLength rule-based Tracks, as a Station of it
-// would play by rule.
+// would play by rule, unless ctx is done meanwhile (the DJ was edited again or deleted).
 func (s *service) addStarter(ctx context.Context, dj DJ, p *plan) {
-	now := time.Now()
-	history, err := s.history(ctx, now)
-	if err == nil {
-		var skips []Skip
-		if skips, err = s.skips(ctx, dj, now); err == nil {
-			var candidates model.MediaFiles
-			if candidates, err = s.candidates(ctx, dj); err == nil {
-				rnd := rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64()))
-				starter := Pick(dj, candidates, history, now, starterLength, rnd, SkipWeight(skips, now))
-				s.plans.mu.Lock()
-				if !p.hasTracks() {
-					p.tracks = starter
-				}
-				s.plans.mu.Unlock()
-			}
-		}
-	}
+	starter, err := s.starter(ctx, dj)
 	if err != nil {
 		log.Warn(ctx, "Planning a DJ's starter Tracks failed", "dj", dj.ID, err)
+		return
 	}
+	s.plans.mu.Lock()
+	defer s.plans.mu.Unlock()
+	if ctx.Err() == nil && !p.hasTracks() {
+		p.tracks = starter
+	}
+}
+
+// starter picks starterLength Tracks for the DJ by rule, as a refill of its Station would.
+func (s *service) starter(ctx context.Context, dj DJ) (model.MediaFiles, error) {
+	now := time.Now()
+	history, err := s.history(ctx, now)
+	if err != nil {
+		return nil, err
+	}
+	skips, err := s.skips(ctx, dj, now)
+	if err != nil {
+		return nil, err
+	}
+	candidates, err := s.candidates(ctx, dj)
+	if err != nil {
+		return nil, err
+	}
+	rnd := rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64()))
+	return Pick(dj, candidates, history, now, starterLength, rnd, SkipWeight(skips, now)), nil
 }

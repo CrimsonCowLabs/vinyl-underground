@@ -243,6 +243,40 @@ var _ = Describe("Setting up a Listener's DJ", Ordered, func() {
 		Expect(tries).To(BeNumerically("<=", 8))
 		Expect(svc.AwaitSetup(ctx, dj.ID)).To(Equal(stations.SetupNone))
 		Consistently(sel.asked, 200*time.Millisecond).Should(HaveLen(tries))
+
+		// The Station-start wait takes over: the next start waits for the LLM's picks.
+		pump := picks("pump", 15)
+		sel.mu.Lock()
+		sel.pick = func(string) model.MediaFiles { return pump }
+		sel.release = make(chan struct{})
+		sel.mu.Unlock()
+		sel.failWith(nil)
+		done := make(chan model.MediaFiles, 1)
+		go func() {
+			defer GinkgoRecover()
+			tracks, err := svc.Start(ctx, dj.ID, "", 5)
+			Expect(err).ToNot(HaveOccurred())
+			done <- tracks
+		}()
+		Consistently(done, 100*time.Millisecond).ShouldNot(Receive())
+		close(sel.release)
+		var tracks model.MediaFiles
+		Eventually(done, 2*time.Second).Should(Receive(&tracks))
+		Expect(ids(tracks)).To(Equal(ids(pump[:5])))
+	})
+
+	It("waits for a selection still running when the setup step ran out, then is ready", func() {
+		stations.SetSetupTimes(svc, 300*time.Millisecond, time.Hour, time.Hour)
+		pump := picks("pump", 15)
+		sel.pick = func(string) model.MediaFiles { return pump }
+		sel.release = make(chan struct{})
+		dj := create()
+		Expect(svc.AwaitSetup(ctx, dj.ID)).To(Equal(stations.SetupSettingUp))
+
+		close(sel.release)
+		stations.WaitForSetups(svc) // long before the hour's retry
+		Expect(svc.AwaitSetup(ctx, dj.ID)).To(Equal(stations.SetupReady))
+		Expect(sel.asked()).To(HaveLen(1))
 	})
 
 	It("waits for the Listener's selection under way before asking for its own", func() {

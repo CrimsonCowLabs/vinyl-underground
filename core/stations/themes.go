@@ -268,6 +268,25 @@ func (ps *plans) failedRecently(userID string) bool {
 	return ok && time.Since(at) < cmp.Or(ps.backoff, retryAfter)
 }
 
+// failedLately reports whether the Listener's last selection failed within retryAfter.
+func (ps *plans) failedLately(userID string) bool {
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
+	return ps.failedRecently(userID)
+}
+
+// backAt is when the Listener's back-off from their last failed selection ends: the zero time
+// when none failed since one succeeded.
+func (ps *plans) backAt(userID string) time.Time {
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
+	at, ok := ps.failedAt[userID]
+	if !ok {
+		return time.Time{}
+	}
+	return at.Add(cmp.Or(ps.backoff, retryAfter))
+}
+
 // startSelection starts a background selection into the plan, unless one is under way for
 // the Listener or their last one failed recently. ps.mu must be held.
 func (ps *plans) startSelection(ctx context.Context, sel Selector, userID string, p *plan, exclude []string) {

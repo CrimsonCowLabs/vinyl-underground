@@ -532,6 +532,26 @@ describe('StationList', () => {
         expect(editor()).toBeInTheDocument()
       })
 
+      it("goes straight to picking when the genres were picked by hand, as there's none to read", async () => {
+        serveSetup()
+        await openNew()
+        fill('Mr. Mellow', 'Slow house.')
+        fireEvent.blur(
+          screen.getByLabelText(/^resources.station.dj.fields.description/),
+        )
+        fireEvent.click(
+          await screen.findByRole('button', { name: 'ra.action.remove House' }),
+        )
+        save()
+
+        expect(
+          await screen.findByText('resources.station.dj.setup.picking'),
+        ).toBeInTheDocument()
+        expect(
+          screen.queryByText('resources.station.dj.setup.readingGenres'),
+        ).not.toBeInTheDocument()
+      })
+
       it('closes once the DJ is ready, listing it', async () => {
         serveDJs(djs, {
           'POST /dj': () => {

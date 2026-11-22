@@ -217,11 +217,12 @@ const DJEditor = ({ open, dj, onClose, onSaved }) => {
     e.preventDefault()
     if (!valid) return
     const id = ++editing.current
-    // With an LLM, the server sets the DJ up before its Station plays: the
-    // save maps its genres, then its first hour is picked.
-    const setUp = config.enableStationThemes
+    // With an LLM (which also enables Themes), the server sets the DJ up
+    // before its Station plays: the save maps its genres, unless they were
+    // picked by hand, then its first hour is picked.
+    const withLLM = config.enableStationThemes
     setSaving(true)
-    if (setUp) setStep('readingGenres')
+    if (withLLM) setStep(picked ? 'picking' : 'readingGenres')
     saveDJ(
       dj?.id,
       name.trim(),
@@ -232,7 +233,7 @@ const DJEditor = ({ open, dj, onClose, onSaved }) => {
       .then((done) => {
         if (id !== editing.current) return
         setSaving(false)
-        if (!setUp) {
+        if (!withLLM) {
           onSaved(done)
           return
         }
