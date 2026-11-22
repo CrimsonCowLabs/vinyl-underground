@@ -755,6 +755,12 @@ var _ = Describe("MayFetchExternal", func() {
 		Expect(MayFetchExternal(model.KindArtistArtwork)).To(BeTrue())
 	})
 
+	It("is true for an album chain that asks the Cover Art Archive", func() {
+		conf.Server.CoverArtPriority = "cover.*, coverartarchive"
+		Expect(MayFetchExternal(model.KindAlbumArtwork)).To(BeTrue())
+		Expect(MayFetchExternal(model.KindPlaylistArtwork)).To(BeTrue())
+	})
+
 	It("is false for a chain with no external candidate", func() {
 		Expect(MayFetchExternal(model.KindAlbumArtwork)).To(BeFalse())
 		Expect(MayFetchExternal(model.KindArtistArtwork)).To(BeFalse())
@@ -796,6 +802,18 @@ var _ = Describe("ExternalLookupsPerItem", func() {
 	It("bills one call per agent, since the walk only stops early on a hit", func() {
 		Expect(ExternalLookupsPerItem(model.KindArtistArtwork, count)).To(Equal(int64(3)))
 		Expect(ExternalLookupsPerItem(model.KindAlbumArtwork, count)).To(Equal(int64(2)))
+	})
+
+	It("bills the Cover Art Archive as one more call, on top of the agents", func() {
+		conf.Server.CoverArtPriority = "cover.*, coverartarchive, external"
+		Expect(ExternalLookupsPerItem(model.KindAlbumArtwork, count)).To(Equal(int64(3)))
+		Expect(ExternalLookupsPerItem(model.KindPlaylistArtwork, count)).
+			To(Equal(int64(PlaylistGridSamples) * 3))
+	})
+
+	It("bills only the Cover Art Archive when the chain has no agent step", func() {
+		conf.Server.CoverArtPriority = "cover.*, coverartarchive"
+		Expect(ExternalLookupsPerItem(model.KindAlbumArtwork, count)).To(Equal(int64(1)))
 	})
 
 	It("bills a playlist for every album its grid samples", func() {

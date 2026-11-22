@@ -566,8 +566,7 @@ var _ = Describe("lastfmAgent", func() {
 				URL:         "https://www.last.fm/music/Cher/Believe",
 			}))
 			Expect(httpClient.RequestCount).To(Equal(1))
-			// MBID is deliberately not sent — album.getInfo matches on name+artist only.
-			Expect(httpClient.SavedRequest.URL.Query().Get("mbid")).To(BeEmpty())
+			Expect(httpClient.SavedRequest.URL.Query().Get("mbid")).To(Equal("03c91c40-49a6-44a7-90e7-a700edf97a62"))
 			Expect(httpClient.SavedRequest.URL.Query().Get("album")).To(Equal("Believe"))
 			Expect(httpClient.SavedRequest.URL.Query().Get("artist")).To(Equal("Cher"))
 		})
@@ -588,7 +587,6 @@ var _ = Describe("lastfmAgent", func() {
 			_, err := agent.GetAlbumInfo(ctx, "123", "U2", "mbid-1234")
 			Expect(err).To(HaveOccurred())
 			Expect(httpClient.RequestCount).To(Equal(1))
-			Expect(httpClient.SavedRequest.URL.Query().Get("mbid")).To(BeEmpty())
 		})
 
 		It("returns an error if Last.fm call returns an error", func() {
@@ -596,17 +594,82 @@ var _ = Describe("lastfmAgent", func() {
 			_, err := agent.GetAlbumInfo(ctx, "123", "U2", "mbid-1234")
 			Expect(err).To(HaveOccurred())
 			Expect(httpClient.RequestCount).To(Equal(1))
-			Expect(httpClient.SavedRequest.URL.Query().Get("mbid")).To(BeEmpty())
 		})
 
 		It("returns an error when Last.fm returns an error 6 (album not found)", func() {
 			httpClient.Res = http.Response{Body: io.NopCloser(bytes.NewBufferString(lastfmError6)), StatusCode: 200}
-			_, err := agent.GetAlbumInfo(ctx, "123", "U2", "mbid-1234")
+			_, err := agent.GetAlbumInfo(ctx, "123", "U2", "")
 			Expect(err).To(HaveOccurred())
 			// A definitive not-found must satisfy the sentinel, or the artwork worker retries it.
 			Expect(errors.Is(err, agents.ErrNotFound)).To(BeTrue())
 			Expect(httpClient.RequestCount).To(Equal(1))
-			Expect(httpClient.SavedRequest.URL.Query().Get("mbid")).To(BeEmpty())
+		})
+	})
+
+	Describe("album lookups by MusicBrainz ID", func() {
+		var agent *lastfmAgent
+		var httpClient *sequenceHTTP
+		believe := func() string {
+			b, err := os.ReadFile("tests/fixtures/lastfm.album.getinfo.json")
+			Expect(err).ToNot(HaveOccurred())
+			return string(b)
+		}
+		BeforeEach(func() {
+			httpClient = &sequenceHTTP{}
+			agent = lastFMConstructor(ds)
+			agent.client = newClient("API_KEY", "SECRET", httpClient)
+		})
+
+		It("sends the album's MBID along with its name and artist", func() {
+			httpClient.bodies = []string{believe()}
+
+			imgs, err := agent.GetAlbumImages(ctx, "Believe", "Cher", "03c91c40-49a6-44a7-90e7-a700edf97a62")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(imgs).ToNot(BeEmpty())
+			Expect(httpClient.requests).To(HaveLen(1))
+			q := httpClient.requests[0].URL.Query()
+			Expect(q.Get("mbid")).To(Equal("03c91c40-49a6-44a7-90e7-a700edf97a62"))
+			Expect(q.Get("album")).To(Equal("Believe"))
+			Expect(q.Get("artist")).To(Equal("Cher"))
+		})
+
+		It("sends no MBID for an album without one", func() {
+			httpClient.bodies = []string{believe()}
+
+			_, err := agent.GetAlbumImages(ctx, "Believe", "Cher", "")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(httpClient.requests).To(HaveLen(1))
+			Expect(httpClient.requests[0].URL.Query().Has("mbid")).To(BeFalse())
+		})
+
+		It("looks the album up by name when Last.fm does not know the MBID", func() {
+			httpClient.bodies = []string{lastfmError6, believe()}
+
+			imgs, err := agent.GetAlbumImages(ctx, "Believe", "Cher", "mbid-unknown-to-lastfm")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(imgs).ToNot(BeEmpty())
+			Expect(httpClient.requests).To(HaveLen(2))
+			Expect(httpClient.requests[1].URL.Query().Has("mbid")).To(BeFalse())
+			Expect(httpClient.requests[1].URL.Query().Get("album")).To(Equal("Believe"))
+		})
+
+		It("looks the album up by name when the MBID answers with a different album", func() {
+			// Last.fm's MBID index can be wrong: the answer is "Believe", not what was asked for.
+			httpClient.bodies = []string{believe(), lastfmError6}
+
+			_, err := agent.GetAlbumImages(ctx, "American Beauty", "Grateful Dead", "mbid-mapped-wrongly")
+			Expect(errors.Is(err, agents.ErrNotFound)).To(BeTrue())
+			Expect(httpClient.requests).To(HaveLen(2))
+			Expect(httpClient.requests[1].URL.Query().Has("mbid")).To(BeFalse())
+			Expect(httpClient.requests[1].URL.Query().Get("album")).To(Equal("American Beauty"))
+		})
+
+		It("passes the MBID on for album info too", func() {
+			httpClient.bodies = []string{believe()}
+
+			_, err := agent.GetAlbumInfo(ctx, "Believe", "Cher", "03c91c40-49a6-44a7-90e7-a700edf97a62")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(httpClient.requests[0].URL.Query().Get("mbid")).To(Equal("03c91c40-49a6-44a7-90e7-a700edf97a62"))
 		})
 	})
 
@@ -736,4 +799,19 @@ func (c *langAwareHttpClient) Do(req *http.Request) (*http.Response, error) {
 		StatusCode: 200,
 		Body:       io.NopCloser(bytes.NewBufferString(`{}`)),
 	}, nil
+}
+
+// sequenceHTTP answers each request with the next body, and records the requests.
+type sequenceHTTP struct {
+	bodies   []string
+	requests []*http.Request
+}
+
+func (c *sequenceHTTP) Do(req *http.Request) (*http.Response, error) {
+	c.requests = append(c.requests, req)
+	body := lastfmError6
+	if len(c.bodies) > 0 {
+		body, c.bodies = c.bodies[0], c.bodies[1:]
+	}
+	return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewBufferString(body))}, nil
 }

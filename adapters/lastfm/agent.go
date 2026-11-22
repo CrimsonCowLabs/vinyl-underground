@@ -19,6 +19,7 @@ import (
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/utils/cache"
 	"github.com/navidrome/navidrome/utils/httpclient"
+	"github.com/navidrome/navidrome/utils/str"
 	"golang.org/x/net/html"
 )
 
@@ -94,7 +95,7 @@ func (l *lastfmAgent) GetAlbumInfo(ctx context.Context, name, artist, mbid strin
 	var resp agents.AlbumInfo
 	for _, lang := range l.languages {
 		var err error
-		a, err = l.callAlbumGetInfo(ctx, name, artist, lang)
+		a, err = l.callAlbumGetInfo(ctx, name, artist, mbid, lang)
 		if err != nil {
 			return nil, err
 		}
@@ -115,7 +116,7 @@ func (l *lastfmAgent) GetAlbumInfo(ctx context.Context, name, artist, mbid strin
 }
 
 func (l *lastfmAgent) GetAlbumImages(ctx context.Context, name, artist, mbid string) ([]agents.ExternalImage, error) {
-	a, err := l.callAlbumGetInfo(ctx, name, artist, l.languages[0])
+	a, err := l.callAlbumGetInfo(ctx, name, artist, mbid, l.languages[0])
 	if err != nil {
 		return nil, err
 	}
@@ -293,12 +294,29 @@ func (l *lastfmAgent) GetArtistImages(ctx context.Context, _, name, mbid string)
 	return res, nil
 }
 
-// callAlbumGetInfo matches on name+artist only. Last.fm's album.getInfo by MBID is unreliable —
-// a correct MBID can return a different album (or none) — so the MBID is deliberately not passed.
-func (l *lastfmAgent) callAlbumGetInfo(ctx context.Context, name, artist, lang string) (*Album, error) {
+// callAlbumGetInfo looks the album up by its MusicBrainz release ID when it has one, which tells
+// apart albums that share a name. Last.fm's MBID index is incomplete and sometimes wrong, so an
+// MBID it does not know, or one that answers with a differently named album, falls back to the
+// name+artist lookup an album without an MBID gets.
+func (l *lastfmAgent) callAlbumGetInfo(ctx context.Context, name, artist, mbid, lang string) (*Album, error) {
+	if mbid != "" {
+		a, err := l.client.albumGetInfo(ctx, name, artist, mbid, lang)
+		switch {
+		case err == nil && sameAlbumName(a.Name, name):
+			return a, nil
+		case err == nil:
+			log.Debug(ctx, "Last.fm answered an album MBID with a different album; looking it up by name",
+				"album", name, "artist", artist, "mbid", mbid, "answered", a.Name)
+		case isLastFMNotFound(err):
+			log.Debug(ctx, "Album MBID not found in Last.fm; looking it up by name", "album", name, "artist", artist, "mbid", mbid)
+		default:
+			log.Error(ctx, "Error calling LastFM/album.getInfo", "album", name, "artist", artist, "mbid", mbid, err)
+			return nil, err
+		}
+	}
 	a, err := l.client.albumGetInfo(ctx, name, artist, "", lang)
 	if err != nil {
-		if lfErr, ok := errors.AsType[*lastFMError](err); ok && lfErr.Code == 6 {
+		if isLastFMNotFound(err) {
 			// A not-found is a definitive absence, not a fault: return the shared sentinel so the
 			// artwork worker's breaker/transient checks don't retry it, and log it at Debug.
 			log.Debug(ctx, "Album not found in Last.fm", "album", name, "artist", artist)
@@ -308,6 +326,18 @@ func (l *lastfmAgent) callAlbumGetInfo(ctx context.Context, name, artist, lang s
 		return nil, err
 	}
 	return a, nil
+}
+
+// isLastFMNotFound reports Last.fm's error 6, its answer for an album or artist it does not know.
+func isLastFMNotFound(err error) bool {
+	lfErr, ok := errors.AsType[*lastFMError](err)
+	return ok && lfErr.Code == 6
+}
+
+// sameAlbumName compares the album Last.fm answered with the one asked for, ignoring case and the
+// clutter str.Clear strips.
+func sameAlbumName(answered, asked string) bool {
+	return strings.EqualFold(strings.TrimSpace(str.Clear(answered)), strings.TrimSpace(str.Clear(asked)))
 }
 
 func (l *lastfmAgent) callArtistGetInfo(ctx context.Context, name string, lang string) (*Artist, error) {

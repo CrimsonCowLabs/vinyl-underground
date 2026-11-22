@@ -60,7 +60,9 @@ func (c *client) albumGetInfo(ctx context.Context, name string, artist string, m
 	params.Add("method", "album.getInfo")
 	params.Add("album", name)
 	params.Add("artist", artist)
-	params.Add("mbid", mbid)
+	if mbid != "" {
+		params.Add("mbid", mbid)
+	}
 	params.Add("lang", lang)
 	response, err := c.makeRequest(ctx, http.MethodGet, params, false)
 	if err != nil {

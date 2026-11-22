@@ -861,9 +861,21 @@ func disableExternalServices() {
 	Server.ListenBrainz.Enabled = false
 	Server.Ripping.MusicBrainz = false
 	Server.Agents = ""
+	Server.CoverArtPriority = withoutToken(Server.CoverArtPriority, consts.CoverArtArchivePriority)
 	if Server.UILoginBackgroundURL == consts.DefaultUILoginBackgroundURL {
 		Server.UILoginBackgroundURL = consts.DefaultUILoginBackgroundURLOffline
 	}
+}
+
+// withoutToken drops token (case-insensitively) from a comma-separated priority list.
+func withoutToken(priority, token string) string {
+	var kept []string
+	for p := range strings.SplitSeq(priority, ",") {
+		if p = strings.TrimSpace(p); p != "" && !strings.EqualFold(p, token) {
+			kept = append(kept, p)
+		}
+	}
+	return strings.Join(kept, ", ")
 }
 
 func validatePlaylistsPath() error {
@@ -1075,7 +1087,7 @@ func setViperDefaults() {
 	viper.SetDefault("ffmpegpath", "")
 	viper.SetDefault("mpvpath", "")
 	viper.SetDefault("mpvcmdtemplate", "mpv --audio-device=%d --no-audio-display %f --input-ipc-server=%s")
-	viper.SetDefault("coverartpriority", "cover.*, folder.*, front.*, embedded, external")
+	viper.SetDefault("coverartpriority", "cover.*, folder.*, front.*, embedded, "+consts.CoverArtArchivePriority+", external")
 	viper.SetDefault("coverartquality", 75)
 	viper.SetDefault("enablewebpencoding", false)
 	viper.SetDefault("artistartpriority", "artist.*, album/artist.*, external")

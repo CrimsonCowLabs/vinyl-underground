@@ -156,7 +156,15 @@ type readCloser struct {
 var remoteImageClient = httpclient.NewExternal(5 * time.Second)
 
 func fromURL(ctx context.Context, imageUrl *url.URL) (io.ReadCloser, string, error) {
+	return fromURLAs(ctx, imageUrl, "")
+}
+
+// fromURLAs is fromURL with the given User-Agent; "" keeps the client's default.
+func fromURLAs(ctx context.Context, imageUrl *url.URL, userAgent string) (io.ReadCloser, string, error) {
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, imageUrl.String(), nil)
+	if userAgent != "" {
+		req.Header.Set("User-Agent", userAgent)
+	}
 	resp, err := remoteImageClient.Do(req)
 	if errors.Is(err, netguard.ErrPrivateAddress) {
 		// Retrying cannot change where the URL points: settle absent instead of tripping the breaker.

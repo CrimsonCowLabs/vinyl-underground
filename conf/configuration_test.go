@@ -102,6 +102,26 @@ var _ = Describe("Configuration", func() {
 		})
 	})
 
+	Describe("CoverArtPriority", func() {
+		It("asks the Cover Art Archive ahead of the agents by default", func() {
+			conf.Load(true)
+			Expect(conf.Server.CoverArtPriority).To(Equal("cover.*, folder.*, front.*, embedded, coverartarchive, external"))
+		})
+
+		It("keeps a customised order as it was written", func() {
+			viper.Set("coverartpriority", "embedded, external, cover.*")
+			conf.Load(true)
+			Expect(conf.Server.CoverArtPriority).To(Equal("embedded, external, cover.*"))
+		})
+
+		It("drops the Cover Art Archive with the rest of the external services", func() {
+			viper.Set("enableexternalservices", false)
+			viper.Set("coverartpriority", "cover.*, CoverArtArchive, embedded, external")
+			conf.Load(true)
+			Expect(conf.Server.CoverArtPriority).To(Equal("cover.*, embedded, external"))
+		})
+	})
+
 	Describe("scheduled yt-dlp updates", func() {
 		It("run daily when ripping is on", func() {
 			viper.Set("ripping.enabled", true)

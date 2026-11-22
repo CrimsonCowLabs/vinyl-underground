@@ -1,6 +1,7 @@
 package artwork
 
 import (
+	"context"
 	"io/fs"
 	"net/netip"
 	"net/url"
@@ -11,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/navidrome/navidrome/core/musicbrainz"
 	"github.com/navidrome/navidrome/core/storage"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
@@ -32,6 +34,8 @@ func TestArtwork(t *testing.T) {
 		goleak.IgnoreTopFunction("github.com/rjeczalik/notify.(*recursiveTree).dispatch"),
 		goleak.IgnoreTopFunction("github.com/rjeczalik/notify.(*nonrecursiveTree).dispatch"),
 		goleak.IgnoreTopFunction("github.com/rjeczalik/notify.(*nonrecursiveTree).internal"),
+		// Each Cover Art Archive client a spec builds keeps a response cache, stopped only on GC.
+		goleak.IgnoreTopFunction("github.com/jellydator/ttlcache/v3.(*Cache[...]).Start"),
 	)
 
 	tests.Init(t, false)
@@ -46,7 +50,16 @@ var productionImageClient = remoteImageClient
 // httptest servers listen on loopback, which the production client refuses.
 var _ = BeforeSuite(func() {
 	remoteImageClient = httpclient.NewExternal(5*time.Second, netip.MustParsePrefix("127.0.0.0/8"), netip.MustParsePrefix("::1/128"))
+	// The default chain asks the real archive for any album with a MusicBrainz ID; specs that want it
+	// install a fake, and every other spec answers "no cover" without touching the network.
+	coverArtArchive = func() frontCoverSource { return offlineCoverArtArchive{} }
 })
+
+type offlineCoverArtArchive struct{}
+
+func (offlineCoverArtArchive) FrontCover(context.Context, string, string) (musicbrainz.Cover, error) {
+	return musicbrainz.Cover{}, musicbrainz.ErrNoCover
+}
 
 // osDirFS wraps os.DirFS as a storage.MusicFS for integration tests.
 type osDirFS struct{ fs.FS }
