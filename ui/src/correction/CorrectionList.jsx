@@ -74,6 +74,7 @@ CorrectionStatusField.propTypes = { record: PropTypes.object }
 const undoContent = {
   albumCover: 'resources.correction.message.undoContentAlbumCover',
   albumCoverBlock: 'resources.correction.message.undoContentAlbumCoverBlock',
+  trackNumbers: 'resources.correction.message.undoContentTrackNumbers',
   default: 'resources.correction.message.undoContent',
 }
 

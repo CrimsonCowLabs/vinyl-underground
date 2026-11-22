@@ -6,6 +6,7 @@ import {
   useNotify,
   usePermissions,
   useRedirect,
+  useRefresh,
   useTranslate,
 } from 'react-admin'
 import {
@@ -21,6 +22,13 @@ import {
 import { Alert, Autocomplete } from '@material-ui/lab'
 import EditIcon from '@material-ui/icons/Edit'
 import { useArtistSuggestions } from '../artist/useArtistSuggestions'
+import { TrackNumbersEditor } from './TrackNumbersEditor'
+import {
+  markSaved,
+  trackNumberChanges,
+  trackNumbersValid,
+  useTrackNumberRows,
+} from './trackNumbers'
 
 // The server answers a refused Correction with a code; anything else is a generic error.
 const knownErrors = [
@@ -36,12 +44,15 @@ const knownErrors = [
 const albumYear = (record) => record.maxOriginalYear || record.maxYear || ''
 
 // The album Edit dialog: corrects the album's title, album artist (offered from the existing
-// Artists as you type) and year. Only what is changed is corrected.
+// Artists as you type) and year, and its Tracks' disc and track numbers. Only what is changed is
+// corrected: the track numbers first (they keep the album's ID), then the album.
 const EditAlbumDialog = ({ record, onClose }) => {
   const translate = useTranslate()
   const dataProvider = useDataProvider()
   const notify = useNotify()
   const redirect = useRedirect()
+  const refresh = useRefresh()
+  const [trackRows, setTrackRows] = useTrackNumberRows(record.id)
   const [name, setName] = useState(record.name || '')
   const [albumArtist, setAlbumArtist] = useState(record.albumArtist || '')
   const [year, setYear] = useState(String(albumYear(record)))
@@ -59,28 +70,56 @@ const EditAlbumDialog = ({ record, onClose }) => {
     name.trim() === (record.name || '') &&
     artist === (record.albumArtist || '') &&
     (yearValue === 0 || yearValue === Number(albumYear(record) || 0))
-  const canSave = !saving && name.trim() && artist && yearValid && !unchanged
+  const trackChanges = trackNumberChanges(trackRows || [])
+  const canSave =
+    !saving &&
+    name.trim() &&
+    artist &&
+    yearValid &&
+    trackNumbersValid(trackRows || []) &&
+    (!unchanged || trackChanges.length > 0)
 
   const handleSave = useCallback(
     (e) => {
       e.preventDefault()
       setSaving(true)
       setError(null)
-      dataProvider
-        .correctAlbum(record.id, {
-          name: name.trim(),
-          albumArtist: artist,
-          year: yearValue,
-        })
+      const numbered = trackChanges.length
+        ? dataProvider
+            .correctTrackNumbers(record.id, trackChanges)
+            .then((res) => {
+              setTrackRows(markSaved)
+              return res
+            })
+        : Promise.resolve({ data: { albumId: record.id, done: true } })
+      numbered
+        .then(({ data: numbers }) =>
+          unchanged
+            ? { data: numbers }
+            : dataProvider
+                .correctAlbum(record.id, {
+                  name: name.trim(),
+                  albumArtist: artist,
+                  year: yearValue,
+                })
+                .then(({ data }) => ({
+                  data: { ...data, done: data.done && numbers.done },
+                })),
+        )
         .then(({ data }) => {
           onClose()
-          if (data.done) {
+          if (data.done && data.albumId === record.id) {
+            // The album keeps its ID (e.g. only track numbers changed): its page reloads
+            notify('resources.album.editor.corrected', { type: 'info' })
+            refresh()
+          } else if (data.done) {
             notify('resources.album.editor.corrected', { type: 'info' })
             redirect(`/album/${data.albumId}/show`)
           } else {
-            // The rescan finishes in the background, and this page's album ID goes with it
             notify('resources.album.editor.correcting', { type: 'info' })
-            redirect('/album')
+            // The rescan finishes in the background, and an album Correction takes this page's
+            // album ID with it
+            if (!unchanged) redirect('/album')
           }
         })
         .catch((err) => {
@@ -100,9 +139,13 @@ const EditAlbumDialog = ({ record, onClose }) => {
       name,
       artist,
       yearValue,
+      unchanged,
+      trackChanges,
+      setTrackRows,
       onClose,
       notify,
       redirect,
+      refresh,
       translate,
     ],
   )
@@ -112,7 +155,7 @@ const EditAlbumDialog = ({ record, onClose }) => {
       open
       onClose={onClose}
       fullWidth
-      maxWidth="xs"
+      maxWidth={trackRows?.length ? 'sm' : 'xs'}
       aria-labelledby="edit-album-title"
     >
       <form onSubmit={handleSave}>
@@ -170,6 +213,11 @@ const EditAlbumDialog = ({ record, onClose }) => {
             disabled={saving}
             error={!yearValid}
             inputProps={{ inputMode: 'numeric', 'data-testid': 'album-year' }}
+          />
+          <TrackNumbersEditor
+            rows={trackRows}
+            onChange={setTrackRows}
+            disabled={saving}
           />
           {error && (
             <Alert severity="error" style={{ marginTop: 16 }}>

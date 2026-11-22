@@ -73,12 +73,8 @@ func (c *corrections) CorrectAlbum(ctx context.Context, albumID string, fix Albu
 	if !changed {
 		return nil, fmt.Errorf("%w: nothing changed", model.ErrValidation)
 	}
-	if shared, err := c.ds.MediaFile(ctx).CountAll(model.QueryOptions{Filters: squirrel.And{
-		squirrel.Eq{"folder_id": al.FolderIDs, "missing": false}, squirrel.NotEq{"album_id": al.ID},
-	}}); err != nil {
+	if err := c.checkSharedFolder(ctx, *al); err != nil {
 		return nil, err
-	} else if shared > 0 {
-		return nil, ErrSharedFolder
 	}
 
 	targets, err := c.refresher.ScanTargets(ctx, model.KindAlbumArtwork, al.ID)
@@ -106,7 +102,21 @@ func (c *corrections) CorrectAlbum(ctx context.Context, albumID string, fix Albu
 	return res, nil
 }
 
-// undoAlbum stops applying an album Correction, rescans the album's folders (those its Tracks are
+// checkSharedFolder returns ErrSharedFolder if the album's folders hold another album's Tracks.
+func (c *corrections) checkSharedFolder(ctx context.Context, al model.Album) error {
+	shared, err := c.ds.MediaFile(ctx).CountAll(model.QueryOptions{Filters: squirrel.And{
+		squirrel.Eq{"folder_id": al.FolderIDs, "missing": false}, squirrel.NotEq{"album_id": al.ID},
+	}})
+	if err != nil {
+		return err
+	}
+	if shared > 0 {
+		return ErrSharedFolder
+	}
+	return nil
+}
+
+// undoAlbum stops applying an album (or track numbers) Correction, rescans the album's folders (those its Tracks are
 // in, and those it was saved for, in case its own rescan has not reached them), then deletes it.
 func (c *corrections) undoAlbum(ctx context.Context, cr *model.Correction) (*Applied, error) {
 	repo := c.ds.Correction(ctx)
@@ -125,14 +135,14 @@ func (c *corrections) undoAlbum(ctx context.Context, cr *model.Correction) (*App
 	}
 	res := &Applied{Correction: *cr, Done: true}
 	if len(targets) == 0 {
-		log.Info(ctx, "Corrections: deleting an album Correction whose folders are gone", "from", cr.From, "to", cr.To)
+		log.Info(ctx, "Corrections: deleting a Correction of the album's tags whose folders are gone", "kind", cr.Kind, "from", cr.From, "to", cr.To)
 		return res, repo.Delete(cr.ID)
 	}
 	if err := repo.SetUndoing(cr.ID); err != nil {
 		return nil, err
 	}
 	res.AlbumID = c.albumIn(ctx, folderIDs, "")
-	log.Info(ctx, "Corrections: undoing an album Correction", "from", cr.From, "to", cr.To, "folders", len(targets))
+	log.Info(ctx, "Corrections: undoing a Correction of the album's tags", "kind", cr.Kind, "from", cr.From, "to", cr.To, "folders", len(targets))
 	res.Done = c.rescan(ctx, targets, refresh.Item{Kind: model.KindAlbumArtwork, ID: res.AlbumID}, func(ctx context.Context) error {
 		return c.ds.Correction(ctx).Delete(cr.ID)
 	})

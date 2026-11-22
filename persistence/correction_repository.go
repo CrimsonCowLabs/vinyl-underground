@@ -80,9 +80,9 @@ func (r *correctionRepository) Add(c *model.Correction) error {
 	c.CreatedBy = loggedUser(r.ctx).UserName
 	ins := Insert(r.tableName).
 		Columns("id", "kind", "match_key", "from_value", "to_value", "created_by", "created_at", "undoing",
-			"image_hash", "image_mime", "album_name", "album_artist", "year").
+			"image_hash", "image_mime", "album_name", "album_artist", "year", "track_numbers").
 		Values(c.ID, c.Kind, c.MatchKey, c.From, c.To, c.CreatedBy, c.CreatedAt, false, c.ImageHash, c.ImageMime,
-			c.AlbumName, c.AlbumArtist, c.Year).
+			c.AlbumName, c.AlbumArtist, c.Year, c.TrackNumbers).
 		// Whichever unique index it breaks: one per kind and key, or one per image for cover blocks
 		Suffix("ON CONFLICT DO NOTHING")
 	count, err := r.executeSQL(ins)

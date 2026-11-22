@@ -27,13 +27,20 @@ func (md Metadata) ToCorrectedMediaFile(libID int, folderID string, corrections 
 	// Persistent IDs: the Track's from the tags as tagged, the album's from the corrected ones, so
 	// a renamed album artist's albums join any the new name already has. An album Correction
 	// corrects the tags themselves, before the artist renames, which then apply to the album
-	// artist it sets rather than to the tagged one: the album Correction wins.
+	// artist it sets rather than to the tagged one: the album Correction wins. Track and disc
+	// numbers are corrected the same way, by File (they are in the Track's persistent ID too).
 	mf.PID = md.trackPID(mf)
+	var applied []string
 	if corrected, id, ok := corrections.correctAlbum(md, folderID); ok {
+		md, applied = corrected, append(applied, id)
+	}
+	if corrected, id, ok := corrections.correctTrackNumbers(md, libID); ok {
+		md, applied = corrected, append(applied, id)
+	}
+	if len(applied) > 0 {
 		pid := mf.PID
-		md, mf = corrected, corrected.mapMediaFile(libID, folderID)
-		mf.PID = pid
-		mf.CorrectionIDs = []string{id}
+		mf = md.mapMediaFile(libID, folderID)
+		mf.PID, mf.CorrectionIDs = pid, applied
 	}
 	corrections.renameArtists(&mf)
 	mf.AlbumID = md.albumID(mf, conf.Server.PID.Album)

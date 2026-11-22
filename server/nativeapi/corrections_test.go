@@ -28,6 +28,7 @@ type fakeCorrections struct {
 	covers  []string
 	blocks  []string
 	albums  []string
+	numbers []string
 }
 
 func (f *fakeCorrections) GetAll(context.Context) (model.Corrections, error) { return f.all, f.err }

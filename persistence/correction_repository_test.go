@@ -145,6 +145,25 @@ var _ = Describe("CorrectionRepository", func() {
 			Expect(got.Year).To(Equal(1999))
 		})
 
+		It("keeps the Files a track numbers Correction renumbers, and other kinds have none", func() {
+			fixes := model.TrackNumberFixes{
+				{LibraryID: 1, Path: "Band/Record/01.mp3", Title: "One", FromDisc: 1, FromTrack: 2, Disc: 1, Track: 1},
+				{LibraryID: 1, Path: "Band/Record/02.mp3", Title: "Two", FromDisc: 1, FromTrack: 1, Disc: 1, Track: 2},
+			}
+			Expect(repo.Add(&model.Correction{Kind: model.CorrectionTrackNumbers, MatchKey: "album-folder",
+				From: "Band – Record", To: "2 Tracks", TrackNumbers: fixes})).To(Succeed())
+			Expect(repo.Add(&model.Correction{Kind: model.CorrectionAlbum, MatchKey: "album-folder", AlbumName: "R"})).To(Succeed())
+
+			got, err := repo.GetByMatchKey(model.CorrectionTrackNumbers, "album-folder")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(got.TrackNumbers).To(Equal(fixes))
+			all, err := repo.GetAll()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(all).To(HaveLen(2))
+			Expect(all[0].TrackNumbers).To(BeEmpty())
+			Expect(all[1].TrackNumbers).To(Equal(fixes))
+		})
+
 		It("returns the folders an album Correction matches: its own and those of the albums in it", func() {
 			putAlbum("discs", "disc-cd1", "disc-cd2")
 			putAlbum("elsewhere", "disc-other")
