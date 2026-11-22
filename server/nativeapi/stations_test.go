@@ -169,7 +169,10 @@ var _ = Describe("DJ endpoints", func() {
 
 	BeforeEach(func() {
 		router = chi.NewRouter()
-		stationRoutes(router, stations.New(&tests.MockDataStore{}, nil, nil))
+		genres := &tests.MockedGenreRepo{Data: map[string]model.Genre{
+			"g1": {ID: "g1", Name: "Techno"}, "g2": {ID: "g2", Name: "Hardcore Techno"}, "g3": {ID: "g3", Name: "House"},
+		}}
+		stationRoutes(router, stations.New(&tests.MockDataStore{MockedGenre: genres}, nil, nil))
 	})
 
 	call := func(as model.User, method, path, body string) (int, map[string]any, []any) {
@@ -226,6 +229,48 @@ var _ = Describe("DJ endpoints", func() {
 		Expect(code).To(Equal(http.StatusNoContent))
 		_, _, djs := call(alice, http.MethodGet, "/station/dj", "")
 		Expect(djs).To(HaveLen(3))
+	})
+
+	It("gives a Listener's DJ the Library genres its name and description name", func() {
+		code, dj, _ := call(alice, http.MethodPost, "/station/dj", `{"name":"Tina","description":"Techno all night."}`)
+		Expect(code).To(Equal(http.StatusCreated))
+		Expect(dj["genres"]).To(ConsistOf("Techno", "Hardcore Techno"))
+		Expect(dj).ToNot(HaveKey("genresEdited"))
+
+		_, _, djs := call(alice, http.MethodGet, "/station/dj", "")
+		Expect(djs[3]).To(HaveKeyWithValue("genres", ConsistOf("Techno", "Hardcore Techno")))
+	})
+
+	It("keeps the genres the Listener picked through later description edits", func() {
+		code, dj, _ := call(alice, http.MethodPost, "/station/dj", `{"name":"Tina","description":"Techno all night.","genres":["House"]}`)
+		Expect(code).To(Equal(http.StatusCreated))
+		Expect(dj).To(HaveKeyWithValue("genres", ConsistOf("House")))
+		Expect(dj).To(HaveKeyWithValue("genresEdited", true))
+
+		code, dj, _ = call(alice, http.MethodPut, "/station/dj/"+dj["id"].(string), `{"name":"Tina","description":"Techno, techno."}`)
+		Expect(code).To(Equal(http.StatusOK))
+		Expect(dj).To(HaveKeyWithValue("genres", ConsistOf("House")))
+
+		code, dj, _ = call(alice, http.MethodPut, "/station/dj/"+dj["id"].(string), `{"name":"Tina","description":"Techno, techno.","genres":[]}`)
+		Expect(code).To(Equal(http.StatusOK))
+		Expect(dj).ToNot(HaveKey("genres"))
+		Expect(dj).To(HaveKeyWithValue("genresEdited", true))
+	})
+
+	It("lists the Library's genres for the DJ form", func() {
+		code, _, genres := call(alice, http.MethodGet, "/station/genres", "")
+		Expect(code).To(Equal(http.StatusOK))
+		Expect(genres).To(Equal([]any{"Hardcore Techno", "House", "Techno"}))
+	})
+
+	It("matches genres for the DJ form before the DJ is saved", func() {
+		code, _, genres := call(alice, http.MethodGet, "/station/genres/match?name=Tina&description=Some+house%2C+no+rock", "")
+		Expect(code).To(Equal(http.StatusOK))
+		Expect(genres).To(Equal([]any{"House"}))
+
+		code, _, genres = call(alice, http.MethodGet, "/station/genres/match?name=Mr.+Mellow&description=Slow", "")
+		Expect(code).To(Equal(http.StatusOK))
+		Expect(genres).To(Equal([]any{}))
 	})
 
 	It("keeps another Listener's DJ out of reach", func() {

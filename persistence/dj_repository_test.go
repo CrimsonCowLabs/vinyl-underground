@@ -50,6 +50,44 @@ var _ = Describe("DJRepository", func() {
 		Expect(mine.GetAll()).To(HaveLen(1))
 	})
 
+	It("keeps a DJ's genres and where they came from", func() {
+		dj := &model.DJ{Name: "Techno Tina", Description: "Pounding techno.",
+			Genres: model.DJGenres{"Techno", "Hardcore Techno"}, GenreSource: model.DJGenresFromWords}
+		Expect(mine.Put(dj)).To(Succeed())
+		got, err := mine.Get(dj.ID)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(got.Genres).To(Equal(model.DJGenres{"Techno", "Hardcore Techno"}))
+		Expect(got.GenreSource).To(Equal(model.DJGenresFromWords))
+
+		dj.Genres, dj.GenreSource = model.DJGenres{"House"}, model.DJGenresByListener
+		Expect(mine.Put(dj)).To(Succeed())
+		all, err := mine.GetAll()
+		Expect(err).ToNot(HaveOccurred())
+		Expect(all[0].Genres).To(Equal(model.DJGenres{"House"}))
+		Expect(all[0].GenreSource).To(Equal(model.DJGenresByListener))
+	})
+
+	It("gives a DJ saved without genres none", func() {
+		dj := &model.DJ{Name: "Mr. Mellow", Description: "Slow and soft."}
+		Expect(mine.Put(dj)).To(Succeed())
+		got, err := mine.Get(dj.ID)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(got.Genres).To(BeEmpty())
+		Expect(got.GenreSource).To(Equal(model.DJGenresUnset))
+	})
+
+	It("reads a DJ saved before DJs had genres as having none, never worked out", func() {
+		_, err := GetDBXBuilder().NewQuery(`INSERT INTO dj (id, user_id, name, description, created_at, updated_at)
+			VALUES ('old-dj', {:user}, 'Old Timer', 'From before genres.', datetime('now'), datetime('now'))`).
+			Bind(map[string]any{"user": adminUser.ID}).Execute()
+		Expect(err).ToNot(HaveOccurred())
+
+		got, err := mine.Get("old-dj")
+		Expect(err).ToNot(HaveOccurred())
+		Expect(got.Genres).To(BeEmpty())
+		Expect(got.GenreSource).To(Equal(model.DJGenresUnset))
+	})
+
 	It("deletes the Listener's DJ", func() {
 		dj := &model.DJ{Name: "Mr. Mellow"}
 		Expect(mine.Put(dj)).To(Succeed())

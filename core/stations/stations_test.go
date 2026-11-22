@@ -86,7 +86,7 @@ var _ = Describe("Stations", Ordered, func() {
 		})
 
 		It("are listed after the built-in ones, for that Listener only", func() {
-			mine, err := svc.CreateDJ(aliceCtx, "  Mr.   Mellow ", "  "+mellow+"\n")
+			mine, err := svc.CreateDJ(aliceCtx, stations.DJEdit{Name: "  Mr.   Mellow ", Description: "  "+mellow+"\n"})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(mine.ID).ToNot(BeEmpty())
 			Expect(mine.Name).To(Equal("Mr. Mellow"))
@@ -105,7 +105,7 @@ var _ = Describe("Stations", Ordered, func() {
 		})
 
 		It("are found by id, like the built-in ones", func() {
-			mine, err := svc.CreateDJ(aliceCtx, "Mr. Mellow", mellow)
+			mine, err := svc.CreateDJ(aliceCtx, stations.DJEdit{Name: "Mr. Mellow", Description: mellow})
 			Expect(err).ToNot(HaveOccurred())
 
 			got, err := svc.DJ(aliceCtx, mine.ID)
@@ -120,26 +120,26 @@ var _ = Describe("Stations", Ordered, func() {
 		})
 
 		It("need a name and a description of a sensible length", func() {
-			_, err := svc.CreateDJ(aliceCtx, "   ", mellow)
+			_, err := svc.CreateDJ(aliceCtx, stations.DJEdit{Name: "   ", Description: mellow})
 			Expect(err).To(MatchError(stations.ErrInvalidDJName))
-			_, err = svc.CreateDJ(aliceCtx, strings.Repeat("n", stations.MaxDJNameLength+1), mellow)
+			_, err = svc.CreateDJ(aliceCtx, stations.DJEdit{Name: strings.Repeat("n", stations.MaxDJNameLength+1), Description: mellow})
 			Expect(err).To(MatchError(stations.ErrInvalidDJName))
-			_, err = svc.CreateDJ(aliceCtx, "Mr. Mellow", " ")
+			_, err = svc.CreateDJ(aliceCtx, stations.DJEdit{Name: "Mr. Mellow", Description: " "})
 			Expect(err).To(MatchError(stations.ErrInvalidDJDescription))
-			_, err = svc.CreateDJ(aliceCtx, "Mr. Mellow", strings.Repeat("d", stations.MaxDJDescriptionLength+1))
+			_, err = svc.CreateDJ(aliceCtx, stations.DJEdit{Name: "Mr. Mellow", Description: strings.Repeat("d", stations.MaxDJDescriptionLength+1)})
 			Expect(err).To(MatchError(stations.ErrInvalidDJDescription))
 			Expect(svc.DJs(aliceCtx)).To(HaveLen(3))
 		})
 
 		It("can be edited and deleted by their Listener only", func() {
-			mine, err := svc.CreateDJ(aliceCtx, "Mr. Mellow", mellow)
+			mine, err := svc.CreateDJ(aliceCtx, stations.DJEdit{Name: "Mr. Mellow", Description: mellow})
 			Expect(err).ToNot(HaveOccurred())
 
-			_, err = svc.UpdateDJ(bobCtx, mine.ID, "Hijacked", "Bob's now.")
+			_, err = svc.UpdateDJ(bobCtx, mine.ID, stations.DJEdit{Name: "Hijacked", Description: "Bob's now."})
 			Expect(err).To(MatchError(stations.ErrUnknownDJ))
 			Expect(svc.DeleteDJ(bobCtx, mine.ID)).To(MatchError(stations.ErrUnknownDJ))
 
-			edited, err := svc.UpdateDJ(aliceCtx, mine.ID, "Mr. Loud", "Fast and loud.")
+			edited, err := svc.UpdateDJ(aliceCtx, mine.ID, stations.DJEdit{Name: "Mr. Loud", Description: "Fast and loud."})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(edited.ID).To(Equal(mine.ID))
 			Expect(edited.Name).To(Equal("Mr. Loud"))
@@ -147,7 +147,7 @@ var _ = Describe("Stations", Ordered, func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(got.Description).To(Equal("Fast and loud."))
 
-			_, err = svc.UpdateDJ(aliceCtx, mine.ID, "", "Fast and loud.")
+			_, err = svc.UpdateDJ(aliceCtx, mine.ID, stations.DJEdit{Name: "", Description: "Fast and loud."})
 			Expect(err).To(MatchError(stations.ErrInvalidDJName))
 
 			Expect(svc.DeleteDJ(aliceCtx, mine.ID)).To(Succeed())
@@ -157,7 +157,7 @@ var _ = Describe("Stations", Ordered, func() {
 		})
 
 		It("leave the built-in DJs read-only", func() {
-			_, err := svc.UpdateDJ(aliceCtx, "night-owl", "My Owl", mellow)
+			_, err := svc.UpdateDJ(aliceCtx, "night-owl", stations.DJEdit{Name: "My Owl", Description: mellow})
 			Expect(err).To(MatchError(stations.ErrBuiltInDJ))
 			Expect(svc.DeleteDJ(aliceCtx, "night-owl")).To(MatchError(stations.ErrBuiltInDJ))
 			owl, err := svc.DJ(aliceCtx, "night-owl")
@@ -167,7 +167,7 @@ var _ = Describe("Stations", Ordered, func() {
 
 		It("shape Stations, with skips, for their Listener only", func() {
 			tracks := addTracks(6)
-			mine, err := svc.CreateDJ(aliceCtx, "Mr. Mellow", mellow)
+			mine, err := svc.CreateDJ(aliceCtx, stations.DJEdit{Name: "Mr. Mellow", Description: mellow})
 			Expect(err).ToNot(HaveOccurred())
 
 			served, err := svc.Next(aliceCtx, mine.ID, "", 3)
@@ -183,7 +183,7 @@ var _ = Describe("Stations", Ordered, func() {
 
 		It("can be deleted without breaking play history", func() {
 			tracks := addTracks(6)
-			mine, err := svc.CreateDJ(aliceCtx, "Mr. Mellow", mellow)
+			mine, err := svc.CreateDJ(aliceCtx, stations.DJEdit{Name: "Mr. Mellow", Description: mellow})
 			Expect(err).ToNot(HaveOccurred())
 			served, err := svc.Next(aliceCtx, mine.ID, "", 3)
 			Expect(err).ToNot(HaveOccurred())
@@ -350,6 +350,149 @@ var _ = Describe("Stations", Ordered, func() {
 			untagged := addTracks(40)
 
 			Expect(serve("crate-digger", 60)).To(ContainElement(BeElementOf(untagged)))
+		})
+
+		Describe("of a Listener's own DJ", func() {
+			// library puts one Track in each genre, so the Library has those genres.
+			library := func(genres ...string) {
+				for _, g := range genres {
+					addInGenre(1, g)
+				}
+			}
+
+			BeforeEach(func() {
+				_, err := db.Db().Exec("delete from dj")
+				Expect(err).ToNot(HaveOccurred())
+			})
+
+			It("are matched from the words of its name and description", func() {
+				library("Techno", "Hardcore Techno", "Euro-Techno", "House", "Club-House", "Deep House",
+					"Electronica & Dance", "Rock", "World Music")
+
+				tina, err := svc.CreateDJ(aliceCtx, stations.DJEdit{Name: "Techno Tina", Description: "Pounding beats all night."})
+				Expect(err).ToNot(HaveOccurred())
+				Expect(tina.Genres).To(ConsistOf("Techno", "Hardcore Techno", "Euro-Techno"))
+				Expect(tina.GenresEdited).To(BeFalse())
+
+				pump, err := svc.CreateDJ(aliceCtx, stations.DJEdit{Name: "Pump", Description: "Pump the house music, and some DEEP HOUSE."})
+				Expect(err).ToNot(HaveOccurred())
+				Expect(pump.Genres).To(ConsistOf("House", "Club-House", "Deep House"))
+
+				got, err := svc.DJ(aliceCtx, pump.ID)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(got.Genres).To(ConsistOf("House", "Club-House", "Deep House"))
+			})
+
+			It("are matched by a word that says something, or by their whole name", func() {
+				library("New Wave", "New Age", "World Music", "R&B", "Rock")
+				Expect(svc.MatchGenres(aliceCtx, "Wendy", "New wave, and new songs from the world.")).To(ConsistOf("New Wave", "World Music"))
+				Expect(svc.MatchGenres(aliceCtx, "Rita", "Some R&B, nothing that rocks.")).To(ConsistOf("R&B"))
+			})
+
+			It("are matched again when the name or description changes", func() {
+				library("Techno", "House", "Rock")
+				dj, err := svc.CreateDJ(aliceCtx, stations.DJEdit{Name: "Tina", Description: "Techno all night."})
+				Expect(err).ToNot(HaveOccurred())
+
+				dj, err = svc.UpdateDJ(aliceCtx, dj.ID, stations.DJEdit{Name: "Tina", Description: "House and rock now."})
+				Expect(err).ToNot(HaveOccurred())
+				Expect(dj.Genres).To(ConsistOf("House", "Rock"))
+			})
+
+			It("can be picked by hand from the Library's genres, and then survive description edits", func() {
+				library("Techno", "Hardcore Techno", "House", "Rock")
+				dj, err := svc.CreateDJ(aliceCtx, stations.DJEdit{Name: "Tina", Description: "Techno all night."})
+				Expect(err).ToNot(HaveOccurred())
+
+				dj, err = svc.UpdateDJ(aliceCtx, dj.ID, stations.DJEdit{Name: "Tina", Description: "Techno all night.",
+					Genres: []string{"hardcore techno", "Polka", "Rock", "rock"}})
+				Expect(err).ToNot(HaveOccurred())
+				Expect(dj.Genres).To(Equal([]string{"Hardcore Techno", "Rock"}))
+				Expect(dj.GenresEdited).To(BeTrue())
+
+				dj, err = svc.UpdateDJ(aliceCtx, dj.ID, stations.DJEdit{Name: "House Tina", Description: "Only house now."})
+				Expect(err).ToNot(HaveOccurred())
+				Expect(dj.Description).To(Equal("Only house now."))
+				Expect(dj.Genres).To(Equal([]string{"Hardcore Techno", "Rock"}))
+				Expect(dj.GenresEdited).To(BeTrue())
+				got, err := svc.DJ(aliceCtx, dj.ID)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(got.Genres).To(Equal([]string{"Hardcore Techno", "Rock"}))
+			})
+
+			It("can be picked by hand when creating the DJ, even none", func() {
+				library("Techno", "House")
+				dj, err := svc.CreateDJ(aliceCtx, stations.DJEdit{Name: "Tina", Description: "Techno all night.", Genres: []string{}})
+				Expect(err).ToNot(HaveOccurred())
+				Expect(dj.Genres).To(BeEmpty())
+				Expect(dj.GenresEdited).To(BeTrue())
+
+				dj, err = svc.UpdateDJ(aliceCtx, dj.ID, stations.DJEdit{Name: "Tina", Description: "House, techno."})
+				Expect(err).ToNot(HaveOccurred())
+				Expect(dj.Genres).To(BeEmpty())
+			})
+
+			It("only play Tracks in them when 50 or more Library Tracks are", func() {
+				techno := addInGenre(30, "Techno")
+				techno = append(techno, addInGenre(20, "Hardcore Techno")...)
+				addInGenre(30, "Rock")
+				addTracks(40)
+				dj, err := svc.CreateDJ(aliceCtx, stations.DJEdit{Name: "Tina", Description: "Techno all night."})
+				Expect(err).ToNot(HaveOccurred())
+
+				Expect(serve(dj.ID, 50)).To(HaveEach(BeElementOf(techno)))
+			})
+
+			It("play the genres picked, not every genre with the same word", func() {
+				techno := addInGenre(60, "Techno")
+				addInGenre(30, "Hardcore Techno")
+				dj, err := svc.CreateDJ(aliceCtx, stations.DJEdit{Name: "Tina", Description: "Techno all night.",
+					Genres: []string{"Techno"}})
+				Expect(err).ToNot(HaveOccurred())
+
+				Expect(serve(dj.ID, 60)).To(HaveEach(BeElementOf(techno)))
+			})
+
+			It("are only a boost when fewer than 50 Library Tracks are in them", func() {
+				techno := addInGenre(49, "Techno")
+				untagged := addTracks(40)
+				dj, err := svc.CreateDJ(aliceCtx, stations.DJEdit{Name: "Tina", Description: "Techno all night."})
+				Expect(err).ToNot(HaveOccurred())
+
+				served := serve(dj.ID, 60)
+				Expect(served).To(ContainElement(BeElementOf(untagged)))
+				Expect(served).To(ContainElement(BeElementOf(techno)))
+			})
+
+			It("leave a DJ without them playing the whole Library", func() {
+				addInGenre(60, "Techno")
+				untagged := addTracks(40)
+				dj, err := svc.CreateDJ(aliceCtx, stations.DJEdit{Name: "Mr. Mellow", Description: "Slow, soft songs."})
+				Expect(err).ToNot(HaveOccurred())
+				Expect(dj.Genres).To(BeEmpty())
+
+				Expect(serve(dj.ID, 60)).To(ContainElement(BeElementOf(untagged)))
+			})
+
+			It("are picked from the Library's genres, which the form lists by name", func() {
+				library("techno", "Rock", "House")
+				Expect(svc.Genres(aliceCtx)).To(Equal([]string{"House", "Rock", "techno"}))
+			})
+
+			It("are matched for the form before the DJ is saved", func() {
+				library("Techno", "House", "Rock")
+				Expect(svc.MatchGenres(aliceCtx, "Tina", "Techno and a bit of house.")).To(ConsistOf("Techno", "House"))
+				Expect(svc.MatchGenres(aliceCtx, "Mr. Mellow", "Slow, soft songs.")).To(BeEmpty())
+				Expect(svc.DJs(aliceCtx)).To(HaveLen(3))
+			})
+
+			It("can't be changed on another Listener's DJ", func() {
+				library("Techno")
+				dj, err := svc.CreateDJ(aliceCtx, stations.DJEdit{Name: "Tina", Description: "Techno all night."})
+				Expect(err).ToNot(HaveOccurred())
+				_, err = svc.UpdateDJ(bobCtx, dj.ID, stations.DJEdit{Name: "Bob", Description: "Mine.", Genres: []string{}})
+				Expect(err).To(MatchError(stations.ErrUnknownDJ))
+			})
 		})
 	})
 
