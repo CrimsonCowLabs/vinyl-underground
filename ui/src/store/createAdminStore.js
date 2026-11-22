@@ -10,6 +10,10 @@ import { all, fork } from 'redux-saga/effects'
 import { adminReducer, adminSaga, USER_LOGOUT } from 'react-admin'
 import throttle from 'lodash.throttle'
 import { loadState, saveState } from './persistState'
+import {
+  restoredNowPlaying,
+  savedNowPlaying,
+} from '../nowPlaying/nowPlayingState'
 
 const createAdminStore = ({
   authProvider,
@@ -44,6 +48,9 @@ const createAdminStore = ({
   if (persistedState?.player?.savedPlayIndex) {
     persistedState.player.playIndex = persistedState.player.savedPlayIndex
   }
+  if (persistedState) {
+    persistedState.nowPlaying = restoredNowPlaying(persistedState.nowPlaying)
+  }
   const store = createStore(
     resettableAppReducer,
     persistedState,
@@ -65,6 +72,7 @@ const createAdminStore = ({
         }))(state.player),
         // A Station still starting at a reload never gets its Tracks.
         station: { ...state.station, picking: null },
+        nowPlaying: savedNowPlaying(state.nowPlaying),
         albumView: state.albumView,
         settings: state.settings,
       })

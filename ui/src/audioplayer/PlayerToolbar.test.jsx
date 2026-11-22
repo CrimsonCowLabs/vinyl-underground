@@ -37,6 +37,10 @@ vi.mock('../actions', () => ({
   openSaveQueueDialog: vi.fn(),
 }))
 
+vi.mock('../nowPlaying/NowPlayingToggle', () => ({
+  default: () => <button data-testid="now-playing-toggle">Now Playing</button>,
+}))
+
 vi.mock('react-hotkeys', () => ({
   GlobalHotKeys: () => <div data-testid="global-hotkeys" />,
 }))
@@ -74,6 +78,12 @@ describe('<PlayerToolbar />', () => {
 
       // Verify desktop classes are applied
       expect(listItems[0].className).toContain('toolbar')
+    })
+
+    it('has the button opening and closing Now Playing', () => {
+      render(<PlayerToolbar id="song-1" />)
+
+      expect(screen.getByTestId('now-playing-toggle')).toBeInTheDocument()
     })
 
     it('disables save queue button when isRadio is true', () => {

@@ -83,13 +83,17 @@ describe('the player package on desktop', () => {
   beforeAll(() => phoneScreen(false))
   afterEach(cleanup)
 
-  it('keeps its full player bar, and its cover goes to the album', () => {
+  it('keeps its full player bar, whose cover opens and closes Now Playing', () => {
+    window.location.hash = ''
     const { isOpen } = renderPlayer(true)
     expect(document.querySelector('.music-player-panel')).not.toBeNull()
+    const cover = document.querySelector('.music-player-panel .img-content')
 
-    fireEvent.click(document.querySelector('.music-player-panel .img-content'))
+    fireEvent.click(cover)
+    expect(isOpen()).toBe(true)
 
-    expect(window.location.hash).toBe('#/album/al1/show')
+    fireEvent.click(cover)
     expect(isOpen()).toBe(false)
+    expect(window.location.hash).toBe('')
   })
 })

@@ -14,3 +14,12 @@ export const vuPalette = (theme) => {
     grain: vu.grain || null,
   }
 }
+
+// nowPlayingBackground is Now Playing's backdrop, full screen or in the side
+// panel: the accent's glow fading down, over the grain where the theme has it.
+export const nowPlayingBackground = (theme) => {
+  const { accentGlow, grain } = vuPalette(theme)
+  return `linear-gradient(180deg, ${accentGlow}, transparent 58%)${
+    grain ? `, ${grain}` : ''
+  }`
+}

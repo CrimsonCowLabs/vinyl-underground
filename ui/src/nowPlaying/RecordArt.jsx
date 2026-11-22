@@ -7,8 +7,9 @@ const useStyles = makeStyles(
   (theme) => ({
     root: {
       position: 'relative',
-      // Leaves room on the right for the record sliding out
-      width: 'min(68vw, 38vh, 420px)',
+      // Leaves room on the right for the record sliding out. cqi is the side
+      // panel's width there, and the window's elsewhere
+      width: 'min(68cqi, 38vh, 420px)',
       aspectRatio: '1 / 1',
       marginRight: '12%',
     },
