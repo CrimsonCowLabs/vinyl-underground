@@ -127,7 +127,7 @@ describe('<TabBar />, the main navigation on phones', () => {
     expect(location.pathname).toBe('/album/recentlyAdded')
   })
 
-  it('opens the More sheet, highlighting More while it is open', () => {
+  it('opens the More sheet, keeping the page current while it is open', () => {
     renderAt('/album/recentlyAdded')
     const more = screen.getByRole('button', { name: 'menu.tabBar.more' })
     expect(more).toHaveAttribute('aria-haspopup', 'dialog')
@@ -137,7 +137,8 @@ describe('<TabBar />, the main navigation on phones', () => {
 
     expect(screen.getByRole('dialog')).toBeInTheDocument()
     expect(more).toHaveAttribute('aria-expanded', 'true')
-    expect(current()).toBe('menu.tabBar.more')
+    expect(more.className).toMatch(/current/)
+    expect(current()).toBe('menu.tabBar.library')
   })
 
   describe('offline', () => {

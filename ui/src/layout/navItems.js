@@ -6,7 +6,7 @@ import config from '../config'
 // (App.jsx: by role and config), so the side drawer, the user menu and the
 // phone's More sheet all read the registered resources through these.
 
-// The resource's name in the plural, e.g. "Songs"
+// translatedResourceName is the resource's name in the plural, e.g. "Songs"
 export const translatedResourceName = (resource, translate) =>
   translate(`resources.${resource.name}.name`, {
     smart_count: 2,
@@ -29,11 +29,12 @@ export const subMenuResources = (resources, subMenu) =>
       resource.options.subMenu === subMenu,
   )
 
-// The settings and admin pages in the user menu, after the user's own link
+// The settings and admin pages in the user menu, after the Listener's own
+// link
 export const settingsResources = (resources) =>
   subMenuResources(resources, 'settings').filter((r) => r.name !== 'user')
 
-// The user link in the settings: all Users for an admin; otherwise the
+// The Users link in the settings: all of them for an admin; otherwise the
 // Listener's own profile, when they may edit it
 export const userSettingsLink = (resources, permissions) => {
   if (!resources.some((r) => r?.name === 'user')) return null

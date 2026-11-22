@@ -90,6 +90,13 @@ const useStyles = makeStyles(
         overflow: 'hidden',
         textOverflow: 'ellipsis',
       },
+      srOnly: {
+        position: 'absolute',
+        width: 1,
+        height: 1,
+        overflow: 'hidden',
+        clip: 'rect(0 0 0 0)',
+      },
       // Offline, a page that needs the server
       disabled: {
         cursor: 'default',
@@ -112,6 +119,7 @@ const iconOf = (icon) =>
   )
 
 const TITLE_ID = 'vu-more-sheet-title'
+const OFFLINE_HINT = 'vu-more-sheet-offline'
 
 // MoreSheet is the phone's "More" tab: everything the side drawer and the
 // user menu offer that no tab opens. What it holds follows the resources
@@ -138,6 +146,7 @@ export const MoreSheet = ({ open, onClose }) => {
           <div
             className={clsx(classes.item, classes.disabled)}
             aria-disabled="true"
+            aria-describedby={OFFLINE_HINT}
           >
             {content}
           </div>
@@ -149,6 +158,14 @@ export const MoreSheet = ({ open, onClose }) => {
       </li>
     )
   }
+
+  const renderResourceLink = (resource) =>
+    renderLink({
+      key: resource.name,
+      to: `/${resource.name}`,
+      label: translatedResourceName(resource, translate),
+      icon: resource.icon,
+    })
 
   const section = (title, items) =>
     items.length > 0 && (
@@ -172,14 +189,7 @@ export const MoreSheet = ({ open, onClose }) => {
   // Stations have their own tab
   const libraryItems = subMenuResources(resources, undefined)
     .filter((r) => r.name !== 'station')
-    .map((r) =>
-      renderLink({
-        key: r.name,
-        to: `/${r.name}`,
-        label: translatedResourceName(r, translate),
-        icon: r.icon,
-      }),
-    )
+    .map(renderResourceLink)
 
   const playlistItems = config.enableGeneratedPlaylists
     ? [
@@ -188,6 +198,7 @@ export const MoreSheet = ({ open, onClose }) => {
             type="button"
             className={clsx(classes.item, { [classes.disabled]: offline })}
             disabled={offline}
+            aria-describedby={offline ? OFFLINE_HINT : undefined}
             onClick={() => {
               setGenerating(true)
               onClose()
@@ -218,14 +229,7 @@ export const MoreSheet = ({ open, onClose }) => {
         }),
         ...userLink,
       }),
-    ...settingsResources(resources).map((r) =>
-      renderLink({
-        key: r.name,
-        to: `/${r.name}`,
-        label: translatedResourceName(r, translate),
-        icon: r.icon,
-      }),
-    ),
+    ...settingsResources(resources).map(renderResourceLink),
   ].filter(Boolean)
 
   return (
@@ -250,6 +254,9 @@ export const MoreSheet = ({ open, onClose }) => {
         >
           {translate('menu.tabBar.more')}
         </Typography>
+        <span id={OFFLINE_HINT} className={classes.srOnly}>
+          {translate('download.offline.unavailableTitle')}
+        </span>
         <LibrarySelector />
         {section(translate('menu.albumList'), albumItems)}
         {section(translate('menu.library'), libraryItems)}

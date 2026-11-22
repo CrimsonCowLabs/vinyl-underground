@@ -28,7 +28,7 @@ const useStyles = makeStyles({
     // react-admin's floating Create button (phones only) sits above the
     // mini player and the tab bar, not behind them
     '& [class*="RaCreateButton-floating"]': {
-      bottom: (props) => `calc(${props.playerRoom} + 16px)`,
+      bottom: (props) => `calc(${props.playerRoom || '0px'} + 16px)`,
     },
   },
 })

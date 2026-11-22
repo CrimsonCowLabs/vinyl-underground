@@ -216,13 +216,19 @@ describe('<MoreSheet />, what the tab bar leaves out', () => {
       renderSheet('admin')
       for (const name of [...LIBRARY, ...ADMIN_PAGES]) {
         expect(item(name)).not.toBeInTheDocument()
-        expect(
-          screen.getByText(name).closest('[aria-disabled]'),
-        ).toHaveAttribute('aria-disabled', 'true')
+        const disabled = screen.getByText(name).closest('[aria-disabled]')
+        expect(disabled).toHaveAttribute('aria-disabled', 'true')
+        expect(disabled).toHaveAccessibleDescription(
+          'download.offline.unavailableTitle',
+        )
       }
-      expect(
-        screen.getByRole('button', { name: 'menu.more.generatePlaylist' }),
-      ).toBeDisabled()
+      const generate = screen.getByRole('button', {
+        name: 'menu.more.generatePlaylist',
+      })
+      expect(generate).toBeDisabled()
+      expect(generate).toHaveAccessibleDescription(
+        'download.offline.unavailableTitle',
+      )
     })
 
     it('keeps the album lists and personal settings', () => {

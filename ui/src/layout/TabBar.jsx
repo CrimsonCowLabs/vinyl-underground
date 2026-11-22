@@ -16,6 +16,7 @@ import {
   isAvailableOffline,
   useIsOffline,
 } from '../download'
+import { sectionOf } from '../download/offline'
 import MoreSheet from './MoreSheet'
 import { TAB_BAR_HEIGHT } from './tabBarRoom'
 
@@ -86,7 +87,7 @@ const useStyles = makeStyles(
       unavailable: {
         color: theme.palette.text.disabled,
       },
-      hidden: {
+      srOnly: {
         position: 'absolute',
         width: 1,
         height: 1,
@@ -130,8 +131,7 @@ const TAB_OF_SECTION = {
   downloads: 'downloads',
 }
 
-const tabOf = (pathname) =>
-  TAB_OF_SECTION[pathname.split('/')[1] || ''] || 'more'
+const tabOf = (pathname) => TAB_OF_SECTION[sectionOf(pathname)] || 'more'
 
 const OFFLINE_HINT = 'vu-tab-bar-offline'
 
@@ -143,7 +143,10 @@ export const TabBar = () => {
   const { pathname } = useLocation()
   const offline = useIsOffline()
   const [moreOpen, setMoreOpen] = useState(false)
-  const current = moreOpen ? 'more' : tabOf(pathname)
+  // The page's tab stays current (aria-current) while the sheet is open;
+  // More only looks selected, its state given by aria-expanded
+  const current = tabOf(pathname)
+  const highlighted = moreOpen ? 'more' : current
 
   const label = (id) => translate(`menu.tabBar.${id}`)
   const content = (Icon, id) => (
@@ -166,7 +169,7 @@ export const TabBar = () => {
             key={id}
             to={path}
             className={clsx(classes.tab, {
-              [classes.current]: current === id,
+              [classes.current]: highlighted === id,
               [classes.unavailable]: unavailable,
             })}
             aria-current={current === id ? 'page' : undefined}
@@ -179,7 +182,7 @@ export const TabBar = () => {
       <button
         type="button"
         className={clsx(classes.tab, classes.button, {
-          [classes.current]: current === 'more',
+          [classes.current]: highlighted === 'more',
         })}
         aria-current={current === 'more' ? 'true' : undefined}
         aria-haspopup="dialog"
@@ -188,7 +191,7 @@ export const TabBar = () => {
       >
         {content(MoreHorizIcon, 'more')}
       </button>
-      <span id={OFFLINE_HINT} className={classes.hidden}>
+      <span id={OFFLINE_HINT} className={classes.srOnly}>
         {translate('download.offline.unavailableTitle')}
       </span>
       <MoreSheet open={moreOpen} onClose={() => setMoreOpen(false)} />
