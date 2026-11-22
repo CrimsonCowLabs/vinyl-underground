@@ -5,6 +5,7 @@ export const SET_SIDEBAR_PLAYLISTS_FAVOURITES =
   'SET_SIDEBAR_PLAYLISTS_FAVOURITES'
 
 export const SET_AUDIO_EFFECTS = 'SET_AUDIO_EFFECTS'
+export const SET_PLAYBACK_SPEED = 'SET_PLAYBACK_SPEED'
 
 export const setNotificationsState = (enabled) => ({
   type: SET_NOTIFICATIONS_STATE,
@@ -29,4 +30,9 @@ export const setSidebarPlaylistsOnlyFavourites = (enabled) => ({
 export const setAudioEffects = (enabled) => ({
   type: SET_AUDIO_EFFECTS,
   data: enabled,
+})
+
+export const setPlaybackSpeed = (speed) => ({
+  type: SET_PLAYBACK_SPEED,
+  data: speed,
 })

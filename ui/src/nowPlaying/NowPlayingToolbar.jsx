@@ -12,7 +12,9 @@ const useStyles = makeStyles(
       root: {
         display: 'grid',
         gridAutoFlow: 'column',
-        gridAutoColumns: 'minmax(0, 1fr)',
+        // Shares the row out evenly, without stretching a few tools wide
+        gridAutoColumns: 'minmax(0, 88px)',
+        justifyContent: 'space-evenly',
         gap: 2,
         paddingTop: 4,
         borderTop: `1px solid ${theme.palette.divider}`,

@@ -1034,7 +1034,18 @@
     "pause": "Pause",
     "previous": "Previous track",
     "next": "Next track",
-    "tools": "Now Playing tools"
+    "tools": "Now Playing tools",
+    "sleep": {
+      "label": "Sleep",
+      "title": "Sleep timer",
+      "minutes": "%{smart_count} minute |||| %{smart_count} minutes",
+      "endOfTrack": "End of this Track",
+      "off": "Turn off timer"
+    },
+    "speed": {
+      "label": "Speed",
+      "title": "Playback speed"
+    }
   },
   "help": {
     "title": "Vinyl Underground Hotkeys",
