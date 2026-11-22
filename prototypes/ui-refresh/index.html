@@ -1,0 +1,92 @@
+<!doctype html>
+<!--
+  PROTOTYPE, THROWAWAY (issue #88). Not part of the app build.
+  Question: does the warm record-shop look and the Now Playing layout feel
+  right on a phone and on a desktop browser? Everything here is fake: sample
+  data, generated covers, no audio. See README.md.
+-->
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#14110F" />
+    <title>Vinyl Underground, UI refresh prototype</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body data-frame="phone">
+    <!-- Phone framing: a device-sized frame on a desktop, the whole screen on a phone -->
+    <div id="phone-stage" class="stage">
+      <div class="phone-frame">
+        <div class="phone-screen app-surface">
+          <header class="phone-header">
+            <div>
+              <div class="overline">Library</div>
+              <h1>Albums</h1>
+            </div>
+            <button class="icon-btn" aria-label="Search" data-icon="search"></button>
+          </header>
+          <div class="chips">
+            <button class="chip active">Recently added</button>
+            <button class="chip">Most played</button>
+            <button class="chip">Starred</button>
+            <button class="chip">Random</button>
+          </div>
+          <main class="phone-scroll">
+            <div class="album-grid" id="phone-grid"></div>
+          </main>
+          <div class="phone-bottom">
+            <div id="phone-mini"></div>
+            <nav class="tabbar" id="tabbar" aria-label="Main"></nav>
+          </div>
+          <div id="phone-np" class="np-host np-sheet"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Desktop framing: browse page with a docked Now Playing side panel -->
+    <div id="desk-stage" class="stage">
+      <div class="desk app-surface">
+        <header class="desk-top">
+          <div class="brand">
+            <span class="brand-mark" aria-hidden="true"></span>
+            <span>Vinyl Underground</span>
+          </div>
+          <label class="search">
+            <span data-icon="search" aria-hidden="true"></span>
+            <input type="search" placeholder="Search albums, artists, songs" />
+          </label>
+          <div class="avatar" aria-label="Listener">AG</div>
+        </header>
+        <nav class="desk-side" id="desk-side" aria-label="Main"></nav>
+        <main class="desk-main">
+          <div class="desk-main-head">
+            <div>
+              <div class="overline">Library</div>
+              <h1>Albums</h1>
+            </div>
+            <div class="chips">
+              <button class="chip active">Recently added</button>
+              <button class="chip">Most played</button>
+              <button class="chip">Starred</button>
+              <button class="chip">Random</button>
+            </div>
+          </div>
+          <div class="album-grid" id="desk-grid"></div>
+        </main>
+        <aside id="desk-np" class="np-host np-panel" aria-label="Now Playing"></aside>
+        <div id="desk-bar" class="desk-bar"></div>
+      </div>
+    </div>
+
+    <!-- Prototype controls: deliberately not styled like the app -->
+    <div id="proto" class="proto collapsed">
+      <button class="proto-toggle" aria-label="Prototype controls">Prototype</button>
+      <div class="proto-body" id="proto-body"></div>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>
