@@ -223,6 +223,79 @@ var _ = Describe("Stations with an LLM", Ordered, func() {
 		}
 	})
 
+	// owlAndSunny has the fake LLM pick n Tracks for each of two DJs, whatever the Theme.
+	owlAndSunny := func(n int) (owl, sunny model.MediaFiles) {
+		owl, sunny = llmPicks("owl", n), llmPicks("sunny", n)
+		sel.pick = func(req string) model.MediaFiles {
+			switch {
+			case strings.Contains(req, "Night Owl"):
+				return owl
+			case strings.Contains(req, "Sunny"):
+				return sunny
+			}
+			return nil
+		}
+		return owl, sunny
+	}
+
+	// next serves the Station's next Tracks and lets any selection it started finish.
+	next := func(djID, theme string, count int) model.MediaFiles {
+		tracks, err := svc.Next(ctx, djID, theme, count)
+		Expect(err).ToNot(HaveOccurred())
+		stations.WaitForSelection(svc)
+		return tracks
+	}
+
+	It("keeps each DJ's picks when the Listener switches Station and back", func() {
+		owl, sunny := owlAndSunny(10)
+
+		Expect(ids(listen("night-owl", "rain", 3))).To(Equal(ids(owl[:3])))
+		stations.WaitForSelection(svc)
+		Expect(ids(listen("sunny", "", 3))).To(Equal(ids(sunny[:3])))
+		stations.WaitForSelection(svc)
+
+		Expect(ids(next("night-owl", "rain", 3))).To(Equal(ids(owl[3:6])))
+		Expect(ids(next("sunny", "", 3))).To(Equal(ids(sunny[3:6])))
+	})
+
+	It("starts afresh only for the DJ whose Theme changed", func() {
+		owl, sunny := owlAndSunny(10)
+		listen("night-owl", "rain", 3)
+		stations.WaitForSelection(svc)
+		listen("sunny", "", 3)
+		stations.WaitForSelection(svc)
+
+		Expect(ids(next("night-owl", "sunshine", 3))).ToNot(ContainElement(BeElementOf(ids(owl))))
+		Expect(ids(next("sunny", "", 3))).To(Equal(ids(sunny[3:6])))
+	})
+
+	It("starts afresh only for the DJ the Listener edited", func() {
+		_, err := db.Db().Exec("delete from dj")
+		Expect(err).ToNot(HaveOccurred())
+		mine, err := svc.CreateDJ(ctx, "Mr. Mellow", "Slow, soft songs for a rainy afternoon.")
+		Expect(err).ToNot(HaveOccurred())
+		mellow, sunny := llmPicks("mellow", 10), llmPicks("sunny", 10)
+		sel.pick = func(req string) model.MediaFiles {
+			switch {
+			case strings.Contains(req, "Mr. Mellow"):
+				return mellow
+			case strings.Contains(req, "Sunny"):
+				return sunny
+			}
+			return nil
+		}
+		listen(mine.ID, "", 3)
+		stations.WaitForSelection(svc)
+		listen("sunny", "", 3)
+		stations.WaitForSelection(svc)
+
+		_, err = svc.UpdateDJ(ctx, mine.ID, "Mr. Loud", "Fast and loud.")
+		Expect(err).ToNot(HaveOccurred())
+
+		Expect(ids(next(mine.ID, "", 3))).ToNot(ContainElement(BeElementOf(ids(mellow))))
+		Expect(ids(next("sunny", "", 3))).To(Equal(ids(sunny[3:6])))
+	})
+
 	It("keeps a Track and an artist from repeating, as rule-based selection does", func() {
 		picks := llmPicks("pick", 4)
 		heard := time.Now().Add(-time.Hour)
@@ -292,5 +365,53 @@ var _ = Describe("Stations with an LLM", Ordered, func() {
 		stations.WaitForSelection(svc)
 		Expect(sel.asked()).To(HaveLen(2))
 		Expect(sel.asked()[1]).To(ContainSubstring("Sunny"))
+	})
+
+	It("keeps a selection's picks for its own DJ when the Listener switched Station meanwhile", func() {
+		owl, _ := owlAndSunny(10)
+		sel.release = make(chan struct{})
+		_, err := svc.Next(ctx, "night-owl", "rain", 3)
+		Expect(err).ToNot(HaveOccurred())
+		Eventually(sel.asked).Should(HaveLen(1))
+		_, err = svc.Next(ctx, "sunny", "", 3)
+		Expect(err).ToNot(HaveOccurred())
+
+		close(sel.release)
+		stations.WaitForSelection(svc)
+		Expect(ids(next("night-owl", "rain", 3))).To(Equal(ids(owl[:3])))
+	})
+})
+
+var _ = Describe("Plans", func() {
+	var ps *stations.Plans
+	var owl, sunny stations.DJ
+	var picks model.MediaFiles
+	var start time.Time
+
+	BeforeEach(func() {
+		ps = &stations.Plans{}
+		picks = nil
+		for i := range 10 {
+			picks = append(picks, model.MediaFile{ID: fmt.Sprintf("pick-%d", i), Artist: fmt.Sprintf("artist %d", i)})
+		}
+		sel := &fakeSelector{pick: func(string) model.MediaFiles { return picks }}
+		owl, _ = stations.FindDJ("night-owl")
+		sunny, _ = stations.FindDJ("sunny")
+		start = time.Now()
+
+		ps.Take("carol-id", owl, "", start, 3) // starts the plan
+		ps.SelectAhead(context.Background(), sel, "carol-id", owl, "")
+	})
+
+	It("keeps a plan a while after its Station was last played", func() {
+		later := start.Add(stations.PlanIdle - time.Minute)
+		ps.Take("carol-id", sunny, "", later, 3)
+		Expect(ids(ps.Take("carol-id", owl, "", later, 3))).To(Equal(ids(picks[:3])))
+	})
+
+	It("drops a plan unused for a long while", func() {
+		later := start.Add(stations.PlanIdle + time.Minute)
+		ps.Take("carol-id", sunny, "", later, 3)
+		Expect(ps.Take("carol-id", owl, "", later, 3)).To(BeEmpty())
 	})
 })

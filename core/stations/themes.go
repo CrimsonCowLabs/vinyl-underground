@@ -19,8 +19,9 @@ import (
 // picks in the LLM's order, keeping Pick's rules about repeats.
 //
 // The LLM is slow (tens of seconds), so its picks are made ahead, in the background, into a
-// plan per Listener. A refill only ever takes from the plan and never waits for the LLM: when
-// the plan is short, as when a Station starts, rule-based selection tops it up.
+// plan per Listener and DJ. A refill only ever takes from the plan and never waits for the LLM:
+// when the plan is short, as when a Station starts, rule-based selection tops it up. Plans live
+// in memory only, so a restart loses them.
 
 const (
 	// MaxThemeLength is the longest Theme accepted, in characters.
@@ -37,6 +38,9 @@ const (
 	// retryAfter is how long a Station plays by rule after its selection failed (say, the LLM's
 	// host is asleep) before asking the LLM again.
 	retryAfter = 2 * time.Minute
+	// planIdle is how long a plan is kept unused before it is dropped, so memory stays bounded
+	// while a Station left for the evening still has its picks the next day.
+	planIdle = 24 * time.Hour
 )
 
 // Selector picks up to length Tracks from the Listener's Library for a free-text request, best
@@ -63,39 +67,60 @@ func stationRequest(dj DJ, theme string) string {
 	return req
 }
 
-// plan is the LLM's picks for one Listener's Station, not yet served.
+// plan is the LLM's picks for one Listener's Station with one DJ, not yet served.
 type plan struct {
-	// request is what the LLM was asked, so editing a DJ's persona starts a new plan too.
+	// request is what the LLM was asked, so editing the DJ's persona or changing the Theme
+	// starts a new plan too.
 	request  string
 	tracks   model.MediaFiles
 	failedAt time.Time
+	usedAt   time.Time
 }
 
-// plans holds each Listener's plan. Only the Station they last listened to has one.
+// planKey names a plan: each Listener has one per DJ, so switching Station keeps the picks.
+type planKey struct {
+	userID, djID string
+}
+
+// plans holds each Listener's plan per DJ.
 type plans struct {
-	mu         sync.Mutex
-	byListener map[string]*plan
+	mu    sync.Mutex
+	byKey map[planKey]*plan
 	// selecting holds the Listeners with a selection under way. It is per Listener, not per
 	// plan, so switching Station never queues a second slow LLM call behind the first.
 	selecting map[string]bool
 	wg        sync.WaitGroup // background selections, for tests
 }
 
+// planFor returns the Listener's plan for the DJ and Theme, starting a new, empty one when
+// there is none or the DJ's persona or the Theme changed since. It marks the plan used at now
+// and drops plans unused for planIdle. ps.mu must be held.
+func (ps *plans) planFor(userID string, dj DJ, theme string, now time.Time) *plan {
+	if ps.byKey == nil {
+		ps.byKey = map[planKey]*plan{}
+		ps.selecting = map[string]bool{}
+	}
+	for k, p := range ps.byKey {
+		if now.Sub(p.usedAt) > planIdle {
+			delete(ps.byKey, k)
+		}
+	}
+	key := planKey{userID, dj.ID}
+	p := ps.byKey[key]
+	if req := stationRequest(dj, theme); p == nil || p.request != req {
+		p = &plan{request: req}
+		ps.byKey[key] = p
+	}
+	p.usedAt = now
+	return p
+}
+
 // take serves up to n planned Tracks for the Listener's Station with the DJ and Theme, keeping
-// Pick's rules against history. A different Station from last time, or the same DJ since edited,
-// starts a new, empty plan.
+// Pick's rules against history.
 func (ps *plans) take(userID string, dj DJ, theme string, history []Served, now time.Time, n int, rnd *rand.Rand, weights ...Weight) model.MediaFiles {
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
-	if ps.byListener == nil {
-		ps.byListener = map[string]*plan{}
-		ps.selecting = map[string]bool{}
-	}
-	p := ps.byListener[userID]
-	if req := stationRequest(dj, theme); p == nil || p.request != req {
-		p = &plan{request: req}
-		ps.byListener[userID] = p
-	}
+	p := ps.planFor(userID, dj, theme, now)
 	picked, rest := pickRanked(p.tracks, history, now, n, rnd, weights...)
 	p.tracks = rest
 	return picked
@@ -107,8 +132,8 @@ func (ps *plans) take(userID string, dj DJ, theme string, history []Served, now 
 func (ps *plans) selectAhead(ctx context.Context, sel Selector, userID string, dj DJ, theme string, exclude []string) {
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
-	p := ps.byListener[userID]
-	if p == nil || ps.selecting[userID] || len(p.tracks) >= planLowWater || time.Since(p.failedAt) < retryAfter {
+	p := ps.byKey[planKey{userID, dj.ID}]
+	if p == nil || p.request != stationRequest(dj, theme) || ps.selecting[userID] || len(p.tracks) >= planLowWater || time.Since(p.failedAt) < retryAfter {
 		return
 	}
 	for _, mf := range p.tracks {
@@ -132,7 +157,8 @@ func (ps *plans) selectAhead(ctx context.Context, sel Selector, userID string, d
 			return
 		}
 		log.Debug(ctx, "Station selection ready", "dj", dj.ID, "theme", theme, "tracks", len(tracks))
-		// The plan may have been replaced meanwhile (another Station); then this one is dropped.
+		// The plan may have been replaced (an edited DJ or a new Theme) or dropped meanwhile;
+		// then these picks go with it.
 		p.tracks = appendNew(p.tracks, tracks)
 	}()
 }
