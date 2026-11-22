@@ -32,7 +32,8 @@ import subsonic from '../subsonic'
 import locale from './locale'
 import { keyMap } from '../hotkeys'
 import keyHandlers from './keyHandlers'
-import { calculateGain } from '../utils/calculateReplayGain'
+import { replayGainForChain } from '../utils/calculateReplayGain'
+import { audioChain } from './audioChain'
 import { detectBrowserProfile, decisionService } from '../transcode'
 import { APP_NAME } from '../consts'
 import { useStationRefill } from '../station/useStationRefill'
@@ -143,40 +144,17 @@ const Player = () => {
     (state) => state.settings.notifications || false,
   )
   const gainInfo = useSelector((state) => state.replayGain)
-  const [context, setContext] = useState(null)
-  const [gainNode, setGainNode] = useState(null)
 
   useEffect(() => {
-    if (
-      context === null &&
-      audioInstance &&
-      config.enableReplayGain &&
-      'AudioContext' in window &&
-      (gainInfo.gainMode === 'album' || gainInfo.gainMode === 'track')
-    ) {
-      const ctx = new AudioContext()
-      // we need this to support radios in firefox
-      audioInstance.crossOrigin = 'anonymous'
-      const source = ctx.createMediaElementSource(audioInstance)
-      const gain = ctx.createGain()
-
-      source.connect(gain)
-      gain.connect(ctx.destination)
-
-      setContext(ctx)
-      setGainNode(gain)
-    }
-  }, [audioInstance, context, gainInfo.gainMode])
+    if (audioInstance) audioChain.attach(audioInstance)
+  }, [audioInstance])
 
   useEffect(() => {
-    if (gainNode) {
-      const current = playerState.current || {}
-      const song = current.song || {}
-
-      const numericGain = calculateGain(gainInfo, song)
-      gainNode.gain.setValueAtTime(numericGain, context.currentTime)
-    }
-  }, [audioInstance, context, gainNode, playerState, gainInfo])
+    const song = playerState.current?.song || {}
+    audioChain.setReplayGain(
+      replayGainForChain(config.enableReplayGain, gainInfo, song),
+    )
+  }, [playerState, gainInfo])
 
   useEffect(() => {
     const handleBeforeUnload = (e) => {
@@ -287,9 +265,7 @@ const Player = () => {
 
   const onAudioPlay = useCallback(
     (info) => {
-      if (context && context.state !== 'running') {
-        context.resume()
-      }
+      audioChain.resume()
 
       dispatch(currentPlaying(info))
       if (info.duration) {
@@ -328,7 +304,7 @@ const Player = () => {
         }
       }
     },
-    [context, dispatch, showNotifications, currentTrackId, stationSkips],
+    [dispatch, showNotifications, currentTrackId, stationSkips],
   )
 
   const onAudioPlayTrackChange = useCallback(() => {

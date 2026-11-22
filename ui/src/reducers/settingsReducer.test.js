@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { settingsReducer } from './settingsReducer'
 import {
   SET_SIDEBAR_PLAYLISTS_FAVOURITES,
+  setAudioEffects,
   setSidebarPlaylistsOnlyFavourites,
 } from '../actions'
 
@@ -32,5 +33,21 @@ describe('settingsReducer', () => {
     expect(off.sidebarPlaylistsOnlyFavourites).toBe(false)
     expect(off.notifications).toEqual(initial.notifications)
     expect(off.toggleableFields).toEqual(initial.toggleableFields)
+  })
+
+  it('keeps Audio effects off by default', () => {
+    const state = settingsReducer(undefined, { type: 'UNKNOWN' })
+    expect(state.audioEffects).toBe(false)
+  })
+
+  it('turns Audio effects on and off, keeping other settings', () => {
+    const initial = settingsReducer(
+      undefined,
+      setSidebarPlaylistsOnlyFavourites(true),
+    )
+    const on = settingsReducer(initial, setAudioEffects(true))
+    expect(on.audioEffects).toBe(true)
+    expect(on.sidebarPlaylistsOnlyFavourites).toBe(true)
+    expect(settingsReducer(on, setAudioEffects(false)).audioEffects).toBe(false)
   })
 })

@@ -11,6 +11,8 @@ import { APP_NAME } from '../consts'
 import { ReplayGainToggle } from './ReplayGainToggle'
 import { SelectStreamingQuality } from './SelectStreamingQuality'
 import { DownloadsStorage } from './DownloadsStorage'
+import { AudioEffectsToggle } from './AudioEffectsToggle'
+import { isIOS } from '../audioplayer/audioEffects'
 
 const useStyles = makeStyles({
   root: { marginTop: '1em' },
@@ -29,6 +31,7 @@ const Personal = () => {
         <SelectDefaultView />
         <SelectStreamingQuality />
         {config.enableReplayGain && <ReplayGainToggle />}
+        {isIOS() && <AudioEffectsToggle />}
         <NotificationsToggle />
         {config.listenBrainzEnabled && <ListenBrainzScrobbleToggle />}
         <DownloadsStorage />

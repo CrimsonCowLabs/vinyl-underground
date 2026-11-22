@@ -822,6 +822,10 @@
         "lastfmNotConfigured": "Last.fm API-Key is not configured",
         "lastfmScrobbling": "Scrobble to Last.fm",
         "listenBrainzScrobbling": "Scrobble to ListenBrainz",
+        "audioEffects": {
+          "name": "Audio effects",
+          "help": "Turns on the equalizer and visuals. Playback may stop when the screen is locked."
+        },
         "replaygain": "ReplayGain Mode",
         "preAmp": "ReplayGain PreAmp (dB)",
         "gain": {

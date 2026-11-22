@@ -1,4 +1,5 @@
 import {
+  SET_AUDIO_EFFECTS,
   SET_NOTIFICATIONS_STATE,
   SET_OMITTED_FIELDS,
   SET_SIDEBAR_PLAYLISTS_FAVOURITES,
@@ -10,6 +11,8 @@ const initialState = {
   toggleableFields: {},
   omittedFields: {},
   sidebarPlaylistsOnlyFavourites: false,
+  // The iPhone Audio effects switch (ADR-0010).
+  audioEffects: false,
 }
 
 export const settingsReducer = (previousState = initialState, payload) => {
@@ -40,6 +43,11 @@ export const settingsReducer = (previousState = initialState, payload) => {
       return {
         ...previousState,
         sidebarPlaylistsOnlyFavourites: data,
+      }
+    case SET_AUDIO_EFFECTS:
+      return {
+        ...previousState,
+        audioEffects: data,
       }
     default:
       return previousState
