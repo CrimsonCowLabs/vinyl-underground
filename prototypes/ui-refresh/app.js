@@ -63,12 +63,13 @@
   // ---------- Palette ----------
   // Fixed accents: [dark-variant, light-variant]. Each value passes WCAG AA
   // (4.5:1) against its variant's background, and against its on-accent text.
+  // The first accent is the default.
   const ACCENTS = [
+    { id: 'teal', name: 'Teal', dark: '#3EC1B0', light: '#086A5F' },
     { id: 'vermilion', name: 'Vermilion', dark: '#FF5B2E', light: '#B0300F' },
     { id: 'amber', name: 'Amber', dark: '#FF9A1F', light: '#934E00' },
     { id: 'mustard', name: 'Mustard', dark: '#E2B53A', light: '#765A00' },
     { id: 'olive', name: 'Olive', dark: '#9DBB4E', light: '#4A6510' },
-    { id: 'teal', name: 'Teal', dark: '#3EC1B0', light: '#086A5F' },
     { id: 'denim', name: 'Denim', dark: '#6FA3F0', light: '#2F5DB0' },
     { id: 'plum', name: 'Plum', dark: '#C08BF0', light: '#7A3FB0' },
     { id: 'rose', name: 'Rose', dark: '#FF6F91', light: '#B42851' },
@@ -169,7 +170,7 @@
   const state = {
     theme: q.get('theme') === 'light' ? 'light' : 'dark',
     base: Object.prototype.hasOwnProperty.call(DARK_BASES, q.get('base')) ? q.get('base') : 'slate',
-    accent: ACCENTS.some((a) => a.id === q.get('accent')) || q.get('accent') === 'art' ? q.get('accent') : 'vermilion',
+    accent: ACCENTS.some((a) => a.id === q.get('accent')) || q.get('accent') === 'art' ? q.get('accent') : 'teal',
     frame: q.get('frame') === 'desktop' ? 'desktop' : 'phone',
     station: q.get('station') === '1',
     npOpen: q.get('np') !== '0',

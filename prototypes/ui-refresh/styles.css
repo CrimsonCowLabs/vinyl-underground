@@ -8,17 +8,17 @@
 @property --vu-accent {
   syntax: '<color>';
   inherits: true;
-  initial-value: #ff5b2e;
+  initial-value: #3ec1b0;
 }
 @property --vu-accent-soft {
   syntax: '<color>';
   inherits: true;
-  initial-value: rgba(255, 91, 46, 0.16);
+  initial-value: rgba(62, 193, 176, 0.16);
 }
 @property --vu-accent-glow {
   syntax: '<color>';
   inherits: true;
-  initial-value: rgba(255, 91, 46, 0.3);
+  initial-value: rgba(62, 193, 176, 0.3);
 }
 
 :root {
@@ -26,10 +26,10 @@
     Arial, sans-serif;
   --vu-radius: 12px;
   --vu-radius-sm: 6px;
-  --vu-accent: #ff5b2e;
+  --vu-accent: #3ec1b0;
   --vu-on-accent: #0f1216;
-  --vu-accent-soft: rgba(255, 91, 46, 0.16);
-  --vu-accent-glow: rgba(255, 91, 46, 0.3);
+  --vu-accent-soft: rgba(62, 193, 176, 0.16);
+  --vu-accent-glow: rgba(62, 193, 176, 0.3);
   /* "From album art" fades between covers rather than snapping */
   transition:
     --vu-accent 0.7s ease,

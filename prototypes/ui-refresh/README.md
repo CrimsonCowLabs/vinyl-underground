@@ -93,11 +93,11 @@ on the cream background.
 
 | Accent                  | Dark      | On it     | vs bg  | Light     | On it     | vs bg  |
 | ----------------------- | --------- | --------- | ------ | --------- | --------- | ------ |
-| Vermilion **(default)** | `#FF5B2E` | `#0F1216` | 6.1:1  | `#B0300F` | `#FFFFFF` | 5.5:1  |
+| Teal **(default)**      | `#3EC1B0` | `#0F1216` | 8.5:1  | `#086A5F` | `#FFFFFF` | 5.6:1  |
+| Vermilion               | `#FF5B2E` | `#0F1216` | 6.1:1  | `#B0300F` | `#FFFFFF` | 5.5:1  |
 | Amber                   | `#FF9A1F` | `#0F1216` | 8.8:1  | `#934E00` | `#FFFFFF` | 5.4:1  |
 | Mustard                 | `#E2B53A` | `#0F1216` | 9.7:1  | `#765A00` | `#FFFFFF` | 5.6:1  |
 | Olive                   | `#9DBB4E` | `#0F1216` | 8.6:1  | `#4A6510` | `#FFFFFF` | 5.7:1  |
-| Teal                    | `#3EC1B0` | `#0F1216` | 8.5:1  | `#086A5F` | `#FFFFFF` | 5.6:1  |
 | Denim                   | `#6FA3F0` | `#0F1216` | 7.3:1  | `#2F5DB0` | `#FFFFFF` | 5.5:1  |
 | Plum                    | `#C08BF0` | `#0F1216` | 7.3:1  | `#7A3FB0` | `#FFFFFF` | 5.7:1  |
 | Rose                    | `#FF6F91` | `#0F1216` | 7.1:1  | `#B42851` | `#FFFFFF` | 5.4:1  |
