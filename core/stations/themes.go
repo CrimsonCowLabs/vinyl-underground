@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/rand/v2"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -16,7 +17,8 @@ import (
 // With an LLM, the DJ's persona and the Theme shape a Station the way a Prompt shapes a
 // Generated Playlist (ADR-0004): they become the request to a Selector, which turns it into
 // filters, builds candidates from the Library and has the LLM rank them. A Station plays those
-// picks in the LLM's order, keeping Pick's rules about repeats.
+// picks in the LLM's order, keeping Pick's rules about repeats. When the DJ has genres, only
+// Tracks in them are candidates: the Theme can narrow them but never widen them (#108).
 //
 // The LLM is slow (tens of seconds), so its picks are made ahead, in the background, into a
 // plan per Listener and DJ. A refill only ever takes from the plan and never waits for the LLM:
@@ -49,9 +51,10 @@ const (
 )
 
 // Selector picks up to length Tracks from the Listener's Library for a free-text request, best
-// first, never one with an ID in exclude. generatedplaylist.Selector implements it.
+// first, never one with an ID in exclude and, when genres (the Library's exact genre names) are
+// given, only ones tagged with one of them. generatedplaylist.Selector implements it.
 type Selector interface {
-	Select(ctx context.Context, request string, length int, exclude []string) (model.MediaFiles, error)
+	Select(ctx context.Context, request string, genres []string, length int, exclude []string) (model.MediaFiles, error)
 }
 
 // cleanTheme trims the Theme and checks its length. Empty means no Theme.
@@ -72,18 +75,44 @@ func stationRequest(dj DJ, theme string) string {
 	return req
 }
 
-// plan is the LLM's picks for one Listener's Station with one DJ, not yet served.
-type plan struct {
-	// request is what the LLM was asked, so editing the DJ's persona or changing the Theme
-	// starts a new plan too.
+// selectionInput is what a Station's selection asks the Selector for: the request, from the
+// DJ's persona and the Theme, within the Library genres the DJ's genres name (none for a DJ
+// without genres).
+type selectionInput struct {
+	dj      DJ
+	theme   string
 	request string
-	tracks  model.MediaFiles
-	usedAt  time.Time
+	genres  []string
 }
 
-// isFor reports whether the plan was made for the DJ's current persona and the Theme.
-func (p *plan) isFor(dj DJ, theme string) bool {
-	return p.request == stationRequest(dj, theme)
+// stationInput is the selection input for the Listener's Station with the DJ and Theme. A DJ
+// whose genres name none of the Library's selects from the whole Library, as one without
+// genres does.
+func (s *service) stationInput(ctx context.Context, dj DJ, theme string) (selectionInput, error) {
+	in := selectionInput{dj: dj, theme: theme, request: stationRequest(dj, theme)}
+	if len(dj.Taste.Genres) > 0 {
+		genres, err := s.matchingGenres(ctx, dj.Taste)
+		if err != nil {
+			return selectionInput{}, err
+		}
+		in.genres = genres
+	}
+	return in, nil
+}
+
+// plan is the LLM's picks for one Listener's Station with one DJ, not yet served.
+type plan struct {
+	// input is what the Selector was asked, so editing the DJ's persona or genres, or changing
+	// the Theme, starts a new plan too.
+	input  selectionInput
+	tracks model.MediaFiles
+	usedAt time.Time
+}
+
+// isFor reports whether the plan was made for the input: the DJ's current persona and genres,
+// and the Theme.
+func (p *plan) isFor(in selectionInput) bool {
+	return p.input.request == in.request && slices.Equal(p.input.genres, in.genres)
 }
 
 // planKey names a plan: each Listener has one per DJ, so switching Station keeps the picks.
@@ -110,19 +139,19 @@ type selection struct {
 	done chan struct{} // closed when it ends
 }
 
-// planFor returns the Listener's plan for the DJ and Theme, starting a new, empty one when
-// there is none or the DJ's persona or the Theme changed since, and marks it used at now.
-// ps.mu must be held.
-func (ps *plans) planFor(userID string, dj DJ, theme string, now time.Time) *plan {
+// planFor returns the Listener's plan for the input's DJ, starting a new, empty one when there
+// is none or it was made for another input (the DJ's persona or genres, or the Theme, changed
+// since), and marks it used at now. ps.mu must be held.
+func (ps *plans) planFor(userID string, in selectionInput, now time.Time) *plan {
 	if ps.byKey == nil {
 		ps.byKey = map[planKey]*plan{}
 		ps.selecting = map[string]*selection{}
 		ps.failedAt = map[string]time.Time{}
 	}
-	key := planKey{userID, dj.ID}
+	key := planKey{userID, in.dj.ID}
 	p := ps.byKey[key]
-	if p == nil || !p.isFor(dj, theme) {
-		p = &plan{request: stationRequest(dj, theme)}
+	if p == nil || !p.isFor(in) {
+		p = &plan{input: in}
 		ps.byKey[key] = p
 	}
 	p.usedAt = now
@@ -139,13 +168,13 @@ func (ps *plans) dropIdle(now time.Time) {
 	}
 }
 
-// take serves up to n planned Tracks for the Listener's Station with the DJ and Theme, keeping
-// Pick's rules against history.
-func (ps *plans) take(userID string, dj DJ, theme string, history []Served, now time.Time, n int, rnd *rand.Rand, weights ...Weight) model.MediaFiles {
+// take serves up to n planned Tracks for the Listener's Station with the input, keeping Pick's
+// rules against history.
+func (ps *plans) take(userID string, in selectionInput, history []Served, now time.Time, n int, rnd *rand.Rand, weights ...Weight) model.MediaFiles {
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
 	ps.dropIdle(now)
-	p := ps.planFor(userID, dj, theme, now)
+	p := ps.planFor(userID, in, now)
 	picked, rest := pickRanked(p.tracks, history, now, n, rnd, weights...)
 	p.tracks = rest
 	return picked
@@ -154,32 +183,32 @@ func (ps *plans) take(userID string, dj DJ, theme string, history []Served, now 
 // selectAhead starts a background selection for the Listener's Station when its plan runs low
 // and none is under way. exclude is what the Station served lately, which the LLM shouldn't
 // be offered again. It returns at once.
-func (ps *plans) selectAhead(ctx context.Context, sel Selector, userID string, dj DJ, theme string, exclude []string) {
+func (ps *plans) selectAhead(ctx context.Context, sel Selector, userID string, in selectionInput, exclude []string) {
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
-	p := ps.byKey[planKey{userID, dj.ID}]
-	if p == nil || !p.isFor(dj, theme) || len(p.tracks) >= planLowWater {
+	p := ps.byKey[planKey{userID, in.dj.ID}]
+	if p == nil || !p.isFor(in) || len(p.tracks) >= planLowWater {
 		return
 	}
-	ps.startSelection(ctx, sel, userID, p, dj, theme, exclude)
+	ps.startSelection(ctx, sel, userID, p, exclude)
 }
 
-// awaitPicks waits, up to wait, until the Listener's plan for the DJ and Theme has Tracks, as
+// awaitPicks waits, up to wait, until the Listener's plan for the input has Tracks, as
 // a Station start does. It starts the selection itself if none is under way, and when one is
 // under way for another of the Listener's Stations, it starts its own once that one ends. It
 // returns at once when the Listener's last selection failed within retryAfter, and early
 // when a selection fails meanwhile or ctx is done (then with ctx's error).
-func (ps *plans) awaitPicks(ctx context.Context, sel Selector, userID string, dj DJ, theme string, exclude []string, wait time.Duration) error {
+func (ps *plans) awaitPicks(ctx context.Context, sel Selector, userID string, in selectionInput, exclude []string, wait time.Duration) error {
 	timeout := time.NewTimer(wait)
 	defer timeout.Stop()
 	for {
 		ps.mu.Lock()
-		p := ps.planFor(userID, dj, theme, time.Now())
+		p := ps.planFor(userID, in, time.Now())
 		if len(p.tracks) > 0 || ps.failedRecently(userID) {
 			ps.mu.Unlock()
 			return nil
 		}
-		ps.startSelection(ctx, sel, userID, p, dj, theme, exclude)
+		ps.startSelection(ctx, sel, userID, p, exclude)
 		running := ps.selecting[userID]
 		ps.mu.Unlock()
 
@@ -207,7 +236,7 @@ func (ps *plans) failedRecently(userID string) bool {
 
 // startSelection starts a background selection into the plan, unless one is under way for
 // the Listener or their last one failed recently. ps.mu must be held.
-func (ps *plans) startSelection(ctx context.Context, sel Selector, userID string, p *plan, dj DJ, theme string, exclude []string) {
+func (ps *plans) startSelection(ctx context.Context, sel Selector, userID string, p *plan, exclude []string) {
 	if ps.selecting[userID] != nil || ps.failedRecently(userID) {
 		return
 	}
@@ -222,7 +251,8 @@ func (ps *plans) startSelection(ctx context.Context, sel Selector, userID string
 	go func() {
 		defer ps.wg.Done()
 		defer cancel()
-		tracks, err := sel.Select(ctx, p.request, planLength, exclude)
+		in := p.input
+		tracks, err := sel.Select(ctx, in.request, in.genres, planLength, exclude)
 
 		ps.mu.Lock()
 		defer ps.mu.Unlock()
@@ -230,11 +260,11 @@ func (ps *plans) startSelection(ctx context.Context, sel Selector, userID string
 		defer close(running.done)
 		if err != nil {
 			ps.failedAt[userID] = time.Now()
-			log.Warn(ctx, "Station selection failed; playing by rule for now", "dj", dj.ID, "theme", theme, err)
+			log.Warn(ctx, "Station selection failed; playing by rule for now", "dj", in.dj.ID, "theme", in.theme, "genres", in.genres, err)
 			return
 		}
 		delete(ps.failedAt, userID)
-		log.Debug(ctx, "Station selection ready", "dj", dj.ID, "theme", theme, "tracks", len(tracks))
+		log.Debug(ctx, "Station selection ready", "dj", in.dj.ID, "theme", in.theme, "tracks", len(tracks))
 		// The plan may have been replaced (an edited DJ or a new Theme) or dropped meanwhile;
 		// then these picks go with it.
 		p.tracks = appendNew(p.tracks, tracks)
