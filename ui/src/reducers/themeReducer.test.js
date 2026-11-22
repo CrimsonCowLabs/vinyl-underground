@@ -50,6 +50,13 @@ describe('themeReducer', () => {
       })
     })
 
+    it('treats the default the server was configured with as never chosen', async () => {
+      const { themeReducer } = await loadWithConfig('Light')
+      expect(themeReducer('LightTheme', { type: '@@INIT' })).toEqual({
+        choice: null,
+      })
+    })
+
     it.each([AUTO_THEME_ID, 'LightTheme', 'NordTheme', 'SpotifyTheme'])(
       'keeps %s, which the Listener chose',
       async (id) => {

@@ -8,13 +8,6 @@ import themes from '../themes'
 // can still change under them.
 const NO_CHOICE = { choice: null }
 
-// Before the Vinyl Underground theme, the state was the theme's id, saved
-// even when the Listener never chose one. "Dark" was the default then, so a
-// saved Dark is taken as never chosen; anything else was picked on purpose.
-const LEGACY_DEFAULT = 'DarkTheme'
-const migrate = (legacyId) =>
-  legacyId === LEGACY_DEFAULT ? NO_CHOICE : { choice: legacyId }
-
 const configuredDefaultId = () => {
   if (config.defaultTheme === AUTO_THEME_CONFIG_VALUE) {
     return AUTO_THEME_ID
@@ -25,6 +18,17 @@ const configuredDefaultId = () => {
     ) || AUTO_THEME_ID
   )
 }
+
+// Before the Vinyl Underground theme, the state was the theme's id, saved
+// even when the Listener never chose one. So a saved default is taken as
+// never chosen: Dark, the built-in default then, or the theme the server's
+// DefaultTheme names. Anything else, Auto included, was picked on purpose.
+const LEGACY_DEFAULT = 'DarkTheme'
+const migrate = (legacyId) =>
+  legacyId === LEGACY_DEFAULT ||
+  (legacyId !== AUTO_THEME_ID && legacyId === configuredDefaultId())
+    ? NO_CHOICE
+    : { choice: legacyId }
 
 const isKnown = (id) =>
   id === AUTO_THEME_ID || Object.prototype.hasOwnProperty.call(themes, id)

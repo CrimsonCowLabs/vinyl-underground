@@ -3,6 +3,7 @@ import createStylesheet from './vinylUnderground.css.js'
 import {
   accents,
   DEFAULT_ACCENT,
+  effects,
   grain,
   surfaces,
 } from './vinylUndergroundPalette'
@@ -17,7 +18,7 @@ const fontFamily = [
   'sans-serif',
 ].join(',')
 
-const ROUND = 999
+const PILL = 999
 
 // The Vinyl Underground colour theme (not a Station's Theme) in its dark
 // (Slate) or light (cream) variant. The accent is its one input, so #99 can
@@ -28,16 +29,19 @@ export const createVinylUndergroundTheme = ({
   accent = accents[DEFAULT_ACCENT][mode],
 }) => {
   const s = surfaces[mode]
-  const dark = mode === 'dark'
-  const accentSoft = fade(accent.main, dark ? 0.16 : 0.14)
-  const accentGlow = fade(accent.main, dark ? 0.3 : 0.22)
-  const hover = fade(s.text, dark ? 0.06 : 0.05)
-  const shadow = dark
-    ? '0 18px 40px rgba(0, 0, 0, 0.55)'
-    : '0 16px 34px rgba(60, 40, 20, 0.18)'
+  const fx = effects[mode]
+  const accentSoft = fade(accent.main, fx.accentSoft)
+  const accentGlow = fade(accent.main, fx.accentGlow)
+  const hover = fade(s.text, fx.hover)
+  const { shadow } = fx
+  const selected = {
+    '&$selected, &$selected:hover': { backgroundColor: accentSoft },
+  }
+  const title = { fontWeight: 800, letterSpacing: '-0.02em' }
 
   return {
-    themeName: dark ? 'Vinyl Underground Dark' : 'Vinyl Underground Light',
+    themeName:
+      mode === 'dark' ? 'Vinyl Underground Dark' : 'Vinyl Underground Light',
     // The status bar and the installed app's title bar
     themeColor: s.background,
     palette: {
@@ -66,19 +70,11 @@ export const createVinylUndergroundTheme = ({
     shape: { borderRadius: 12 },
     typography: {
       fontFamily,
-      h5: { fontWeight: 800, letterSpacing: '-0.02em' },
+      h5: title,
       h6: { fontWeight: 700, letterSpacing: '-0.01em' },
       overline: { fontSize: 11, fontWeight: 700, letterSpacing: '0.14em' },
     },
     overrides: {
-      MuiCssBaseline: {
-        '@global': {
-          body: {
-            backgroundColor: s.background,
-            backgroundImage: grain[mode],
-          },
-        },
-      },
       MuiAppBar: {
         colorSecondary: {
           backgroundColor: s.paper,
@@ -92,9 +88,6 @@ export const createVinylUndergroundTheme = ({
       MuiPaper: {
         root: { backgroundImage: 'none' },
         elevation1: { boxShadow: 'none', border: `1px solid ${s.divider}` },
-      },
-      MuiCard: {
-        root: { borderRadius: 12 },
       },
       MuiDialog: {
         paper: {
@@ -114,20 +107,16 @@ export const createVinylUndergroundTheme = ({
         paper: { backgroundColor: s.paper },
       },
       MuiListItem: {
-        root: {
-          '&$selected, &$selected:hover': { backgroundColor: accentSoft },
-        },
+        root: selected,
       },
       MuiMenuItem: {
-        root: {
-          '&$selected, &$selected:hover': { backgroundColor: accentSoft },
-        },
+        root: selected,
       },
       MuiChip: {
         root: {
           backgroundColor: s.surface2,
           color: s.text,
-          borderRadius: ROUND,
+          borderRadius: PILL,
         },
         outlined: { borderColor: s.divider },
         clickable: {
@@ -138,9 +127,9 @@ export const createVinylUndergroundTheme = ({
         root: { textTransform: 'none', fontWeight: 600 },
         contained: {
           boxShadow: 'none',
-          backgroundColor: dark ? s.surface3 : s.surface2,
+          backgroundColor: fx.raised,
           color: s.text,
-          '&:hover': { backgroundColor: dark ? s.surface2 : s.divider },
+          '&:hover': { backgroundColor: fx.raisedHover },
         },
         containedPrimary: { '&:hover': { boxShadow: 'none' } },
       },
@@ -196,7 +185,7 @@ export const createVinylUndergroundTheme = ({
         root: { backgroundColor: s.surface3, color: s.text },
       },
       MuiLinearProgress: {
-        colorPrimary: { backgroundColor: dark ? s.surface3 : s.surface2 },
+        colorPrimary: { backgroundColor: fx.raised },
       },
       MuiSlider: {
         rail: { backgroundColor: s.surface3, opacity: 1 },
@@ -231,7 +220,7 @@ export const createVinylUndergroundTheme = ({
         toolbar: { backgroundColor: 'transparent' },
       },
       RaToolbar: {
-        regular: { backgroundColor: s.paper },
+        toolbar: { backgroundColor: s.paper },
       },
       NDAlbumGridView: {
         // The hover overlay is a sibling of the image, so the link clips both
@@ -247,10 +236,10 @@ export const createVinylUndergroundTheme = ({
       },
       NDAlbumDetails: {
         cover: { borderRadius: 6 },
-        recordName: { fontWeight: 800, letterSpacing: '-0.02em' },
+        recordName: title,
       },
       NDPlaylistDetails: {
-        title: { fontWeight: 800, letterSpacing: '-0.02em' },
+        title,
       },
       NDAudioPlayer: {
         audioTitle: { color: s.text },
@@ -278,7 +267,7 @@ export const createVinylUndergroundTheme = ({
     },
     player: {
       theme: mode,
-      stylesheet: createStylesheet({ mode, s, accent, accentSoft }),
+      stylesheet: createStylesheet({ mode, s, accent, accentSoft, shadow }),
     },
   }
 }

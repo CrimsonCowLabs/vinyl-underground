@@ -1,7 +1,7 @@
 // The player bar, its queue pop-up and the package's mobile player, drawn in
 // the Vinyl Underground palette. `s` is a variant's surfaces and `accent` its
-// accent (see vinylUndergroundPalette.js).
-const createStylesheet = ({ mode, s, accent, accentSoft }) => {
+// accent, and `shadow` the one under sheets (see vinylUndergroundPalette.js).
+const createStylesheet = ({ mode, s, accent, accentSoft, shadow }) => {
   const main = `.react-jinke-music-player-main.${mode}-theme`
   const mobile = `.react-jinke-music-player-mobile`
   return `
@@ -86,7 +86,7 @@ ${main} .audio-lists-panel {
     color: ${s.text};
     border: 1px solid ${s.divider};
     border-radius: 12px;
-    box-shadow: 0 18px 40px rgba(0, 0, 0, ${mode === 'dark' ? 0.55 : 0.18});
+    box-shadow: ${shadow};
 }
 
 ${main} .audio-lists-panel-header {
@@ -131,13 +131,13 @@ ${mobile} .react-jinke-music-player-mobile-singer-name {
 }
 
 ${mobile} .react-jinke-music-player-mobile-cover {
-    border-radius: 12px;
+    border-radius: 6px;
     border: none;
-    box-shadow: 0 18px 40px rgba(0, 0, 0, ${mode === 'dark' ? 0.55 : 0.28});
+    box-shadow: ${shadow};
 }
 
 ${mobile} .react-jinke-music-player-mobile-cover img.cover {
-    border-radius: 12px;
+    border-radius: 6px;
 }
 
 ${mobile} svg {

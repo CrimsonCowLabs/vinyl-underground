@@ -27,6 +27,28 @@ export const surfaces = {
   },
 }
 
+// How each variant layers things: the accent's tints, the hover wash over
+// text colour, the shadow under sheets, and the fill of raised buttons and
+// tracks (so they still stand out from paper on cream).
+export const effects = {
+  dark: {
+    accentSoft: 0.16,
+    accentGlow: 0.3,
+    hover: 0.06,
+    shadow: '0 18px 40px rgba(0, 0, 0, 0.55)',
+    raised: surfaces.dark.surface3,
+    raisedHover: surfaces.dark.surface2,
+  },
+  light: {
+    accentSoft: 0.14,
+    accentGlow: 0.22,
+    hover: 0.05,
+    shadow: '0 16px 34px rgba(60, 40, 20, 0.18)',
+    raised: surfaces.light.surface2,
+    raisedHover: surfaces.light.divider,
+  },
+}
+
 // Each accent has a value per variant: the light one is darker so it still
 // reads on cream. #99 adds the other fixed accents and "From album art".
 export const accents = {
