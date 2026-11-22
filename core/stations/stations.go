@@ -128,7 +128,8 @@ type tracksRequest struct {
 }
 
 // checkRequest checks a request for count Tracks of the logged-in Listener's Station with the
-// DJ and Theme.
+// DJ and Theme. With an LLM, it also works out what the LLM is asked, which looks up the
+// Library genres the DJ's genres name.
 func (s *service) checkRequest(ctx context.Context, djID, theme string, count int) (tracksRequest, error) {
 	dj, err := s.DJ(ctx, djID)
 	if err != nil {
