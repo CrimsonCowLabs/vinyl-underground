@@ -193,6 +193,7 @@ func JWTVerifier(next http.Handler) http.Handler {
 // previews); the event stream and others still take the token from the URL.
 func NoTokenInURL(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// "jwt" is the query parameter jwtauth.TokenFromQuery reads in JWTVerifier
 		if r.URL.Query().Has("jwt") {
 			log.Warn(r.Context(), "Refused a request with the login token in its URL", "path", r.URL.Path)
 			http.Error(w, "Authorization header required, not a token in the URL", http.StatusUnauthorized)

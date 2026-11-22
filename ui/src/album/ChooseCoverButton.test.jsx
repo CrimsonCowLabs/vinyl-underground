@@ -1,6 +1,6 @@
 import React from 'react'
 import { render, fireEvent, waitFor, screen } from '@testing-library/react'
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { ChooseCoverButton } from './ChooseCoverButton'
 
 const {
@@ -85,6 +85,15 @@ const answers = {
   },
 }
 
+// A preview as the data provider answers it, as react-admin wants: { data: Blob }. The Blob
+// carries its candidate's ID, which names its blob URL.
+const preview = (candidateId) =>
+  Promise.resolve({
+    data: Object.assign(new Blob(['img'], { type: 'image/png' }), {
+      candidateId,
+    }),
+  })
+
 const open = () =>
   fireEvent.click(screen.getByText('resources.album.actions.chooseCover'))
 
@@ -101,15 +110,16 @@ describe('ChooseCoverButton', () => {
       Promise.resolve({ data: answers[source] }),
     )
     // Each preview is a Blob, shown from a blob URL named after it
-    mockGetPreview.mockImplementation((albumId, candidateId) =>
-      Promise.resolve(
-        Object.assign(new Blob(['img'], { type: 'image/png' }), {
-          candidateId,
-        }),
-      ),
+    // react-admin's useDataProvider passes on only (resource, payload)
+    mockGetPreview.mockImplementation((albumId, { candidateId }) =>
+      preview(candidateId),
     )
     URL.createObjectURL = vi.fn((blob) => `blob:${blob.candidateId}`)
     URL.revokeObjectURL = vi.fn()
+  })
+
+  afterEach(() => {
+    localStorage.removeItem('token')
   })
 
   it('is not offered to regular users', () => {
@@ -133,11 +143,10 @@ describe('ChooseCoverButton', () => {
     expect(mockGetCandidates).toHaveBeenCalledWith('al1', 'coverartarchive')
     const img = await screen.findByAltText('cover.jpg')
     expect(img.getAttribute('src')).toBe('blob:c-folder')
-    expect(mockGetPreview).toHaveBeenCalledWith(
-      'al1',
-      'c-folder',
-      expect.objectContaining({ signal: expect.any(AbortSignal) }),
-    )
+    expect(mockGetPreview).toHaveBeenCalledWith('al1', {
+      candidateId: 'c-folder',
+      signal: expect.any(AbortSignal),
+    })
   })
 
   describe('previews', () => {
@@ -150,14 +159,13 @@ describe('ChooseCoverButton', () => {
         expect(img.getAttribute('src')).not.toContain('secret-token')
         expect(img.getAttribute('src')).not.toContain('jwt')
       }
-      localStorage.removeItem('token')
     })
 
     it('show each as it arrives, without waiting for a slow one', async () => {
-      mockGetPreview.mockImplementation((albumId, candidateId) =>
+      mockGetPreview.mockImplementation((albumId, { candidateId }) =>
         candidateId === 'c-exact'
           ? new Promise(() => {})
-          : Promise.resolve(Object.assign(new Blob(['img']), { candidateId })),
+          : preview(candidateId),
       )
       render(<ChooseCoverButton record={album} />)
       open()
@@ -190,10 +198,10 @@ describe('ChooseCoverButton', () => {
     it('that arrive after the picker closed are dropped, and the rest cancelled', async () => {
       let arrive
       const signals = []
-      mockGetPreview.mockImplementation((albumId, candidateId, { signal }) => {
+      mockGetPreview.mockImplementation((albumId, { candidateId, signal }) => {
         signals.push(signal)
         return new Promise((resolve) => {
-          arrive = () => resolve(new Blob(['img']))
+          arrive = () => resolve(preview(candidateId))
         })
       })
       render(<ChooseCoverButton record={album} />)
@@ -209,10 +217,10 @@ describe('ChooseCoverButton', () => {
     })
 
     it('show a placeholder for one that failed, which can still be chosen', async () => {
-      mockGetPreview.mockImplementation((albumId, candidateId) =>
+      mockGetPreview.mockImplementation((albumId, { candidateId }) =>
         candidateId === 'c-folder'
           ? Promise.reject(new Error('not an image'))
-          : Promise.resolve(Object.assign(new Blob(['img']), { candidateId })),
+          : preview(candidateId),
       )
       render(<ChooseCoverButton record={album} />)
       open()

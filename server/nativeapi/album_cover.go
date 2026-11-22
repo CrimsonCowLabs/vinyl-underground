@@ -22,8 +22,7 @@ import (
 
 // addAlbumCoverRoute serves the cover picker (admin only, see routes): each source's candidates
 // for an album, and their previews. Choosing one is a Correction (POST /correction/albumCover).
-// The UI fetches previews with the Authorization header and shows them from blob URLs, so a
-// preview URL never carries the login token, and one that does is refused.
+// A preview URL with the login token in it is refused (server.NoTokenInURL).
 func (api *Router) addAlbumCoverRoute(r chi.Router) {
 	r.Route("/albumCover/{albumId}/candidates", func(r chi.Router) {
 		r.Get("/", api.listCoverCandidates)

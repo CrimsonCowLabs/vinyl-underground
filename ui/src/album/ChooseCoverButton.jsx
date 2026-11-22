@@ -87,11 +87,11 @@ const sourcesFor = (record) =>
     ? ['local', 'external', 'coverartarchive']
     : ['local', 'external']
 
-// A candidate's preview, as a blob URL, or { loading } or { failed }. An <img> can't send the
-// Authorization header, so the preview is fetched with it, and never with the login token in its
-// URL (the server refuses that). Each tile fetches its own, so a slow one never holds the others
-// up. The blob URL is revoked, and a fetch under way cancelled, when the tile goes: when the
-// picker closes or the candidates change.
+// A candidate's preview: { url } (a blob URL), { loading } or { failed }. It's fetched with the
+// Authorization header rather than as an <img> URL, which would have to carry the login token.
+// Each tile fetches its own, so a slow one never holds the others up. The blob URL is revoked,
+// and a fetch under way cancelled, when the tile goes: when the picker closes or the candidates
+// change.
 const useCoverPreview = (albumId, candidateId) => {
   const dataProvider = useDataProvider()
   const [preview, setPreview] = useState({ loading: true })
@@ -101,10 +101,10 @@ const useCoverPreview = (albumId, candidateId) => {
     let url = null
     setPreview({ loading: true })
     dataProvider
-      .getCoverPreview(albumId, candidateId, { signal: controller.signal })
-      .then((blob) => {
+      .getCoverPreview(albumId, { candidateId, signal: controller.signal })
+      .then(({ data }) => {
         if (controller.signal.aborted) return
-        url = URL.createObjectURL(blob)
+        url = URL.createObjectURL(data)
         setPreview({ url })
       })
       .catch(() => !controller.signal.aborted && setPreview({ failed: true }))

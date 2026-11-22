@@ -130,9 +130,13 @@ describe('wrapperDataProvider', () => {
       const blob = new Blob(['img'], { type: 'image/png' })
       mockFetchImage.mockResolvedValue(blob)
       const signal = new AbortController().signal
+      // As react-admin's useDataProvider calls it: (resource, payload), answering { data }
       await expect(
-        wrapperDataProvider.getCoverPreview('al-1', 'c-1', { signal }),
-      ).resolves.toBe(blob)
+        wrapperDataProvider.getCoverPreview('al-1', {
+          candidateId: 'c-1',
+          signal,
+        }),
+      ).resolves.toEqual({ data: blob })
       expect(mockFetchImage).toHaveBeenCalledWith(
         '/api/albumCover/al-1/candidates/c-1/preview',
         { signal },

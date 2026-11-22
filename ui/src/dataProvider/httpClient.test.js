@@ -2,7 +2,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { fetchImage } from './httpClient'
 
 // A fetch Response, as much of one as fetchImage reads
-const answer = ({ status = 200, type = 'image/png', headers = {} } = {}) => ({
+const fakeResponse = ({
+  status = 200,
+  type = 'image/png',
+  headers = {},
+} = {}) => ({
   ok: status >= 200 && status < 300,
   status,
   headers: new Headers({ 'Content-Type': type, ...headers }),
@@ -18,7 +22,7 @@ describe('fetchImage', () => {
   beforeEach(() => {
     localStorage.clear()
     localStorage.setItem('token', 'secret-token')
-    fetchMock = vi.fn(() => Promise.resolve(answer()))
+    fetchMock = vi.fn(() => Promise.resolve(fakeResponse()))
     vi.stubGlobal('fetch', fetchMock)
   })
 
@@ -40,7 +44,7 @@ describe('fetchImage', () => {
 
   it('keeps a refreshed token, as other requests do', async () => {
     fetchMock.mockResolvedValue(
-      answer({ headers: { 'X-ND-Authorization': refreshedToken } }),
+      fakeResponse({ headers: { 'X-ND-Authorization': refreshedToken } }),
     )
     await fetchImage('/api/x')
     expect(localStorage.getItem('token')).toBe(refreshedToken)
@@ -48,10 +52,10 @@ describe('fetchImage', () => {
   })
 
   it('rejects an answer that failed, or isn’t an image', async () => {
-    fetchMock.mockResolvedValueOnce(answer({ status: 502 }))
+    fetchMock.mockResolvedValueOnce(fakeResponse({ status: 502 }))
     await expect(fetchImage('/api/x')).rejects.toMatchObject({ status: 502 })
 
-    fetchMock.mockResolvedValueOnce(answer({ type: 'text/html' }))
+    fetchMock.mockResolvedValueOnce(fakeResponse({ type: 'text/html' }))
     await expect(fetchImage('/api/x')).rejects.toThrow('not an image')
   })
 
