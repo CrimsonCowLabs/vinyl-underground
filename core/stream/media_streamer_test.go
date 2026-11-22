@@ -79,6 +79,7 @@ var _ = Describe("MediaStreamer", func() {
 			}
 			DescribeTable("logs a new play at info and a range continuation at debug",
 				func(rng string, level logrus.Level) {
+					// A plain context, so the entry goes to the default logger and its hook.
 					s, err := streamer.NewStream(context.Background(), mf, stream.Request{Format: "raw", Range: rng})
 					Expect(err).ToNot(HaveOccurred())
 					DeferCleanup(s.Close)
@@ -91,6 +92,15 @@ var _ = Describe("MediaStreamer", func() {
 				Entry("a Range from byte 0", "bytes=0-", logrus.InfoLevel),
 				Entry("a Range from later in the file", "bytes=1048576-", logrus.DebugLevel),
 			)
+			It("logs a Range at info when the stream can't seek, since it starts over", func() {
+				s, err := streamer.NewStream(context.Background(), mf, stream.Request{Format: "mp3", BitRate: 64, Range: "bytes=1048576-"})
+				Expect(err).ToNot(HaveOccurred())
+				DeferCleanup(s.Close)
+				Expect(s.Seekable()).To(BeFalse())
+				e := streamingFile()
+				Expect(e).ToNot(BeNil())
+				Expect(e.Level).To(Equal(logrus.InfoLevel))
+			})
 		})
 
 		It("returns a seekable stream if format is 'raw'", func() {

@@ -67,10 +67,12 @@ func (ms *mediaStreamer) NewStream(ctx context.Context, mf *model.MediaFile, req
 	var format string
 	var bitRate int
 	var cached bool
+	var s *Stream
 	defer func() {
 		// A Range continuing a play is logged at debug, so the info log shows one line per play.
+		// A stream that can't seek ignores the Range and starts over, so that is a new play.
 		level := log.LevelInfo
-		if req.continuesPlay() {
+		if req.continuesPlay() && s != nil && s.Seekable() {
 			level = log.LevelDebug
 		}
 		log.Log(level, ctx, "Streaming file", "title", mf.Title, "artist", mf.Artist, "format", format, "cached", cached,
@@ -85,7 +87,7 @@ func (ms *mediaStreamer) NewStream(ctx context.Context, mf *model.MediaFile, req
 		format = "raw"
 		bitRate = 0
 	}
-	s := &Stream{ctx: ctx, mf: mf, format: format, bitRate: bitRate}
+	s = &Stream{ctx: ctx, mf: mf, format: format, bitRate: bitRate}
 	filePath := mf.AbsolutePath()
 
 	if format == "raw" {
