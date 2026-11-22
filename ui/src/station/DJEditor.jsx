@@ -32,17 +32,29 @@ const useStyles = makeStyles((theme) => ({
     gap: theme.spacing(0.5),
     margin: theme.spacing(1, 0),
   },
+  genresHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    flexWrap: 'wrap',
+  },
   warning: { marginTop: theme.spacing(1) },
 }))
 
 // saveDJ creates the Listener's DJ, or edits it when it has an id. genres are
 // only sent when the Listener picked them by hand; otherwise the server works
-// them out from the name and description, or keeps the ones picked before.
-const saveDJ = (id, name, description, genres) =>
+// them out from the name and description, or keeps the ones picked before,
+// unless resuggest asks it to work them out again.
+const saveDJ = (id, name, description, genres, resuggest) =>
   httpClient(id ? `${REST_URL}/station/dj/${id}` : `${REST_URL}/station/dj`, {
     method: id ? 'PUT' : 'POST',
-    body: JSON.stringify({ name, description, genres }),
+    body: JSON.stringify({ name, description, genres, resuggest }),
   }).then(({ json }) => json)
+
+// openDJ fetches the Listener's DJ for the form. The server maps its genres
+// first when they still need it (with the LLM, which can take a while).
+const openDJ = (id) =>
+  httpClient(`${REST_URL}/station/dj/${id}`).then(({ json }) => json)
 
 const fetchLibraryGenres = () =>
   httpClient(`${REST_URL}/station/genres`).then(({ json }) => json)
@@ -57,7 +69,8 @@ const matchGenres = (name, description) =>
 // DJEditor creates one of the Listener's own DJs (dj null) or edits one, from
 // a name, a personality description and its genres. The genres follow the
 // name and description until the Listener adds or removes one by hand; from
-// then on they stay as picked. onSaved gets the saved DJ.
+// then on they stay as picked, until the Listener asks for them to be
+// suggested again from the description. onSaved gets the saved DJ.
 const DJEditor = ({ open, dj, onClose, onSaved }) => {
   const translate = useTranslate()
   const notify = useNotify()
@@ -73,6 +86,11 @@ const DJEditor = ({ open, dj, onClose, onSaved }) => {
   // matched is true once the genres shown are what matching the name and
   // description found, so an empty list means nothing matched.
   const [matched, setMatched] = useState(false)
+  // suggesting is true while the server works the genres out.
+  const [suggesting, setSuggesting] = useState(false)
+  // resuggested is true once the Listener asked for the genres to be
+  // suggested again, replacing the ones picked by hand, and didn't pick since.
+  const [resuggested, setResuggested] = useState(false)
   const [library, setLibrary] = useState([])
   const [adding, setAdding] = useState('')
   const [saving, setSaving] = useState(false)
@@ -80,16 +98,28 @@ const DJEditor = ({ open, dj, onClose, onSaved }) => {
   // once the Listener picks the genres by hand.
   const match = useRef(0)
 
-  const runMatch = (forName, forDescription) => {
+  // showFound shows the genres the server found, unless the Listener picked
+  // genres, or asked again, since.
+  const showFound = (find) => {
     const id = ++match.current
-    matchGenres(forName, forDescription)
+    setSuggesting(true)
+    find()
       .then((found) => {
         if (id !== match.current) return
-        setGenres(found)
+        setGenres(found.genres || [])
+        setPicked(!!found.genresEdited)
         setMatched(true)
+        setSuggesting(false)
       })
-      .catch(() => {})
+      .catch(() => {
+        if (id === match.current) setSuggesting(false)
+      })
   }
+
+  const runMatch = (forName, forDescription) =>
+    showFound(() =>
+      matchGenres(forName, forDescription).then((genres) => ({ genres })),
+    )
 
   useEffect(() => {
     if (!open) return
@@ -99,13 +129,13 @@ const DJEditor = ({ open, dj, onClose, onSaved }) => {
     setPicked(!!dj?.genresEdited)
     setPickedNow(false)
     setMatched(false)
+    setSuggesting(false)
+    setResuggested(false)
     setAdding('')
     match.current++
-    // A DJ with no genres, and none picked by hand, may predate them, or have
-    // had nothing match: matching again shows which.
-    if (dj && !dj.genresEdited && !dj.genres?.length) {
-      runMatch(dj.name, dj.description)
-    }
+    // Opening a DJ maps genres it still needs (a DJ from before genres, or
+    // one the LLM couldn't map yet), shown when the server answers.
+    if (dj?.id) showFound(() => openDJ(dj.id))
     fetchLibraryGenres()
       .then(setLibrary)
       .catch(() => setLibrary([]))
@@ -122,6 +152,17 @@ const DJEditor = ({ open, dj, onClose, onSaved }) => {
     setGenres(next)
     setPicked(true)
     setPickedNow(true)
+    setResuggested(false)
+    setSuggesting(false)
+  }
+
+  // resuggest works the genres out again from the name and description,
+  // replacing the ones picked by hand once saved.
+  const resuggest = () => {
+    setPicked(false)
+    setPickedNow(false)
+    setResuggested(true)
+    runMatch(name.trim(), description.trim())
   }
 
   const save = (e) => {
@@ -133,6 +174,7 @@ const DJEditor = ({ open, dj, onClose, onSaved }) => {
       name.trim(),
       description.trim(),
       pickedNow ? genres : undefined,
+      resuggested || undefined,
     )
       .then((saved) => {
         setSaving(false)
@@ -191,9 +233,19 @@ const DJEditor = ({ open, dj, onClose, onSaved }) => {
             fullWidth
           />
           <div className={classes.genres}>
-            <FormLabel component="legend">
-              {translate('resources.station.dj.fields.genres')}
-            </FormLabel>
+            <div className={classes.genresHeader}>
+              <FormLabel component="legend">
+                {translate('resources.station.dj.fields.genres')}
+              </FormLabel>
+              <Button
+                size="small"
+                color="primary"
+                onClick={resuggest}
+                disabled={!valid || suggesting}
+              >
+                {translate('resources.station.dj.resuggest')}
+              </Button>
+            </div>
             <div className={classes.tags}>
               {genres.map((g) => (
                 <Chip
@@ -231,7 +283,11 @@ const DJEditor = ({ open, dj, onClose, onSaved }) => {
               )}
             />
             <FormHelperText>
-              {translate('resources.station.dj.fields.genresTip')}
+              {translate(
+                suggesting
+                  ? 'resources.station.dj.suggestingGenres'
+                  : 'resources.station.dj.fields.genresTip',
+              )}
             </FormHelperText>
             {unmatched && (
               <Alert severity="warning" className={classes.warning}>

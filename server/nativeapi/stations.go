@@ -12,22 +12,25 @@ import (
 )
 
 // addStationRoute exposes Stations. Stations need no LLM; with one, the DJ's persona and the
-// Station's Theme choose its Tracks, the way a Prompt does for Generated Playlists, and the DJ
-// writes Blurbs.
+// Station's Theme choose its Tracks, the way a Prompt does for Generated Playlists, the DJ
+// writes Blurbs, and a Listener's DJs get the genres the LLM maps them to.
 func (api *Router) addStationRoute(r chi.Router) {
 	var selector stations.Selector
 	var writer stations.BlurbWriter
+	var opts []stations.Option
 	if client := newLLMClient(); client != nil {
 		selector = generatedplaylist.NewSelector(api.ds, client, api.provider)
 		writer = stations.NewBlurbWriter(client)
+		opts = append(opts, stations.WithGenreLLM(client))
 	}
-	stationRoutes(r, stations.New(api.ds, selector, writer))
+	stationRoutes(r, stations.New(api.ds, selector, writer, opts...))
 }
 
 // stationRoutes mounts the Station endpoints, all for the logged-in Listener:
 //   - GET /station/dj lists the DJs they can start a Station with, built-in then their own;
-//   - POST /station/dj creates one of their own DJs, PUT and DELETE /station/dj/{id} edit and
-//     delete it (built-in DJs are read-only);
+//   - POST /station/dj creates one of their own DJs, GET /station/dj/{id} opens it for the DJ
+//     form (mapping its genres with the LLM first when they still need it), PUT and DELETE
+//     /station/dj/{id} edit and delete it (built-in DJs are read-only);
 //   - GET /station/genres lists their Library's genres, which their DJs' genres are picked
 //     from, and GET /station/genres/match?name=…&description=… the ones a DJ would get;
 //   - POST /station/next serves their next Station Tracks; with "start": true it starts the
@@ -38,6 +41,7 @@ func stationRoutes(r chi.Router, svc stations.Service) {
 	r.Route("/station", func(r chi.Router) {
 		r.Get("/dj", listDJs(svc))
 		r.Post("/dj", createDJ(svc))
+		r.Get("/dj/{id}", openDJ(svc))
 		r.Put("/dj/{id}", updateDJ(svc))
 		r.Delete("/dj/{id}", deleteDJ(svc))
 		r.Get("/genres", listGenres(svc))
@@ -69,15 +73,28 @@ func listDJs(svc stations.Service) http.HandlerFunc {
 
 // djRequest creates or edits a Listener's DJ. Genres are the genres the Listener picked by
 // hand: left out (or null) when they didn't touch them, so they are worked out from the name
-// and description, or kept when already picked.
+// and description, or kept when already picked. Resuggest works them out again even when
+// picked, as the form's "Re-suggest from description" asks.
 type djRequest struct {
 	Name        string   `json:"name"`
 	Description string   `json:"description"`
 	Genres      []string `json:"genres"`
+	Resuggest   bool     `json:"resuggest"`
 }
 
 func (b djRequest) edit() stations.DJEdit {
-	return stations.DJEdit{Name: b.Name, Description: b.Description, Genres: b.Genres}
+	return stations.DJEdit{Name: b.Name, Description: b.Description, Genres: b.Genres, Resuggest: b.Resuggest}
+}
+
+func openDJ(svc stations.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		dj, err := svc.OpenDJ(r.Context(), chi.URLParam(r, "id"))
+		if err != nil {
+			writeDJError(w, r, err)
+			return
+		}
+		writeStationJSON(w, r, dj)
+	}
 }
 
 func createDJ(svc stations.Service) http.HandlerFunc {

@@ -13,8 +13,10 @@ import (
 
 // A Listener's own DJ has genres (#106): names of the Library's genre tags, which rule-based
 // selection plays the way a built-in DJ's genres are played, strict rule included. They are
-// worked out from the DJ's name and description when it is saved (deriveGenres), until the
-// Listener picks them by hand; from then on editing the description leaves them alone.
+// worked out from the DJ's name and description when it is saved (deriveGenres): by the LLM
+// when there is one (see dj_genres_llm.go), else from their words. That goes on until the
+// Listener picks them by hand; from then on editing the description leaves them alone, unless
+// they ask for a new suggestion.
 
 func (s *service) Genres(ctx context.Context) ([]string, error) {
 	return s.libraryGenres(ctx)
@@ -42,14 +44,20 @@ func (s *service) libraryGenres(ctx context.Context) ([]string, error) {
 }
 
 // deriveGenres works out the genres for a DJ with the name and description, from the
-// Library's genres, and says where they came from. It is the one place a DJ's genres are
-// worked out rather than picked by the Listener.
+// Library's genres, and says where they came from: the LLM's, waiting up to genreMapTimeout
+// for them, or else the ones the words name. It is the one place a DJ's genres are worked out
+// rather than picked by the Listener.
 func (s *service) deriveGenres(ctx context.Context, name, description string) (model.DJGenres, model.DJGenreSource, error) {
 	library, err := s.libraryGenres(ctx)
 	if err != nil {
 		return nil, "", err
 	}
-	return matchGenreWords(name+"\n"+description, library), model.DJGenresFromWords, nil
+	mapCtx, cancel := context.WithTimeout(ctx, genreMapTimeout)
+	defer cancel()
+	if genres, ok := s.llmGenres(mapCtx, name, description, library); ok {
+		return genres, model.DJGenresFromLLM, nil
+	}
+	return matchGenreWords(genreText(name, description), library), model.DJGenresFromWords, nil
 }
 
 // libraryOnly keeps the genres the Library has, in the Library's own spelling, once each.

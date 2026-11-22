@@ -23,6 +23,8 @@ type DJ struct {
 	Genres       []string `json:"genres,omitempty"`
 	GenresEdited bool     `json:"genresEdited,omitempty"`
 	Taste        Taste    `json:"-"`
+	// genreSource says where a Listener's DJ's genres came from.
+	genreSource model.DJGenreSource
 }
 
 // Taste weighs a Track's existing metadata for a DJ. Every Track starts at a score of 1 and

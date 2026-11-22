@@ -38,6 +38,21 @@ func WaitForBlurbs(s Service) {
 	s.(*service).blurbs.wg.Wait()
 }
 
+// WaitForGenres waits until the Service's background genre mappings are done.
+func WaitForGenres(s Service) {
+	if m := s.(*service).genreLLM; m != nil {
+		m.wg.Wait()
+	}
+}
+
+// ForgetGenreFailures has the Service ask the LLM for genres again at once after it failed.
+func ForgetGenreFailures(s Service) {
+	m := s.(*service).genreLLM
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	clear(m.failedAt)
+}
+
 // SetStartWait sets how long a Station start waits for the LLM's picks.
 func SetStartWait(s Service, d time.Duration) {
 	s.(*service).startWait = d
