@@ -378,6 +378,26 @@ describe('EditAlbumButton', () => {
       })
     })
 
+    it('says so when the picked release brought no cover', async () => {
+      mockFindReleases.mockResolvedValue({ data: releases })
+      mockCorrectAlbum.mockResolvedValue({
+        data: { albumId: 'al3', done: true, pickCover: 'failed' },
+      })
+      render(<EditAlbumButton record={record} />)
+      open()
+      find()
+      fireEvent.click(await screen.findByTestId('mbz-release-rel-1'))
+      save()
+
+      await waitFor(() =>
+        expect(mockNotify).toHaveBeenCalledWith(
+          'resources.album.musicbrainz.coverFailed',
+          { type: 'warning' },
+        ),
+      )
+      expect(mockRedirect).toHaveBeenCalledWith('/album/al3/show')
+    })
+
     it('lets a picked release be dropped before saving', async () => {
       mockFindReleases.mockResolvedValue({ data: releases })
       render(<EditAlbumButton record={record} />)

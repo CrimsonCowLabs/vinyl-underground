@@ -7,8 +7,11 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/Masterminds/squirrel"
+	"github.com/navidrome/navidrome/core/artwork"
+	"github.com/navidrome/navidrome/core/musicbrainz"
 	"github.com/navidrome/navidrome/core/refresh"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
@@ -74,6 +77,7 @@ func (c *corrections) CorrectAlbum(ctx context.Context, albumID string, fix Albu
 	if err == nil {
 		cr.From, cr.AlbumName, cr.AlbumArtist, cr.Year = old.From, old.AlbumName, old.AlbumArtist, old.Year
 		cr.MbzAlbumID, cr.MbzReleaseGroupID = old.MbzAlbumID, old.MbzReleaseGroupID
+		cr.ImageHash, cr.ImageMime = old.ImageHash, old.ImageMime
 	} else if !errors.Is(err, model.ErrNotFound) {
 		return nil, err
 	}
@@ -93,20 +97,34 @@ func (c *corrections) CorrectAlbum(ctx context.Context, albumID string, fix Albu
 		cr.Year, changed = fix.Year, true
 	}
 	// A picked release replaces the album's release and release group together: the tagged
-	// release group belongs to the tagged release
-	if fix.MbzAlbumID != "" && (fix.MbzAlbumID != al.MbzAlbumID || fix.MbzReleaseGroupID != al.MbzReleaseGroupID) {
+	// release group belongs to the tagged release. Picking the release the album is tagged with
+	// still brings its cover forward.
+	if fix.MbzAlbumID != "" && (fix.MbzAlbumID != cr.MbzAlbumID || fix.MbzReleaseGroupID != cr.MbzReleaseGroupID) {
 		cr.MbzAlbumID, cr.MbzReleaseGroupID, changed = fix.MbzAlbumID, fix.MbzReleaseGroupID, true
+		cr.ImageHash, cr.ImageMime = "", ""
 		cr.To += mbzLabel + pickedReleaseLabel(fix)
 	} else if old != nil && cr.MbzAlbumID != "" {
 		if i := strings.Index(old.To, mbzLabel); i >= 0 {
 			cr.To += old.To[i:]
 		}
 	}
-	if !changed {
+	// Only picking a release asks the archive for its cover: a new pick, or picking the same release
+	// again while it has none (the archive failed, or had none then). Other edits leave it be.
+	fetchCover := fix.MbzAlbumID != "" && cr.ImageHash == "" && c.opts.PickedCover != nil
+	if !changed && !fetchCover {
 		return nil, fmt.Errorf("%w: nothing changed", model.ErrValidation)
 	}
 	if err := c.checkSharedFolder(ctx, *al); err != nil {
 		return nil, err
+	}
+	// Whatever the archive answers, the rest of the Correction is saved
+	var pickCover PickCover
+	if fetchCover {
+		pickCover = c.fetchPickedCover(ctx, &cr)
+	}
+	var oldCover string
+	if old != nil {
+		oldCover = old.ImageHash
 	}
 
 	targets, err := c.refresher.ScanTargets(ctx, model.KindAlbumArtwork, al.ID)
@@ -126,8 +144,13 @@ func (c *corrections) CorrectAlbum(ctx context.Context, albumID string, fix Albu
 		return nil, err
 	}
 	log.Info(ctx, "Corrections: correcting an album", "from", cr.From, "to", cr.To, "folders", len(targets))
-	res := &Applied{Correction: cr, AlbumID: al.ID}
-	res.Done = c.rescan(ctx, targets, refresh.Item{Kind: model.KindAlbumArtwork, ID: al.ID}, nil)
+	res := &Applied{Correction: cr, AlbumID: al.ID, PickCover: pickCover}
+	var after func(context.Context) error
+	if cr.ImageHash != oldCover {
+		// The rescan refreshes the album's cover, but its Tracks' own art follows the pick too
+		after = func(ctx context.Context) error { return c.refreshFolderCovers(ctx, key) }
+	}
+	res.Done = c.rescan(ctx, targets, refresh.Item{Kind: model.KindAlbumArtwork, ID: al.ID}, after)
 	if res.Done {
 		res.AlbumID = c.albumIn(ctx, al.FolderIDs, al.ID)
 	}
@@ -176,7 +199,14 @@ func (c *corrections) undoAlbum(ctx context.Context, cr *model.Correction) (*App
 	res.AlbumID = c.albumIn(ctx, folderIDs, "")
 	log.Info(ctx, "Corrections: undoing a Correction of the album's tags", "kind", cr.Kind, "from", cr.From, "to", cr.To, "folders", len(targets))
 	res.Done = c.rescan(ctx, targets, refresh.Item{Kind: model.KindAlbumArtwork, ID: res.AlbumID}, func(ctx context.Context) error {
-		return c.ds.Correction(ctx).Delete(cr.ID)
+		if err := c.ds.Correction(ctx).Delete(cr.ID); err != nil {
+			return err
+		}
+		if cr.ImageHash == "" {
+			return nil
+		}
+		// The album's and its Tracks' art no longer show the picked release's cover
+		return c.refreshFolderCovers(ctx, cr.MatchKey)
 	})
 	if res.Done {
 		res.AlbumID = c.albumIn(ctx, folderIDs, res.AlbumID)
@@ -201,6 +231,43 @@ func (c *corrections) albumIn(ctx context.Context, folderIDs []string, def strin
 // albumYear is the year clients show for the album: its original year when it has one.
 func albumYear(al model.Album) int {
 	return cmp.Or(al.MaxOriginalYear, al.MaxYear)
+}
+
+// PickCover is what the Cover Art Archive answered for a picked release (see Applied.PickCover).
+type PickCover string
+
+const (
+	// PickCoverFound: the release's front cover is kept with the pick, and is the album's cover.
+	PickCoverFound PickCover = "found"
+	// PickCoverNone: the archive has no front cover for it; the album keeps its usual cover order.
+	PickCoverNone PickCover = "none"
+	// PickCoverFailed: the archive could not be asked; picking the release again tries it again.
+	PickCoverFailed PickCover = "failed"
+	// PickCoverDisabled: EnableExternalServices is off, so the archive was not asked.
+	PickCoverDisabled PickCover = "disabled"
+)
+
+// pickedCoverTimeout is how long saving waits for the archive before saving the pick without it.
+const pickedCoverTimeout = 20 * time.Second
+
+// fetchPickedCover asks the archive for the picked release's front cover and keeps it with the
+// Correction. A failure is only logged: the pick is saved without it.
+func (c *corrections) fetchPickedCover(ctx context.Context, cr *model.Correction) PickCover {
+	ctx, cancel := context.WithTimeout(ctx, pickedCoverTimeout)
+	defer cancel()
+	stored, err := c.opts.PickedCover(ctx, cr.MbzAlbumID, cr.MbzReleaseGroupID)
+	switch {
+	case errors.Is(err, artwork.ErrExternalServicesOff):
+		return PickCoverDisabled
+	case errors.Is(err, musicbrainz.ErrNoCover):
+		log.Info(ctx, "Corrections: the Cover Art Archive has no cover for the picked release", "release", cr.MbzAlbumID)
+		return PickCoverNone
+	case err != nil:
+		log.Warn(ctx, "Corrections: could not fetch the picked release's cover", "release", cr.MbzAlbumID, err)
+		return PickCoverFailed
+	}
+	cr.ImageHash, cr.ImageMime = stored.Hash, stored.Mime
+	return PickCoverFound
 }
 
 // isMbzID says whether s is a MusicBrainz ID (a UUID).

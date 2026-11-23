@@ -40,6 +40,13 @@ const knownErrors = [
   'notFound',
 ]
 
+// What the Cover Art Archive answered for a picked release, when it gave no cover.
+const pickCoverNotes = {
+  none: 'resources.album.musicbrainz.noCover',
+  failed: 'resources.album.musicbrainz.coverFailed',
+  disabled: 'resources.album.musicbrainz.coverDisabled',
+}
+
 // The year clients show for the album: its original year when it has one, as the server
 // compares it.
 const albumYear = (record) => record.maxOriginalYear || record.maxYear || ''
@@ -116,15 +123,24 @@ const EditAlbumDialog = ({ record, onClose }) => {
         )
         .then(({ data }) => {
           onClose()
+          // A picked release whose cover couldn't be had is worth a word over the usual one
+          const pickNote = pickCoverNotes[data.pickCover]
+          const level = pickNote ? 'warning' : 'info'
           if (data.done && data.albumId === record.id) {
             // The album keeps its ID (e.g. only track numbers changed): its page reloads
-            notify('resources.album.editor.corrected', { type: 'info' })
+            notify(pickNote || 'resources.album.editor.corrected', {
+              type: level,
+            })
             refresh()
           } else if (data.done) {
-            notify('resources.album.editor.corrected', { type: 'info' })
+            notify(pickNote || 'resources.album.editor.corrected', {
+              type: level,
+            })
             redirect(`/album/${data.albumId}/show`)
           } else {
-            notify('resources.album.editor.correcting', { type: 'info' })
+            notify(pickNote || 'resources.album.editor.correcting', {
+              type: level,
+            })
             // The rescan finishes in the background, and an album Correction takes this page's
             // album ID with it
             if (!unchanged) redirect('/album')

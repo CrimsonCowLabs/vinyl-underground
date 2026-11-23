@@ -2,9 +2,12 @@ package corrections_test
 
 import (
 	"context"
+	"errors"
 	"time"
 
+	"github.com/navidrome/navidrome/core/artwork"
 	"github.com/navidrome/navidrome/core/corrections"
+	"github.com/navidrome/navidrome/core/musicbrainz"
 	"github.com/navidrome/navidrome/core/refresh"
 	"github.com/navidrome/navidrome/db"
 	"github.com/navidrome/navidrome/model"
@@ -139,6 +142,19 @@ var _ = Describe("CorrectAlbum", func() {
 		const release, group = "8a7f5c4e-0d5b-4f1e-9d3c-3b2a1f0e9d8c", "1b2c3d4e-5f60-4718-9a0b-c1d2e3f40516"
 		picked := corrections.AlbumFix{Name: "Recrod", AlbumArtist: "Band", Year: 1998,
 			MbzAlbumID: release, MbzReleaseGroupID: group, MbzRelease: "Record (GB, CD, 1999)"}
+		var archive *fakePickedCovers
+
+		BeforeEach(func() {
+			archive = &fakePickedCovers{covers: map[string]artwork.StoredCover{
+				release:                                {Hash: "aaaaaaaaaaaaaaaa", Mime: "image/png"},
+				"00000000-0000-4000-8000-000000000001": {Hash: "bbbbbbbbbbbbbbbb", Mime: "image/jpeg"},
+			}}
+			svc = corrections.NewWithOptions(ds, refresher, corrections.Options{Wait: time.Second, PickedCover: archive.fetch})
+		})
+		queued := func(kind model.Kind, id string) bool {
+			_, err := ds.ArtworkQueue(ctx).Get(kind, id, model.ImageTypePrimary)
+			return err == nil
+		}
 
 		It("saves the release and release group IDs alone, and rescans and refreshes the album", func() {
 			refresher.onScan = rekeyTracks("al-mbz")
@@ -155,6 +171,82 @@ var _ = Describe("CorrectAlbum", func() {
 			Expect(got.MbzReleaseGroupID).To(Equal(group))
 			Expect(got.AlbumName).To(BeEmpty())
 			Expect(got.Year).To(BeZero())
+		})
+
+		It("keeps the release's Cover Art Archive cover with it, and refreshes the album's and its Tracks' art", func() {
+			_, err := db.Db().Exec("update media_file set has_cover_art = true")
+			Expect(err).ToNot(HaveOccurred())
+			res, err := svc.CorrectAlbum(ctx, al.ID, picked)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(res.PickCover).To(Equal(corrections.PickCoverFound))
+			Expect(archive.asked).To(Equal([]string{release + "|" + group}))
+			Expect(res.Correction.ImageHash).To(Equal("aaaaaaaaaaaaaaaa"))
+			Expect(res.Correction.ImageMime).To(Equal("image/png"))
+			Eventually(func() bool { return queued(model.KindMediaFileArtwork, "mf-1") }).Should(BeTrue())
+			Expect(queued(model.KindAlbumArtwork, al.ID)).To(BeTrue())
+		})
+
+		It("saves the pick without a cover when the archive has none, or can't be reached", func() {
+			archive.covers = nil
+			res, err := svc.CorrectAlbum(ctx, al.ID, picked)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(res.PickCover).To(Equal(corrections.PickCoverNone))
+			Expect(res.Correction.ImageHash).To(BeEmpty())
+			Expect(res.Correction.MbzAlbumID).To(Equal(release))
+
+			archive.err = errors.New("the archive is down")
+			fix := picked
+			fix.Name = "Record"
+			res, err = svc.CorrectAlbum(ctx, al.ID, fix)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(res.PickCover).To(Equal(corrections.PickCoverFailed))
+			Expect(res.Correction.AlbumName).To(Equal("Record"))
+		})
+
+		It("tries the archive again when the same release is picked again and has no cover yet", func() {
+			archive.err = errors.New("the archive is down")
+			_, err := svc.CorrectAlbum(ctx, al.ID, picked)
+			Expect(err).ToNot(HaveOccurred())
+			archive.err = nil
+			res, err := svc.CorrectAlbum(ctx, al.ID, picked)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(res.PickCover).To(Equal(corrections.PickCoverFound))
+			Expect(res.Correction.ImageHash).To(Equal("aaaaaaaaaaaaaaaa"))
+
+			_, err = svc.CorrectAlbum(ctx, al.ID, picked)
+			Expect(err).To(MatchError(ContainSubstring("nothing changed")), "once it has its cover")
+		})
+
+		It("doesn't ask the archive again for an edit that picks nothing", func() {
+			archive.covers = nil
+			_, err := svc.CorrectAlbum(ctx, al.ID, picked)
+			Expect(err).ToNot(HaveOccurred())
+			res, err := svc.CorrectAlbum(ctx, al.ID, corrections.AlbumFix{Name: "Record", AlbumArtist: "Band", Year: 1998})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(res.PickCover).To(BeEmpty())
+			Expect(archive.asked).To(HaveLen(1))
+		})
+
+		It("brings forward the cover of the release the album is already tagged with", func() {
+			al.MbzAlbumID, al.MbzReleaseGroupID = release, group
+			Expect(ds.Album(ctx).Put(&al)).To(Succeed())
+			res, err := svc.CorrectAlbum(ctx, al.ID, picked)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(res.Correction.ImageHash).To(Equal("aaaaaaaaaaaaaaaa"))
+		})
+
+		It("refreshes the covers again on undo", func() {
+			res, err := svc.CorrectAlbum(ctx, al.ID, picked)
+			Expect(err).ToNot(HaveOccurred())
+			Eventually(func() bool { return queued(model.KindAlbumArtwork, al.ID) }).Should(BeTrue())
+			_, err = db.Db().Exec("delete from artwork_queue")
+			Expect(err).ToNot(HaveOccurred())
+			_, err = db.Db().Exec("update media_file set correction_ids = ?", `["`+res.Correction.ID+`"]`)
+			Expect(err).ToNot(HaveOccurred())
+
+			_, err = svc.Undo(ctx, res.Correction.ID)
+			Expect(err).ToNot(HaveOccurred())
+			Eventually(func() bool { return queued(model.KindAlbumArtwork, al.ID) }).Should(BeTrue())
 		})
 
 		It("saves it along with a corrected title", func() {
@@ -189,14 +281,10 @@ var _ = Describe("CorrectAlbum", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(res.Correction.MbzAlbumID).To(Equal("00000000-0000-4000-8000-000000000001"))
 			Expect(res.Correction.To).To(HaveSuffix(`MusicBrainz: Record (US, 12" Vinyl, 1999)`))
+			Expect(res.Correction.ImageHash).To(Equal("bbbbbbbbbbbbbbbb"), "with its own cover")
 		})
 
-		It("rejects the release the album is already tagged with, and IDs that are no MusicBrainz IDs", func() {
-			al.MbzAlbumID, al.MbzReleaseGroupID = release, group
-			Expect(ds.Album(ctx).Put(&al)).To(Succeed())
-			_, err := svc.CorrectAlbum(ctx, al.ID, picked)
-			Expect(err).To(MatchError(ContainSubstring("nothing changed")))
-
+		It("rejects IDs that are no MusicBrainz IDs", func() {
 			for _, bad := range []corrections.AlbumFix{
 				{Name: "Recrod", AlbumArtist: "Band", MbzAlbumID: "not-an-id"},
 				{Name: "Recrod", AlbumArtist: "Band", MbzAlbumID: release, MbzReleaseGroupID: "nope"},
@@ -275,4 +363,23 @@ func addTrack(id, albumID string, f *model.Folder) {
 	mf := model.MediaFile{ID: id, LibraryID: 1, FolderID: f.ID, AlbumID: albumID, Path: f.Path + "/" + f.Name + "/" + id + ".mp3",
 		Participants: model.Participants{}}
 	Expect(persistence.New(db.Db()).MediaFile(ctx).Put(&mf)).To(Succeed())
+}
+
+// fakePickedCovers stands in for the Cover Art Archive: the stored cover of each release it has.
+type fakePickedCovers struct {
+	covers map[string]artwork.StoredCover
+	err    error
+	asked  []string
+}
+
+func (f *fakePickedCovers) fetch(_ context.Context, releaseID, releaseGroupID string) (artwork.StoredCover, error) {
+	f.asked = append(f.asked, releaseID+"|"+releaseGroupID)
+	if f.err != nil {
+		return artwork.StoredCover{}, f.err
+	}
+	c, ok := f.covers[releaseID]
+	if !ok {
+		return artwork.StoredCover{}, musicbrainz.ErrNoCover
+	}
+	return c, nil
 }

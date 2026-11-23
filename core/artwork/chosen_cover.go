@@ -54,66 +54,81 @@ func StoreChosenCover(data []byte) (StoredCover, error) {
 	return stored, store.Write(hash, stored.Mime, bytes.NewReader(data))
 }
 
+// PickSource is the model.ItemArtwork.Source of the Cover Art Archive cover of an album's picked
+// MusicBrainz release (Find on MusicBrainz, see model.AlbumCovers.Pick). It is kept in the
+// ChosenCoverStore like a choice, and outranks every source in CoverArtPriority but the choice.
+const PickSource = "musicbrainzPick"
+
 // albumCovers is what admins decided about an album's cover: the image they chose or uploaded, if
-// any, and the images they marked wrong. The album's cover, its disc art and its Tracks' own art
-// all follow it: the choice is tried before their priority order, and the blocks are skipped.
+// any, the cover of the MusicBrainz release they picked, if any, and the images they marked wrong.
+// The album's cover, its disc art and its Tracks' own art all follow it: the choice, then the
+// pick, are tried before their priority order, and the blocks are skipped.
 type albumCovers struct {
 	choice *model.Correction // nil when the album has none
+	pick   *model.Correction // nil when the album has none
 	blocks coverBlocks
 }
 
-// loadAlbumCovers loads both with one indexed query on the album's folders (see
+// loadAlbumCovers loads them with one indexed query on the album's folders (see
 // model.AlbumCoverCorrections), so it costs a Track's own art no more than the blocks alone did.
 func loadAlbumCovers(ctx context.Context, ds model.DataStore, al model.Album) (albumCovers, error) {
-	choice, blocks, err := model.AlbumCoverCorrections(ds.Correction(ctx), al)
+	found, err := model.AlbumCoverCorrections(ds.Correction(ctx), al)
 	if err != nil {
 		return albumCovers{}, err
 	}
-	covers := albumCovers{choice: choice}
-	if len(blocks) > 0 {
-		covers.blocks = make(coverBlocks, len(blocks))
-		for _, b := range blocks {
+	covers := albumCovers{choice: found.Choice, pick: found.Pick}
+	if len(found.Blocks) > 0 {
+		covers.blocks = make(coverBlocks, len(found.Blocks))
+		for _, b := range found.Blocks {
 			covers.blocks[b.ImageHash] = struct{}{}
 		}
 	}
 	return covers, nil
 }
 
-// openChoice opens the chosen image. A choice whose image is gone is a miss, so the item falls
-// back to its default order; one with no choice has no source at all.
-func (a albumCovers) openChoice() (resolution, bool) {
-	if a.choice == nil || !validHash(a.choice.ImageHash) {
+// openStored opens the image a choice or a pick keeps in the ChosenCoverStore. One whose image is
+// gone is a miss, so the item falls back to its default order; none at all has no source.
+func openStored(cr *model.Correction, source string) (resolution, bool) {
+	if cr == nil || !validHash(cr.ImageHash) {
 		return resolution{}, false
 	}
-	return resolveLocalFile(ChosenCoverStore().path(a.choice.ImageHash, a.choice.ImageMime), ChosenSource)
+	return resolveLocalFile(ChosenCoverStore().path(cr.ImageHash, cr.ImageMime), source)
 }
 
-// key names the choice and the blocks, for a cache key of an image resolved under them.
+// key names the choice, the pick and the blocks, for a cache key of an image resolved under them.
 func (a albumCovers) key() string {
-	var choice string
+	var choice, pick string
 	if a.choice != nil {
 		choice = a.choice.ImageHash
 	}
-	return choice + ";" + a.blocks.key()
+	if a.pick != nil {
+		pick = a.pick.ImageHash
+	}
+	return choice + ";" + pick + ";" + a.blocks.key()
 }
 
 // tryCovers starts a priority walk under the album's covers: the walk skips its blocks from here
-// on, and its choice is tried first. decided means the walk is over: the choice won, or its image
-// could not be read, as falling through would show (and persist) a lower-priority image as if the
-// choice were gone. A blocked choice is gone.
+// on, and its choice, then its pick, are tried first. decided means the walk is over: one of them
+// won, or its image could not be read, as falling through would show (and persist) a
+// lower-priority image as if it were gone. A blocked choice or pick is gone.
 func (c *chainState) tryCovers(covers albumCovers) (_ resolution, decided bool) {
 	c.blocks = covers.blocks
-	chosen, opened := covers.openChoice()
-	switch {
-	case opened || chosen.localError:
-		if res, ok := c.try(ChosenSource, chosen, opened); ok {
-			return res, true
+	for _, stored := range []struct {
+		cr     *model.Correction
+		source string
+	}{{covers.choice, ChosenSource}, {covers.pick, PickSource}} {
+		res, opened := openStored(stored.cr, stored.source)
+		switch {
+		case opened || res.localError:
+			if res, ok := c.try(stored.source, res, opened); ok {
+				return res, true
+			}
+			if c.localErr {
+				return c.exhausted(), true
+			}
+		case res.source != "":
+			c.record(stored.source, OutcomeMiss, "")
 		}
-		if c.localErr {
-			return c.exhausted(), true
-		}
-	case chosen.source != "":
-		c.record(ChosenSource, OutcomeMiss, "")
 	}
 	return resolution{}, false
 }
