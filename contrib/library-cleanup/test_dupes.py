@@ -37,6 +37,7 @@ class ChooseKeeper(unittest.TestCase):
     def test_keeps_the_name_a_music_app_copied_from(self) -> None:
         self.assertEqual(choose_keeper(["A/Song 1.mp3", "A/Song.mp3", "A/Song 2.mp3"]), "A/Song.mp3")
         self.assertEqual(choose_keeper(["A/Song (1).mp3", "A/Song.mp3"]), "A/Song.mp3")
+        self.assertEqual(choose_keeper(["A/(1)The Hollow.mp3", "A/01 The Hollow.mp3"]), "A/01 The Hollow.mp3")
         self.assertEqual(
             choose_keeper(["A/Copy of Copy of Song.mp3", "A/Copy (2) of Song.mp3", "A/Copy of Song.mp3", "A/Song.mp3"]),
             "A/Song.mp3",

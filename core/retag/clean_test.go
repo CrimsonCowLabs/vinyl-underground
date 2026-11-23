@@ -26,6 +26,11 @@ var _ = Describe("Clean", func() {
 		Entry("a disc and track number", Local{Title: "5-15 After da Hour"}, "After da Hour", 15),
 		Entry("a decimal stays", Local{Title: "3.5 Minutes", Track: 3}, "3.5 Minutes", 3),
 		Entry("one digit joined by a hyphen stays", Local{Title: "4-Ever"}, "4-Ever", 0),
+		Entry("in brackets, with no track number", Local{Title: "(1)The Hollow"}, "The Hollow", 1),
+		Entry("in brackets, followed by a space", Local{Title: "(12) Over", Track: 12}, "Over", 12),
+		Entry("in brackets, differing from the track number, stays", Local{Title: "(3)Rose", Track: 4}, "(3)Rose", 4),
+		Entry("a bracketed word stays", Local{Title: "(I Can't Get No) Satisfaction"}, "(I Can't Get No) Satisfaction", 0),
+		Entry("a bracketed year stays", Local{Title: "(1999) Party"}, "(1999) Party", 0),
 	)
 
 	It("keeps what the File had before the local fixes", func() {

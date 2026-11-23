@@ -75,8 +75,10 @@ var (
 	discTrackRe = regexp.MustCompile(`^(\d{1,2})-(\d{2})\s+(.+)$`)
 	// "10 - Bones", "03. Airbag", "04_Lucky", "01 Halloween", "12 Fake Plastic Trees".
 	trackPrefixRe = regexp.MustCompile(`^(\d{1,3})(\s*[-–]\s*|\.\s*|_|\s+)(.+)$`)
-	trackNNRe     = regexp.MustCompile(`(?i)^track\s*(\d{1,3})$`)
-	onlyNumberRe  = regexp.MustCompile(`^\d+$`)
+	// "(1)The Hollow", "(12) Over": a track number in brackets, always set apart.
+	bracketedTrackRe = regexp.MustCompile(`^\((\d{1,3})\)\s*(.+)$`)
+	trackNNRe        = regexp.MustCompile(`(?i)^track\s*(\d{1,3})$`)
+	onlyNumberRe     = regexp.MustCompile(`^\d+$`)
 	// In a File's name: "2-03 Foo", "07 Foo", "07. Foo", "7 - Foo", "07_Foo".
 	stemDiscTrackRe = regexp.MustCompile(`^(\d{1,2})-(\d{2})[\s._-]`)
 	stemTrackRe     = regexp.MustCompile(`^(?:(\d{1,3})\s*[-.]\s*|(\d{1,3})_|(0\d)\s)`)
@@ -155,7 +157,7 @@ func (c *Cleaned) setTrack(n int) {
 
 // stripNumber takes a track number off the front of the title, when it is one: the File has no
 // other track number, and the number is set apart (by punctuation, or written with a leading
-// zero). A number only followed by a space may be part of the title, so it is kept and flagged.
+// zero, or in brackets). A number only followed by a space may be part of the title, so it is kept and flagged.
 func (c *Cleaned) stripNumber() {
 	if m := discTrackRe.FindStringSubmatch(c.Title); m != nil {
 		d, n := atoi(m[1]), atoi(m[2])
@@ -169,6 +171,14 @@ func (c *Cleaned) stripNumber() {
 			c.fix("took the disc and track number off the title")
 			return
 		}
+	}
+	if m := bracketedTrackRe.FindStringSubmatch(c.Title); m != nil && hasLetter(m[2]) {
+		if n := atoi(m[1]); c.trackFits(n) {
+			c.setTrack(n)
+			c.Title = m[2]
+			c.fix("took the track number off the title")
+		}
+		return
 	}
 	m := trackPrefixRe.FindStringSubmatch(c.Title)
 	if m == nil || !hasLetter(m[3]) || partOfRe.MatchString(m[3]) {
