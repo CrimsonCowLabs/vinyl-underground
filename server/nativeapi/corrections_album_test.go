@@ -146,6 +146,13 @@ var _ = Describe("Album Edit API", func() {
 		Expect(res.Error).To(Equal("editingOff"))
 	})
 
+	It("answers editingOff, saving nothing, for new values with a picked release and no edit job queue", func() {
+		w := post(adminToken, map[string]any{"albumId": "al-1", "name": "New Title", "albumArtist": "Band",
+			"mbzAlbumId": "rel-1", "mbzReleaseGroupId": "rg-1"})
+		Expect(w.Code).To(Equal(http.StatusForbidden))
+		Expect(svc.albums).To(BeEmpty())
+	})
+
 	It("denies access to regular users", func() {
 		Expect(post(userToken, body).Code).To(Equal(http.StatusForbidden))
 		Expect(svc.plans).To(BeEmpty())

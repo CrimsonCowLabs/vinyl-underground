@@ -108,20 +108,17 @@ func (api *Router) correctAlbum(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := r.Context()
 	picked := strings.TrimSpace(body.MbzAlbumID) != "" || strings.TrimSpace(body.MbzReleaseGroupID) != ""
-	var plan *corrections.Plan
-	if api.editQueue != nil || !picked {
-		var err error
-		plan, err = api.corrections.PlanAlbumEdit(ctx, body.AlbumID, &body.AlbumFix, body.Tracks)
-		switch {
-		case errors.Is(err, corrections.ErrNothingToWrite) && picked:
-			plan = nil
-		case err != nil:
-			writeWriteError(w, r, err)
-			return
-		case api.editQueue == nil:
-			writeTagEditError(w, r, tagedit.ErrEditingOff)
-			return
-		}
+	plan, err := api.corrections.PlanAlbumEdit(ctx, body.AlbumID, &body.AlbumFix, body.Tracks)
+	switch {
+	case errors.Is(err, corrections.ErrNothingToWrite) && picked:
+		// Only the release changed: it is a Correction, which needs no writable Files.
+		plan = nil
+	case err != nil:
+		writeWriteError(w, r, err)
+		return
+	case api.editQueue == nil:
+		writeTagEditError(w, r, tagedit.ErrEditingOff)
+		return
 	}
 	var pickCover corrections.PickCover
 	if picked {
@@ -205,15 +202,20 @@ func (api *Router) runWriteJob(w http.ResponseWriter, r *http.Request, plan *cor
 		return
 	}
 	skipped := model.EditJobSteps{}
+	// The album's new ID is a written Track's album's: a skipped one is still on the old album.
+	albumTrack := plan.TrackID
+	written := false
 	for _, s := range job.Steps {
 		if s.State == model.EditStepSkipped {
 			skipped = append(skipped, s)
+		} else if !written && plan.TrackID != "" {
+			albumTrack, written = s.MediaFileID, true
 		}
 	}
 	job.Steps = skipped
 	res.Job, res.Done, res.ArtistID = job, true, plan.ArtistID
-	if plan.TrackID != "" {
-		if mf, err := api.ds.MediaFile(ctx).Get(plan.TrackID); err == nil {
+	if albumTrack != "" {
+		if mf, err := api.ds.MediaFile(ctx).Get(albumTrack); err == nil {
 			res.AlbumID = mf.AlbumID
 		}
 	}

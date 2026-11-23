@@ -119,6 +119,18 @@ var _ = Describe("Job kinds", func() {
 		Expect(runner.Ran()).To(Equal([]string{"a.mp3", "c.mp3"}))
 	})
 
+	It("gives up on a kind that keeps failing, so the jobs after it still run", func() {
+		q.hookTries = 1
+		kind.failed = 100
+		job, err := q.EnqueueWith(ctx, renameJob, "", fileSteps("a.mp3"))
+		Expect(err).ToNot(HaveOccurred())
+		other, err := q.Enqueue(ctx, fakeKind, fileSteps("b.mp3"))
+		Expect(err).ToNot(HaveOccurred())
+		wait(job)
+		wait(other)
+		Expect(runner.Ran()).To(Equal([]string{"a.mp3", "b.mp3"}))
+	})
+
 	It("undoes a job's kind once the undo's Files are written, and a redo starts and finishes it again", func() {
 		job, err := q.EnqueueWith(ctx, renameJob, "", fileSteps("a.mp3", "b.mp3"))
 		Expect(err).ToNot(HaveOccurred())

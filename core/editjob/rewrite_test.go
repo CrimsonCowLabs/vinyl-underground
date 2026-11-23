@@ -36,6 +36,14 @@ var _ = Describe("Rewrite", func() {
 		Expect(edit).To(Equal(tagedit.Values{"artists": {"Bob"}, "musicbrainz_artistid": {"id-bob"}}))
 	})
 
+	It("renames each of several values a File holds in a single-valued field", func() {
+		edit, err := Rewrite{Rename: &Rename{From: []string{"Ann"}, To: "Bob"}}.Apply(tagedit.Values{
+			"artist": {"Ann", "Bob"}, "albumartist": {"Ann", "Cat"},
+		})
+		Expect(err).ToNot(HaveOccurred())
+		Expect(edit).To(Equal(tagedit.Values{"artist": {"Bob"}, "albumartist": {"Bob", "Cat"}}))
+	})
+
 	It("changes nothing in a File that doesn't name the Artist", func() {
 		edit, err := Rewrite{Rename: &Rename{From: []string{"Ann"}, To: "Anne"}}.Apply(tagedit.Values{
 			"artist": {"Joanne"}, "artists": {"Joanne"},

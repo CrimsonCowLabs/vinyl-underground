@@ -3,6 +3,7 @@ package corrections_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"sync"
 	"time"
 
@@ -23,11 +24,15 @@ type fakeScanner struct {
 	mu    sync.Mutex
 	scans [][]model.ScanTarget
 	full  []bool
+	err   error // a scan that fails is not recorded
 }
 
 func (f *fakeScanner) ScanFolders(_ context.Context, full bool, targets []model.ScanTarget) ([]string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.err != nil {
+		return nil, f.err
+	}
 	f.scans, f.full = append(f.scans, targets), append(f.full, full)
 	return nil, nil
 }
@@ -213,12 +218,18 @@ var _ = Describe("Writing Corrections to the Files", func() {
 			job, steps := queued(plan, map[string]model.EditStepState{"mf-2": model.EditStepSkipped})
 			Expect(kinds[plan.Kind].Done(ctx, job, steps)).To(Succeed())
 
-			Expect(correctionsOf(model.CorrectionAlbum)).To(BeEmpty())
+			// The skipped File keeps its fixes: it still holds the old title and number. The album
+			// Correction is the whole album's, so it stays whole.
+			Expect(correctionsOf(model.CorrectionAlbum)).To(HaveLen(1))
 			left := correctionsOf(model.CorrectionTrackNumbers)
 			Expect(left).To(HaveLen(1))
-			// The skipped File keeps its fix: it still holds the old number.
 			Expect(left[0].TrackNumbers).To(HaveLen(1))
 			Expect(left[0].TrackNumbers[0].Path).To(Equal("Band/Record/CD2/mf-2.mp3"))
+
+			// With every File written, an album Correction left with nothing is deleted.
+			steps[1].State = model.EditStepWritten
+			Expect(kinds[plan.Kind].Done(ctx, job, steps)).To(Succeed())
+			Expect(correctionsOf(model.CorrectionAlbum)).To(BeEmpty())
 		})
 
 		It("leaves the Corrections alone when no File was written", func() {
@@ -303,26 +314,61 @@ var _ = Describe("Writing Corrections to the Files", func() {
 			Expect(left[0].Year).To(Equal(1977))
 		})
 
-		It("moves the Artist's stars to its new name, removes the renames its Files no longer need, and the undo puts both back", func() {
-			typo := model.Correction{Kind: model.CorrectionArtistMerge, MatchKey: "grateful ded", From: "Grateful Ded", To: "Greatful Dead"}
+		It("removes the renames its Files no longer need once they are all written, and the undo puts them back", func() {
+			typo := model.Correction{Kind: model.CorrectionArtistRename, MatchKey: "grateful ded", From: "Grateful Ded", To: "Greatful Dead"}
 			Expect(ds.Correction(ctx).Add(&typo)).To(Succeed())
+			// An older merge into the Artist keeps the stars it merged, for its own undo: it stays.
+			merge := model.Correction{Kind: model.CorrectionArtistMerge, MatchKey: "the greatful dead", From: "The Greatful Dead", To: "Greatful Dead"}
+			Expect(ds.Correction(ctx).Add(&merge)).To(Succeed())
 			into := addArtist("Grateful Dead")
 			plan, err := svc.PlanArtistMerge(ctx, dead.ID, into.ID)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(plan.Kind).To(Equal(corrections.JobArtistMerge))
 			Expect(plan.ArtistID).To(Equal(into.ID))
+			Expect(rewrites(plan)["mf-1"].Rename.From).To(ConsistOf("Greatful Dead", "Grateful Ded", "The Greatful Dead"))
 
-			job, steps := queued(plan, nil)
 			k := kinds[plan.Kind]
+			job, steps := queued(plan, map[string]model.EditStepState{"mf-1": model.EditStepSkipped})
 			Expect(k.Start(ctx, job)).To(Succeed())
+			// A File was skipped: it still holds the old name, and needs the rename.
 			Expect(k.Done(ctx, job, steps)).To(Succeed())
-			Expect(correctionsOf(model.CorrectionArtistMerge)).To(BeEmpty())
+			Expect(correctionsOf(model.CorrectionArtistRename)).To(HaveLen(1))
+
+			steps[0].State = model.EditStepWritten
+			Expect(k.Done(ctx, job, steps)).To(Succeed())
+			Expect(correctionsOf(model.CorrectionArtistRename)).To(BeEmpty())
+			Expect(correctionsOf(model.CorrectionArtistMerge)).To(HaveLen(1))
 
 			Expect(k.Undone(ctx, job, steps)).To(Succeed())
-			back := correctionsOf(model.CorrectionArtistMerge)
+			back := correctionsOf(model.CorrectionArtistRename)
 			Expect(back).To(HaveLen(1))
 			Expect(back[0].MatchKey).To(Equal("grateful ded"))
 			Expect(back[0].To).To(Equal("Greatful Dead"))
+		})
+
+		It("rescans again, after an undo put Corrections back, when the rescan failed", func() {
+			typo := model.Correction{Kind: model.CorrectionArtistRename, MatchKey: "grateful ded", From: "Grateful Ded", To: "Greatful Dead"}
+			Expect(ds.Correction(ctx).Add(&typo)).To(Succeed())
+			plan, err := svc.PlanArtistRename(ctx, dead.ID, "Grateful Dead")
+			Expect(err).ToNot(HaveOccurred())
+			k := kinds[plan.Kind]
+			job, steps := queued(plan, nil)
+			Expect(k.Done(ctx, job, steps)).To(Succeed())
+			// The rename applied to a folder: put back, it is rescanned.
+			a := map[string]any{}
+			Expect(json.Unmarshal([]byte(job.Args), &a)).To(Succeed())
+			a["folders"] = []string{cd1.ID}
+			b, _ := json.Marshal(a)
+			job.Args = string(b)
+
+			scanner.err = errors.New("busy")
+			Expect(k.Undone(ctx, job, steps)).ToNot(Succeed())
+			Expect(correctionsOf(model.CorrectionArtistRename)).To(HaveLen(1))
+			scanner.err = nil
+			scans := len(scanner.scans)
+			Expect(k.Undone(ctx, job, steps)).To(Succeed())
+			Expect(scanner.scans).To(HaveLen(scans + 1))
+			Expect(correctionsOf(model.CorrectionArtistRename)).To(HaveLen(1))
 		})
 	})
 })

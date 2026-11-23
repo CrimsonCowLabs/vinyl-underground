@@ -402,6 +402,12 @@ func written(steps model.EditJobSteps) map[string]bool {
 	return res
 }
 
+// anySkipped reports whether a step of the job wasn't written: its File still holds what the
+// Corrections fix.
+func anySkipped(steps model.EditJobSteps) bool {
+	return slices.ContainsFunc(steps, func(s model.EditJobStep) bool { return s.State == model.EditStepSkipped })
+}
+
 // change changes Corrections in a transaction (edit, which returns whether it changed any),
 // keeps what it noted in the job's Args with them, then rescans the folders noted.
 func (w writeKind) change(ctx context.Context, job *model.EditJob, a *writeArgs, edit func(tx model.DataStore) (bool, error)) error {
@@ -467,8 +473,15 @@ func restore(ctx context.Context, tx model.DataStore, saved []savedCorrection) e
 
 func (w writeKind) Undone(ctx context.Context, job *model.EditJob, steps model.EditJobSteps) error {
 	a, err := argsOf(job)
-	if err != nil || len(a.Restore) == 0 || len(written(steps)) == 0 {
+	if err != nil || len(written(steps)) == 0 {
 		return err
+	}
+	if len(a.Restore) == 0 {
+		if !a.Rescan {
+			return nil
+		}
+		// Put back already, but the rescan after it failed: it is tried again.
+		return w.change(ctx, job, &a, func(model.DataStore) (bool, error) { return false, nil })
 	}
 	saved := a.Restore
 	a.Restore = nil
@@ -497,7 +510,9 @@ func (k albumKind) Done(ctx context.Context, job *model.EditJob, steps model.Edi
 	return k.change(ctx, job, &a, func(tx model.DataStore) (bool, error) {
 		repo := tx.Correction(ctx)
 		var saved []savedCorrection
-		if a.Name || a.AlbumArtist || a.Year {
+		// The album Correction applies to all the album's Files: a File the job skipped still
+		// needs it, so it stays whole.
+		if (a.Name || a.AlbumArtist || a.Year) && !anySkipped(steps) {
 			albums, err := repo.FindByMatchKeys(a.Folders, model.CorrectionAlbum)
 			if err != nil {
 				return false, err
@@ -516,6 +531,7 @@ func (k albumKind) Done(ctx context.Context, job *model.EditJob, steps model.Edi
 				if cr.Undoing || (trimmed.AlbumName == cr.AlbumName && trimmed.AlbumArtist == cr.AlbumArtist && trimmed.Year == cr.Year) {
 					continue
 				}
+				trimmed.To = trimmedAlbumLabel(cr, trimmed)
 				if err := replaceCorrection(repo, cr, trimmed, trimmed.AlbumName != "" || trimmed.AlbumArtist != "" ||
 					trimmed.Year != 0 || trimmed.MbzAlbumID != ""); err != nil {
 					return false, err
@@ -556,6 +572,28 @@ func (k albumKind) Done(ctx context.Context, job *model.EditJob, steps model.Edi
 		a.Restore = saved
 		return true, nil
 	})
+}
+
+// trimmedAlbumLabel names what is left of the album Correction cr once trimmed, for the
+// Corrections page: what it still sets ("Title", "Band", "1999", joined), and its picked release.
+func trimmedAlbumLabel(cr, trimmed model.Correction) string {
+	var parts []string
+	for _, p := range []string{trimmed.AlbumArtist, trimmed.AlbumName} {
+		if p != "" {
+			parts = append(parts, p)
+		}
+	}
+	label := strings.Join(parts, " – ")
+	if trimmed.Year != 0 {
+		label = strings.TrimSpace(fmt.Sprintf("%s (%d)", label, trimmed.Year))
+	}
+	if i := strings.Index(cr.To, mbzLabel); i >= 0 && trimmed.MbzAlbumID != "" {
+		if label == "" {
+			return strings.TrimPrefix(cr.To[i:], " · ")
+		}
+		label += cr.To[i:]
+	}
+	return label
 }
 
 // replaceCorrection replaces the Correction cr by trimmed (what is left of it), or deletes it when
@@ -610,11 +648,15 @@ func (k artistKind) Done(ctx context.Context, job *model.EditJob, steps model.Ed
 		}
 		var saved []savedCorrection
 		for _, cr := range all {
-			if cr.Undoing {
+			// A File the job skipped still holds the old names: the Corrections it needs stay.
+			if cr.Undoing || anySkipped(steps) {
 				continue
 			}
 			switch {
-			case cr.Kind.IsArtistRename() && keys[cr.MatchKey]:
+			// An artist merge Correction keeps the stars and ratings it merged, for its own undo
+			// on the Corrections page; once the Files no longer hold its name it applies to
+			// nothing (and #165 retires it), so it is left.
+			case cr.Kind == model.CorrectionArtistRename && keys[cr.MatchKey]:
 				folders, err := repo.FolderIDs(cr.ID)
 				if err != nil {
 					return false, err
@@ -631,6 +673,7 @@ func (k artistKind) Done(ctx context.Context, job *model.EditJob, steps model.Ed
 				a.Folders = append(a.Folders, folders...)
 				trimmed := cr
 				trimmed.AlbumArtist = ""
+				trimmed.To = trimmedAlbumLabel(cr, trimmed)
 				if err := replaceCorrection(repo, cr, trimmed, trimmed.AlbumName != "" || trimmed.Year != 0 ||
 					trimmed.MbzAlbumID != ""); err != nil {
 					return false, err

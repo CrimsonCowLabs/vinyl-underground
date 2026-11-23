@@ -110,12 +110,16 @@ func (rn *Rename) apply(cur, edit tagedit.Values) {
 	for _, fs := range renameFields {
 		display, multi, mbids := fs[0], fs[1], fs[2]
 		if vs := cur[display]; len(vs) > 0 {
-			renamed := slices.Clone(vs)
-			for i, v := range renamed {
+			// A File may hold several values here too (e.g. two ARTIST frames): each is renamed,
+			// and a name that ends up twice is kept once.
+			var renamed []string
+			for _, v := range vs {
 				for _, f := range rn.From {
 					v = metadata.ReplaceName(v, f, rn.To)
 				}
-				renamed[i] = v
+				if !slices.ContainsFunc(renamed, func(o string) bool { return model.ArtistNameKey(o) == model.ArtistNameKey(v) }) {
+					renamed = append(renamed, v)
+				}
 			}
 			if !slices.Equal(renamed, vs) {
 				edit[display] = renamed

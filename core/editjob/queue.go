@@ -85,6 +85,10 @@ type Queue struct {
 	kinds    map[model.EditKind]StepKind
 	jobKinds map[model.EditKind]JobKind
 	wake     chan struct{}
+	// hookFails counts, by job, the failures of its JobKind in a row, up to hookTries (see
+	// giveUp). Only Run's goroutine touches it.
+	hookFails map[string]int
+	hookTries int
 
 	// mu guards changed, which is closed (and replaced) whenever a job changes, for Wait.
 	mu      sync.Mutex
@@ -97,7 +101,7 @@ func New(ds model.DataStore, broker events.Broker, kinds map[model.EditKind]Step
 		broker = events.NoopBroker()
 	}
 	return &Queue{ds: ds, broker: broker, kinds: kinds, jobKinds: map[model.EditKind]JobKind{},
-		wake: make(chan struct{}, 1), changed: make(chan struct{})}
+		hookFails: map[string]int{}, hookTries: 10, wake: make(chan struct{}, 1), changed: make(chan struct{})}
 }
 
 // Handle makes k do what jobs of the kind do beyond their steps. Call it before Run.
@@ -270,8 +274,8 @@ func (q *Queue) process(runCtx context.Context, job *model.EditJob) bool {
 	}
 	if job.State == model.EditJobQueued {
 		log.Info(ctx, "Starting an edit job", "job", job.ID, "files", len(steps))
-		if err := q.hook(ctx, job, nil, true); err != nil {
-			log.Error(ctx, "Could not start an edit job", "job", job.ID, "kind", job.Kind, err)
+		if err := q.hook(ctx, job, nil, true); err != nil && !q.giveUp(ctx, job, err) {
+			log.Error(ctx, "Could not start an edit job; it is tried again later", "job", job.ID, "kind", job.Kind, err)
 			return false
 		}
 	} else {
@@ -309,15 +313,30 @@ func (q *Queue) process(runCtx context.Context, job *model.EditJob) bool {
 			return false
 		}
 	}
-	if err := q.hook(ctx, job, steps, false); err != nil {
+	if err := q.hook(ctx, job, steps, false); err != nil && !q.giveUp(ctx, job, err) {
 		log.Error(ctx, "Could not finish an edit job; it is tried again later", "job", job.ID, "kind", job.Kind, err)
 		return false
 	}
+	delete(q.hookFails, job.ID)
 	job.State, job.Current = model.EditJobDone, ""
 	if err := q.save(ctx, job, steps); err != nil {
 		return false
 	}
 	log.Info(ctx, "Finished an edit job", "job", job.ID, "files", job.Total, "skipped", job.Skipped)
+	return true
+}
+
+// giveUp reports whether the job's kind has failed (err) hookTries times in a row (since the app
+// started): its Files are what matter, so rather than holding up every job after it, the job
+// carries on without what its kind does, which the error log says.
+func (q *Queue) giveUp(ctx context.Context, job *model.EditJob, err error) bool {
+	q.hookFails[job.ID]++
+	if q.hookFails[job.ID] < q.hookTries {
+		return false
+	}
+	delete(q.hookFails, job.ID)
+	log.Error(ctx, "Gave up on what an edit job's kind does beyond its Files; the job carries on without it",
+		"job", job.ID, "kind", job.Kind, "tries", q.hookTries, err)
 	return true
 }
 
