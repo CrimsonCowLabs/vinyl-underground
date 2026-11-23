@@ -97,16 +97,16 @@ var _ = Describe("Case merge", func() {
 		return res
 	}
 	original := map[string]string{
-		"Music/OutKast/Aquemini/01 Hold On.mp3":       "audio of Music/OutKast/Aquemini/01 Hold On.mp3",
-		"Music/Outkast/STANKONIA/01 Intro.mp3":        "audio of Music/Outkast/STANKONIA/01 Intro.mp3",
+		"Music/OutKast/Aquemini/01 Hold On.mp3":          "audio of Music/OutKast/Aquemini/01 Hold On.mp3",
+		"Music/Outkast/STANKONIA/01 Intro.mp3":           "audio of Music/Outkast/STANKONIA/01 Intro.mp3",
 		"Music/Outkast/Stankonia/02 Gasoline Dreams.mp3": "audio of Music/Outkast/Stankonia/02 Gasoline Dreams.mp3",
-		"Music/Outkast/Stankonia/notes.nfo":           "missed",
-		"Music/Blondie/Atomic.mp3":                    "atomic audio",
-		"Music/Blondie/atomic.mp3":                    "atomic audio",
-		"Music/Bangles/a.mp3":                         "audio of Music/Bangles/a.mp3",
-		"Music/BANGLES/a.mp3":                         "audio of Music/BANGLES/a.mp3",
-		"Music/Bangles/b.mp3":                         "short",
-		"Music/BANGLES/b.mp3":                         "a longer one",
+		"Music/Outkast/Stankonia/notes.nfo":              "missed",
+		"Music/Blondie/Atomic.mp3":                       "atomic audio",
+		"Music/Blondie/atomic.mp3":                       "atomic audio",
+		"Music/Bangles/a.mp3":                            "audio of Music/Bangles/a.mp3",
+		"Music/BANGLES/a.mp3":                            "audio of Music/BANGLES/a.mp3",
+		"Music/Bangles/b.mp3":                            "short",
+		"Music/BANGLES/b.mp3":                            "a longer one",
 	}
 
 	It("lists every set of case-colliding siblings, nested ones once their parents are renamed, and merges them in two phases", func() {
