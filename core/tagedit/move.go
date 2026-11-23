@@ -69,11 +69,14 @@ func (e *Editor) CheckMove(ctx context.Context, m Move) error {
 //     (safefile.EnsureDir), so the NAS never gets two such folders; one with such a twin already
 //     is refused (safefile.ErrCaseTwin). The final path is m.NewPath as it is on disk.
 //  3. Journal: the move (Path, NewPath) is recorded in the Edit journal before anything is
-//     written, and the File's checksum once its copy is checked.
-//  4. The File is copied beside its new path, checked and placed (safefile.Move), never over
-//     another File (safefile.ErrDestTaken).
+//     written, with what tells the File after a restart (CopySum): its RenameMark (size and
+//     modification time) before a rename, or its checksum once a copy is checked.
+//  4. The File is moved (safefile.Move), never over another File (safefile.ErrDestTaken): on one
+//     share, renamed on the server; across filesystems, copied beside its new path, checked and
+//     placed.
 //  5. Re-key: in one transaction, the Track's row is pointed at the new path and folder, keeping
-//     its ID (model.MediaFileRepository.Relocate); only then is the old copy removed. The next scan
+//     its ID (model.MediaFileRepository.Relocate); only then is a copy's old File removed (a rename
+//     is renamed back if this fails). The next scan
 //     of the new folder re-reads the File into the same row. Moves don't rescan: the job does,
 //     once (RescanTargets).
 //
@@ -188,12 +191,17 @@ func (e *Editor) move(ctx context.Context, jobID string, m Move, undoOf string, 
 		res.Warning = "The File was moved, but its old copy is still there; it is removed when the app next starts."
 	case errors.Is(err, safefile.ErrUnrecorded):
 		// The File is at its new path (and perhaps its old one too) but the move couldn't be
-		// recorded nor undone: the entry stays pending, so the next start settles it (Settle), and
-		// the Track follows the File.
-		log.Error(ctx, "A move couldn't be recorded nor undone; the next start settles it", "path", src, err)
+		// recorded nor undone. It is settled from what is on disk at once, so the Track follows the
+		// File before anything rescans it; if that fails too, the entry stays pending, and the next
+		// start settles it (Settle).
 		entry.Error = err.Error()
 		_ = journal.Put(entry)
-		return nil, err
+		e.settleMove(ctx, lib, entry)
+		if entry.State != model.EditWritten {
+			log.Error(ctx, "A move couldn't be recorded nor undone; the next start settles it", "path", src, err)
+			return nil, err
+		}
+		res.Warning = "The move was recorded on a second try."
 	case err != nil:
 		log.Warn(ctx, "Could not move a File", "path", m.Path, "newPath", newPath, err)
 		e.close(ctx, entry, false, err)
@@ -262,7 +270,8 @@ func (e *Editor) undoMove(ctx context.Context, jobID string, entry *model.EditEn
 }
 
 // settleMove finishes or undoes a move a stop interrupted (see Settle), from what is on disk
-// (safefile.SettleMove), and points its Track at where the File is.
+// (safefile.SettleRename for a rename, safefile.SettleMove for a copy across filesystems), and
+// points its Track at where the File is.
 func (e *Editor) settleMove(ctx context.Context, lib *model.Library, entry *model.EditEntry) {
 	src, dest := absPath(lib, entry.Path), absPath(lib, entry.NewPath)
 	var moved bool

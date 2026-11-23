@@ -7,7 +7,6 @@ import (
 	"io/fs"
 	"path/filepath"
 	"strings"
-	"syscall"
 
 	"github.com/navidrome/navidrome/core/libpath"
 )
@@ -28,6 +27,9 @@ var (
 	// can't be told: the File isn't lost, and the move's settle (SettleRename, SettleMove)
 	// finishes it from what is on disk.
 	ErrUnrecorded = errors.New("the move couldn't be recorded, nor undone; it is settled from what is on disk")
+	// ErrGone is a rename after which the File is at neither its old path nor its new one (or
+	// what is at the new one isn't it): something else moved or removed it meanwhile.
+	ErrGone = errors.New("the File is at neither its old path nor its new one after the rename")
 	// ErrOutside is a folder that leads out of the root it should be in (a symlink).
 	ErrOutside = errors.New("the path leads out of its library")
 )
@@ -132,17 +134,18 @@ func rename(fsys FS, src, dest string, hooks MoveHooks) error {
 		}
 	}
 	if err := renameNoReplace(fsys, src, dest); err != nil {
-		if errors.Is(err, syscall.EXDEV) {
+		if isCrossDevice(err) {
 			return errCrossDevice
 		}
-		srcThere, destThere := Exists(fsys, src), Exists(fsys, dest)
-		switch {
-		case srcThere:
+		if Exists(fsys, src) {
 			return err // nothing moved
-		case !destThere:
-			return fmt.Errorf("%w: the File is at neither path after a failed rename: %v", ErrUnrecorded, err)
 		}
-		// The rename did happen, though it reported an error (SMB): the File is at dest.
+		// The rename may have happened, though it reported an error (SMB): the File is at dest if
+		// what is there is it.
+		destInfo, lerr := fsys.Lstat(dest)
+		if lerr != nil || RenameMark(destInfo) != RenameMark(info) {
+			return fmt.Errorf("%w: %v", ErrGone, err)
+		}
 	}
 	if hooks.Placed != nil {
 		if err := hooks.Placed(); err != nil {
@@ -214,12 +217,16 @@ func IsRenameMark(s string) bool { return strings.HasPrefix(s, renameMarkPrefix)
 // SettleRename tells how a rename from src to dest the app stopped in the middle of ended, from
 // where the File is and the mark (RenameMark) recorded before it: at src only, it wasn't renamed;
 // at dest only, it was, if the File there matches the mark (else it fails, as it can't vouch for
-// it); at both, the File at dest is another, and it wasn't; at neither, it fails. It changes
-// nothing on disk.
+// it); at both, the File at dest is another, and it wasn't; at neither, it fails. The File is never
+// touched; only when it wasn't moved is a temp a copy across filesystems left (MoveTemp) removed:
+// a move is journaled as a rename until the rename turns out to cross filesystems.
 func SettleRename(fsys FS, src, dest, mark string) (moved bool, err error) {
 	srcThere, destThere := Exists(fsys, src), Exists(fsys, dest)
 	switch {
 	case srcThere:
+		if err := fsys.Remove(MoveTemp(dest)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return false, fmt.Errorf("removing the move's copy: %w", err)
+		}
 		return false, nil
 	case !destThere:
 		return false, fmt.Errorf("the File is at neither %s nor %s", src, dest)

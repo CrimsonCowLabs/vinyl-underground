@@ -42,6 +42,23 @@ func (f racingFS) RenameNoReplace(oldname, newname string) error {
 	return f.OS.RenameNoReplace(oldname, newname)
 }
 
+// lyingFS renames the File, then reports a failure, as SMB may; with swap, another File takes the
+// renamed one's place at the new path.
+type lyingFS struct {
+	FS
+	swap bool
+}
+
+func (f lyingFS) Rename(oldname, newname string) error {
+	if err := f.FS.Rename(oldname, newname); err != nil {
+		return err
+	}
+	if f.swap {
+		_ = os.WriteFile(newname, []byte("another, longer File"), 0o644)
+	}
+	return errInjected
+}
+
 // backFaultyFS fails a rename from back: a move's rename back after its record failed.
 type backFaultyFS struct {
 	FS
@@ -130,6 +147,20 @@ var _ = Describe("Move", func() {
 			err := Move(faultyFS{FS: OS{}, op: "rename", match: "a.mp3"}, src, dest, MoveHooks{})
 			Expect(err).To(MatchError(errInjected))
 			Expect(tree(root)).To(Equal(map[string]string{"old/a.mp3": "audio"}))
+		})
+
+		It("takes a rename that reported an error, but happened, as made", func() {
+			err := Move(lyingFS{FS: OS{}}, src, dest, MoveHooks{})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(tree(root)).To(Equal(map[string]string{"new/01 A.mp3": "audio"}))
+		})
+
+		It("reports a File gone from both paths after a failed rename, never vouching for another at its new path", func() {
+			err := Move(lyingFS{FS: OS{}, swap: true}, src, dest, MoveHooks{Placed: func() error {
+				Fail("the File at the new path isn't the one renamed")
+				return nil
+			}})
+			Expect(err).To(MatchError(ErrGone))
 		})
 
 		It("leaves the File where it was when the rename can't be recorded", func() {
@@ -350,6 +381,14 @@ var _ = Describe("SettleRename", func() {
 		Expect(os.Remove(src)).To(Succeed())
 		_, err := SettleRename(OS{}, src, dest, mark)
 		Expect(err).To(HaveOccurred())
+	})
+
+	It("removes the temp of a copy across filesystems a stop left, journaled as a rename", func() {
+		Expect(os.WriteFile(MoveTemp(dest), []byte("aud"), 0o644)).To(Succeed())
+		moved, err := SettleRename(OS{}, src, dest, mark)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(moved).To(BeFalse())
+		Expect(tree(root)).To(Equal(map[string]string{"old/a.mp3": "audio"}))
 	})
 
 	It("tells a rename's mark from a copy's checksum", func() {
