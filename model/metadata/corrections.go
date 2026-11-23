@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -18,15 +19,37 @@ type Corrections struct {
 	renames  map[string]model.Correction // artist renames (and merges) being applied, by MatchKey
 	undoings []model.Correction          // artist renames (and merges) being undone
 	albums   map[string]model.Correction // album Corrections being applied, by the folders they match
+	numbers  map[fileKey]trackNumbers    // track numbers being applied, by File
+}
+
+type fileKey struct {
+	libID int
+	path  string
+}
+
+// trackNumbers is a track numbers Correction's fix for one File.
+type trackNumbers struct {
+	correctionID string
+	fix          model.TrackNumberFix
 }
 
 // NewCorrections prepares the Corrections for reading Files. An album Correction matches only the
 // folder it is keyed by until MatchAlbumFolders adds the album's other folders.
 func NewCorrections(cs model.Corrections) Corrections {
-	c := Corrections{renames: make(map[string]model.Correction), albums: make(map[string]model.Correction)}
+	c := Corrections{renames: make(map[string]model.Correction), albums: make(map[string]model.Correction),
+		numbers: make(map[fileKey]trackNumbers)}
 	for _, cr := range cs {
 		if cr.Kind == model.CorrectionAlbum && !cr.Undoing {
 			c.albums[cr.MatchKey] = cr
+		}
+		if cr.Kind == model.CorrectionTrackNumbers && !cr.Undoing {
+			// Should two Corrections renumber one File, the first listed (the newest) wins
+			for _, f := range cr.TrackNumbers {
+				k := fileKey{f.LibraryID, f.Path}
+				if _, taken := c.numbers[k]; !taken {
+					c.numbers[k] = trackNumbers{correctionID: cr.ID, fix: f}
+				}
+			}
 		}
 		if !cr.Kind.IsArtistRename() {
 			continue
@@ -88,6 +111,36 @@ func (c Corrections) correctAlbum(md Metadata, folderID string) (corrected Metad
 	}
 	md.tags = tags
 	return md, cr.ID, true
+}
+
+// correctTrackNumbers returns the File's tags with the track numbers Correction for the File
+// applied, as if the File were tagged with the corrected numbers, and the Correction's ID. A
+// number the Correction leaves as tagged keeps its tag. ok is false when none applies.
+func (c Corrections) correctTrackNumbers(md Metadata, libID int) (corrected Metadata, id string, ok bool) {
+	n, ok := c.numbers[fileKey{libID, md.FilePath()}]
+	if !ok {
+		return md, "", false
+	}
+	tags := maps.Clone(md.tags)
+	setNumber(tags, model.TagTrackNumber, n.fix.FromTrack, n.fix.Track)
+	setNumber(tags, model.TagDiscNumber, n.fix.FromDisc, n.fix.Disc)
+	md.tags = tags
+	return md, n.correctionID, true
+}
+
+// setNumber sets a number tag ("3" or, keeping its total, "3/12") to the corrected value, unless
+// the Correction leaves it as tagged.
+func setNumber(tags model.Tags, tag model.TagName, from, to int) {
+	if to == from || to <= 0 {
+		return
+	}
+	v := strconv.Itoa(to)
+	if old := tags[tag]; len(old) > 0 {
+		if _, total, found := strings.Cut(old[0], "/"); found {
+			v += "/" + total
+		}
+	}
+	tags[tag] = []string{v}
 }
 
 // correctYear makes every date tag the File has a date in the year: a date in another year

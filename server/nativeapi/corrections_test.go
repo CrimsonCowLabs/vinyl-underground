@@ -28,6 +28,7 @@ type fakeCorrections struct {
 	covers  []string
 	blocks  []string
 	albums  []string
+	numbers []string
 	fixes   []corrections.AlbumFix
 }
 

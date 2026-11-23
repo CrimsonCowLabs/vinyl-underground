@@ -24,6 +24,7 @@ func (api *Router) addCorrectionRoute(r chi.Router) {
 		r.Post("/albumCoverBlock", api.blockAlbumCover)
 		r.Post("/artistMerge", api.mergeArtist)
 		r.Post("/album", api.correctAlbum)
+		r.Post("/trackNumbers", api.correctTrackNumbers)
 		r.Post("/{id}/undo", api.undoCorrection)
 	})
 }
@@ -85,6 +86,23 @@ func (api *Router) correctAlbum(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	res, err := api.corrections.CorrectAlbum(r.Context(), body.AlbumID, body.AlbumFix)
+	if err != nil {
+		writeCorrectionError(w, r, err)
+		return
+	}
+	_ = rest.RespondWithJSON(w, http.StatusOK, res)
+}
+
+func (api *Router) correctTrackNumbers(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		AlbumID string                    `json:"albumId"`
+		Tracks  []corrections.TrackNumber `json:"tracks"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeCorrectionError(w, r, fmt.Errorf("%w: %w", model.ErrValidation, err))
+		return
+	}
+	res, err := api.corrections.CorrectTrackNumbers(r.Context(), body.AlbumID, body.Tracks)
 	if err != nil {
 		writeCorrectionError(w, r, err)
 		return

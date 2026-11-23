@@ -246,6 +246,61 @@ var _ = Describe("Corrections", func() {
 		})
 	})
 
+	Describe("track numbers Correction", func() {
+		const path = "Greatful Dead/Live/01.mp3"
+		numbers := func(id string, fixes ...model.TrackNumberFix) model.Correction {
+			return model.Correction{ID: id, Kind: model.CorrectionTrackNumbers, MatchKey: "folderID", TrackNumbers: fixes}
+		}
+		tagged := model.RawTags{"ARTIST": {"Grateful Dead"}, "ALBUM": {"Live"}, "TITLE": {"Ripple"},
+			"TRACKNUMBER": {"2/9"}, "DISCNUMBER": {"1"}}
+		fix := numbers("t1", model.TrackNumberFix{LibraryID: 1, Path: path, FromDisc: 1, FromTrack: 2, Disc: 2, Track: 5})
+
+		It("reads the File as if tagged with the corrected track and disc numbers", func() {
+			mf := read(tagged, fix)
+			Expect(mf.TrackNumber).To(Equal(5))
+			Expect(mf.DiscNumber).To(Equal(2))
+			Expect(mf.CorrectionIDs).To(Equal([]string{"t1"}))
+		})
+
+		It("keeps the persistent ID of the uncorrected tags, so the Track is still the same Track", func() {
+			Expect(read(tagged, fix).PID).To(Equal(read(tagged).PID))
+			Expect(read(tagged, fix).AlbumID).To(Equal(read(tagged).AlbumID))
+		})
+
+		It("leaves a number it does not change as tagged", func() {
+			mf := read(tagged, numbers("t1", model.TrackNumberFix{LibraryID: 1, Path: path, FromDisc: 1, FromTrack: 2, Disc: 1, Track: 3}))
+			Expect(mf.TrackNumber).To(Equal(3))
+			Expect(mf.DiscNumber).To(Equal(1))
+		})
+
+		It("gives a File with no disc number one", func() {
+			mf := read(model.RawTags{"TITLE": {"Ripple"}, "TRACKNUMBER": {"2"}},
+				numbers("t1", model.TrackNumberFix{LibraryID: 1, Path: path, FromTrack: 2, Disc: 2, Track: 2}))
+			Expect(mf.DiscNumber).To(Equal(2))
+			Expect(mf.TrackNumber).To(Equal(2))
+		})
+
+		It("applies only to its own File, in its own library", func() {
+			Expect(read(tagged, numbers("t1", model.TrackNumberFix{LibraryID: 1, Path: "Greatful Dead/Live/02.mp3", Disc: 2, Track: 5})).TrackNumber).To(Equal(2))
+			Expect(read(tagged, numbers("t1", model.TrackNumberFix{LibraryID: 2, Path: path, Disc: 2, Track: 5})).TrackNumber).To(Equal(2))
+		})
+
+		It("ignores a Correction being undone", func() {
+			undoing := fix
+			undoing.Undoing = true
+			Expect(read(tagged, undoing).TrackNumber).To(Equal(2))
+		})
+
+		It("applies together with an album Correction", func() {
+			album := model.Correction{ID: "a1", Kind: model.CorrectionAlbum, MatchKey: "folderID", AlbumName: "Live!"}
+			mf := read(tagged, album, fix)
+			Expect(mf.Album).To(Equal("Live!"))
+			Expect(mf.TrackNumber).To(Equal(5))
+			Expect(mf.CorrectionIDs).To(Equal([]string{"a1", "t1"}))
+			Expect(mf.PID).To(Equal(read(tagged).PID))
+		})
+	})
+
 	Describe("ArtistIDMoves", func() {
 		It("maps the ID of each renamed Artist to the ID of its new name, and back for one being undone", func() {
 			undoing := rename("c2", "Jimi Hendrix", "Jimi Hendrix Experience")
