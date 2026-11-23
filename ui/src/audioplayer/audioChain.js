@@ -24,6 +24,11 @@ export const createAudioChain = (options = {}) => {
   let equalizer = null
   let analyserWanted = false
 
+  // Told when the chain is built or torn down, so a feature holding nodes
+  // from it (visuals' analyser) can ask again
+  const listeners = new Set()
+  const changed = () => listeners.forEach((listener) => listener())
+
   const wanted = () =>
     replayGain !== null || equalizer !== null || analyserWanted
 
@@ -64,6 +69,7 @@ export const createAudioChain = (options = {}) => {
     applyReplayGain()
     // Built mid-playback: the element now plays only through the context.
     if (!element.paused) resume()
+    changed()
     return true
   }
 
@@ -81,11 +87,13 @@ export const createAudioChain = (options = {}) => {
     // holding filters or an analyser from the old one must ask again.
     attach(newElement) {
       if (newElement === element) return
+      const wasBuilt = graph !== null
       if (graph) {
         graph.context.close()
         graph = null
       }
       element = newElement
+      if (wasBuilt) changed()
       if (wanted()) build()
     },
 
@@ -115,6 +123,13 @@ export const createAudioChain = (options = {}) => {
       return build() ? graph.analyser : null
     },
 
+    // Visuals no longer need the analyser (turned off, unavailable, or
+    // waiting on Internet Radio). A chain already built stays, but a new
+    // element (a player remount) isn't routed through Web Audio for them.
+    releaseAnalyser() {
+      analyserWanted = false
+    },
+
     // Call when playback starts: a context may start suspended, or be
     // suspended by the browser. Does nothing until the chain is built.
     resume,
@@ -122,6 +137,13 @@ export const createAudioChain = (options = {}) => {
     // Whether the chain is built. A feature that shouldn't be the one to
     // build it (the equalizer on Internet Radio) checks this first.
     isBuilt: () => graph !== null,
+
+    // Calls listener whenever the chain is built or torn down (the player
+    // remounted with a new element). Returns a function that stops it.
+    onChange(listener) {
+      listeners.add(listener)
+      return () => listeners.delete(listener)
+    },
   }
 }
 

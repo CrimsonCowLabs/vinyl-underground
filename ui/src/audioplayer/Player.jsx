@@ -41,6 +41,7 @@ import { closeNowPlaying } from '../nowPlaying/nowPlayingState'
 import { nowPlayingPlayerProps } from './nowPlayingPlayerProps'
 import { sleepTimer, usePlaybackSpeed } from '../playbackTools'
 import { useEqualizer } from '../equalizer'
+import '../visuals'
 import { PlayerThemeProvider } from './PlayerThemeProvider'
 import MiniPlayer from './MiniPlayer'
 

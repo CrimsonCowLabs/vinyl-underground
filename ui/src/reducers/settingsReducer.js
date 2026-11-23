@@ -6,6 +6,7 @@ import {
   SET_PLAYBACK_SPEED,
   SET_SIDEBAR_PLAYLISTS_FAVOURITES,
   SET_TOGGLEABLE_FIELDS,
+  SET_VISUALS,
 } from '../actions'
 
 const initialState = {
@@ -17,6 +18,10 @@ const initialState = {
   audioEffects: false,
   // The player's speed, as a playbackRate (#93).
   playbackSpeed: 1,
+  // Now Playing's visuals (#96): the visual chosen, whether the
+  // photosensitivity warning has been agreed to, and whether visuals are
+  // allowed at all (Personal). See visuals/visualsSettings.
+  visuals: { mode: 'off', warned: false, enabled: true },
 }
 
 export const settingsReducer = (previousState = initialState, payload) => {
@@ -64,6 +69,11 @@ export const settingsReducer = (previousState = initialState, payload) => {
       return {
         ...previousState,
         equalizer: data,
+      }
+    case SET_VISUALS:
+      return {
+        ...previousState,
+        visuals: { ...previousState.visuals, ...data },
       }
     default:
       return previousState

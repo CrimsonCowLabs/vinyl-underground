@@ -3,8 +3,8 @@ import { useSelector } from 'react-redux'
 import { ThemeProvider } from '@material-ui/core/styles'
 import { createMuiTheme } from 'react-admin'
 import { currentAccentId } from '../reducers/themeReducer'
-import { coverColour, mixHex, readableAccent } from '../themes/artAccent'
-import { readCoverPixels } from '../themes/coverPixels'
+import { mixHex, readableAccent } from '../themes/artAccent'
+import { readCoverColour } from '../themes/coverColour'
 import { isVinylUnderground, withAccent } from '../themes/vinylUnderground'
 import {
   accents,
@@ -15,27 +15,6 @@ import {
 const FADE_MS = 700
 // Steps of the fade: each one rebuilds the player's theme, so not every frame
 const FADE_STEP_MS = 50
-
-// Cover colours already read, by cover URL (null for a grey or failed cover)
-const coverColours = new Map()
-const MAX_CACHED = 50
-
-const readColour = (cover) => {
-  if (coverColours.has(cover)) return Promise.resolve(coverColours.get(cover))
-  return (
-    readCoverPixels(cover)
-      // null pixels: the server's placeholder, for a missing cover
-      .then((pixels) => (pixels ? coverColour(pixels) : null))
-      .catch(() => null)
-      .then((colour) => {
-        if (coverColours.size >= MAX_CACHED) {
-          coverColours.delete(coverColours.keys().next().value)
-        }
-        coverColours.set(cover, colour)
-        return colour
-      })
-  )
-}
 
 // useCoverColour is the colour taken from the cover, or null for no cover
 // or one that is grey or fails to load, and whether it's the first cover read
@@ -49,7 +28,7 @@ const useCoverColour = (cover, enabled) => {
       return
     }
     let live = true
-    readColour(cover).then(
+    readCoverColour(cover).then(
       (colour) => live && setRead((r) => ({ colour, count: r.count + 1 })),
     )
     return () => {

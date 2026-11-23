@@ -967,6 +967,10 @@
           "name": "Audio effects",
           "help": "Turns on the equalizer and visuals. Playback may stop when the screen is locked."
         },
+        "visuals": {
+          "name": "Visuals",
+          "help": "Moving visuals in Now Playing. Turn off to hide them entirely."
+        },
         "replaygain": "ReplayGain Mode",
         "preAmp": "ReplayGain PreAmp (dB)",
         "gain": {
@@ -1097,6 +1101,7 @@
     "tabs": {
       "label": "Now Playing view",
       "art": "Art",
+      "visuals": "Visuals",
       "lyrics": "Lyrics",
       "queue": "Queue"
     },
@@ -1137,6 +1142,26 @@
       "radioWaits": "Internet Radio plays without the equalizer. It starts with the next Track.",
       "saveButton": "Save",
       "needsAudioEffects": "The equalizer needs Audio effects, which are off on this device. Turn them on in Personal.",
+      "openSettings": "Open Personal"
+    },
+    "visuals": {
+      "label": "Visuals",
+      "title": "Visuals",
+      "modes": {
+        "off": "Off",
+        "spectrum": "Spectrum",
+        "waveform": "Waveform",
+        "glow": "Glow"
+      },
+      "canvas": "%{name} visual",
+      "fullScreen": "Full screen",
+      "exitFullScreen": "Exit full screen",
+      "warningTitle": "Before you turn on visuals",
+      "warning": "Visuals move and change brightness with the music. If flashing or moving images affect you, keep them off. You can turn visuals off entirely in Personal.",
+      "turnOn": "Turn on visuals",
+      "cancel": "Cancel",
+      "radioWaits": "Internet Radio plays without visuals. They start with the next Track.",
+      "needsAudioEffects": "Visuals need Audio effects, which are off on this device. Turn them on in Personal.",
       "openSettings": "Open Personal"
     }
   },

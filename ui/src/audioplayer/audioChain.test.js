@@ -319,4 +319,36 @@ describe('createAudioChain', () => {
     chain.setReplayGain(0.5)
     expect(chain.isBuilt()).toBe(true)
   })
+
+  it('tells its listeners when it is built, and when a new element replaces it', () => {
+    const changes = []
+    const stop = chain.onChange(() =>
+      changes.push(chain.isBuilt() ? 'built' : 'not built'),
+    )
+    chain.attach(newElement())
+    expect(changes).toEqual([])
+
+    const first = chain.getAnalyser()
+    expect(changes).toEqual(['built'])
+
+    // The player remounted: the visuals' analyser is the old chain's
+    chain.attach(newElement())
+    expect(changes).toEqual(['built', 'not built', 'built'])
+    expect(chain.getAnalyser()).not.toBe(first)
+
+    stop()
+    chain.attach(newElement())
+    expect(changes).toHaveLength(3)
+  })
+
+  it('stops building the chain for visuals once they let go of the analyser', () => {
+    chain.attach(newElement())
+    chain.getAnalyser()
+    chain.releaseAnalyser()
+
+    // A remount (say, during Internet Radio) builds nothing for them
+    chain.attach(newElement())
+    expect(contexts).toHaveLength(1)
+    expect(chain.isBuilt()).toBe(false)
+  })
 })

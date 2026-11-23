@@ -11,8 +11,8 @@ export const NOW_PLAYING_TOGGLE_TAB = 'NOW_PLAYING_TOGGLE_TAB'
 export const PANEL_QUERY = '(min-width:1000px)'
 export const PANEL_WIDTH = 400
 
-// The tabs over Now Playing's art area, in order. Art becomes Art/Visuals
-// once visuals land (#96).
+// The tabs over Now Playing's art area, in order. Art is labelled Visuals
+// while a visual plays there (#96).
 export const NOW_PLAYING_TABS = ['art', 'lyrics', 'queue']
 const DEFAULT_TAB = 'art'
 // The ids tying each tab to the panel it shows

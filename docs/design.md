@@ -179,7 +179,7 @@ A better player and a look of our own, built into the existing web UI ([ADR-0003
 - Content: large album art; title, artist and album, each a link; seek bar with elapsed and remaining time; previous, play/pause and next; star and rating. The Star toggle is drawn as a star (filled when starred, outlined when not), not the heart the inherited `LoveButton` draws.
 - Art: on Art, the cover sits on a record that slides partly out of its sleeve.
 - Toolbar: Lyrics, Queue, EQ, Visuals, Sleep timer and Speed. A slot whose feature isn't built yet is hidden.
-- The art area has **Art · Lyrics · Queue** tabs (Art becomes Art/Visuals once visuals land). The selected tab is remembered per device. On desktop, the player package's own queue pop-up is hidden.
+- The art area has **Art · Lyrics · Queue** tabs (Art is labelled Visuals while a visual plays there). The selected tab is remembered per device. On desktop, the player package's own queue pop-up is hidden.
 - Lyrics: synced lyrics highlight the current line, and tapping a line seeks to it. Unsynced lyrics are shown as plain scrollable text instead of being dropped.
 - Queue: tap to play, drag to reorder, remove.
 - On a Station: the DJ's name and the latest Blurb (when Blurbs are enabled) in a card under the title and rating, updating as Tracks change.
@@ -198,9 +198,14 @@ A better player and a look of our own, built into the existing web UI ([ADR-0003
 - iPhone: the equalizer and visuals sit behind an **Audio effects** switch in Settings, off by default, with a warning that playback may stop when the screen is locked. Android and desktop always have them, with no switch.
 
 **Visuals** (#96, #97)
-- Lightweight: spectrum bars, a waveform, and a glow coloured from the album art. Shown in the Art/Visuals tab, with a Full screen button.
+- Lightweight: spectrum bars, a waveform, and a glow coloured from the album art. Shown in the Art tab (labelled Visuals while one plays), with a Full screen button.
 - Milkdrop mode through butterchurn (MIT), loaded only when chosen, with a preset picker.
 - A photosensitivity warning the first time visuals are turned on, and a setting that turns them off entirely. They stop drawing when hidden or in the background.
+- Chosen from the Visuals tool: Off, Spectrum, Waveform, Glow. Spectrum and waveform draw over the cover, dimmed; the glow is light in the cover's colour around it, swelling with the bass. The choice, the warning agreed to, and the off setting (Personal) are kept per device in `settings.visuals`.
+- Canvas 2D, not WebGL. A phone draws at 30 frames a second, anything else up to 60. Drawing stops on another tab, with Now Playing closed, in the background (`visibilitychange`), and a moment after playback pauses.
+- Each visual is `{ create(canvas, { analyser, theme }) }` returning `{ draw(now), resize?, setTheme?, destroy? }`, played by one frame loop (`ui/src/visuals/runVisual.js`); `create` may return a Promise, so Milkdrop can load its code when chosen. The list is `ui/src/visuals/visualModes.js`.
+- Visuals read the shared chain's analyser, and ask again when the chain is rebuilt (a player remount). On Internet Radio they never build the chain: they join one already built, or wait for the next Library Track, and say so. On an iPhone they need the Audio effects switch.
+- Full screen fills the window, and uses the browser's full screen where it has one (not on an iPhone). Esc, or the button, returns to Now Playing.
 
 **The look** (#98, #99, #100, #101)
 - A new **Vinyl Underground** colour theme (not a Station's Theme), dark and light: a cool Slate dark and a warm cream light, a faint grain, and one strong accent (Teal by default). It is the default, and "Auto" maps to it, following the system's light or dark mode. The 27 inherited colour themes are kept, and a Listener who picked one keeps it.

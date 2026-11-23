@@ -11,6 +11,7 @@ import {
   tabId,
 } from './nowPlayingState'
 import { vuPalette } from './vuPalette'
+import { useVisualShown } from '../visuals/visualsSettings'
 
 const useStyles = makeStyles(
   (theme) => {
@@ -45,14 +46,20 @@ const useStyles = makeStyles(
 )
 
 // NowPlayingTabs switches Now Playing's art area between Art, Lyrics and
-// Queue. The choice is kept per device (see nowPlayingState). The arrow keys
-// move between the tabs, as in any tab list.
+// Queue. Art reads Visuals while a visual plays there (#96). The choice is
+// kept per device (see nowPlayingState). The arrow keys move between the
+// tabs, as in any tab list.
 const NowPlayingTabs = () => {
   const classes = useStyles()
   const translate = useTranslate()
   const dispatch = useDispatch()
   const selected = useSelector(nowPlayingTab)
   const refs = useRef({})
+  const visual = useVisualShown()
+  const label = (tab) =>
+    tab === 'art' && visual
+      ? 'nowPlaying.tabs.visuals'
+      : `nowPlaying.tabs.${tab}`
 
   const onKeyDown = (e) => {
     const step = { ArrowRight: 1, ArrowLeft: -1 }[e.key]
@@ -86,7 +93,7 @@ const NowPlayingTabs = () => {
           onClick={() => dispatch(showNowPlayingTab(tab))}
           onKeyDown={onKeyDown}
         >
-          {translate(`nowPlaying.tabs.${tab}`)}
+          {translate(label(tab))}
         </ButtonBase>
       ))}
     </div>
