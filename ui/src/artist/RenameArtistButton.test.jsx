@@ -10,7 +10,9 @@ const {
   mockGetList,
   mockNotify,
   mockRedirect,
+  mockEditing,
 } = vi.hoisted(() => ({
+  mockEditing: { enabled: true },
   mockPermissions: { value: 'admin' },
   mockRenameArtist: vi.fn(),
   mockMergeArtist: vi.fn(),
@@ -44,6 +46,14 @@ vi.mock('react-admin', async (importOriginal) => {
   }
 })
 
+vi.mock('../library/useLibraryEditing', () => ({
+  useLibraryEditing: () => ({
+    loaded: true,
+    enabled: mockEditing.enabled,
+    isWritable: () => mockEditing.enabled,
+  }),
+}))
+
 const record = { id: 'ar1', name: 'Greatful Dead' }
 
 const rename = (name) => {
@@ -56,6 +66,7 @@ describe('RenameArtistButton', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockPermissions.value = 'admin'
+    mockEditing.enabled = true
     mockGetList.mockResolvedValue({ data: [] })
   })
 
@@ -65,13 +76,35 @@ describe('RenameArtistButton', () => {
     expect(screen.queryByText('resources.artist.actions.rename')).toBeNull()
   })
 
+  it("is not offered while editing the Library's Files is off", () => {
+    mockEditing.enabled = false
+    render(<RenameArtistButton record={record} />)
+    expect(screen.queryByText('resources.artist.actions.rename')).toBeNull()
+  })
+
+  it('says how many Files the rename job skipped', async () => {
+    mockRenameArtist.mockResolvedValue({
+      data: { artistId: 'ar2', done: true, job: { skipped: 1 } },
+    })
+    render(<RenameArtistButton record={record} />)
+    rename('Grateful Dead')
+
+    await waitFor(() =>
+      expect(mockNotify).toHaveBeenCalledWith(
+        'resources.artist.notifications.skipped',
+        { type: 'warning', messageArgs: { smart_count: 1 } },
+      ),
+    )
+    expect(mockRedirect).toHaveBeenCalledWith('/artist/ar2/show')
+  })
+
   it('opens with the current name filled in', () => {
     render(<RenameArtistButton record={record} />)
     fireEvent.click(screen.getByText('resources.artist.actions.rename'))
     expect(screen.getByRole('textbox').value).toBe('Greatful Dead')
   })
 
-  it('saves the rename and opens the renamed Artist once the rescan is done', async () => {
+  it('writes the rename to the Files and opens the renamed Artist once the job is done', async () => {
     mockRenameArtist.mockResolvedValue({
       data: { artistId: 'ar2', done: true },
     })
@@ -89,9 +122,9 @@ describe('RenameArtistButton', () => {
     expect(screen.queryByRole('textbox')).toBeNull()
   })
 
-  it('closes once saved, back to the Artists, when the rescan carries on in the background', async () => {
+  it('closes once saved, back to the Artists, when the job carries on in the background', async () => {
     mockRenameArtist.mockResolvedValue({
-      data: { artistId: 'ar2', done: false },
+      data: { jobId: 'job-1', background: true, done: false },
     })
     render(<RenameArtistButton record={record} />)
     rename('Grateful Dead')

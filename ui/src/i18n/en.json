@@ -157,9 +157,10 @@
         "chooseCover": "Choose Cover"
       },
       "editor": {
-        "help": "Corrects the album in every client, without changing its Files. Tracks keep their IDs, and the album keeps its stars and play counts. Undo it on the Corrections page.",
-        "corrected": "Album corrected",
-        "correcting": "Saved. The album is being updated in the background",
+        "help": "Writes the title, album artist, year and track numbers into the album's Files, so every app shows them. Tracks keep their IDs, and the album keeps its stars and play counts. Undo it from the Edit history.",
+        "corrected": "Album saved",
+        "correcting": "Saving. The Files are being written in the background; see Activity",
+        "skipped": "Saved, but 1 File couldn't be written. Activity says why |||| Saved, but %{smart_count} Files couldn't be written. Activity says why",
         "trackNumbers": "Track order",
         "discNumber": "Disc",
         "trackNumber": "Track",
@@ -170,7 +171,10 @@
           "alreadyCorrected": "This album's Correction is being undone. Try again once that is done.",
           "invalid": "Enter a title, an album artist and a four-digit year, changing at least one.",
           "notFound": "This album no longer exists.",
-          "unknown": "Could not save the Correction. Try again later."
+          "editingOff": "The album's Files can't be written to (its library is read-only).",
+          "unsupportedFormat": "Some of the album's Files are of a kind that can't be edited yet (only mp3, m4a, aiff and wav), so nothing was changed.",
+          "changedOnDisk": "A File of the album changed on disk since the last scan. Rescan the album first.",
+          "unknown": "Could not save the album. Try again later."
         }
       },
       "musicbrainz": {
@@ -263,14 +267,15 @@
         "merge": "Merge"
       },
       "message": {
-        "renameHelp": "The new name is used everywhere in the Library, also for Files added later, in every app. The Files are not changed. You can undo it on the Corrections page.",
+        "renameHelp": "The new name is written into every File that names this Artist, as Track artist or album artist, so every app shows it. Its stars go with it. You can undo it from the Edit history.",
         "mergeWarning": "This merges into %{name} (1 album). Their albums, Tracks, stars and play counts become one Artist's. |||| This merges into %{name} (%{smart_count} albums). Their albums, Tracks, stars and play counts become one Artist's."
       },
       "notifications": {
         "renamed": "Artist renamed",
-        "renaming": "Rename saved. The Library is being updated in the background",
+        "renaming": "Renaming. The Files are being written in the background; see Activity",
         "merged": "Artists merged",
-        "merging": "Merge saved. The Library is being updated in the background"
+        "merging": "Merging. The Files are being written in the background; see Activity",
+        "skipped": "Saved, but 1 File couldn't be written. Activity says why |||| Saved, but %{smart_count} Files couldn't be written. Activity says why"
       }
     },
     "user": {
@@ -534,6 +539,8 @@
         "invalid": "Enter a new, different name.",
         "notFound": "This Artist no longer exists.",
         "unknown": "Could not save the rename. Try again later.",
+        "editingOff": "The Library's Files can't be written to (its folder is read-only), so the name can't be changed.",
+        "unsupportedFormat": "Some of this Artist's Files are of a kind that can't be edited yet (only mp3, m4a, aiff and wav), so nothing was changed.",
         "unavailable": "Couldn't fetch that cover. Try again, or choose another.",
         "coverNotFound": "That cover is no longer on offer. Close the picker and open it again.",
         "coverChanged": "The album's cover has changed since. Reload the page and try again.",
@@ -1172,7 +1179,11 @@
       "title": "Edits",
       "kind": {
         "tags": "Tag edit",
-        "undo": "Undo"
+        "undo": "Undo",
+        "albumEdit": "Album edit",
+        "trackNumbers": "Track order",
+        "artistRename": "Artist rename",
+        "artistMerge": "Artist merge"
       },
       "files": "%{smart_count} File |||| %{smart_count} Files",
       "queued": "Waiting for the edit before it",

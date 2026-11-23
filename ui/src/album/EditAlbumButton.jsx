@@ -30,14 +30,18 @@ import {
   useTrackNumberRows,
 } from './trackNumbers'
 import { FindOnMusicBrainz } from './FindOnMusicBrainz'
+import { useLibraryEditing } from '../library/useLibraryEditing'
 
-// The server answers a refused Correction with a code; anything else is a generic error.
+// The server answers a refused save with a code; anything else is a generic error.
 const knownErrors = [
   'sharedFolder',
   'renamedAway',
   'alreadyCorrected',
   'invalid',
   'notFound',
+  'editingOff',
+  'unsupportedFormat',
+  'changedOnDisk',
 ]
 
 // What the Cover Art Archive answered for a picked release, when it gave no cover.
@@ -51,9 +55,10 @@ const pickCoverNotes = {
 // compares it.
 const albumYear = (record) => record.maxOriginalYear || record.maxYear || ''
 
-// The album Edit dialog: corrects the album's title, album artist (offered from the existing
-// Artists as you type) and year, and its Tracks' disc and track numbers. Only what is changed is
-// corrected: the track numbers first (they keep the album's ID), then the album.
+// The album Edit dialog: writes the album's title, album artist (offered from the existing
+// Artists as you type) and year into its Files, and its Tracks' changed disc and track numbers
+// into theirs, as one edit job (#163). A release picked with Find on MusicBrainz is still saved
+// as an album Correction (#170).
 const EditAlbumDialog = ({ record, onClose }) => {
   const translate = useTranslate()
   const dataProvider = useDataProvider()
@@ -94,55 +99,45 @@ const EditAlbumDialog = ({ record, onClose }) => {
       e.preventDefault()
       setSaving(true)
       setError(null)
-      const numbered = trackChanges.length
-        ? dataProvider
-            .correctTrackNumbers(record.id, trackChanges)
-            .then((res) => {
-              setTrackRows(markSaved)
-              return res
-            })
-        : Promise.resolve({ data: { albumId: record.id, done: true } })
-      numbered
-        .then(({ data: numbers }) =>
-          unchanged
-            ? { data: numbers }
-            : dataProvider
-                .correctAlbum(record.id, {
-                  name: name.trim(),
-                  albumArtist: artist,
-                  year: yearValue,
-                  ...(release && {
-                    mbzAlbumId: release.id,
-                    mbzReleaseGroupId: release.releaseGroupId,
-                    mbzRelease: release.description,
-                  }),
-                })
-                .then(({ data }) => ({
-                  data: { ...data, done: data.done && numbers.done },
-                })),
-        )
+      // One save is one edit job: the album's values and the Tracks' changed numbers together
+      const save = unchanged
+        ? dataProvider.correctTrackNumbers(record.id, trackChanges)
+        : dataProvider.correctAlbum(record.id, {
+            name: name.trim(),
+            albumArtist: artist,
+            year: yearValue,
+            ...(trackChanges.length && { tracks: trackChanges }),
+            ...(release && {
+              mbzAlbumId: release.id,
+              mbzReleaseGroupId: release.releaseGroupId,
+              mbzRelease: release.description,
+            }),
+          })
+      save
         .then(({ data }) => {
+          setTrackRows(markSaved)
           onClose()
-          // A picked release whose cover couldn't be had is worth a word over the usual one
-          const pickNote = pickCoverNotes[data.pickCover]
-          const level = pickNote ? 'warning' : 'info'
-          if (data.done && data.albumId === record.id) {
+          const skipped = data.job?.skipped || 0
+          // Files the job couldn't write (the Activity panel lists them, and why), or a picked
+          // release whose cover couldn't be had, are worth a word over the usual one
+          const note = skipped
+            ? 'resources.album.editor.skipped'
+            : pickCoverNotes[data.pickCover]
+          const level = note ? 'warning' : 'info'
+          const opts = skipped
+            ? { type: level, messageArgs: { smart_count: skipped } }
+            : { type: level }
+          if (data.done && (!data.albumId || data.albumId === record.id)) {
             // The album keeps its ID (e.g. only track numbers changed): its page reloads
-            notify(pickNote || 'resources.album.editor.corrected', {
-              type: level,
-            })
+            notify(note || 'resources.album.editor.corrected', opts)
             refresh()
           } else if (data.done) {
-            notify(pickNote || 'resources.album.editor.corrected', {
-              type: level,
-            })
+            notify(note || 'resources.album.editor.corrected', opts)
             redirect(`/album/${data.albumId}/show`)
           } else {
-            notify(pickNote || 'resources.album.editor.correcting', {
-              type: level,
-            })
-            // The rescan finishes in the background, and an album Correction takes this page's
-            // album ID with it
+            notify(note || 'resources.album.editor.correcting', opts)
+            // The job finishes in the background (see the Activity panel), and the album's new
+            // values take this page's album ID with them
             if (!unchanged) redirect('/album')
           }
         })
@@ -281,15 +276,21 @@ EditAlbumDialog.propTypes = {
   onClose: PropTypes.func.isRequired,
 }
 
-// "Edit" on an album page (admin only): saves an album Correction of its title, album artist
-// and year, which the server applies to the album's folder and rescans it.
+// "Edit" on an album page (admin only, while the album's library is writable: ADR-0011): writes
+// the album's values into its Files.
 export const EditAlbumButton = ({ record, className, size }) => {
   const translate = useTranslate()
   const { permissions } = usePermissions()
+  const { isWritable } = useLibraryEditing()
   const [open, setOpen] = useState(false)
   const handleClose = useCallback(() => setOpen(false), [])
 
-  if (permissions !== 'admin' || !record?.id) return null
+  if (
+    permissions !== 'admin' ||
+    !record?.id ||
+    isWritable(record.libraryId) !== true
+  )
+    return null
 
   return (
     <>

@@ -6,6 +6,11 @@ const dataProvider = jsonServerProvider(REST_URL, httpClient)
 
 const REFRESH_KIND = { album: 'al', artist: 'ar' }
 
+// writeResult is what a save writing to the Files answers (an edit job the server waits for a
+// little): { jobId, done, job, albumId, artistId, pickCover } once done, with the Files the job
+// skipped in job.steps; or { jobId, background: true } while it carries on.
+const writeResult = ({ json }) => ({ data: { id: json.jobId, ...json } })
+
 const isAdmin = () => {
   const role = localStorage.getItem('role')
   return role === 'admin'
@@ -247,13 +252,14 @@ const wrapperDataProvider = {
     httpClient(`${REST_URL}/metadata/${REFRESH_KIND[resource]}/${id}/refresh`, {
       method: 'POST',
     }).then(() => ({ data: { id } })),
-  // Corrections (admin only). Both answer { correction, artistId, done }: done is false while
-  // the rescan carries on in the background. A failure's body has an `error` code to translate.
+  // Artist rename and merge (admin only) write the new name into the Artist's Files, as one edit
+  // job (see writeResult), answering the Artist's new ID (artistId). A failure's body has an
+  // `error` code to translate.
   renameArtist: (artistId, name) =>
     httpClient(`${REST_URL}/correction/artistRename`, {
       method: 'POST',
       body: JSON.stringify({ artistId, name }),
-    }).then(({ json }) => ({ data: { id: json.correction.id, ...json } })),
+    }).then(writeResult),
   // The cover picker (admin only): one source's candidates, { candidates, failed }, and choosing
   // one, which saves an album cover Correction.
   getCoverCandidates: (albumId, source) =>
@@ -292,22 +298,30 @@ const wrapperDataProvider = {
     httpClient(`${REST_URL}/correction/artistMerge`, {
       method: 'POST',
       body: JSON.stringify({ artistId, intoId }),
-    }).then(({ json }) => ({ data: { id: json.correction.id, ...json } })),
-  // An album Correction of its title, album artist and year, and the MusicBrainz release picked
-  // with Find on MusicBrainz (mbzAlbumId, mbzReleaseGroupId, mbzRelease), if any:
-  // { correction, albumId, done }.
-  correctAlbum: (albumId, { name, albumArtist, year, ...mbz }) =>
+    }).then(writeResult),
+  // Writes the album's title, album artist and year, and its Tracks' changed numbers (tracks, if
+  // any), into its Files, as one edit job (see writeResult). The MusicBrainz release picked with
+  // Find on MusicBrainz (mbzAlbumId, mbzReleaseGroupId, mbzRelease), if any, is still saved as
+  // an album Correction: { albumId, done, pickCover } alone when that is all that changed.
+  correctAlbum: (albumId, { name, albumArtist, year, tracks, ...mbz }) =>
     httpClient(`${REST_URL}/correction/album`, {
       method: 'POST',
-      body: JSON.stringify({ albumId, name, albumArtist, year, ...mbz }),
-    }).then(({ json }) => ({ data: { id: json.correction.id, ...json } })),
-  // A track numbers Correction of the album's Tracks, [{ id, discNumber, trackNumber }], saved
-  // together: { correction, albumId, done }.
+      body: JSON.stringify({
+        albumId,
+        name,
+        albumArtist,
+        year,
+        tracks,
+        ...mbz,
+      }),
+    }).then(writeResult),
+  // Writes the disc and track numbers of the album's Tracks, [{ id, discNumber, trackNumber }],
+  // into their Files, as one edit job (see writeResult).
   correctTrackNumbers: (albumId, tracks) =>
     httpClient(`${REST_URL}/correction/trackNumbers`, {
       method: 'POST',
       body: JSON.stringify({ albumId, tracks }),
-    }).then(({ json }) => ({ data: { id: json.correction.id, ...json } })),
+    }).then(writeResult),
   // A Track's tags as its File holds them (admin only, while editing is on): { id, path,
   // fields: [{ key, type, multi }], values: { key: [values] } }. A failure's body has an `error`
   // code to translate.

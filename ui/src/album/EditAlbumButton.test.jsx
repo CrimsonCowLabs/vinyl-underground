@@ -12,7 +12,9 @@ const {
   mockRedirect,
   mockRefresh,
   mockFindReleases,
+  mockEditing,
 } = vi.hoisted(() => ({
+  mockEditing: { writable: true },
   mockPermissions: { value: 'admin' },
   mockCorrectAlbum: vi.fn(),
   mockCorrectTrackNumbers: vi.fn(),
@@ -50,8 +52,17 @@ vi.mock('react-admin', async (importOriginal) => {
   }
 })
 
+vi.mock('../library/useLibraryEditing', () => ({
+  useLibraryEditing: () => ({
+    loaded: true,
+    enabled: mockEditing.writable,
+    isWritable: (id) => (id === 1 ? mockEditing.writable : undefined),
+  }),
+}))
+
 const record = {
   id: 'al1',
+  libraryId: 1,
   name: 'Recrod',
   albumArtist: 'Band',
   maxYear: 1998,
@@ -67,11 +78,18 @@ describe('EditAlbumButton', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockPermissions.value = 'admin'
+    mockEditing.writable = true
     mockGetList.mockResolvedValue({ data: [] })
   })
 
   it('is not offered to regular users', () => {
     mockPermissions.value = 'user'
+    render(<EditAlbumButton record={record} />)
+    expect(screen.queryByText('resources.album.actions.edit')).toBeNull()
+  })
+
+  it("is not offered while the album's library is read-only", () => {
+    mockEditing.writable = false
     render(<EditAlbumButton record={record} />)
     expect(screen.queryByText('resources.album.actions.edit')).toBeNull()
   })
@@ -84,9 +102,9 @@ describe('EditAlbumButton', () => {
     expect(field('album-year').value).toBe('1969')
   })
 
-  it('saves the Correction and opens the corrected album once the rescan is done', async () => {
+  it('writes the album to its Files and opens it, under its new ID, once the job is done', async () => {
     mockCorrectAlbum.mockResolvedValue({
-      data: { albumId: 'al2', done: true },
+      data: { albumId: 'al2', done: true, job: { skipped: 0 } },
     })
     render(<EditAlbumButton record={record} />)
     open()
@@ -109,8 +127,28 @@ describe('EditAlbumButton', () => {
     expect(screen.queryByTestId('album-name')).toBeNull()
   })
 
-  it('closes once saved, back to the albums, when the rescan carries on in the background', async () => {
-    mockCorrectAlbum.mockResolvedValue({ data: { done: false } })
+  it('says how many Files the job skipped', async () => {
+    mockCorrectAlbum.mockResolvedValue({
+      data: { albumId: 'al2', done: true, job: { skipped: 2 } },
+    })
+    render(<EditAlbumButton record={record} />)
+    open()
+    type('album-name', 'Record')
+    save()
+
+    await waitFor(() =>
+      expect(mockNotify).toHaveBeenCalledWith(
+        'resources.album.editor.skipped',
+        { type: 'warning', messageArgs: { smart_count: 2 } },
+      ),
+    )
+    expect(mockRedirect).toHaveBeenCalledWith('/album/al2/show')
+  })
+
+  it('closes once saved, back to the albums, when the job carries on in the background', async () => {
+    mockCorrectAlbum.mockResolvedValue({
+      data: { jobId: 'job-1', background: true, done: false },
+    })
     render(<EditAlbumButton record={record} />)
     open()
     type('album-name', 'Record')
@@ -221,12 +259,9 @@ describe('EditAlbumButton', () => {
       )
     })
 
-    it('saves the track numbers, then the album, and opens the corrected album', async () => {
-      mockCorrectTrackNumbers.mockResolvedValue({
-        data: { albumId: 'al1', done: true },
-      })
+    it('saves the track numbers with the album, as one job, and opens the album', async () => {
       mockCorrectAlbum.mockResolvedValue({
-        data: { albumId: 'al2', done: true },
+        data: { albumId: 'al2', done: true, job: { skipped: 0 } },
       })
       render(<EditAlbumButton record={record} />)
       open()
@@ -238,20 +273,18 @@ describe('EditAlbumButton', () => {
       await waitFor(() =>
         expect(mockRedirect).toHaveBeenCalledWith('/album/al2/show'),
       )
-      expect(mockCorrectTrackNumbers).toHaveBeenCalledWith('al1', [
-        { id: 'mf1', discNumber: 1, trackNumber: 3 },
-      ])
-      expect(mockCorrectTrackNumbers.mock.invocationCallOrder[0]).toBeLessThan(
-        mockCorrectAlbum.mock.invocationCallOrder[0],
-      )
+      expect(mockCorrectAlbum).toHaveBeenCalledWith('al1', {
+        name: 'Record',
+        albumArtist: 'Band',
+        year: 1998,
+        tracks: [{ id: 'mf1', discNumber: 1, trackNumber: 3 }],
+      })
+      expect(mockCorrectTrackNumbers).not.toHaveBeenCalled()
     })
 
-    it('retries only the album when the track numbers were saved but the album was refused', async () => {
-      mockCorrectTrackNumbers.mockResolvedValue({
-        data: { albumId: 'al1', done: true },
-      })
+    it('shows why a refused save was refused, and saves it all again on retry', async () => {
       mockCorrectAlbum
-        .mockRejectedValueOnce({ body: { error: 'internal' } })
+        .mockRejectedValueOnce({ body: { error: 'changedOnDisk' } })
         .mockResolvedValueOnce({ data: { albumId: 'al2', done: true } })
       render(<EditAlbumButton record={record} />)
       open()
@@ -260,15 +293,17 @@ describe('EditAlbumButton', () => {
       type('album-name', 'Record')
       save()
       expect(
-        await screen.findByText(/resources.album.editor.errors.unknown/),
+        await screen.findByText(/resources.album.editor.errors.changedOnDisk/),
       ).toBeTruthy()
 
       save()
       await waitFor(() =>
         expect(mockRedirect).toHaveBeenCalledWith('/album/al2/show'),
       )
-      expect(mockCorrectTrackNumbers).toHaveBeenCalledTimes(1)
       expect(mockCorrectAlbum).toHaveBeenCalledTimes(2)
+      expect(mockCorrectAlbum.mock.calls[1][1].tracks).toEqual([
+        { id: 'mf1', discNumber: 1, trackNumber: 3 },
+      ])
     })
 
     it('warns about a duplicate number but still saves; a number that is no number blocks saving', async () => {

@@ -21,14 +21,17 @@ import {
 import { Alert, Autocomplete } from '@material-ui/lab'
 import EditIcon from '@material-ui/icons/Edit'
 import { nameKey, useArtistSuggestions } from './useArtistSuggestions'
+import { useLibraryEditing } from '../library/useLibraryEditing'
 
-// The server answers a refused Correction with a code; anything else is a generic error.
+// The server answers a refused rename with a code; anything else is a generic error.
 const knownErrors = [
   'artistExists',
   'renamedAway',
   'alreadyCorrected',
   'invalid',
   'notFound',
+  'editingOff',
+  'unsupportedFormat',
 ]
 
 const RenameArtistDialog = ({ record, onClose }) => {
@@ -57,13 +60,22 @@ const RenameArtistDialog = ({ record, onClose }) => {
       save
         .then(({ data }) => {
           onClose()
-          if (data.done) {
+          const skipped = data.job?.skipped || 0
+          if (data.done && skipped) {
+            // The Activity panel lists the Files the job couldn't write, and why
+            notify('resources.artist.notifications.skipped', {
+              type: 'warning',
+              messageArgs: { smart_count: skipped },
+            })
+            redirect(`/artist/${data.artistId}/show`)
+          } else if (data.done) {
             notify(`resources.artist.notifications.${notifications.done}`, {
               type: 'info',
             })
             redirect(`/artist/${data.artistId}/show`)
           } else {
-            // A large rename finishes in the background, and this page's Artist ID goes with it
+            // A large rename's job finishes in the background (see the Activity panel), and
+            // this page's Artist ID goes with it
             notify(
               `resources.artist.notifications.${notifications.background}`,
               {
@@ -171,16 +183,17 @@ RenameArtistDialog.propTypes = {
   onClose: PropTypes.func.isRequired,
 }
 
-// "Rename" on an Artist page (admin only): saves an artist rename Correction, which the server
-// applies to every File with that Artist and rescans their folders. Renaming to an existing
-// Artist, offered as you type, merges into it instead, after a warning.
+// "Rename" on an Artist page (admin only, while editing the Library is on: ADR-0011): writes the
+// new name into every File that names the Artist, as one edit job (#163). Renaming to an
+// existing Artist, offered as you type, merges into it instead, after a warning.
 export const RenameArtistButton = ({ record, className, size }) => {
   const translate = useTranslate()
   const { permissions } = usePermissions()
+  const { enabled } = useLibraryEditing()
   const [open, setOpen] = useState(false)
   const handleClose = useCallback(() => setOpen(false), [])
 
-  if (permissions !== 'admin' || !record?.id) return null
+  if (permissions !== 'admin' || !record?.id || !enabled) return null
 
   return (
     <>
