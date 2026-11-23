@@ -77,6 +77,18 @@ func (m *MockEditJournalRepo) LastWritten(libraryID int, path string) (*model.Ed
 	return nil, model.ErrNotFound
 }
 
+func (m *MockEditJournalRepo) ForJob(jobID string) ([]model.EditEntry, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	res := []model.EditEntry{}
+	for _, e := range m.entries {
+		if e.JobID == jobID {
+			res = append(res, e)
+		}
+	}
+	return res, nil
+}
+
 // All returns every entry, in the order they were first recorded.
 func (m *MockEditJournalRepo) All() []model.EditEntry {
 	m.mu.Lock()

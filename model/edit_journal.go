@@ -100,4 +100,6 @@ type EditJournalRepository interface {
 	// LastWritten returns the latest EditWritten entry that left a File at path (its NewPath) in
 	// the library libraryID, or ErrNotFound.
 	LastWritten(libraryID int, path string) (*EditEntry, error)
+	// ForJob returns the entries of the edit job jobID, oldest first.
+	ForJob(jobID string) ([]EditEntry, error)
 }

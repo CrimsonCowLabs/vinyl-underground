@@ -125,6 +125,17 @@ func writable(libID int) bool {
 	return false
 }
 
+// Check returns the Track whose File an edit would write, or the error the edit would be refused
+// with before the File is read: the Track is gone (model.ErrNotFound), its library isn't
+// writable (ErrEditingOff), or its File is of a kind that can't be checked (ErrUnsupportedFormat).
+func (e *Editor) Check(ctx context.Context, trackID string) (*model.MediaFile, error) {
+	f, err := e.file(ctx, trackID)
+	if err != nil {
+		return nil, err
+	}
+	return f.mf, nil
+}
+
 // Read returns the Track's editable fields, as they are in its File.
 func (e *Editor) Read(ctx context.Context, trackID string) (*TrackTags, error) {
 	f, err := e.file(ctx, trackID)
@@ -156,6 +167,11 @@ func (e *Editor) Read(ctx context.Context, trackID string) (*TrackTags, error) {
 //     Track's row is found by its File's path, never by the tags its persistent ID comes from),
 //     so its favorites, Playlist entries, plays, bookmarks and Downloads stay attached.
 func (e *Editor) Edit(ctx context.Context, trackID string, edit Values) (*Result, error) {
+	return e.EditInJob(ctx, id.NewRandom(), trackID, edit)
+}
+
+// EditInJob is Edit, as one step of the edit job jobID: its Edit journal entry has the job's ID.
+func (e *Editor) EditInJob(ctx context.Context, jobID, trackID string, edit Values) (*Result, error) {
 	writeMu.Lock()
 	defer writeMu.Unlock()
 	// Once started, an edit runs to the end, and its journal entry is closed, even if the admin
@@ -182,7 +198,7 @@ func (e *Editor) Edit(ctx context.Context, trackID string, edit Values) (*Result
 	}
 
 	entry := &model.EditEntry{
-		JobID: id.NewRandom(), Kind: model.EditTags, State: model.EditPending,
+		JobID: jobID, Kind: model.EditTags, State: model.EditPending,
 		LibraryID: f.mf.LibraryID, MediaFileID: f.mf.ID, Path: f.mf.Path, NewPath: f.mf.Path,
 		OriginalTags: model.EditTagValues(orig), Changes: model.EditTagValues(set),
 	}

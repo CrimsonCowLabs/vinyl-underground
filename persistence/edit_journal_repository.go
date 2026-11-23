@@ -60,3 +60,10 @@ func (r *editJournalRepository) Pending() ([]model.EditEntry, error) {
 		OrderBy("created_at", "rowid"), &res)
 	return res, err
 }
+
+func (r *editJournalRepository) ForJob(jobID string) ([]model.EditEntry, error) {
+	res := []model.EditEntry{}
+	err := r.queryAll(Select("*").From(r.tableName).Where(Eq{"job_id": jobID}).
+		OrderBy("created_at", "rowid"), &res)
+	return res, err
+}
