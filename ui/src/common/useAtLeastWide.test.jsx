@@ -1,10 +1,11 @@
 import React from 'react'
 import { act, render, screen } from '@testing-library/react'
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { useWiderThan } from './useWiderThan'
+import { useAtLeastWide } from './useAtLeastWide'
+import { stubResizeObserver } from './stubResizeObserver'
 
-// A stand-in ResizeObserver: resize(w) gives the observed element a width and
-// tells the observers, as the browser does when the panel opens or closes
+// resize(w) gives the observed element a width and tells the observers, as
+// the browser does when the panel opens or closes
 let observers
 let width
 const resize = (w) =>
@@ -14,7 +15,7 @@ const resize = (w) =>
   })
 
 const Probe = () => {
-  const [ref, wide] = useWiderThan(1000)
+  const [ref, wide] = useAtLeastWide(1000)
   return (
     <div ref={ref} data-testid="probe">
       {wide ? 'wide' : 'narrow'}
@@ -22,30 +23,18 @@ const Probe = () => {
   )
 }
 
-describe('useWiderThan', () => {
-  let saved, savedRect
+describe('useAtLeastWide', () => {
+  let restore, savedRect
   beforeEach(() => {
     savedRect = Element.prototype.getBoundingClientRect
-    observers = new Set()
     width = 1200
-    saved = window.ResizeObserver
-    window.ResizeObserver = class {
-      constructor(callback) {
-        this.callback = callback
-      }
-      observe() {
-        observers.add(this)
-      }
-      disconnect() {
-        observers.delete(this)
-      }
-    }
+    ;({ observers, restore } = stubResizeObserver())
     Element.prototype.getBoundingClientRect = function () {
       return { width }
     }
   })
   afterEach(() => {
-    window.ResizeObserver = saved
+    restore()
     Element.prototype.getBoundingClientRect = savedRect
   })
 

@@ -1,9 +1,10 @@
 import React from 'react'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import { ListContextProvider } from 'react-admin'
 import { TestContext } from 'ra-test'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import RipList, { Clipped, RipItems, RipStatusField } from './RipList.jsx'
+import RipList, { RipItems, RipStatusField } from './RipList.jsx'
+import { stubResizeObserver } from '../common/stubResizeObserver'
 import { alreadyHaveExtra } from './alreadyHaveExtra'
 import RipJobPanel from './review/RipJobPanel.jsx'
 
@@ -19,11 +20,8 @@ vi.mock('react-admin', async () => {
   }
 })
 
-// The page's width, as useWiderThan would measure it
+// The page's width, as useAtLeastWide would measure it
 const page = vi.hoisted(() => ({ wide: true }))
-vi.mock('./useWiderThan', () => ({
-  useWiderThan: () => [() => {}, page.wide],
-}))
 vi.mock('./useRipPolling', () => ({ useRipPolling: () => {} }))
 // The list stands in with jobs already loaded, so only the table is under test
 const jobs = vi.hoisted(() => ({
@@ -45,6 +43,7 @@ vi.mock('../common', async (importOriginal) => {
   const { cloneElement } = await import('react')
   return {
     ...(await importOriginal()),
+    useAtLeastWide: () => [() => {}, page.wide],
     List: ({ children }) => (
       <ListContextProvider
         value={{
@@ -174,17 +173,11 @@ describe('RipStatusField', () => {
 })
 
 // The cut-short cells watch their size; jsdom has no ResizeObserver
-let savedObserver
+let restoreResizeObserver
 beforeEach(() => {
-  savedObserver = window.ResizeObserver
-  window.ResizeObserver = class {
-    observe() {}
-    disconnect() {}
-  }
+  restoreResizeObserver = stubResizeObserver().restore
 })
-afterEach(() => {
-  window.ResizeObserver = savedObserver
-})
+afterEach(() => restoreResizeObserver())
 
 describe('RipList', () => {
   const renderList = () =>
@@ -229,39 +222,5 @@ describe('RipList', () => {
     // The URL and error are still there, cut short if need be
     expect(screen.getByText(jobs.j1.url)).toBeInTheDocument()
     expect(screen.getByText(jobs.j1.error)).toBeInTheDocument()
-  })
-})
-
-describe('Clipped', () => {
-  // jsdom lays nothing out, so the text is made to look wider than its cell
-  beforeEach(() => {
-    Object.defineProperty(HTMLElement.prototype, 'scrollWidth', {
-      configurable: true,
-      get: () => 500,
-    })
-    Object.defineProperty(HTMLElement.prototype, 'clientWidth', {
-      configurable: true,
-      get: () => 100,
-    })
-  })
-  afterEach(() => {
-    delete HTMLElement.prototype.scrollWidth
-    delete HTMLElement.prototype.clientWidth
-  })
-
-  it('shows the full text on hover when it is cut short', async () => {
-    const path = 'Inbox/Some Artist/Some Album (Deluxe Edition) [2024]'
-    render(<Clipped title={path} />)
-    const text = screen.getByText(path)
-    expect(text).toHaveStyle({ textOverflow: 'ellipsis', whiteSpace: 'nowrap' })
-
-    fireEvent.mouseOver(text)
-
-    expect(await screen.findByRole('tooltip')).toHaveTextContent(path)
-  })
-
-  it('shows nothing for an empty cell', () => {
-    const { container } = render(<Clipped title="" />)
-    expect(container).toBeEmptyDOMElement()
   })
 })

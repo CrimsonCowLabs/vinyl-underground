@@ -80,19 +80,31 @@ const setup = () => {
   }
 }
 
-// The last value set for a style property on an element, from the style rules
+// Every style rule, with the @supports condition it sits within, if any
+const allRules = (rules, condition) =>
+  [...rules].flatMap((rule) =>
+    rule.cssRules
+      ? allRules(rule.cssRules, rule.conditionText || condition)
+      : [{ rule, condition }],
+  )
+
+// The last style rule setting a property on an element, from the style rules
 // matching it (jsdom's getComputedStyle misses JSS updating a rule in place)
-const styleOf = (testId, property) => {
+const lastRuleFor = (testId, property) => {
   const el = screen.getByTestId(testId)
-  const rules = [...document.styleSheets].flatMap((sheet) => [
-    ...sheet.cssRules,
-  ])
-  return rules
-    .filter((rule) => rule.selectorText && el.matches(rule.selectorText))
-    .map((rule) => rule.style.getPropertyValue(property))
-    .filter(Boolean)
+  return allRules([...document.styleSheets].flatMap((s) => [...s.cssRules]))
+    .filter(({ rule }) => rule.selectorText && el.matches(rule.selectorText))
+    .filter(({ rule }) => rule.style.getPropertyValue(property))
     .pop()
 }
+
+// The last value set for a style property on an element
+const styleOf = (testId, property) =>
+  lastRuleFor(testId, property)?.rule.style.getPropertyValue(property)
+
+// The @supports condition the last rule setting a property sits within
+const conditionOf = (testId, property) =>
+  lastRuleFor(testId, property)?.condition
 
 // The page's right padding in px
 const pageRoomOnTheRight = () => parseFloat(styleOf('page', 'padding-right'))
@@ -149,6 +161,17 @@ describe('Layout with something too wide on the page', () => {
     setup()
     expect(styleOf('grid', 'min-width')).toBe('0')
     expect(styleOf('grid', 'overflow-x')).toBeUndefined()
+  })
+
+  // Without :has a wide table's card can't scroll, so the page widens as
+  // before rather than the table running on under the panel
+  it('only lets the page narrow where a table can scroll in its card', () => {
+    setup()
+    const hasSelectors = 'selector(:has(*))'
+    expect(conditionOf('page', 'min-width')).toBe(hasSelectors)
+    expect(conditionOf('content', 'min-width')).toBe(hasSelectors)
+    expect(conditionOf('list', 'min-width')).toBe(hasSelectors)
+    expect(conditionOf('list', 'overflow-x')).toBe(hasSelectors)
   })
 })
 

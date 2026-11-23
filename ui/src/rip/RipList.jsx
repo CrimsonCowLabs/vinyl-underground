@@ -9,7 +9,7 @@ import {
   Typography,
 } from '@material-ui/core'
 import { makeStyles } from '@material-ui/core/styles'
-import { List, DateField, OverflowTooltip } from '../common'
+import { List, DateField, Clipped, useAtLeastWide } from '../common'
 import RipForm from './RipForm'
 import { alreadyHaveExtra } from './alreadyHaveExtra'
 import YtDlpControl from './YtDlpControl'
@@ -20,7 +20,6 @@ import PromoteButton from './review/PromoteButton'
 import UploadForm from './upload/UploadForm'
 import JobOrigin from './JobOrigin'
 import config from '../config'
-import { useWiderThan } from './useWiderThan'
 
 const ACTIVE = ['queued', 'downloading']
 
@@ -111,27 +110,9 @@ const useStyles = makeStyles(
         minWidth: '8em',
       },
     },
-    clipped: {
-      display: 'block',
-      overflow: 'hidden',
-      textOverflow: 'ellipsis',
-      whiteSpace: 'nowrap',
-    },
   },
   { name: 'NDRipList' },
 )
-
-// Clipped shows its text (or children) on one line, cut short with an
-// ellipsis if it doesn't fit, with the full text on hover when it is cut.
-export const Clipped = ({ title, children }) => {
-  const classes = useStyles()
-  if (!title && !children) return null
-  return (
-    <OverflowTooltip title={title || ''}>
-      <span className={classes.clipped}>{children || title}</span>
-    </OverflowTooltip>
-  )
-}
 
 // The URL column: a Rip's link, or where an upload or drop came from
 const originField = (record) => (
@@ -152,7 +133,7 @@ const RipList = (props) => {
   const classes = useStyles()
   // Measures the page itself, not the window, so the Now Playing panel
   // opening or closing re-flows the table straight away
-  const [pageRef, allColumns] = useWiderThan(ALL_COLUMNS_WIDTH)
+  const [pageRef, allColumns] = useAtLeastWide(ALL_COLUMNS_WIDTH)
   return (
     <div ref={pageRef}>
       {config.enableRipping && <YtDlpControl />}

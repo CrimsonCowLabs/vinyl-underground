@@ -1,11 +1,11 @@
 import { useLayoutEffect, useState } from 'react'
 
-// useWiderThan is whether the element given the returned ref is at least
+// useAtLeastWide is whether the element given the returned ref is at least
 // minWidth px wide. It follows the element, not the window, so it changes as
 // soon as anything else takes or gives back room beside it: the Now Playing
 // panel opening or closing, or the sidebar folding. Until it can measure, or
 // where there's no ResizeObserver, it says wide.
-export const useWiderThan = (minWidth) => {
+export const useAtLeastWide = (minWidth) => {
   const [el, setEl] = useState(null)
   const [wide, setWide] = useState(true)
 
