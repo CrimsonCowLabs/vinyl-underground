@@ -34,6 +34,13 @@ import {
   withProposalsFrom,
 } from './reviewForm'
 import ProposalsBar from './ProposalsBar'
+import {
+  clearDraft,
+  getDraft,
+  pendingSave,
+  saveTags,
+  setDraft,
+} from './reviewDrafts'
 
 // PROPOSALS_POLL_MS is how often the card looks again while proposals are being worked out.
 export const PROPOSALS_POLL_MS = 3000
@@ -50,18 +57,23 @@ export const PROPOSALS_POLL_MS = 3000
 // Proposed tags (#34) are offered under each field ("Proposed: X", click to take it), or all at
 // once with "Use proposals". A field holding a proposal the File doesn't have yet says so. They
 // only go into the form (see reviewForm.js): nothing is written until Save.
+//
+// Unsaved edits are kept per job outside the card (see reviewDrafts.js), as the Rip list remounts
+// the card each time it refreshes: a remounted card picks up where the admin left off.
 const ReviewCard = ({ record, trackExtra, actions }) => {
   const translate = useTranslate()
   const notify = useNotify()
   const refresh = useRefresh()
-  const [review, setReview] = useState(null)
-  const [values, setValues] = useState(null)
+  const jobId = record?.id
+  // draft is the job's unsaved edits from before the card was last remounted, if it has any.
+  const [draft] = useState(() => getDraft(jobId))
+  const [review, setReview] = useState(draft?.review ?? null)
+  const [values, setValues] = useState(draft?.values ?? null)
   const [loadError, setLoadError] = useState(null)
   const [saving, setSaving] = useState(false)
   // discarding is the Track the Discard dialog is asking about.
   const [discarding, setDiscarding] = useState(null)
   const [busy, setBusy] = useState(false)
-  const jobId = record?.id
 
   const show = useCallback((rev) => {
     setReview(rev)
@@ -69,7 +81,7 @@ const ReviewCard = ({ record, trackExtra, actions }) => {
   }, [])
 
   useEffect(() => {
-    if (!jobId) return undefined
+    if (!jobId || draft) return undefined
     let active = true
     httpClient(`${jobUrl(jobId)}/tags`)
       .then(({ json }) => active && show(json))
@@ -77,7 +89,30 @@ const ReviewCard = ({ record, trackExtra, actions }) => {
     return () => {
       active = false
     }
+  }, [jobId, draft, show])
+
+  // A Save made before the card was remounted shows here once it is done.
+  useEffect(() => {
+    const save = pendingSave(jobId)
+    if (!save) return undefined
+    let active = true
+    setSaving(true)
+    save
+      .then((json) => active && show(json))
+      .catch(() => {}) // The card that saved says why.
+      .finally(() => active && setSaving(false))
+    return () => {
+      active = false
+    }
   }, [jobId, show])
+
+  // Keep the job's draft in step with the form: while there are unsaved edits, they are kept for a
+  // remounted card; once there are none (saved, or undone), it goes.
+  useEffect(() => {
+    if (!jobId || !review || !values) return
+    if (editsFrom(review, values)) setDraft(jobId, { review, values })
+    else clearDraft(jobId)
+  }, [jobId, review, values])
 
   // While proposals are being worked out, look again now and then, taking in only the proposals
   // so the admin's edits stay.
@@ -143,16 +178,14 @@ const ReviewCard = ({ record, trackExtra, actions }) => {
       : translate('resources.rip.review.proposedNew')
   }
 
+  // Saving changes only the Files' tags, which the job list doesn't show, so the card takes in
+  // the saved tags itself and the list is left alone (with any other card's unsaved edits).
   const handleSave = () => {
     setSaving(true)
-    httpClient(`${jobUrl(jobId)}/tags`, {
-      method: 'PUT',
-      body: JSON.stringify(edits),
-    })
-      .then(({ json }) => {
+    saveTags(jobId, edits)
+      .then((json) => {
         show(json)
         notify('resources.rip.review.saved', 'info')
-        refresh()
       })
       .catch((error) => notify(errorText(error), 'warning'))
       .finally(() => setSaving(false))
@@ -171,6 +204,7 @@ const ReviewCard = ({ record, trackExtra, actions }) => {
         })
         setValues(removeTrack(values, track.itemId))
         setDiscarding(null)
+        // The job's Tracks changed: the list shows them. The edits left stay in the draft.
         refresh()
       })
       .catch((error) => notify(errorText(error), 'warning'))

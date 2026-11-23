@@ -9,6 +9,7 @@ import {
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import ReviewCard from './ReviewCard.jsx'
 import RipJobPanel from './RipJobPanel.jsx'
+import { clearAllDrafts } from './reviewDrafts'
 
 const notify = vi.fn()
 const refresh = vi.fn()
@@ -79,6 +80,7 @@ const renderCard = async (props = {}) => {
 describe('ReviewCard', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    clearAllDrafts()
   })
 
   it("pre-fills the album and the Track list from the Files' tags", async () => {
@@ -128,7 +130,8 @@ describe('ReviewCard', () => {
         tracks: [{ itemId: 'c', title: 'Third Song' }],
       }),
     })
-    expect(refresh).toHaveBeenCalled()
+    // The list isn't refreshed, so other cards are left as they are.
+    expect(refresh).not.toHaveBeenCalled()
     expect(save).toBeDisabled()
   })
 
@@ -284,9 +287,208 @@ describe('ReviewCard', () => {
   })
 })
 
+// The Rip list remounts every expanded card on each refresh (react-admin 3 keys the list's content
+// on its refresh counter): a new key does the same here.
+describe('ReviewCard across refreshes', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    http.mockReset()
+    clearAllDrafts()
+  })
+
+  it('keeps unsaved edits when the list refreshes', async () => {
+    http.mockReturnValueOnce(reply(review))
+    const { rerender } = render(<ReviewCard key={0} record={job} />)
+    await screen.findByDisplayValue('Rip Album')
+    fireEvent.change(screen.getByLabelText('resources.song.fields.title 1'), {
+      target: { value: 'Edited' },
+    })
+
+    http.mockReturnValue(reply(review))
+    rerender(<ReviewCard key={1} record={job} />)
+
+    expect(
+      await screen.findByLabelText('resources.song.fields.title 1'),
+    ).toHaveValue('Edited')
+    expect(
+      screen.getByRole('button', { name: 'ra.action.save' }),
+    ).not.toBeDisabled()
+    // The card came back from its draft, without reloading the tags over the edits.
+    expect(http).toHaveBeenCalledTimes(1)
+  })
+
+  it("keeps other cards' unsaved edits when one is saved, and leaves none behind", async () => {
+    const other = { ...review, jobId: 'j2', album: 'Other Album' }
+    http.mockReturnValueOnce(reply(review)).mockReturnValueOnce(reply(other))
+    const cards = (key) => (
+      <>
+        <div data-testid="card-j1">
+          <ReviewCard key={key} record={job} />
+        </div>
+        <div data-testid="card-j2">
+          <ReviewCard key={key} record={{ ...job, id: 'j2' }} />
+        </div>
+      </>
+    )
+    const { rerender } = render(cards(0))
+    const j1 = within(await screen.findByTestId('card-j1'))
+    const j2 = within(screen.getByTestId('card-j2'))
+    await j2.findByDisplayValue('Other Album')
+    fireEvent.change(j1.getByDisplayValue('Rip Album'), {
+      target: { value: 'Saved Album' },
+    })
+    fireEvent.change(j2.getByDisplayValue('Other Album'), {
+      target: { value: 'Unsaved Album' },
+    })
+
+    http.mockReturnValueOnce(reply({ ...review, album: 'Saved Album' }))
+    fireEvent.click(j1.getByRole('button', { name: 'ra.action.save' }))
+    await waitFor(() =>
+      expect(notify).toHaveBeenCalledWith('resources.rip.review.saved', 'info'),
+    )
+    expect(refresh).not.toHaveBeenCalled()
+    expect(j2.getByDisplayValue('Unsaved Album')).toBeInTheDocument()
+
+    // After a refresh, the saved card loads the saved tags, and the other keeps its edits.
+    http.mockReturnValueOnce(reply({ ...review, album: 'Saved Album' }))
+    rerender(cards(1))
+    expect(await j1.findByDisplayValue('Saved Album')).toBeInTheDocument()
+    expect(j1.getByRole('button', { name: 'ra.action.save' })).toBeDisabled()
+    expect(j2.getByDisplayValue('Unsaved Album')).toBeInTheDocument()
+    expect(
+      j2.getByRole('button', { name: 'ra.action.save' }),
+    ).not.toBeDisabled()
+    expect(http).toHaveBeenLastCalledWith('/api/rip/j1/tags')
+  })
+
+  it('shows a Save still in flight when the list refreshes', async () => {
+    http.mockReturnValueOnce(reply(review))
+    const { rerender } = render(<ReviewCard key={0} record={job} />)
+    fireEvent.change(await screen.findByDisplayValue('Rip Album'), {
+      target: { value: 'Saved Album' },
+    })
+    let saved
+    http.mockReturnValueOnce(
+      new Promise((resolve) => {
+        saved = resolve
+      }),
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'ra.action.save' }))
+
+    rerender(<ReviewCard key={1} record={job} />)
+    expect(
+      await screen.findByRole('button', {
+        name: 'resources.rip.review.saving',
+      }),
+    ).toBeDisabled()
+    saved({ json: { ...review, album: 'Saved Album' } })
+
+    expect(await screen.findByDisplayValue('Saved Album')).toBeInTheDocument()
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: 'ra.action.save' }),
+      ).toBeDisabled(),
+    )
+    expect(http).toHaveBeenCalledTimes(2) // the GET and the PUT
+  })
+
+  it("drops a discarded Track's unsaved edits, keeping the others'", async () => {
+    http.mockReturnValueOnce(reply(review))
+    const { rerender } = render(<ReviewCard key={0} record={job} />)
+    await screen.findByDisplayValue('Rip Album')
+    fireEvent.change(screen.getByLabelText('resources.song.fields.title 1'), {
+      target: { value: 'Edited' },
+    })
+    fireEvent.change(screen.getByLabelText('resources.song.fields.title 3'), {
+      target: { value: 'Gone' },
+    })
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'resources.rip.review.discardTrack 3',
+      }),
+    )
+    http.mockReturnValueOnce(reply(null))
+    fireEvent.click(
+      within(await screen.findByRole('dialog')).getByRole('button', {
+        name: 'resources.rip.review.discard',
+      }),
+    )
+    await waitFor(() => expect(screen.queryByTestId('track-c')).toBeNull())
+
+    rerender(<ReviewCard key={1} record={job} />)
+    expect(
+      await screen.findByLabelText('resources.song.fields.title 1'),
+    ).toHaveValue('Edited')
+    expect(screen.queryByTestId('track-c')).toBeNull()
+    expect(http).toHaveBeenCalledTimes(2)
+  })
+
+  it('drops the draft when the only edited Track is discarded', async () => {
+    http.mockReturnValueOnce(reply(review))
+    const { rerender } = render(<ReviewCard key={0} record={job} />)
+    await screen.findByDisplayValue('Rip Album')
+    fireEvent.change(screen.getByLabelText('resources.song.fields.title 3'), {
+      target: { value: 'Gone' },
+    })
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'resources.rip.review.discardTrack 3',
+      }),
+    )
+    http.mockReturnValueOnce(reply(null))
+    fireEvent.click(
+      within(await screen.findByRole('dialog')).getByRole('button', {
+        name: 'resources.rip.review.discard',
+      }),
+    )
+    await waitFor(() => expect(screen.queryByTestId('track-c')).toBeNull())
+
+    const fresh = {
+      ...review,
+      tracks: review.tracks.filter((t) => t.itemId !== 'c'),
+    }
+    http.mockReturnValueOnce(reply(fresh))
+    rerender(<ReviewCard key={1} record={job} />)
+    await waitFor(() =>
+      expect(http).toHaveBeenLastCalledWith('/api/rip/j1/tags'),
+    )
+    expect(http).toHaveBeenCalledTimes(3)
+  })
+
+  it("drops a discarded job's unsaved edits", async () => {
+    http.mockReturnValueOnce(reply(review))
+    const { rerender } = render(<ReviewCard key={0} record={job} />)
+    fireEvent.change(await screen.findByDisplayValue('Rip Album'), {
+      target: { value: 'Edited' },
+    })
+    fireEvent.click(
+      screen.getByRole('button', { name: 'resources.rip.review.discard' }),
+    )
+    http.mockReturnValueOnce(reply(null))
+    fireEvent.click(
+      within(await screen.findByRole('dialog')).getByRole('button', {
+        name: 'resources.rip.review.discard',
+      }),
+    )
+    await waitFor(() =>
+      expect(notify).toHaveBeenCalledWith(
+        'resources.rip.review.discarded',
+        'info',
+      ),
+    )
+
+    // Were the job to come back (a new Inbox scan, say), its card starts afresh.
+    http.mockReturnValueOnce(reply(review))
+    rerender(<ReviewCard key={1} record={job} />)
+    expect(await screen.findByDisplayValue('Rip Album')).toBeInTheDocument()
+    expect(http).toHaveBeenLastCalledWith('/api/rip/j1/tags')
+  })
+})
+
 describe('RipJobPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    clearAllDrafts()
   })
 
   it('shows the review card for a ready job', async () => {
