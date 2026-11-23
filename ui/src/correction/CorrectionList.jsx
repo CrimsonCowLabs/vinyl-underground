@@ -26,7 +26,7 @@ const useStyles = makeStyles((theme) => ({
 // (#165): an image marked wrong for an album, and a MusicBrainz release picked for one (an album
 // Correction holding only the release, until #170 writes it). Only these can be undone; the
 // others are written into the Files by the migration.
-export const isAppData = (record) =>
+const isAppData = (record) =>
   !record.undoing &&
   (record.kind === 'albumCoverBlock' ||
     (record.kind === 'album' &&
