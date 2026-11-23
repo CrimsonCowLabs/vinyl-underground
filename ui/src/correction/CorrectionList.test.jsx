@@ -46,6 +46,22 @@ const rename = {
   createdBy: 'admin',
   trackCount: 12,
 }
+const block = {
+  id: 'c2',
+  kind: 'albumCoverBlock',
+  from: 'Band – Record',
+  to: 'cover.jpg',
+  createdBy: 'admin',
+  trackCount: 12,
+}
+const release = {
+  id: 'c3',
+  kind: 'album',
+  from: 'Band – Record',
+  to: 'MusicBrainz: Record (GB, CD, 1999)',
+  mbzAlbumId: 'a7f8ed5e-1111-4a1b-9c1d-123456789abc',
+  trackCount: 2,
+}
 
 describe('Corrections page', () => {
   beforeEach(() => vi.clearAllMocks())
@@ -56,92 +72,67 @@ describe('Corrections page', () => {
     expect(screen.getByText('Grateful Dead')).toBeTruthy()
   })
 
-  it('counts the Tracks a Correction applies to', () => {
-    render(<CorrectionStatusField record={rename} />)
+  it('counts the Tracks a cover block applies to', () => {
+    render(<CorrectionStatusField record={block} />)
     expect(
       screen.getByText('resources.correction.status.tracks {"smart_count":12}'),
     ).toBeTruthy()
   })
 
-  it('flags an orphaned Correction', () => {
-    render(<CorrectionStatusField record={{ ...rename, trackCount: 0 }} />)
+  it('flags an orphaned cover block', () => {
+    render(<CorrectionStatusField record={{ ...block, trackCount: 0 }} />)
     expect(
       screen.getByText('resources.correction.status.orphaned'),
     ).toBeTruthy()
   })
 
-  it('shows a Correction being undone', () => {
-    render(<CorrectionStatusField record={{ ...rename, undoing: true }} />)
-    expect(screen.getByText('resources.correction.status.undoing')).toBeTruthy()
-  })
-
-  it('undoes a Correction after confirming, then reloads the list', async () => {
-    mockUndo.mockResolvedValue({ data: { id: 'c1', done: true } })
+  it('marks a Correction still to be written into the Files, which has no Undo', () => {
+    render(<CorrectionStatusField record={rename} />)
+    expect(
+      screen.getByText('resources.correction.status.toMigrate'),
+    ).toBeTruthy()
     render(<UndoCorrectionButton record={rename} />)
-    fireEvent.click(screen.getByText('resources.correction.actions.undo'))
-    expect(
-      screen.getByText(/resources.correction.message.undoContent/),
-    ).toBeTruthy()
-    fireEvent.click(screen.getByText('confirm'))
-
-    await waitFor(() => expect(mockRefresh).toHaveBeenCalled())
-    expect(mockUndo).toHaveBeenCalledWith('c1')
-    expect(mockNotify).toHaveBeenCalledWith(
-      'resources.correction.notifications.undone',
-      expect.anything(),
-    )
-  })
-
-  it('says undoing a cover choice brings back the usual cover', () => {
+    expect(screen.queryByText('resources.correction.actions.undo')).toBeNull()
     render(
       <UndoCorrectionButton
-        record={{ ...rename, kind: 'albumCover', from: 'Band – Record' }}
+        record={{ ...release, albumName: 'Record', id: 'c4' }}
       />,
     )
-    fireEvent.click(screen.getByText('resources.correction.actions.undo'))
-    expect(
-      screen.getByText(
-        /resources.correction.message.undoContentAlbumCover .*Band – Record/,
-      ),
-    ).toBeTruthy()
+    expect(screen.queryByText('resources.correction.actions.undo')).toBeNull()
   })
 
-  it('says undoing a cover marked wrong lets the album show it again', () => {
-    render(
-      <UndoCorrectionButton
-        record={{
-          ...rename,
-          kind: 'albumCoverBlock',
-          from: 'Band – Record',
-          to: 'cover.jpg',
-        }}
-      />,
-    )
+  it('undoes a cover block after confirming, then reloads the list', async () => {
+    mockUndo.mockResolvedValue({ data: { id: 'c2', done: true } })
+    render(<UndoCorrectionButton record={block} />)
     fireEvent.click(screen.getByText('resources.correction.actions.undo'))
     expect(
       screen.getByText(
         /resources.correction.message.undoContentAlbumCoverBlock .*cover.jpg/,
       ),
     ).toBeTruthy()
-  })
-
-  it('says when an undo carries on in the background', async () => {
-    mockUndo.mockResolvedValue({ data: { id: 'c1', done: false } })
-    render(<UndoCorrectionButton record={rename} />)
-    fireEvent.click(screen.getByText('resources.correction.actions.undo'))
     fireEvent.click(screen.getByText('confirm'))
 
-    await waitFor(() =>
-      expect(mockNotify).toHaveBeenCalledWith(
-        'resources.correction.notifications.undoing',
-        expect.anything(),
-      ),
+    await waitFor(() => expect(mockRefresh).toHaveBeenCalled())
+    expect(mockUndo).toHaveBeenCalledWith('c2')
+    expect(mockNotify).toHaveBeenCalledWith(
+      'resources.correction.notifications.undone',
+      expect.anything(),
     )
+  })
+
+  it('says undoing a picked release brings back the usual cover', () => {
+    render(<UndoCorrectionButton record={release} />)
+    fireEvent.click(screen.getByText('resources.correction.actions.undo'))
+    expect(
+      screen.getByText(
+        /resources.correction.message.undoContentRelease .*Band – Record/,
+      ),
+    ).toBeTruthy()
   })
 
   it('reports a failed undo', async () => {
     mockUndo.mockRejectedValue({ status: 500, body: { error: 'internal' } })
-    render(<UndoCorrectionButton record={rename} />)
+    render(<UndoCorrectionButton record={block} />)
     fireEvent.click(screen.getByText('resources.correction.actions.undo'))
     fireEvent.click(screen.getByText('confirm'))
 
@@ -152,18 +143,18 @@ describe('Corrections page', () => {
     )
   })
 
-  it('says to undo a later Correction first when one builds on this one', async () => {
+  it('says a Correction the migration writes cannot be undone', async () => {
     mockUndo.mockRejectedValue({
       status: 400,
-      body: { error: 'undoLaterFirst' },
+      body: { error: 'migrateFirst' },
     })
-    render(<UndoCorrectionButton record={rename} />)
+    render(<UndoCorrectionButton record={block} />)
     fireEvent.click(screen.getByText('resources.correction.actions.undo'))
     fireEvent.click(screen.getByText('confirm'))
 
     await waitFor(() =>
       expect(mockNotify).toHaveBeenCalledWith(
-        'resources.correction.errors.undoLaterFirst',
+        'resources.correction.errors.migrateFirst',
         { type: 'warning' },
       ),
     )

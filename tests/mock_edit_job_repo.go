@@ -139,3 +139,22 @@ func (m *MockEditJobRepo) SplitArtistAnnotations(jobID, fromID, toID string, all
 	m.AnnotationMoves = append(m.AnnotationMoves, "split "+jobID+" "+fromID+" "+toID+" "+strconv.FormatBool(all))
 	return nil
 }
+
+func (m *MockEditJobRepo) KeepArtistAnnotationsIn(jobID, part, fromID string) error {
+	return m.KeepArtistAnnotations(jobID+"/"+part, fromID)
+}
+
+func (m *MockEditJobRepo) MergeArtistAnnotationsIn(jobID, part, fromID, toID string) error {
+	return m.MergeArtistAnnotations(jobID+"/"+part, fromID, toID)
+}
+
+func (m *MockEditJobRepo) SplitArtistAnnotationsIn(jobID, part, fromID, toID string, all bool) error {
+	return m.SplitArtistAnnotations(jobID+"/"+part, fromID, toID, all)
+}
+
+func (m *MockEditJobRepo) AdoptCorrectionAnnotations(jobID, part, correctionID string) (int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.AnnotationMoves = append(m.AnnotationMoves, "adopt "+jobID+"/"+part+" "+correctionID)
+	return 0, nil
+}

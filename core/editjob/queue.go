@@ -136,10 +136,10 @@ func (q *Queue) EnqueueWith(ctx context.Context, kind model.EditKind, args strin
 		if err := k.Check(ctx, s); err != nil {
 			return nil, err
 		}
-		if files[s.MediaFileID] {
+		if files[stepFile(s)] {
 			return nil, fmt.Errorf("%w: an edit job writes each File once", ErrSameFileTwice)
 		}
-		files[s.MediaFileID] = true
+		files[stepFile(s)] = true
 	}
 	job := &model.EditJob{Kind: kind, Args: args, State: model.EditJobQueued, Total: len(steps)}
 	if u, ok := request.UserFrom(ctx); ok {
@@ -399,6 +399,16 @@ func (q *Queue) undoes(ctx context.Context, job *model.EditJob, depth int) (*mod
 	return target, !wasUndone, err
 }
 
+// stepFile names the File a step writes: its Track's, or for a step of no Track (an album's
+// folder cover, which its Check fills the Path of) its path. So a job may write several albums'
+// covers (the Correction migration, #165), and a restart tells their writes apart by path.
+func stepFile(s *model.EditJobStep) string {
+	if s.MediaFileID == "" {
+		return "path:" + s.Path
+	}
+	return s.MediaFileID
+}
+
 // runStep writes the step's File, and records its outcome in the step.
 func (q *Queue) runStep(ctx context.Context, job *model.EditJob, s *model.EditJobStep) {
 	k, ok := q.kinds[s.Kind]
@@ -431,7 +441,7 @@ func (q *Queue) recover(ctx context.Context, job *model.EditJob, s *model.EditJo
 	var entry *model.EditEntry
 	for i := range entries {
 		// A job has one step per File: its latest entry for the File is the step's.
-		if entries[i].MediaFileID == s.MediaFileID {
+		if entries[i].MediaFileID == s.MediaFileID && (s.MediaFileID != "" || entries[i].Path == s.Path) {
 			entry = &entries[i]
 		}
 	}

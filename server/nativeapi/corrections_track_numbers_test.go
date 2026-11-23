@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 
@@ -18,16 +17,6 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
-
-func (f *fakeCorrections) CorrectTrackNumbers(_ context.Context, albumID string, tracks []corrections.TrackNumber) (*corrections.Applied, error) {
-	if f.err != nil {
-		return nil, f.err
-	}
-	for _, t := range tracks {
-		f.numbers = append(f.numbers, fmt.Sprintf("%s/%s->%d-%d", albumID, t.ID, t.DiscNumber, t.TrackNumber))
-	}
-	return &corrections.Applied{Correction: model.Correction{ID: "c4"}, AlbumID: albumID, Done: true}, nil
-}
 
 var _ = Describe("Track order API", func() {
 	var svc *fakeCorrections
@@ -73,7 +62,6 @@ var _ = Describe("Track order API", func() {
 		w := post(adminToken, body)
 		Expect(w.Code).To(Equal(http.StatusOK), w.Body.String())
 		Expect(svc.plans).To(Equal([]string{"album al-1 mf-1 mf-2"}))
-		Expect(svc.numbers).To(BeEmpty())
 		var got struct {
 			Done    bool           `json:"done"`
 			AlbumID string         `json:"albumId"`

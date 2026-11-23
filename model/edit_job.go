@@ -121,4 +121,15 @@ type EditJobRepository interface {
 	// is only fromID's new name), fromID also gets the star and rating toID got since. Nothing is
 	// kept afterwards.
 	SplitArtistAnnotations(jobID, fromID, toID string, all bool) error
+
+	// The same, for one part of a job that renames several Artists (the Correction migration,
+	// #165): each part keeps its own. The methods above are part "".
+	KeepArtistAnnotationsIn(jobID, part, fromID string) error
+	MergeArtistAnnotationsIn(jobID, part, fromID, toID string) error
+	SplitArtistAnnotationsIn(jobID, part, fromID, toID string, all bool) error
+	// AdoptCorrectionAnnotations keeps with the job's part what the artist merge Correction
+	// correctionID merged, as merged already, so the job's undo splits it (SplitArtistAnnotationsIn)
+	// once the Correction is gone. It returns how many Listeners' rows it kept (none: the merge
+	// moved nothing, or isn't one the overlay made).
+	AdoptCorrectionAnnotations(jobID, part, correctionID string) (int64, error)
 }

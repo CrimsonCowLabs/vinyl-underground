@@ -130,10 +130,6 @@ type phaseFolders struct {
 	state            *scanState
 	prevAlbumPIDConf string
 	imageChanges     *imageChangeCollector
-	// corrections are the admins' Corrections, applied to every File read in this scan
-	corrections metadata.Corrections
-	// artistIDMoves are where renamed Artists' stars and play counts go (see persistFolder)
-	artistIDMoves []metadata.IDMove
 }
 
 func (p *phaseFolders) description() string {
@@ -147,22 +143,6 @@ func (p *phaseFolders) producer() ppl.Producer[*folderEntry] {
 		if err != nil {
 			return fmt.Errorf("getting album PID conf: %w", err)
 		}
-		corrections, err := p.ds.Correction(p.ctx).GetAll()
-		if err != nil {
-			return fmt.Errorf("loading corrections: %w", err)
-		}
-		p.corrections = metadata.NewCorrections(corrections)
-		for _, c := range corrections {
-			if c.Kind != model.CorrectionAlbum || c.Undoing {
-				continue
-			}
-			folderIDs, err := p.ds.Correction(p.ctx).AlbumFolderIDs(c.MatchKey)
-			if err != nil {
-				return fmt.Errorf("loading the folders of an album correction: %w", err)
-			}
-			p.corrections.MatchAlbumFolders(c.MatchKey, folderIDs)
-		}
-		p.artistIDMoves = p.corrections.ArtistIDMoves()
 
 		// TODO Parallelize multiple job when we have multiple libraries
 		var total int64
@@ -309,7 +289,7 @@ func (p *phaseFolders) loadTagsFromFiles(entry *folderEntry, toImport map[string
 		}
 		for filePath, info := range allInfo {
 			md := metadata.New(filePath, info)
-			track := md.ToCorrectedMediaFile(entry.job.lib.ID, entry.id, p.corrections)
+			track := md.ToMediaFile(entry.job.lib.ID, entry.id)
 			tracks = append(tracks, track)
 			for _, t := range track.Tags.FlattenAll() {
 				uniqueTags[t.ID] = t
@@ -319,9 +299,6 @@ func (p *phaseFolders) loadTagsFromFiles(entry *folderEntry, toImport map[string
 			prevAlbumID := ""
 			if prev := toImport[filePath]; prev != nil {
 				prevAlbumID = prev.AlbumID
-				for _, id := range symmetricDifference(prev.CorrectionIDs, track.CorrectionIDs) {
-					entry.correctionChanges[id] = struct{}{}
-				}
 			} else {
 				prevAlbumID = md.AlbumID(track, p.prevAlbumPIDConf)
 			}
@@ -426,10 +403,6 @@ func (p *phaseFolders) persistFolder(ctx context.Context, tx model.DataStore, en
 		}
 	}
 
-	if err := p.moveArtistAnnotations(artistRepo, tx.Correction(ctx), entry); err != nil {
-		return err
-	}
-
 	// Save all new/modified albums to DB. Their information will be incomplete, but they will be refreshed later
 	for i := range entry.albums {
 		err = p.persistAlbum(albumRepo, &entry.albums[i], albumIDMap)
@@ -485,33 +458,6 @@ func (p *phaseFolders) persistFolder(ctx context.Context, tx model.DataStore, en
 		}
 		if err := enqueue(queueItems...); err != nil {
 			log.Warn(ctx, "Scanner: could not enqueue artwork resolution", err)
-		}
-	}
-	return nil
-}
-
-// moveArtistAnnotations moves the stars, ratings and play counts of a renamed Artist (or of a
-// rename being undone) to the Artist's new ID, in the folders where the rename newly applies (or
-// no longer does) to Tracks already in the Library. That is before GC deletes the annotations of
-// the old, now empty Artist, and only then: an Artist kept under the old name (e.g. as a composer)
-// keeps what it gets later. Album annotations follow their albums in persistAlbum.
-// An artist merge joins them to the other Artist's instead, and its undo moves back only those.
-func (p *phaseFolders) moveArtistAnnotations(repo model.ArtistRepository, corrections model.CorrectionRepository, entry *folderEntry) error {
-	for _, m := range p.artistIDMoves {
-		if _, changed := entry.correctionChanges[m.CorrectionID]; !changed {
-			continue
-		}
-		var err error
-		switch {
-		case m.Merge && m.Undo:
-			err = corrections.SplitArtistAnnotations(m.CorrectionID, m.From, m.To)
-		case m.Merge:
-			err = corrections.MergeArtistAnnotations(m.CorrectionID, m.From, m.To)
-		default:
-			err = repo.ReassignAnnotation(m.From, m.To)
-		}
-		if err != nil {
-			return fmt.Errorf("moving artist annotations from %s to %s: %w", m.From, m.To, err)
 		}
 	}
 	return nil
@@ -590,19 +536,3 @@ func (p *phaseFolders) finalize(err error) error {
 }
 
 var _ phase[*folderEntry] = (*phaseFolders)(nil)
-
-// symmetricDifference returns the values in only one of a and b.
-func symmetricDifference(a, b []string) []string {
-	var res []string
-	for _, v := range a {
-		if !slices.Contains(b, v) {
-			res = append(res, v)
-		}
-	}
-	for _, v := range b {
-		if !slices.Contains(a, v) {
-			res = append(res, v)
-		}
-	}
-	return res
-}

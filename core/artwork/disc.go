@@ -31,7 +31,7 @@ type discArtworkReader struct {
 	// Newest ImagesUpdatedAt across the album's and this disc's folders: an image can be
 	// replaced without the album row changing, so this is what makes a cache key notice it.
 	imagesUpdatedAt time.Time
-	covers          albumCovers // the album's choice, which its disc art shows too, and its blocks
+	covers          albumCovers // the album's pick, which its disc art shows too, and its blocks
 }
 
 // cacheTime is the disc image's validity stamp: any of these moving means the selection may

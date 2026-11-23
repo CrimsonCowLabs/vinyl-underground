@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"image"
-	"image/color"
 	"image/png"
 	"path/filepath"
 	"testing/fstest"
@@ -28,14 +27,14 @@ import (
 	"github.com/zeebo/xxh3"
 )
 
-var _ = Describe("Scanning with a chosen album cover", Ordered, func() {
+// "This image is wrong for the album" stays app data once the overlay is gone (#165).
+var _ = Describe("Scanning with an album cover marked wrong", Ordered, func() {
 	var ctx context.Context
 	var ds model.DataStore
 	var s model.Scanner
 	var svc corrections.Corrections
 
 	const user = "123"
-	folder := model.ScanTarget{LibraryID: 1, FolderPath: "Band"}
 
 	BeforeAll(func() {
 		tests.SkipOnWindows("SQLite file lock blocks TempDir cleanup (#TBD-path-sep-scanner)")
@@ -58,7 +57,7 @@ var _ = Describe("Scanning with a chosen album cover", Ordered, func() {
 		s = scanner.New(ctx, ds, events.NoopBroker(),
 			playlists.NewPlaylists(ds, artwork.NewUploader(ds)), metrics.NewNoopInstance())
 		Expect(ds.Library(ctx).Put(&model.Library{ID: 1, Name: "Fake Library", Path: "fake:///music"})).To(Succeed())
-		svc = corrections.New(ds, nil)
+		svc = corrections.New(ds)
 
 		record := template(_t{"albumartist": "Band", "artist": "Band", "album": "Record", "year": 1999})
 		createFS(fstest.MapFS{
@@ -83,51 +82,6 @@ var _ = Describe("Scanning with a chosen album cover", Ordered, func() {
 		Expect(err).ToNot(HaveOccurred())
 		return src
 	}
-	choose := func() *corrections.Applied {
-		GinkgoHelper()
-		img := image.NewRGBA(image.Rect(0, 0, 2, 2))
-		img.Set(0, 0, color.RGBA{R: 255, A: 255})
-		var buf bytes.Buffer
-		Expect(png.Encode(&buf, img)).To(Succeed())
-		stored, err := artwork.StoreChosenCover(buf.Bytes())
-		Expect(err).ToNot(HaveOccurred())
-		res, err := svc.ChooseAlbumCover(ctx, theAlbum().ID,
-			corrections.AlbumCover{StoredCover: stored, Source: "Cover Art Archive: Record"})
-		Expect(err).ToNot(HaveOccurred())
-		return res
-	}
-
-	It("keeps the chosen cover across rescans, even when the album's ID changes", func() {
-		choose()
-		Expect(coverSource()).To(Equal(artwork.ChosenSource))
-
-		_, err := s.ScanAll(ctx, true)
-		Expect(err).ToNot(HaveOccurred())
-		Expect(coverSource()).To(Equal(artwork.ChosenSource))
-
-		// An Artist rename gives the album a new ID; the choice follows its folder
-		before := theAlbum().ID
-		Expect(ds.Correction(ctx).Add(&model.Correction{Kind: model.CorrectionArtistRename,
-			MatchKey: model.ArtistNameKey("Band"), From: "Band", To: "The Band"})).To(Succeed())
-		_, err = s.ScanFolders(ctx, true, []model.ScanTarget{folder})
-		Expect(err).ToNot(HaveOccurred())
-		Expect(theAlbum().ID).ToNot(Equal(before))
-		Expect(coverSource()).To(Equal(artwork.ChosenSource))
-	})
-
-	It("counts the album's Tracks, and goes back to the default cover order on undo", func() {
-		res := choose()
-		all, err := svc.GetAll(ctx)
-		Expect(err).ToNot(HaveOccurred())
-		Expect(all).To(HaveLen(1))
-		Expect(all[0].TrackCount).To(Equal(2))
-		Expect(all[0].From).To(Equal("Band – Record"))
-
-		_, err = svc.Undo(ctx, res.Correction.ID)
-		Expect(err).ToNot(HaveOccurred())
-		Expect(coverSource()).ToNot(Equal(artwork.ChosenSource))
-	})
-
 	It("keeps a cover marked wrong blocked across rescans, until undone", func() {
 		var buf bytes.Buffer
 		Expect(png.Encode(&buf, image.NewRGBA(image.Rect(0, 0, 2, 2)))).To(Succeed())

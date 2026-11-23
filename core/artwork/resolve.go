@@ -258,7 +258,7 @@ func (r *resolver) resolveAlbum(ctx context.Context, albumID string) (resolution
 		return resolution{}, err
 	}
 	chain := chainState{trace: traceFrom(ctx)}
-	// An admin's choice outranks the configured order
+	// A picked release's cover outranks the configured order
 	if res, decided := chain.tryCovers(covers); decided {
 		return res, nil
 	}
@@ -511,9 +511,9 @@ func (r *resolver) resolveMediaFile(ctx context.Context, id string) (resolution,
 	return r.resolveTrack(ctx, *mf)
 }
 
-// resolveTrack resolves the Track's own art: its album's chosen cover, else its embedded art. A
+// resolveTrack resolves the Track's own art: its album's picked release's cover, else its embedded art. A
 // Track with no embedded art has none of its own (its art is its disc's or album's, which show
-// the choice themselves). Past the Track's own row, this costs one album lookup and one query for
+// the pick themselves). Past the Track's own row, this costs one album lookup and one query for
 // the album's cover Corrections (see loadAlbumCovers), next to reading the File.
 func (r *resolver) resolveTrack(ctx context.Context, mf model.MediaFile) (resolution, error) {
 	chain := chainState{trace: traceFrom(ctx)}
@@ -529,7 +529,7 @@ func (r *resolver) resolveTrack(ctx context.Context, mf model.MediaFile) (resolu
 	if err != nil {
 		return resolution{}, err
 	}
-	// The album's cover is its Tracks' too: a choice wins over their embedded art, and an image
+	// The album's cover is its Tracks' too: a pick wins over their embedded art, and an image
 	// blocked for the album is wrong for them, so they fall back to its cover
 	if al, err := r.ds.Album(ctx).Get(mf.AlbumID); err == nil {
 		covers, err := loadAlbumCovers(ctx, r.ds, *al)

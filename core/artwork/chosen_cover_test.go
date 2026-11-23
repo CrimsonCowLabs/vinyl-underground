@@ -6,16 +6,13 @@ import (
 	"image"
 	"image/color"
 	"image/png"
-	"io"
 	"os"
-	"time"
 
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/conf/configtest"
 	"github.com/navidrome/navidrome/core/agents"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/tests"
-	"github.com/navidrome/navidrome/utils/cache"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -33,7 +30,7 @@ func pngOf(c color.Color) []byte {
 	return buf.Bytes()
 }
 
-var _ = Describe("Chosen album covers", func() {
+var _ = Describe("The chosen-cover store", func() {
 	var (
 		ctx         context.Context
 		ds          *tests.MockDataStore
@@ -87,45 +84,16 @@ var _ = Describe("Chosen album covers", func() {
 		Expect(err).To(HaveOccurred())
 	})
 
-	It("makes the chosen image the album's cover, over every source in CoverArtPriority", func() {
-		red := pngOf(color.RGBA{R: 255, A: 255})
-		choose("cd2", red)
-
-		res := resolve("al1")
-		Expect(res.reader).ToNot(BeNil())
-		Expect(readAll(res.reader)).To(Equal(string(red)))
-		Expect(res.source).To(Equal(ChosenSource))
-		Expect(res.sourcePath).ToNot(BeEmpty())
-		Expect(trace.Steps()).To(HaveLen(1))
-		Expect(trace.Steps()[0].Candidate).To(Equal(ChosenSource))
-		Expect(trace.Steps()[0].Outcome).To(Equal(OutcomeHit))
-	})
-
-	It("ignores a choice being undone, going back to the default cover order", func() {
-		choose("cd1", pngOf(color.RGBA{G: 255, A: 255}))
-		corrections.All[0].Undoing = true
-
-		res := resolve("al1")
-		Expect(res.source).To(Equal("embedded"))
-	})
-
-	It("falls back to the default cover order when the stored image is gone", func() {
-		stored := choose("cd1", pngOf(color.RGBA{B: 255, A: 255}))
-		Expect(os.Remove(ChosenCoverStore().path(stored.Hash, stored.Mime))).To(Succeed())
-
-		res := resolve("al1")
-		Expect(res.source).To(Equal("embedded"))
-		Expect(trace.Steps()[0]).To(Equal(TraceStep{Candidate: ChosenSource, Outcome: OutcomeMiss}))
-	})
-
-	It("leaves albums in other folders alone", func() {
-		choose("elsewhere", pngOf(color.RGBA{R: 255, A: 255}))
+	// A chosen cover is the album's cover.jpg now (#164), and the choices kept before are written
+	// as cover.jpg by the Correction migration (#165): one not yet migrated isn't applied on read.
+	It("doesn't apply a chosen cover Correction kept before #164", func() {
+		choose("cd2", pngOf(color.RGBA{R: 255, A: 255}))
 		res := resolve("al1")
 		Expect(res.source).To(Equal("embedded"))
 	})
 })
 
-var _ = Describe("Chosen album covers on disc and Track art", func() {
+var _ = Describe("Chosen album covers kept before #164, on disc and Track art", func() {
 	const embedPath = "tests/fixtures/artist/an-album/test.mp3"
 	var (
 		ctx         context.Context
@@ -181,79 +149,9 @@ var _ = Describe("Chosen album covers on disc and Track art", func() {
 		return res
 	}
 
-	It("shows the chosen image as the album's disc art, over DiscArtPriority", func() {
-		Expect(resolveDisc().source).To(Equal("folder"))
+	It("shows no chosen cover Correction kept before #164 as disc or Track art", func() {
 		choose(red)
-
-		res := resolveDisc()
-		Expect(res.source).To(Equal(ChosenSource))
-		Expect(readAll(res.reader)).To(Equal(string(red)))
-	})
-
-	It("shows the chosen image as a Track's own art, over its embedded art, until undone", func() {
-		Expect(resolveTrack("mf1").source).To(Equal("embedded"))
-		choose(red)
-
-		res := resolveTrack("mf1")
-		Expect(res.source).To(Equal(ChosenSource))
-		Expect(readAll(res.reader)).To(Equal(string(red)))
-
-		corrections.All = nil
 		Expect(resolveTrack("mf1").source).To(Equal("embedded"))
 		Expect(resolveDisc().source).To(Equal("folder"))
-	})
-
-	It("passes over a chosen image that is blocked, in disc and track art alike", func() {
-		stored := choose(red)
-		Expect(corrections.Add(&model.Correction{Kind: model.CorrectionAlbumCoverBlock, MatchKey: "cd1",
-			ImageHash: stored.Hash})).To(Succeed())
-
-		Expect(resolveTrack("mf1").source).To(Equal("embedded"))
-		Expect(resolveDisc().source).To(Equal("folder"))
-	})
-
-	Describe("serving", func() {
-		var svc Artwork
-
-		BeforeEach(func() {
-			conf.Server.CacheFolder = conf.NewDir(GinkgoT().TempDir())
-			imgCache := cache.NewFileCache("ChosenServingTest", "100MB", "images", 0,
-				func(ctx context.Context, arg cache.Item) (io.Reader, error) {
-					return arg.(artworkReader).Reader(ctx)
-				})
-			Eventually(func() bool { return imgCache.Available(ctx) }, 10*time.Second).Should(BeTrue())
-			svc = NewArtwork(ds, imgCache, NewImageStore(GinkgoT().TempDir()), tests.NewMockFFmpeg(""))
-		})
-
-		get := func(id string, size int) []byte {
-			GinkgoHelper()
-			img, err := svc.Get(ctx, model.MustParseArtworkID(id), size, false)
-			Expect(err).ToNot(HaveOccurred())
-			defer img.Close()
-			data, err := io.ReadAll(img)
-			Expect(err).ToNot(HaveOccurred())
-			return data
-		}
-		isRed := func(data []byte) bool {
-			GinkgoHelper()
-			img, _, err := image.Decode(bytes.NewReader(data))
-			Expect(err).ToNot(HaveOccurred())
-			red, green, blue, _ := img.At(0, 0).RGBA()
-			return red > 0xe000 && green < 0x2000 && blue < 0x2000
-		}
-
-		It("serves a track with embedded art and no state row yet the chosen image", func() {
-			choose(red)
-			Expect(get("mf-mf1", 0)).To(Equal(red))
-		})
-
-		It("serves a track without embedded art the chosen image through its disc art, past a warm cache", func() {
-			Expect(isRed(get("mf-mf2", 64))).To(BeFalse())
-			choose(red)
-			Expect(isRed(get("mf-mf2", 64))).To(BeTrue())
-
-			corrections.All = nil
-			Expect(isRed(get("mf-mf2", 64))).To(BeFalse())
-		})
 	})
 })

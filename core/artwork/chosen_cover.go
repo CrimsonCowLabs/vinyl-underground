@@ -12,13 +12,17 @@ import (
 	"github.com/navidrome/navidrome/model"
 )
 
-// ChosenSource is the model.ItemArtwork.Source of an album cover an admin chose (an album cover
-// Correction, see model.CorrectionAlbumCover). It outranks every source in CoverArtPriority.
+// ChosenSource was the model.ItemArtwork.Source of an album cover an admin chose (an album cover
+// Correction). A chosen cover is written as the album's cover.jpg now (#164), and the choices kept
+// before are written by the Correction migration (#165), so nothing resolves to it any more; an
+// album's state row may still name it until the album is resolved again.
 const ChosenSource = "chosen"
 
-// chosenCoverFolder holds the chosen covers under the artwork folder. It is apart from the hashed
-// store on purpose: that one is pruned of images no item points at, but a choice must outlive its
-// album's state rows (an album whose ID changes, or one missing for a while, gets it back).
+// chosenCoverFolder holds the images of picked releases' covers, of the cover picker's candidates,
+// and of the choices kept before #164 (until migrated), under the artwork folder. It is apart from
+// the hashed store on purpose: that one is pruned of images no item points at, but a pick must
+// outlive its album's state rows (an album whose ID changes, or one missing for a while, gets it
+// back).
 const chosenCoverFolder = "chosen"
 
 // ChosenCoverStore is the content-addressed store of the images admins chose as album covers.
@@ -56,15 +60,14 @@ func StoreChosenCover(data []byte) (StoredCover, error) {
 
 // PickSource is the model.ItemArtwork.Source of the Cover Art Archive cover of an album's picked
 // MusicBrainz release (Find on MusicBrainz, see model.AlbumCovers.Pick). It is kept in the
-// ChosenCoverStore like a choice, and outranks every source in CoverArtPriority but the choice.
+// ChosenCoverStore, and outranks every source in CoverArtPriority.
 const PickSource = "musicbrainzPick"
 
-// albumCovers is what admins decided about an album's cover: the image they chose or uploaded, if
-// any, the cover of the MusicBrainz release they picked, if any, and the images they marked wrong.
-// The album's cover, its disc art and its Tracks' own art all follow it: the choice, then the
-// pick, are tried before their priority order, and the blocks are skipped.
+// albumCovers is what admins decided about an album's cover that stays app data: the cover of the
+// MusicBrainz release they picked, if any, and the images they marked wrong. The album's cover,
+// its disc art and its Tracks' own art all follow it: the pick is tried before their priority
+// order, and the blocks are skipped. (An image chosen or uploaded is the album's cover.jpg.)
 type albumCovers struct {
-	choice *model.Correction // nil when the album has none
 	pick   *model.Correction // nil when the album has none
 	blocks coverBlocks
 }
@@ -76,7 +79,7 @@ func loadAlbumCovers(ctx context.Context, ds model.DataStore, al model.Album) (a
 	if err != nil {
 		return albumCovers{}, err
 	}
-	covers := albumCovers{choice: found.Choice, pick: found.Pick}
+	covers := albumCovers{pick: found.Pick}
 	if len(found.Blocks) > 0 {
 		covers.blocks = make(coverBlocks, len(found.Blocks))
 		for _, b := range found.Blocks {
@@ -86,7 +89,7 @@ func loadAlbumCovers(ctx context.Context, ds model.DataStore, al model.Album) (a
 	return covers, nil
 }
 
-// openStored opens the image a choice or a pick keeps in the ChosenCoverStore. One whose image is
+// openStored opens the image a pick keeps in the ChosenCoverStore. One whose image is
 // gone is a miss, so the item falls back to its default order; none at all has no source.
 func openStored(cr *model.Correction, source string) (resolution, bool) {
 	if cr == nil || !validHash(cr.ImageHash) {
@@ -95,28 +98,25 @@ func openStored(cr *model.Correction, source string) (resolution, bool) {
 	return resolveLocalFile(ChosenCoverStore().path(cr.ImageHash, cr.ImageMime), source)
 }
 
-// key names the choice, the pick and the blocks, for a cache key of an image resolved under them.
+// key names the pick and the blocks, for a cache key of an image resolved under them.
 func (a albumCovers) key() string {
-	var choice, pick string
-	if a.choice != nil {
-		choice = a.choice.ImageHash
-	}
+	var pick string
 	if a.pick != nil {
 		pick = a.pick.ImageHash
 	}
-	return choice + ";" + pick + ";" + a.blocks.key()
+	return pick + ";" + a.blocks.key()
 }
 
 // tryCovers starts a priority walk under the album's covers: the walk skips its blocks from here
-// on, and its choice, then its pick, are tried first. decided means the walk is over: one of them
+// on, and its pick is tried first. decided means the walk is over: it
 // won, or its image could not be read, as falling through would show (and persist) a
-// lower-priority image as if it were gone. A blocked choice or pick is gone.
+// lower-priority image as if it were gone. A blocked pick is gone.
 func (c *chainState) tryCovers(covers albumCovers) (_ resolution, decided bool) {
 	c.blocks = covers.blocks
 	for _, stored := range []struct {
 		cr     *model.Correction
 		source string
-	}{{covers.choice, ChosenSource}, {covers.pick, PickSource}} {
+	}{{covers.pick, PickSource}} {
 		res, opened := openStored(stored.cr, stored.source)
 		switch {
 		case opened || res.localError:

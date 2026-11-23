@@ -533,7 +533,7 @@
       "status": {
         "tracks": "1 Track |||| %{smart_count} Tracks",
         "orphaned": "Matches nothing",
-        "undoing": "Undoing…"
+        "toMigrate": "To write into the Files"
       },
       "actions": {
         "undo": "Undo",
@@ -541,19 +541,57 @@
       },
       "message": {
         "undoTitle": "Undo Correction",
-        "undoContent": "Undo \"%{from} → %{to}\"? The original names come back once the affected folders are rescanned.",
-        "undoContentAlbumCover": "Undo the cover choice for \"%{from}\"? The album goes back to its usual cover.",
         "undoContentAlbumCoverBlock": "Stop blocking \"%{to}\" for \"%{from}\"? The album may show that image again.",
-        "undoContentTrackNumbers": "Undo the track order of \"%{from}\"? Its Tracks get their tagged numbers back once its folders are rescanned."
+        "undoContentRelease": "Forget the MusicBrainz release picked for \"%{from}\"? The album goes back to its usual cover."
       },
       "notifications": {
-        "undone": "Correction undone",
-        "undoing": "Undoing. The Library is being updated in the background"
+        "undone": "Correction undone"
+      },
+      "migration": {
+        "title": "Write the Corrections into the Files",
+        "help": "These Corrections were kept in the app and applied whenever a File's tags were read. The app no longer does that: write them into the Files, so every player sees them. They are written as one job, which you can undo from the Edit history. Each Correction is removed once all its Files are written; one whose Files couldn't all be written stays here, with the reason.",
+        "approve": "Write into 1 File |||| Write into %{smart_count} Files",
+        "confirmTitle": "Write the Corrections into the Files",
+        "confirmContent": "Write the Corrections into 1 File? It is checked before it replaces the one on the drive, and the whole job can be undone from the Edit history. |||| Write the Corrections into %{smart_count} Files? Each File is checked before it replaces the one on the drive, and the whole job can be undone from the Edit history.",
+        "files": "Writes 1 File |||| Writes %{smart_count} Files",
+        "noFiles": "Applies to no File any more: it is removed",
+        "keepsRelease": "The MusicBrainz release picked for the album stays in the app for now",
+        "flagged": "1 File can't be written |||| %{smart_count} Files can't be written",
+        "lastRun": "Last time, 1 File wasn't written |||| Last time, %{smart_count} Files weren't written",
+        "fields": {
+          "album": "Album",
+          "albumartist": "Album artist",
+          "year": "Year",
+          "tracknumber": "Track number",
+          "discnumber": "Disc number",
+          "artist": "Artist",
+          "cover": "Cover",
+          "undoing": "Being undone: removed"
+        },
+        "codes": {
+          "missing": "missing",
+          "changedOnDisk": "changed on disk, rescan first",
+          "unsupportedFormat": "a kind of File that can't be edited yet",
+          "editingOff": "the Library is read-only",
+          "imageMissing": "the chosen image is gone",
+          "linked": "the File has other names",
+          "notVerified": "the written copy didn't check out",
+          "noAlbumFolder": "the album has no folder of its own",
+          "sharedFolder": "another album shares its folder",
+          "invalidImage": "the image can't be read",
+          "interrupted": "interrupted by a restart"
+        },
+        "notifications": {
+          "done": "The Corrections are written into the Files",
+          "skipped": "1 File couldn't be written; its Corrections stay |||| %{smart_count} Files couldn't be written; their Corrections stay",
+          "background": "Writing the Corrections in the background. See Activity.",
+          "editingOff": "The Library's Files can't be written to (its folder is read-only)."
+        }
       },
       "errors": {
         "artistExists": "An Artist named \"%{name}\" already exists. Pick it from the suggestions to merge into it.",
-        "undoLaterFirst": "A later Correction builds on this one. Undo that one first.",
-        "renamedAway": "A Correction renames \"%{name}\" away. Undo it on the Corrections page instead.",
+        "migrateFirst": "This Correction is written into the Files from the Corrections page; it can't be undone.",
+        "renamedAway": "A Correction renames \"%{name}\" away. Write it into the Files on the Corrections page first.",
         "alreadyCorrected": "This Artist already has a Correction.",
         "invalid": "Enter a new, different name.",
         "notFound": "This Artist no longer exists.",
@@ -1274,6 +1312,7 @@
         "trackNumbers": "Track order",
         "artistRename": "Artist rename",
         "artistMerge": "Artist merge",
+        "migrateCorrections": "Corrections written into the Files",
         "cover": "Album cover",
         "embed": "Embed in Files"
       },

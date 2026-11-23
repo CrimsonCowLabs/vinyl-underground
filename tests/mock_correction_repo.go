@@ -124,7 +124,3 @@ func (m *MockCorrectionRepo) AlbumFolderIDs(key string) ([]string, error) {
 }
 
 var _ model.CorrectionRepository = (*MockCorrectionRepo)(nil)
-
-func (m *MockCorrectionRepo) MergeArtistAnnotations(string, string, string) error { return m.Err }
-
-func (m *MockCorrectionRepo) SplitArtistAnnotations(string, string, string) error { return m.Err }

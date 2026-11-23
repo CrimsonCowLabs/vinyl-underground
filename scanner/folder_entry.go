@@ -25,7 +25,6 @@ func newFolderEntry(job *scanJob, id, path string, info model.FolderUpdateInfo) 
 		imageFiles:          make(map[string]fs.DirEntry),
 		playlistFiles:       make(map[string]fs.DirEntry),
 		albumIDMap:          make(map[string]string),
-		correctionChanges:   make(map[string]struct{}),
 		updTime:             info.UpdatedAt,
 		prevHash:            info.Hash,
 		prevImageFiles:      info.ImageFiles,
@@ -53,12 +52,9 @@ type folderEntry struct {
 	tracks              model.MediaFiles
 	albums              model.Albums
 	albumIDMap          map[string]string
-	// correctionChanges are the Corrections newly applied to, or no longer applied to, a Track
-	// already in the Library, by ID
-	correctionChanges map[string]struct{}
-	artists           model.Artists
-	tags              model.TagList
-	missingTracks     []*model.MediaFile
+	artists             model.Artists
+	tags                model.TagList
+	missingTracks       []*model.MediaFile
 }
 
 func (f *folderEntry) hasNoFiles() bool {

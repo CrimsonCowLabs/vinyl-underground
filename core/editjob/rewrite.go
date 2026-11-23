@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"slices"
 	"strconv"
 
@@ -28,6 +29,9 @@ type Rewrite struct {
 	Year int `json:"year,omitempty"`
 	// Rename, when set, renames Artists in the artist and album artist fields.
 	Rename *Rename `json:"rename,omitempty"`
+	// Renames are more renames to other names, applied after Rename, each to the fields as the one
+	// before left them (the Correction migration, #165, writes several artist renames into a File).
+	Renames []Rename `json:"renames,omitempty"`
 }
 
 // Rename replaces the names From with To in a File's artist fields: in the multi-valued ones
@@ -67,6 +71,14 @@ func (r Rewrite) Apply(cur tagedit.Values) (tagedit.Values, error) {
 	}
 	if r.Rename != nil && r.Rename.To != "" {
 		r.Rename.apply(cur, edit)
+	}
+	for _, rn := range r.Renames {
+		if rn.To == "" {
+			continue
+		}
+		now := maps.Clone(cur)
+		maps.Copy(now, edit)
+		rn.apply(now, edit)
 	}
 	for k, vs := range r.Set {
 		if slices.Equal(vs, value(k)) {

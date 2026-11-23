@@ -18,7 +18,9 @@ import (
 	"github.com/navidrome/navidrome/model"
 )
 
-// addCorrectionRoute serves the admin's Corrections (admin only, see routes).
+// addCorrectionRoute serves the admin's Corrections (admin only, see routes): the saves that write
+// to the Files, the Correction migration (#165), and what stays app data (cover blocks and picked
+// releases, which can be undone).
 func (api *Router) addCorrectionRoute(r chi.Router) {
 	r.Route("/correction", func(r chi.Router) {
 		r.Get("/", api.listCorrections)
@@ -29,6 +31,8 @@ func (api *Router) addCorrectionRoute(r chi.Router) {
 		r.Post("/artistMerge", api.mergeArtist)
 		r.Post("/album", api.correctAlbum)
 		r.Post("/trackNumbers", api.correctTrackNumbers)
+		r.Get("/migration", api.planMigration)
+		r.Post("/migration", api.migrateCorrections)
 		r.Post("/{id}/undo", api.undoCorrection)
 	})
 }
@@ -235,6 +239,41 @@ func writeWriteError(w http.ResponseWriter, r *http.Request, err error) {
 	writeCorrectionError(w, r, err)
 }
 
+// planMigration lists the Corrections the migration writes into the Files, what each changes, and
+// the Files it can't write (it writes nothing).
+func (api *Router) planMigration(w http.ResponseWriter, r *http.Request) {
+	if api.tagEditor == nil {
+		writeTagEditError(w, r, tagedit.ErrEditingOff)
+		return
+	}
+	m, err := api.corrections.PlanMigration(r.Context(), api.tagEditor)
+	if err != nil {
+		writeCorrectionError(w, r, err)
+		return
+	}
+	_ = rest.RespondWithJSON(w, http.StatusOK, m)
+}
+
+// migrateCorrections queues the migration as one edit job, and waits a little for it, as a save
+// that writes to the Files does. With nothing to write it answers done (it removed what applied
+// to nothing).
+func (api *Router) migrateCorrections(w http.ResponseWriter, r *http.Request) {
+	if api.tagEditor == nil || api.editQueue == nil {
+		writeTagEditError(w, r, tagedit.ErrEditingOff)
+		return
+	}
+	plan, err := api.corrections.MigrationJob(r.Context(), api.tagEditor)
+	if errors.Is(err, corrections.ErrNothingToWrite) {
+		_ = rest.RespondWithJSON(w, http.StatusOK, writeResult{Done: true})
+		return
+	}
+	if err != nil {
+		writeWriteError(w, r, err)
+		return
+	}
+	api.runWriteJob(w, r, plan, "")
+}
+
 func (api *Router) undoCorrection(w http.ResponseWriter, r *http.Request) {
 	res, err := api.corrections.Undo(r.Context(), chi.URLParam(r, "id"))
 	if err != nil {
@@ -253,8 +292,8 @@ func writeCorrectionError(w http.ResponseWriter, r *http.Request, err error) {
 		status, code = http.StatusConflict, "artistExists"
 	case errors.Is(err, corrections.ErrRenamedAway):
 		status, code = http.StatusBadRequest, "renamedAway"
-	case errors.Is(err, corrections.ErrUndoLaterFirst):
-		status, code = http.StatusBadRequest, "undoLaterFirst"
+	case errors.Is(err, corrections.ErrMigrateFirst):
+		status, code = http.StatusBadRequest, "migrateFirst"
 	case errors.Is(err, corrections.ErrCoverChanged):
 		status, code = http.StatusConflict, "coverChanged"
 	case errors.Is(err, corrections.ErrSharedFolder):

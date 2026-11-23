@@ -353,6 +353,20 @@ const wrapperDataProvider = {
     httpClient(
       `${REST_URL}/musicbrainz/release?artist=${encodeURIComponent(artist)}&title=${encodeURIComponent(title)}`,
     ).then(({ json }) => ({ data: json })),
+  // The Correction migration (#165, admin only): the plan, { items: [{ correction, changes:
+  // [{ field, from, to }], files, flags: [{ path, code, error }], keepsRelease, lastRun }],
+  // files }, which writes nothing; and approving it, which writes them all into the Files as one
+  // edit job (see writeResult), or answers { done: true } alone with nothing to write.
+  getCorrectionMigration: () =>
+    httpClient(`${REST_URL}/correction/migration`).then(({ json }) => ({
+      data: json,
+    })),
+  migrateCorrections: () =>
+    httpClient(`${REST_URL}/correction/migration`, { method: 'POST' }).then(
+      writeResult,
+    ),
+  // Undoes a cover block or a picked MusicBrainz release; the Corrections the migration writes
+  // can't be undone (migrateFirst).
   undoCorrection: (id) =>
     httpClient(`${REST_URL}/correction/${id}/undo`, { method: 'POST' }).then(
       ({ json }) => ({ data: { id, ...json } }),

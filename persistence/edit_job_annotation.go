@@ -23,9 +23,9 @@ const upsertArtistAnnotation = `
 			then excluded.rated_at else annotation.rated_at end`
 
 var jobKeepArtistSQL = []string{
-	`delete from edit_job_annotation where job_id = {:job}`,
-	`insert into edit_job_annotation (job_id, user_id, play_count, play_date, rating, rated_at, starred, starred_at)
-	select {:job}, user_id, coalesce(play_count, 0), play_date, coalesce(rating, 0), rated_at, coalesce(starred, 0), starred_at
+	`delete from edit_job_annotation where job_id = {:job} and part = {:part}`,
+	`insert into edit_job_annotation (job_id, part, user_id, play_count, play_date, rating, rated_at, starred, starred_at)
+	select {:job}, {:part}, user_id, coalesce(play_count, 0), play_date, coalesce(rating, 0), rated_at, coalesce(starred, 0), starred_at
 	from annotation where item_type = 'artist' and item_id = {:from} and (coalesce(starred, 0) or coalesce(rating, 0) > 0)`,
 }
 
@@ -38,15 +38,15 @@ var jobMergeArtistSQL = []string{
 			and b.item_type = 'artist' and b.item_id = {:to}), 0),
 		rating_taken = rating > 0 and coalesce((select b.rating from annotation b where b.user_id = edit_job_annotation.user_id
 			and b.item_type = 'artist' and b.item_id = {:to}), 0) = 0
-	where job_id = {:job} and not merged`,
+	where job_id = {:job} and part = {:part} and not merged`,
 	`insert into annotation (user_id, item_id, item_type, play_count, rating, rated_at, starred, starred_at)
 	select user_id, {:to}, 'artist', 0, rating, rated_at, starred, starred_at
 	from edit_job_annotation
-	where job_id = {:job} and not merged and user_id in (select id from user)` + upsertArtistAnnotation,
+	where job_id = {:job} and part = {:part} and not merged and user_id in (select id from user)` + upsertArtistAnnotation,
 	`update annotation set starred = 0, starred_at = null, rating = 0, rated_at = null
 	where item_type = 'artist' and item_id = {:from}
-		and user_id in (select user_id from edit_job_annotation where job_id = {:job} and not merged)`,
-	`update edit_job_annotation set merged = 1 where job_id = {:job}`,
+		and user_id in (select user_id from edit_job_annotation where job_id = {:job} and part = {:part} and not merged)`,
+	`update edit_job_annotation set merged = 1 where job_id = {:job} and part = {:part}`,
 }
 
 // jobSplitArtistSQL gives fromID back the kept star and rating (unless it has its own since), and
@@ -55,7 +55,7 @@ var jobSplitArtistSQL = []string{
 	`insert into annotation (user_id, item_id, item_type, play_count, rating, rated_at, starred, starred_at)
 	select user_id, {:from}, 'artist', 0, rating, rated_at, starred, starred_at
 	from edit_job_annotation
-	where job_id = {:job} and merged and user_id in (select id from user)` + upsertArtistAnnotation,
+	where job_id = {:job} and part = {:part} and merged and user_id in (select id from user)` + upsertArtistAnnotation,
 	`update annotation set
 		starred = case when s.star_taken and annotation.starred and annotation.starred_at is s.starred_at
 			then 0 else annotation.starred end,
@@ -66,7 +66,7 @@ var jobSplitArtistSQL = []string{
 		rated_at = case when s.rating_taken and annotation.rating = s.rating and annotation.rated_at is s.rated_at
 			then null else annotation.rated_at end
 	from edit_job_annotation s
-	where s.job_id = {:job} and s.merged and s.user_id = annotation.user_id
+	where s.job_id = {:job} and s.part = {:part} and s.merged and s.user_id = annotation.user_id
 		and annotation.item_type = 'artist' and annotation.item_id = {:to}`,
 }
 
@@ -81,26 +81,63 @@ var jobFoldArtistSQL = []string{
 	where item_type = 'artist' and item_id = {:to}`,
 }
 
-const jobForgetArtistSQL = `delete from edit_job_annotation where job_id = {:job}`
+const jobForgetArtistSQL = `delete from edit_job_annotation where job_id = {:job} and part = {:part}`
 
 func (r *editJobRepository) KeepArtistAnnotations(jobID, fromID string) error {
-	return r.runAnnotationSQL(jobKeepArtistSQL, jobID, fromID, "")
+	return r.KeepArtistAnnotationsIn(jobID, "", fromID)
 }
 
 func (r *editJobRepository) MergeArtistAnnotations(jobID, fromID, toID string) error {
-	return r.runAnnotationSQL(jobMergeArtistSQL, jobID, fromID, toID)
+	return r.MergeArtistAnnotationsIn(jobID, "", fromID, toID)
 }
 
 func (r *editJobRepository) SplitArtistAnnotations(jobID, fromID, toID string, all bool) error {
+	return r.SplitArtistAnnotationsIn(jobID, "", fromID, toID, all)
+}
+
+func (r *editJobRepository) KeepArtistAnnotationsIn(jobID, part, fromID string) error {
+	return r.runAnnotationSQL(jobKeepArtistSQL, jobID, part, fromID, "")
+}
+
+func (r *editJobRepository) MergeArtistAnnotationsIn(jobID, part, fromID, toID string) error {
+	return r.runAnnotationSQL(jobMergeArtistSQL, jobID, part, fromID, toID)
+}
+
+func (r *editJobRepository) SplitArtistAnnotationsIn(jobID, part, fromID, toID string, all bool) error {
 	stmts := jobSplitArtistSQL
 	if all {
 		stmts = append(append([]string{}, stmts...), jobFoldArtistSQL...)
 	}
-	return r.runAnnotationSQL(append(stmts, jobForgetArtistSQL), jobID, fromID, toID)
+	return r.runAnnotationSQL(append(stmts, jobForgetArtistSQL), jobID, part, fromID, toID)
 }
 
-func (r *editJobRepository) runAnnotationSQL(stmts []string, jobID, fromID, toID string) error {
-	params := dbx.Params{"job": jobID, "from": fromID, "to": toID}
+// jobAdoptCorrectionSQL keeps with the job's part what an artist merge Correction merged (see
+// correction_repository.go), as merged already: the Correction goes once its Files are written,
+// and its rows with it, but the job's undo still splits them (jobSplitArtistSQL).
+var jobAdoptCorrectionSQL = []string{
+	`delete from edit_job_annotation where job_id = {:job} and part = {:part}`,
+	`insert into edit_job_annotation (job_id, part, user_id, play_count, play_date, rating, rated_at, starred,
+		starred_at, merged, star_taken, rating_taken)
+	select {:job}, {:part}, user_id, play_count, play_date, rating, rated_at, starred, starred_at, 1, star_taken,
+		rating_taken
+	from correction_annotation where correction_id = {:correction}`,
+}
+
+func (r *editJobRepository) AdoptCorrectionAnnotations(jobID, part, correctionID string) (int64, error) {
+	var n int64
+	params := dbx.Params{"job": jobID, "part": part, "correction": correctionID}
+	for _, stmt := range jobAdoptCorrectionSQL {
+		res, err := r.db.NewQuery(stmt).Bind(params).Execute()
+		if err != nil {
+			return 0, err
+		}
+		n, _ = res.RowsAffected()
+	}
+	return n, nil
+}
+
+func (r *editJobRepository) runAnnotationSQL(stmts []string, jobID, part, fromID, toID string) error {
+	params := dbx.Params{"job": jobID, "part": part, "from": fromID, "to": toID}
 	for _, stmt := range stmts {
 		if _, err := r.db.NewQuery(stmt).Bind(params).Execute(); err != nil {
 			return err

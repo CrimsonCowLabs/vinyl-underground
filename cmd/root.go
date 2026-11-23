@@ -265,7 +265,7 @@ func startEditJobs(ctx context.Context, g *errgroup.Group) *editjob.Queue {
 	ds := CreateDataStore()
 	queue := editjob.New(ds, events.GetBroker(), editjob.Kinds(ds, tagedit.New(ds, CreateScanner(ctx))))
 	// The album Edit dialog, Track order and artist rename and merge write to the Files (#163).
-	for kind, k := range corrections.JobKinds(ds, CreateScanner(ctx)) {
+	for kind, k := range corrections.JobKinds(ds) {
 		queue.Handle(kind, k)
 	}
 	g.Go(func() error {

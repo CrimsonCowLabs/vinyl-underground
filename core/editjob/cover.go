@@ -37,7 +37,7 @@ func imageStep(kind model.EditKind, albumID, sum, trackID string) (model.EditJob
 
 // CoverStep is the step that writes the image as the album's folder cover (cover.jpg, see
 // tagedit.Editor.WriteCover). The image is checked, and made JPEG, now (tagedit.ErrInvalidImage).
-// The step has no Track: its job is the one File.
+// The step has no Track: the queue tells it by the cover's path, which Check fills in.
 func CoverStep(editor *tagedit.Editor, albumID string, image []byte) (model.EditJobStep, error) {
 	data, err := tagedit.CoverJPEG(image)
 	if err != nil {
