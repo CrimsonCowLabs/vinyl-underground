@@ -87,5 +87,53 @@ class QuarantineAudio(unittest.TestCase):
         self.assertTrue(self.exists(f"{ALBUM}/Song 1.mp3"))
 
 
+class Progress(unittest.TestCase):
+    def setUp(self) -> None:
+        self.root, self.plans = tempfile.mkdtemp(), tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.root)
+        self.addCleanup(shutil.rmtree, self.plans)
+        self.plan = os.path.join(self.plans, "audiodupes.tsv")
+        os.makedirs(os.path.join(self.root, ALBUM))
+        for name in ("Song.mp3", "Song 1.mp3", "Other.mp3", "Other 1.mp3"):
+            with open(os.path.join(self.root, ALBUM, name), "wb") as fh:
+                fh.write(id3v2(name) + FRAMES)
+
+    def exists(self, rel: str) -> bool:
+        return os.path.exists(os.path.join(self.root, rel))
+
+    def step(self, name: str, keep: str) -> str:
+        return "\t".join(["quarantine-audio", f"{ALBUM}/{name}", f"_Quarantine/{ALBUM}/{name}", f"{ALBUM}/{keep}"])
+
+    def run_plan(self, *lines: str) -> int:
+        with open(self.plan, "w", encoding="utf-8") as fh:
+            fh.write("".join(line + "\n" for line in lines))
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            return apply.main([self.root, self.plan])
+
+    def test_a_new_plan_with_the_same_name_does_not_take_the_old_ones_progress(self) -> None:
+        self.assertEqual(self.run_plan(self.step("Song 1.mp3", "Song.mp3")), 0)
+
+        self.assertEqual(self.run_plan(self.step("Other 1.mp3", "Other.mp3")), 0)
+
+        self.assertTrue(self.exists(f"_Quarantine/{ALBUM}/Other 1.mp3"))
+        self.assertFalse(self.exists(f"{ALBUM}/Other 1.mp3"))
+
+    def test_a_plan_run_again_skips_the_steps_it_finished_even_once_edited(self) -> None:
+        self.assertEqual(self.run_plan(self.step("Song 1.mp3", "Song.mp3")), 0)
+
+        # Song 1.mp3 is gone now, so its step would stop the run if it weren't skipped.
+        self.assertEqual(self.run_plan(self.step("Other 1.mp3", "Other.mp3"), self.step("Song 1.mp3", "Song.mp3")), 0)
+
+        self.assertTrue(self.exists(f"_Quarantine/{ALBUM}/Other 1.mp3"))
+
+    def test_refuses_progress_recorded_by_step_number_and_moves_nothing(self) -> None:
+        with open(self.plan + ".done", "w", encoding="utf-8") as fh:
+            fh.write("1\n2\n")
+
+        self.assertEqual(self.run_plan(self.step("Song 1.mp3", "Song.mp3")), 2)
+
+        self.assertTrue(self.exists(f"{ALBUM}/Song 1.mp3"))
+
+
 if __name__ == "__main__":
     unittest.main()
