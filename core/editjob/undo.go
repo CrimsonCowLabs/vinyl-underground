@@ -129,15 +129,19 @@ func (k undoKind) Check(ctx context.Context, step *model.EditJobStep) error {
 		return fmt.Errorf("%w: a File deleted for good can't be brought back", tagedit.ErrNotUndoable)
 	}
 	// The entry's library is checked directly: a folder cover (#164), or a File moved with its
-	// album (#167), is no Track's, and a moved Track may be gone (its File goes back alone).
-	if !tagedit.Writable(entry.LibraryID) {
+	// album (#167), is no Track's, and a moved Track may be gone (its File goes back alone). A
+	// Promote (#171) moved its File out of the Inbox, which is no writable library but which the
+	// app writes: both its libraries are checked, and its Track may be in either.
+	if !k.editor.EntryWritable(ctx, entry) {
 		return tagedit.ErrEditingOff
 	}
-	if _, err := k.editor.Check(ctx, entry.MediaFileID); errors.Is(err, tagedit.ErrEditingOff) {
-		return err
+	if !tagedit.MovesLibraries(entry) {
+		if _, err := k.editor.Check(ctx, entry.MediaFileID); errors.Is(err, tagedit.ErrEditingOff) {
+			return err
+		}
 	}
 	step.MediaFileID, step.Path = entry.MediaFileID, entry.NewPath
-	a.LibraryID = entry.LibraryID
+	a.LibraryID = entry.DestLibraryID() // the library of step.Path
 	b, err := json.Marshal(a)
 	if err != nil {
 		return err

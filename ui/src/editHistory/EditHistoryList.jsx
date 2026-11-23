@@ -61,6 +61,13 @@ const imageChange = (record) => {
   return wrote ? (had ? 'embedReplaced' : 'embedAdded') : 'embedRemoved'
 }
 
+// What a move did: a Promote (#171) takes a File from the Inbox into the Library (and a redo
+// again), its undo back into the Inbox; any other move stays in its library.
+const moveLabel = (record) => {
+  if (!record.newLibraryId) return 'moved'
+  return record.undoOf && !record.redo ? 'unpromoted' : 'promoted'
+}
+
 // errorKey is the message of a refused undo.
 const errorKey = (err) => {
   const code = err?.body?.error
@@ -110,11 +117,12 @@ export const EditChangesField = ({ record }) => {
     record.kind === 'rename'
   ) {
     // A move (Organize, #167), one into or out of Quarantine (#168), or a case merge's rename of a
-    // File or folder with all it holds (#169): where it was, and where it went.
+    // File or folder with all it holds (#169): where it was, and where it went. A Promote's
+    // (#171) goes from the Inbox into the Library, or back.
     return (
       <Typography variant="body2" component="span" className={classes.change}>
         <span className={classes.tag}>
-          {translate('resources.editHistory.message.moved')}
+          {translate(`resources.editHistory.message.${moveLabel(record)}`)}
         </span>
         <span>{record.path}</span>
         <span className={classes.arrow} aria-hidden>
@@ -310,7 +318,9 @@ const jobKindsUndoneWhole = new Set([
   'migrateCorrections',
   // Organize (#167): its undo also removes the folders it made, and rescans.
   'organize',
-  // The case merge (#169): the same.
+  // Promote (#171): Organize from the Inbox; its undo puts the Files back in the Inbox.
+  'promote',
+  // The case merge (#169): as Organize.
   'caseRename',
   'caseMerge',
 ])

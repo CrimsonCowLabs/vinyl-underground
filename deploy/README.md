@@ -9,7 +9,6 @@ Start with the [top-level README](../README.md#self-hosting), which sets up the 
 | File | What it is |
 |---|---|
 | `docker-compose.yml` | The stack. It holds no personal values. |
-| `docker-compose.promote.yml` | Optional override that turns on Promote (section 12). |
 | `.env.example` | Every setting, commented out at its default. |
 | `.env` | Optional. Only the settings you change. Gitignored, never commit it. |
 
@@ -34,7 +33,6 @@ Nothing is required. With no `.env`, the stack uses these defaults:
 | `VU_INBOX_DIR` | `./inbox` (mounted read-write at `/inbox`; created and handed to `VU_UID` on first start) |
 | `VU_UID` / `VU_GID` | `1000` / `1000` |
 | `VU_PORT` | `4533`, on `127.0.0.1` only |
-| `VU_PROMOTE_DIR` | unset: Promote is off (see section 12) |
 | `VU_IMAGE` | unset: built from this checkout as `vinyl-underground:local` |
 
 If any of those is wrong for your host, or you want another app setting (`ND_*`), make a `.env` and uncomment just those lines:
@@ -194,7 +192,7 @@ If the app stops in the middle of a Rip, the Track it was on starts again from s
 - **Time limit:** a Track that takes longer than `ND_RIPPING_TIMEOUT` (default `30m`) is stopped and marked failed. The limit is per Track, not per job. When a failed Track is tried again after a yt-dlp update (below), the second try gets its own time limit.
 - **Keeping yt-dlp working:** sites like YouTube change often, and only a newer yt-dlp keeps up. The app updates yt-dlp in `$VU_DATA_DIR/bin` three ways, without rebuilding the image:
   - **On a schedule:** `ND_RIPPING_YTDLPUPDATESCHEDULE` (default `@daily`; a cron expression or `@every 24h` also works, and `0` turns it off).
-  - **On demand:** the **Update yt-dlp** button on the Rips page, next to the installed version. It refuses while a Track is being ripped or another update is running; press it again once that has finished. When a newer release is out, the page says so next to the installed version ("yt-dlp X · Y available") and highlights the button; otherwise it says "up to date". The app looks up the latest release at most once an hour, because GitHub allows only 60 lookups an hour without a login; when the lookup fails, the page shows only the installed version. On a platform with no standalone yt-dlp build (anything but Linux amd64 and arm64), the app can't update a yt-dlp you put in place yourself.
+  - **On demand:** the **Update yt-dlp** button on the Rips page, next to the installed version. It refuses while a Track is being ripped or another update is running; press it again once that has finished. When a newer release is out, the page says so next to the installed version ("yt-dlp X · Y available") and highlights the button; otherwise, including when you run a nightly newer than the latest release, it says "up to date". The app looks up the latest release at most once an hour, because GitHub allows only 60 lookups an hour without a login; when the lookup fails, the page shows only the installed version. On a platform with no standalone yt-dlp build (anything but Linux amd64 and arm64), the app can't update a yt-dlp you put in place yourself, so the page doesn't look up the latest release either.
   - **After a failed Track:** the app updates yt-dlp once and tries that Track once more before marking it failed. It skips this when no update could help: an unsupported URL, a private, removed, age-restricted, members-only or blocked video, a playlist, the Rip's own time limit, or an error of the app's (such as a full disk).
 
   Each update looks up the latest release's tag first, and downloads nothing when `yt-dlp --version` already shows that tag. Otherwise it fetches both the binary and `SHA2-256SUMS` from that tag, checks the checksum, and checks the new binary runs before it replaces the old one. A failed update leaves the old binary in place. An update never replaces yt-dlp while a Track is being ripped: it waits for that Track to finish, so in a playlist it runs between two Tracks.
@@ -268,72 +266,28 @@ Nothing is ever scrobbled to Last.fm: the app doesn't offer to link a Last.fm ac
 
 ## 12. Promote Inbox Tracks to the NAS (optional)
 
-Once a Rip is reviewed, **Promote all** on its card moves its Files out of the Inbox into the Library on the NAS, and each Track stays the same Track: its favorites, ratings, play counts, bookmarks, Playlist entries and shares carry over, and every Listener can now see it. The app may write to exactly one folder of the share, `Vinyl Underground/` ([ADR-0008](../docs/adr/0008-app-writes-to-one-dedicated-library-folder.md)); the rest of the Library stays read-only. Promote is off (no button, no endpoint) until that folder is set up as below.
+Once a card is reviewed, **Promote all** moves its Files out of the Inbox to their place in the Library's organised tree at the share's root ([ADR-0011](../docs/adr/0011-app-manages-the-librarys-files.md)), and each Track stays the same Track: its favorites, ratings, play counts, bookmarks, Playlist entries and shares carry over, and every Listener can now see it. Promote is Organize from the Inbox: the same naming scheme, plan and rules, and the move can be undone from the Edit history.
 
-How it fits together:
-
-- On the host, the whole share stays mounted read-only (e.g. at `/mnt/music`), and **just the `Vinyl Underground` folder** gets a second, read-write CIFS mount of its own (e.g. at `/mnt/vinyl-underground`). CIFS can mount a folder of a share: `//nas-host/music/Vinyl Underground`.
-- In the container, the read-only Library is at `/music`, and `docker-compose.promote.yml` binds the read-write mount over `/music/Vinyl Underground`. So promoted Files sit inside the Library at their final path, and the scanner sees them there. Docker allows a read-write bind inside a read-only one, but it can't create the mountpoint folder inside a read-only bind, so the folder must exist on the share first.
-
-### On the NAS: create the folder
-
-The folder must exist before anything is mounted, and the read-only mount can't create it. Make it once from any machine that can write to the share (a desktop file manager, the NAS's web admin, or `smbclient`). For an SMB1-only NAS, `smbclient` needs `-m NT1`:
-
-```bash
-smbclient //nas-host/music -A ~/nas-credentials -m NT1 -c 'mkdir "Vinyl Underground"'
-ls "$VU_LIBRARY_DIR/Vinyl Underground"   # now visible through the read-only mount
-```
-
-### On the host: mount just that folder read-write
-
-1. The root-only credentials file `/etc/samba-creds/nas`, shared with the read-only mount ([README, step 1](../README.md#1-mount-the-music-share-read-only)). The NAS user must be allowed to write to the share.
-
-2. The mountpoint, owned by root and **not writable**: if the mount ever fails (`nofail` lets the host boot without it), the app finds a folder it can't write to and turns Promote off, instead of filling a folder on the local disk:
-
-   ```bash
-   sudo install -d -m 555 /mnt/vinyl-underground
-   ```
-
-3. One line in `/etc/fstab`. The space in the folder name is written `\040`:
-
-   ```
-   //nas-host/music/Vinyl\040Underground  /mnt/vinyl-underground  cifs  rw,vers=1.0,credentials=/etc/samba-creds/nas,uid=1000,gid=1000,file_mode=0664,dir_mode=0775,iocharset=utf8,noserverino,_netdev,nofail  0  0
-   ```
-
-   - `vers=1.0` is for an older NAS that speaks only SMB1; leave it out (or use `vers=3.0`) on anything newer. The kernel must allow SMB1 (`CONFIG_CIFS_ALLOW_INSECURE_LEGACY`), as for the read-only mount. Use the same `vers` as that mount.
-   - `uid`/`gid` must be `VU_UID`/`VU_GID`, the user the app runs as: CIFS has no Unix owners of its own, so these and `file_mode`/`dir_mode` decide who may write. `0664`/`0775` let that user write and everyone read.
-   - The other options are as for the [read-only mount](../README.md#1-mount-the-music-share-read-only).
-
-4. Mount it and check it, and that the rest of the share is still read-only:
-
-   ```bash
-   sudo mount /mnt/vinyl-underground
-   findmnt -no OPTIONS /mnt/vinyl-underground | tr , '\n' | grep -x rw
-   findmnt -no OPTIONS "$VU_LIBRARY_DIR" | tr , '\n' | grep -x ro
-   sudo -u "#${VU_UID:-1000}" sh -c 'touch /mnt/vinyl-underground/.vu-check && rm /mnt/vinyl-underground/.vu-check' && echo writable
-   ```
-
-### Turn Promote on
-
-Add to `.env`, then `docker compose up -d`:
-
-```bash
-COMPOSE_FILE=docker-compose.yml:docker-compose.promote.yml
-VU_PROMOTE_DIR=/mnt/vinyl-underground
-```
-
-The override sets `ND_INBOX_PROMOTEPATH=/music/Vinyl Underground`. On start the app checks that folder is inside the Library (not the Inbox) and writable, and logs `Promote is enabled`; otherwise it logs why and Promote stays off. Promote works with ripping on or off, on the cards of Rips, uploads and dropped Files alike (section 9).
-
-Docker binds the host mount as it is when the container starts. Start the container after both mounts are up, and if the NAS mount drops and comes back, `docker compose restart vinyl-underground`. While the read-write mount is missing, the scanner sees an empty `Vinyl Underground/` and marks its Tracks missing; they come back, with everything attached, at the next scan once it is mounted again.
+Promote needs a writable Library: mount the share read-write on the host and set `VU_LIBRARY_MODE=rw` ([README, "Or mount it read-write"](../README.md#or-mount-it-read-write)). With the Library read-only, editing is off, and so is Promote (no button, no endpoint). There is no separate folder or mount for it. Promote works with ripping on or off, on the cards of Rips, uploads and dropped Files alike (section 9).
 
 ### What Promote does
 
-- **Where Files go:** `Vinyl Underground/<Album Artist>/<Album> (<Year>)/<NN> <Title>.<ext>`, from each File's tags (as saved on the review card; save your edits first). No album artist uses the artist, then "Unknown Artist"; no album is "Unknown Album"; no year leaves out ` (<Year>)`; no track number leaves out `<NN> `. Names lose the characters SMB refuses (`\ / : * ? " < > |` become `_`), leading dots, trailing dots and spaces, and are capped at 120 bytes.
-- **Letter case:** the NAS is case-insensitive, so a folder whose name differs only by letter case (or Unicode composition) is reused rather than made beside it, and a File name counts as taken in any case. A File is never replaced: the new one gets ` (2)`, ` (3)`...
-- **Moving safely:** the Inbox is on local disk and the share is CIFS, so a File can't simply be renamed across. Each File is copied to a hidden temp File beside its destination, flushed to disk, read back and compared with the original (size and SHA-256), and only then put in place; the Track is pointed at it, and the Inbox copy is deleted last.
-- **File by File:** a File that fails stays in the Inbox, with the error shown in the card's dialog and kept on its item; the others carry on. Press **Promote all** again once it is fixed. When no File is left, the job goes, as a Discard does, with its emptied Inbox folder. Both libraries are then rescanned.
-- **Restarts:** the destination is recorded before a File is copied, so if the app stops in the middle, the next start finishes the move (when the copy is complete and matches) or undoes it (removing the temp File; the original never left the Inbox). This waits until the read-write folder is mounted and Promote is on again.
-- **Who:** only the admin can promote. With Promote off, or no Inbox, there is nothing to see.
+- **The plan first:** **Promote all** shows where each File will land, `<Album Artist>/<Album> (<Year>)/<NN> <Title>.<ext>` (`<D>-<NN>` on a multi-disc album), from its tags as saved on the card (save your edits first), and the Files it can't place, with why: no album artist, no album, no real title, no track number, a folder on the way with a twin differing only in letter case, a File at that path already, or a File the Inbox scan hasn't read yet. Fix their tags on the card and press **Promote all** again. Nothing moves until you run the plan.
+- **Letter case:** the NAS is case-insensitive, so a folder whose name differs only by letter case (or Unicode composition) is reused rather than made beside it. A File is never moved over another, in any letter case. Names lose the characters SMB refuses (`\ / : * ? " < > |` become `_`), leading dots, trailing dots and spaces, and are capped at 120 bytes.
+- **One job:** the plan runs as one edit job (**Promote** in the Activity panel), each move recorded in the Edit journal. The card's other Files (a `cover.jpg`, a booklet) go with the album. The emptied Inbox folder is removed, both libraries are rescanned, and once its Files have moved, the card goes. A File that changed since the plan, or whose place was taken meanwhile, is skipped and stays in the Inbox, with the reason in the Activity panel; the others carry on.
+- **Moving safely:** the Inbox is on local disk and the share is CIFS, so a File can't simply be renamed across. Each File is copied beside its new path, flushed to disk, read back and compared with the original (size and SHA-256), and only then put in place; the Track is pointed at it, and the Inbox copy is deleted last.
+- **Undo:** undoing the Promote job from the **Edit history** moves every File back into the Inbox the same way, still the same Track. The Files then get a review card again.
+- **Restarts:** if the app stops in the middle, the next start settles each move from the Edit journal, as for any edit: finished when the copy is complete and matches, undone otherwise.
+- **Who:** only the admin can promote. With the Library read-only, or no Inbox, there is nothing to see.
+
+### Upgrading from the dedicated `Vinyl Underground/` folder
+
+Earlier releases promoted into a `Vinyl Underground/` folder with a read-write mount of its own (ADR-0008, now superseded). That folder isn't needed any more. The Files already in it are ordinary Library Tracks, which Organize can move into the organised tree like any others. To switch over:
+
+1. Mount the whole share read-write and set `VU_LIBRARY_MODE=rw` (above).
+2. Remove `COMPOSE_FILE=docker-compose.yml:docker-compose.promote.yml`, `VU_PROMOTE_DIR` and any `ND_INBOX_PROMOTEPATH` from `.env` (the app logs a warning while `ND_INBOX_PROMOTEPATH` is still set), then `docker compose up -d`.
+3. Unmount the second mount and drop it from the host: `sudo umount /mnt/vinyl-underground`, delete its `//nas-host/music/Vinyl\040Underground` line from `/etc/fstab`, and `sudo rmdir /mnt/vinyl-underground`.
+4. Optionally, **Organize** the `Vinyl Underground` folder's albums into the tree.
 
 ## 13. Repair tags across the Library (`retag`)
 

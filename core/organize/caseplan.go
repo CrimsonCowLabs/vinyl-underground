@@ -10,6 +10,7 @@ import (
 	"io"
 	"maps"
 	"path"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -439,7 +440,9 @@ func (cl *caseLibrary) taken(rel string) bool {
 	return false
 }
 
-func (cl *caseLibrary) abs(rel string) string { return (&libraryPlan{lib: cl.lib}).abs(rel) }
+func (cl *caseLibrary) abs(rel string) string {
+	return filepath.Join(cl.lib.Path, filepath.FromSlash(rel))
+}
 
 func (cl *caseLibrary) withLibrary(clashes []CaseClash) []CaseClash {
 	for i := range clashes {

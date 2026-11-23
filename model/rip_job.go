@@ -93,12 +93,9 @@ type RipItem struct {
 	// Proposal is the item's proposed tags (#34), worked out in the background once its File has
 	// landed. Put never writes it (see RipItemRepository.SetProposal), so the Ripper saving an
 	// item can't undo a proposal saved meanwhile.
-	Proposal RipProposal `structs:"-" json:"proposal"`
-	// PromoteDest is where a Promote is moving the File (an absolute path), while it does. A
-	// restart finishes or undoes every move it finds here (#36).
-	PromoteDest string    `structs:"promote_dest" json:"-"`
-	CreatedAt   time.Time `structs:"created_at" json:"createdAt"`
-	UpdatedAt   time.Time `structs:"updated_at" json:"updatedAt"`
+	Proposal  RipProposal `structs:"-" json:"proposal"`
+	CreatedAt time.Time   `structs:"created_at" json:"createdAt"`
+	UpdatedAt time.Time   `structs:"updated_at" json:"updatedAt"`
 }
 
 type RipItems []RipItem
@@ -274,10 +271,10 @@ type RipItemRepository interface {
 	// Paths returns the path of every item's File (relative to the Inbox), of every job: the
 	// Files some job already knows about.
 	Paths() ([]string, error)
-	// PromotesInterrupted returns the items a Promote was moving (PromoteDest set) when the app
-	// stopped.
-	PromotesInterrupted() (RipItems, error)
+	// ForPaths returns the items of the Files at the given paths (relative to the Inbox), of any
+	// job: those a Promote moved into the Library (#171).
+	ForPaths(paths ...string) (RipItems, error)
 	// MoveMatches updates every item's AlreadyHave snapshots of the Track trackID to say it is
-	// now in the library libraryName (a promoted Track, #36).
+	// now in the library libraryName (a promoted Track, #36, or one put back in the Inbox).
 	MoveMatches(trackID, libraryName string) error
 }

@@ -23,7 +23,7 @@ import (
 func (r *Ripper) Discard(ctx context.Context, jobID string) error {
 	r.reviewMu.Lock()
 	defer r.reviewMu.Unlock()
-	job, inbox, err := r.reviewable(ctx, jobID)
+	job, inbox, err := r.editable(ctx, jobID)
 	if err != nil {
 		return err
 	}
@@ -56,7 +56,7 @@ func (r *Ripper) Discard(ctx context.Context, jobID string) error {
 func (r *Ripper) DiscardItem(ctx context.Context, jobID, itemID string) error {
 	r.reviewMu.Lock()
 	defer r.reviewMu.Unlock()
-	job, inbox, err := r.reviewable(ctx, jobID)
+	job, inbox, err := r.editable(ctx, jobID)
 	if err != nil {
 		return err
 	}

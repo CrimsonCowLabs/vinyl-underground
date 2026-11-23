@@ -59,23 +59,31 @@ const review = {
     },
   ],
 }
-const reply = (json) => Promise.resolve({ json })
+
+// The plan Promote shows (#171): Organize's, from the Inbox into the Library.
+const plan = {
+  token: 'tok-1',
+  tracks: 1,
+  files: 0,
+  inPlace: 0,
+  unplaced: { noTrackNumber: 1 },
+  moves: [
+    {
+      trackId: 't1',
+      path: 'Album/a.opus',
+      newPath: 'Rip Artist/Rip Album (2024)/01 First.opus',
+      newLibraryId: 1,
+      status: 'move',
+    },
+  ],
+  left: [{ trackId: 't3', path: 'Album/c.opus', status: 'noTrackNumber' }],
+  totalMoves: 1,
+  totalLeft: 1,
+}
+const reply = (json, status = 200) => Promise.resolve({ json, status })
 
 const promoteAll = () =>
   screen.getByRole('button', { name: 'resources.rip.promote.button' })
-
-const confirm = async () => {
-  fireEvent.click(promoteAll())
-  const dialog = await screen.findByRole('dialog')
-  expect(dialog.textContent).toContain(
-    'resources.rip.promote.confirm {"smart_count":2}',
-  )
-  fireEvent.click(
-    within(dialog).getByRole('button', {
-      name: 'resources.rip.promote.button',
-    }),
-  )
-}
 
 describe('PromoteButton', () => {
   beforeEach(() => {
@@ -83,7 +91,7 @@ describe('PromoteButton', () => {
     mockConfig.enablePromote = true
   })
 
-  it('is not there when Promote is off', () => {
+  it('is not there when Promote is off (the Library is read-only)', () => {
     mockConfig.enablePromote = false
     render(<PromoteButton jobId="j1" review={review} show={vi.fn()} />)
     expect(
@@ -91,79 +99,75 @@ describe('PromoteButton', () => {
     ).toBeNull()
   })
 
-  it('promotes every File once confirmed, and the job leaves the list', async () => {
-    const show = vi.fn()
-    render(<PromoteButton jobId="j1" review={review} show={show} />)
-    http.mockReturnValueOnce(
-      reply({
-        promoted: [
-          { itemId: 'a', path: 'Vinyl Underground/A/B/01 First.opus' },
-          { itemId: 'c', path: 'Vinyl Underground/A/B/03 Third.opus' },
-        ],
-        failed: [],
-        review: null,
-      }),
-    )
-    await confirm()
+  it('shows where each File lands in the Library before anything moves, and why any stays', async () => {
+    http.mockReturnValueOnce(reply(plan))
+    render(<PromoteButton jobId="j1" review={review} show={vi.fn()} />)
+    fireEvent.click(promoteAll())
 
-    await waitFor(() =>
-      expect(notify).toHaveBeenCalledWith(
-        'resources.rip.promote.done',
-        'info',
-        {
-          smart_count: 2,
-        },
-      ),
+    const dialog = await screen.findByRole('dialog')
+    await within(dialog).findByText('Album/a.opus')
+    expect(
+      within(dialog).getByText('→ Rip Artist/Rip Album (2024)/01 First.opus'),
+    ).toBeInTheDocument()
+    expect(within(dialog).getByText('Album/c.opus')).toBeInTheDocument()
+    expect(dialog.textContent).toContain(
+      'resources.organize.reasons.noTrackNumber',
     )
-    expect(http).toHaveBeenCalledWith('/api/rip/j1/promote', {
+    expect(dialog.textContent).toContain('resources.rip.promote.help')
+    expect(http).toHaveBeenCalledTimes(1)
+    expect(http).toHaveBeenCalledWith(
+      '/api/rip/j1/promote/plan?_start=0&_end=100',
+      { method: 'POST' },
+    )
+  })
+
+  it('runs the plan shown, by its token, and the list refreshes', async () => {
+    http.mockReturnValueOnce(reply(plan))
+    render(<PromoteButton jobId="j1" review={review} show={vi.fn()} />)
+    fireEvent.click(promoteAll())
+    const dialog = await screen.findByRole('dialog')
+    await within(dialog).findByText('Album/a.opus')
+
+    http.mockReturnValueOnce(reply({ id: 'job-1', state: 'done', skipped: 0 }))
+    fireEvent.click(within(dialog).getByTestId('organize-run'))
+    await waitFor(() => expect(refresh).toHaveBeenCalled())
+    expect(http).toHaveBeenLastCalledWith('/api/rip/j1/promote', {
       method: 'POST',
+      body: JSON.stringify({ token: 'tok-1' }),
     })
-    expect(refresh).toHaveBeenCalled()
-    expect(show).not.toHaveBeenCalled()
+    expect(notify).toHaveBeenCalledWith('resources.organize.done', {
+      type: 'info',
+    })
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
   })
 
-  it('says which Files stayed in the Inbox, and why, and shows what is left', async () => {
-    const show = vi.fn()
-    render(<PromoteButton jobId="j1" review={review} show={show} />)
-    const left = { ...review, tracks: [review.tracks[2]] }
-    http.mockReturnValueOnce(
-      reply({
-        promoted: [
-          { itemId: 'a', path: 'Vinyl Underground/A/B/01 First.opus' },
-        ],
-        failed: [{ itemId: 'c', error: 'the copy does not match the File' }],
-        review: left,
+  it('says when the job runs on in the background', async () => {
+    http.mockReturnValueOnce(reply(plan))
+    render(<PromoteButton jobId="j1" review={review} show={vi.fn()} />)
+    fireEvent.click(promoteAll())
+    const dialog = await screen.findByRole('dialog')
+    await within(dialog).findByText('Album/a.opus')
+    http.mockReturnValueOnce(reply({ id: 'job-1', state: 'running' }, 202))
+    fireEvent.click(within(dialog).getByTestId('organize-run'))
+    await waitFor(() =>
+      expect(notify).toHaveBeenCalledWith('resources.organize.inBackground', {
+        type: 'info',
       }),
     )
-    await confirm()
-
-    const dialog = await screen.findByRole('dialog', {
-      name: 'resources.rip.promote.failedTitle',
-    })
-    expect(dialog.textContent).toContain(
-      'resources.rip.promote.failedTrack {"position":3}',
-    )
-    expect(dialog.textContent).toContain('Third')
-    expect(dialog.textContent).toContain('the copy does not match the File')
-    expect(show).toHaveBeenCalledWith(left)
-    expect(refresh).toHaveBeenCalled()
   })
 
-  it('reports an error that stopped the whole Promote', async () => {
-    render(<PromoteButton jobId="j1" review={review} show={vi.fn()} />)
+  it('reports why there is nothing to promote yet', async () => {
     http.mockImplementationOnce(() =>
-      Promise.reject({ body: { error: 'this Rip is still running' } }),
+      Promise.reject({ body: { error: 'nothingToPromote' } }),
     )
-    await confirm()
+    render(<PromoteButton jobId="j1" review={review} show={vi.fn()} />)
+    fireEvent.click(promoteAll())
     await waitFor(() =>
       expect(notify).toHaveBeenCalledWith(
-        'this Rip is still running',
-        'warning',
+        'resources.organize.errors.nothingToPromote',
+        { type: 'warning' },
       ),
     )
-    // The server may have promoted some Files all the same: show what is left.
-    expect(refresh).toHaveBeenCalled()
   })
 
   it('waits for unsaved edits on the card to be saved first', async () => {

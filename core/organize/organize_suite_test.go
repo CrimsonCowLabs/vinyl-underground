@@ -103,7 +103,7 @@ func (l *library) trackWith(rel, content string, mf model.MediaFile) *model.Medi
 	l.file(rel, content)
 	info, err := os.Stat(filepath.Join(l.dir, filepath.FromSlash(rel)))
 	Expect(err).ToNot(HaveOccurred())
-	mf.LibraryID, mf.Path, mf.FolderID = 1, rel, model.FolderID(l.lib, path.Dir(rel))
+	mf.LibraryID, mf.Path, mf.FolderID = l.lib.ID, rel, model.FolderID(l.lib, path.Dir(rel))
 	mf.Size, mf.UpdatedAt, mf.Participants = info.Size(), info.ModTime(), model.Participants{}
 	mf.Suffix = path.Ext(rel)[1:]
 	if mf.AlbumID == "" {

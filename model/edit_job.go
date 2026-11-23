@@ -15,6 +15,11 @@ const EditRewrite EditKind = "rewrite"
 // JobKind removes the folders the moves left empty and rescans the Files' old and new folders.
 const EditOrganize EditKind = "organize"
 
+// EditPromote is the kind of a Promote job (#171): an Organize job whose move steps (EditMove,
+// each with a NewLibraryID) take reviewed Files from the Inbox into the Library; its JobKind also
+// settles the Files' Rips once they have moved (or moved back, for its undo).
+const EditPromote EditKind = "promote"
+
 // EditRestore is the kind of a step that moves a File in Quarantine that no journaled move put
 // there back to where it came from (#168): Files the library-cleanup recipes moved by hand. A
 // File the app moved there is restored by undoing that move.

@@ -17,6 +17,7 @@ import (
 	"unicode"
 
 	"github.com/navidrome/navidrome/core"
+	"github.com/navidrome/navidrome/core/editjob"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/model/request"
@@ -130,9 +131,6 @@ type Options struct {
 	// Proposer works out the tags proposed on the review card (#34), in the background, for each
 	// Track once its File has landed. Nil proposes nothing.
 	Proposer Proposer
-	// PromoteRoot is the promote folder reviewed Files are moved into (see Promote and
-	// CheckPromoteFolder). Empty turns Promote off.
-	PromoteRoot string
 	// MaxUploadSize is the biggest File the admin can upload. Defaults to MaxUploadSize.
 	MaxUploadSize int64
 	// DropSettle is how long a File dropped into the Inbox must stay the same (size and time)
@@ -150,7 +148,8 @@ type Options struct {
 type Updater interface {
 	Update(ctx context.Context) (UpdateResult, error)
 	Version(ctx context.Context) (string, error)
-	// Latest returns the latest release's version, or "" when it can't be told.
+	// Latest returns the latest release's version, or "" when it can't be told (always "" with
+	// an error).
 	Latest(ctx context.Context) (string, error)
 }
 
@@ -193,8 +192,9 @@ type Ripper struct {
 	reviewMu sync.Mutex
 	// proposals are the items waiting for their tag proposal (see runProposals).
 	proposals proposalQueue
-	// promoteFS is the filesystem Promote works on. Nil is the real one; tests set another.
-	promoteFS promoteFS
+	// editQueue runs Promote's jobs (see SetEditQueue). Nil, as with editing off, turns Promote
+	// off.
+	editQueue *editjob.Queue
 	// landing is held while a File lands in the Inbox and its item is saved (a Rip's, an
 	// upload's), and while the drop reconciler adopts Files, so it never takes a File some job is
 	// about to claim for a dropped one.

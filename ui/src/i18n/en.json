@@ -646,6 +646,8 @@
         "embedReplaced": "Embedded cover replaced",
         "embedRemoved": "Embedded cover removed",
         "moved": "Moved",
+        "promoted": "Promoted",
+        "unpromoted": "Back to the Inbox",
         "albumFile": "A File moved with its album",
         "renamedWithAll": "A folder or File renamed with all it holds (its Tracks follow it)",
         "deleted": "Deleted for good, by Empty Quarantine"
@@ -707,6 +709,7 @@
         "samePath": "Another File is planned for the same path",
         "pathTaken": "A File is at the new path already",
         "editingOff": "Its library is read-only",
+        "notScanned": "The Inbox scan hasn't read this File yet. Try again in a moment",
         "unknown": "Can't be placed"
       },
       "more": "Show more",
@@ -720,6 +723,9 @@
         "tooMany": "Too many Tracks are selected one by one. Organize all matching the filter instead.",
         "planChanged": "The Library changed since the plan was made. Here is the plan as it is now.",
         "nothingToMove": "Every File is in place already, or can't be placed.",
+        "notReady": "This card's Rip hasn't finished yet.",
+        "nothingToPromote": "None of this card's Files has been scanned in the Inbox yet. Try again in a moment.",
+        "promoting": "This card's Files are being promoted. The Activity panel shows how it goes.",
         "unknown": "Could not organize the Files. Try again later."
       }
     },
@@ -1071,14 +1077,9 @@
       },
       "promote": {
         "button": "Promote all",
-        "promoting": "Promoting...",
-        "title": "Promote to the Library?",
-        "confirm": "Move this card's File from the Inbox into the Library's Vinyl Underground folder? It becomes visible to every Listener, and keeps its favorites, ratings, plays and Playlist entries. |||| Move all %{smart_count} of this card's Files from the Inbox into the Library's Vinyl Underground folder? They become visible to every Listener, and keep their favorites, ratings, plays and Playlist entries.",
-        "unsaved": "Save or undo your changes first: Promote moves the Files with the tags they have now.",
-        "done": "Promoted %{smart_count} Track to the Library |||| Promoted %{smart_count} Tracks to the Library",
-        "failedTitle": "Some Files were not promoted",
-        "failedIntro": "%{smart_count} File stayed in the Inbox. Its error is below; try Promote all again once it is fixed. |||| %{smart_count} Files stayed in the Inbox. Their errors are below; try Promote all again once they are fixed.",
-        "failedTrack": "Track %{position}"
+        "title": "Promote to the Library",
+        "help": "Promote moves this card's Files from the Inbox to their place in the Library: <Album Artist>/<Album> (<Year>)/<NN> <Title>, or <D>-<NN> <Title> on a multi-disc album, as Organize names them. Nothing moves until you run the plan. The Tracks become visible to every Listener and keep their favorites, ratings, plays and Playlist entries, and the whole job can be undone from the Edit history, which puts the Files back in the Inbox.",
+        "unsaved": "Save or undo your changes first: Promote places the Files by the tags they have now."
       },
       "review": {
         "discard": "Discard",
@@ -1473,6 +1474,7 @@
         "cover": "Album cover",
         "embed": "Embed in Files",
         "organize": "Organize",
+        "promote": "Promote",
         "quarantine": "Send to Quarantine",
         "restore": "Restore from Quarantine",
         "emptyQuarantine": "Empty Quarantine",
