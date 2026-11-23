@@ -1,6 +1,13 @@
 # Library cleanup
 
-Tools for cleaning up a music share before the app scans it. The app itself has no dedupe code ([ADR-0002](../../docs/adr/0002-quarantine-duplicates-instead-of-in-app-dedupe.md)); these run by hand, through a temporary writable mount, and the app keeps its read-only mount throughout.
+Tools for cleaning up a music share by hand, through a temporary writable mount. The app now manages the Library's Files itself when the share is mounted read-write for it ([ADR-0011](../../docs/adr/0011-app-manages-the-librarys-files.md)), and does most of this from the Library manager, every write journaled and undoable from the Edit history:
+
+- **Names that differ only by case:** *Merge case twins* runs the two phases below as reviewed plans ([in the app](#in-the-app)).
+- **Duplicates:** select them in the Library manager (filter, or pick the Tracks) and *Send to Quarantine*; the merge above sends the byte-identical Files it finds there too.
+- **Quarantine:** the Quarantine page lists what is there, restores a File, or empties it for good after a confirmation.
+- **Tags:** the `retag` command ([`deploy/README.md`, section 13](../../deploy/README.md#13-repair-tags-across-the-library-retag)) replaces the beets retag below.
+
+The app still has no dedupe code that finds Duplicates for you ([ADR-0002](../../docs/adr/0002-quarantine-duplicates-instead-of-in-app-dedupe.md)): the planners here (`dupes.py`, `audiodupes.py`, `heldtwice.py`) find them, and are still the way to clean up a share the app can't write to.
 
 | Tool | What it does |
 |---|---|
@@ -24,11 +31,23 @@ Some NAS devices (old Buffalo LinkStations over SMB1, for example) look names up
 You can't merge such a pair by moving Files from one side to the other, because you can't tell which folder a path really reaches. So the merge has two phases:
 
 - **Phase A: rename.** All but one member of each clash gets a unique temporary name (`Atb [case-merge]`). A rename can't lose data, whichever real folder the server applies it to. Clashes nested inside clashing folders only become visible once their parents have unique names, so Phase A repeats until a scan finds none.
-- **Phase B: merge.** With every name unique, listings are trustworthy. Each `[case-merge]` sibling is merged into its partner. The side with more Files wins, so fewer Files move. A same-name File of the same size is planned for Quarantine, and `apply.py` moves it only after confirming it is byte-identical to the File it duplicates. Anything else is left for the owner to decide.
+- **Phase B: merge.** With every name unique, listings are trustworthy. Each `[case-merge]` sibling is merged into its partner. The side with more Files wins, so fewer Files move. A same-name File of the same size is planned for Quarantine, and moved there only once it is confirmed byte-identical to the File it duplicates (by the app's job, or by `apply.py`). Anything else is left for the owner to decide.
 
 ## Recipe: merge names that differ only by case
 
-`$PLANS` is any folder outside the share for scans and plans. Never edit a plan after `apply.py` has started on it, because its progress log records step numbers.
+### In the app
+
+With the share mounted read-write for the app, open the Library manager and choose *Merge case twins*. It lists every set of siblings whose names differ only by letter case, and the plan of the next phase; nothing is renamed or moved until you run it. Each run is one edit job, journaled, and can be undone from the Edit history; every Track keeps its ID, favorites, ratings, plays and Playlist entries, and Files no scan found yet go with their folders.
+
+1. **Phase A, until no twins are left.** Run the renames; the job rescans what it renamed, and the dialog shows the next plan: twins nested inside twins show up once their folders have unique names. Run again until the plan moves on to Phase B.
+2. **Phase B.** Check the plan (moves into each partner, the emptied folders removed, renamed folders taking back their name, Duplicates to Quarantine) and run it. A Duplicate goes to Quarantine only once the job has confirmed it byte-identical to the File it duplicates; otherwise the job skips it. The Files the plan lists under *Left for you to decide* differ from the File they clash with: keep one (send the other to Quarantine from the Library manager, or move it on the NAS), then plan again.
+3. **Then run `retag --apply` again** ([`deploy/README.md`, section 13](../../deploy/README.md#13-repair-tags-across-the-library-retag)): scans missed the Files under twins (about 10,000 of the reference Library's 23,500), so `retag` never saw them. It only changes Files that still need it.
+
+Undoing Phase B puts every File back. Undoing Phase A puts a temporary name back only where the filesystem can hold both names: the NAS itself refuses to make a name differing only in letter case from one beside it, so there the undo is skipped (*pathTaken*) and nothing moves.
+
+### By hand
+
+Without the app (a share it can't write to), the same two phases run through `casemerge.py` and `apply.py`. `$PLANS` is any folder outside the share for scans and plans. Never edit a plan after `apply.py` has started on it, because its progress log records step numbers.
 
 **1. Mount the share writable alongside the read-only mount.** Use the same credentials file and SMB version as the normal mount (`NAS` and the credentials path are placeholders):
 
@@ -70,7 +89,7 @@ grep -c 'case-merge' $PLANS/check-1.tsv                       # must print 0
 
 Some NAS devices keep a recycle bin on the share (`trashbox/` on Buffalo LinkStations), and removing a folder over SMB moves it there instead of deleting it. The emptied `[case-merge]` folders end up there, so ignore that folder in step 4 and empty it from the NAS's own admin page.
 
-**5. Quarantine the Duplicates** (next recipe) while the writable mount is still there, or unmount it now: `sudo umount /mnt/music-rw`. The app's read-only mount was never changed.
+**5. Quarantine the Duplicates** (next recipe) while the writable mount is still there, or unmount it now: `sudo umount /mnt/music-rw`. Then run a Full Scan in the app, and `retag --apply` (see step 3 of [In the app](#in-the-app)).
 
 ## Recipe: quarantine Duplicates
 
@@ -180,6 +199,8 @@ Each File moves to the same path under `_Quarantine/`. Before moving any File of
 **3. Check.** Unmount the writable mount (`sudo umount /mnt/music-rw`), run a Full Scan in the app, then scan and plan again: `heldtwice.py` must report `0 copies of albums held twice to quarantine`. `health.py`'s `albums-twice` still counts the strays and the albums listed as `not planned`; move or retag those by hand.
 
 ## Recipe: retag the Library from MusicBrainz
+
+**Use the app's built-in `retag` instead** ([`deploy/README.md`, section 13](../../deploy/README.md#13-repair-tags-across-the-library-retag)): it repairs titles, track, disc and year fields and unknown artists from MusicBrainz across the whole Library, every write journaled and undoable, and every Track keeps its favorites, plays and Playlist entries. The beets recipe below is kept only because the covers recipe after it works on the albums beets has imported; skip it if you don't need those covers.
 
 Most Files have never been matched against a music database, so many lack a year, a track number or MusicBrainz IDs, and some carry wrong disc numbers or albums. [beets](https://beets.io/) matches each album against MusicBrainz, using audio fingerprints (AcoustID) where the tags are too poor to search on, shows you each match to approve, and writes the tags into the Files in place. Run it after the Quarantine recipes above, and after a Full Scan, so no Duplicates (`Song 1.mp3`) or albums held twice are left: beets would take them for extra Tracks, and `retag.py` warns if it finds copy-named Files. Favorites, play counts and Playlist entries may reset for retagged Tracks.
 
