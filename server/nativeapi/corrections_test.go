@@ -93,7 +93,7 @@ var _ = Describe("Corrections API", func() {
 		conf.Server.EnableSharing = false
 		ds := &tests.MockDataStore{}
 		auth.Init(ds)
-		nativeRouter := New(ds, nil, nil, nil, tests.NewMockLibraryService(), tests.NewMockUserService(), nil, nil, nil, nil, nil, nil, nil)
+		nativeRouter := New(ds, nil, nil, nil, tests.NewMockLibraryService(), tests.NewMockUserService(), nil, nil, nil, nil, nil, nil, nil, nil)
 		svc = &fakeCorrections{}
 		nativeRouter.corrections = svc
 		router = server.JWTVerifier(nativeRouter)

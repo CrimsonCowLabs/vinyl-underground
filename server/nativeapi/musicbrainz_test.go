@@ -41,7 +41,7 @@ var _ = Describe("Find on MusicBrainz API", func() {
 		conf.Server.EnableExternalServices = true
 		ds := &tests.MockDataStore{}
 		auth.Init(ds)
-		nativeRouter := New(ds, nil, nil, nil, tests.NewMockLibraryService(), tests.NewMockUserService(), nil, nil, nil, nil, nil, nil, nil)
+		nativeRouter := New(ds, nil, nil, nil, tests.NewMockLibraryService(), tests.NewMockUserService(), nil, nil, nil, nil, nil, nil, nil, nil)
 		rel := musicbrainz.Release{ID: "rel-1", Title: "Record", Score: 100, Status: "Official", Date: "1999-05-01",
 			Country: "GB", Media: []musicbrainz.Media{{Format: "CD"}, {Format: "CD"}},
 			ReleaseGroup: musicbrainz.ReleaseGroup{ID: "rg-1", PrimaryType: "Album"}}

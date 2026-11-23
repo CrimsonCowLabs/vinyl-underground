@@ -16,6 +16,7 @@ import (
 	"github.com/navidrome/navidrome/core"
 	"github.com/navidrome/navidrome/core/artwork"
 	"github.com/navidrome/navidrome/core/rip"
+	"github.com/navidrome/navidrome/core/tagedit"
 	"github.com/navidrome/navidrome/db"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
@@ -93,6 +94,7 @@ func runNavidrome(ctx context.Context) {
 	checkInbox(ctx)
 	checkPromoteFolder(ctx)
 	checkLibraryEditing(ctx)
+	settleEdits(ctx)
 
 	g, ctx := errgroup.WithContext(ctx)
 	ripper := startRipper(ctx, g)
@@ -233,6 +235,16 @@ func checkLibraryEditing(ctx context.Context) {
 	default:
 		log.Info(ctx, "Editing the Library is off: no Library folder is writable")
 	}
+}
+
+// settleEdits finishes or undoes the writes to Files the last stop interrupted, before the
+// server takes a new one. With editing off they are left as they are: the Library may just not be
+// mounted read-write this time. The scans that follow re-read any File it finished.
+func settleEdits(ctx context.Context) {
+	if !core.CurrentLibraryEditing().Enabled {
+		return
+	}
+	tagedit.New(CreateDataStore(), nil).Settle(ctx)
 }
 
 // checkInbox turns the Inbox off for this run (Inbox.Path cleared) when the Inbox library isn't

@@ -79,7 +79,7 @@ var _ = Describe("Album cover API", func() {
 			artwork.CoverSourceLocal:           {Candidates: []artwork.CoverCandidate{{ID: "cand-1", Source: "folder", Label: "cover.png"}}},
 			artwork.CoverSourceCoverArtArchive: {Candidates: []artwork.CoverCandidate{}, Failed: true},
 		}}
-		nativeRouter := New(ds, nil, nil, nil, tests.NewMockLibraryService(), tests.NewMockUserService(), nil, nil, nil, nil, nil, nil, picker)
+		nativeRouter := New(ds, nil, nil, nil, tests.NewMockLibraryService(), tests.NewMockUserService(), nil, nil, nil, nil, nil, nil, picker, nil)
 		svc = &fakeCorrections{}
 		nativeRouter.corrections = svc
 		router = server.JWTVerifier(nativeRouter)

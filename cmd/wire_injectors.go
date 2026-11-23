@@ -18,6 +18,7 @@ import (
 	"github.com/navidrome/navidrome/core/refresh"
 	"github.com/navidrome/navidrome/core/scrobbler"
 	"github.com/navidrome/navidrome/core/sonic"
+	"github.com/navidrome/navidrome/core/tagedit"
 	"github.com/navidrome/navidrome/db"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/persistence"
@@ -50,7 +51,9 @@ var allProviders = wire.NewSet(
 	plugins.GetManager,
 	sonic.New,
 	refresh.New,
+	tagedit.New,
 	wire.Bind(new(refresh.Scanner), new(model.Scanner)),
+	wire.Bind(new(tagedit.Scanner), new(model.Scanner)),
 	wire.Bind(new(refresh.InfoRefresher), new(external.Provider)),
 	wire.Bind(new(agents.PluginLoader), new(*plugins.Manager)),
 	wire.Bind(new(scrobbler.PluginLoader), new(*plugins.Manager)),
