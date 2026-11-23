@@ -40,7 +40,7 @@ Vinyl Underground is opinionated. It is built for one household on one private n
 | [Navidrome](https://github.com/navidrome/navidrome) v0.64.2 | The base: scanning, Listeners, streaming, transcoding, Playlists, the Subsonic API, the React UI. Forked once and never synced again | Built in | [ADR-0001](docs/adr/0001-hard-fork-navidrome.md), [ADR-0003](docs/adr/0003-extend-legacy-navidrome-ui.md) |
 | [Docker](https://docs.docker.com/engine/install/) + Compose | Runs the app (and, for the cleanup tools, beets) | Yes | [`deploy/README.md`](deploy/README.md) |
 | [Tailscale](https://tailscale.com/kb/1017/install) | The private network, and HTTPS through `tailscale serve`, which the installable web app and Downloads need | Yes | [Step 5](#5-serve-it-over-https-with-tailscale), [ADR-0006](docs/adr/0006-offline-downloads-in-the-pwa.md) |
-| A NAS over SMB/CIFS (`cifs-utils`) | Where the Library lives, mounted read-only. SMB1 (`vers=1.0`) works for old NAS devices | Or a local folder | [Step 1](#1-mount-the-music-share-read-only) |
+| A NAS over SMB/CIFS (`cifs-utils`) | Where the Library lives, mounted read-write so the app can edit its Files, or read-only with editing off. SMB1 (`vers=1.0`) works for old NAS devices | Or a local folder | [Step 1](#1-mount-the-music-share-read-only) |
 | [ffmpeg](https://ffmpeg.org) | Transcoding to Opus for phones and Downloads | In the image | [ADR-0007](docs/adr/0007-phone-streams-opus-by-default.md) |
 | [Ollama](https://ollama.com) (or llama.cpp, LM Studio, any OpenAI-compatible API) | A small local LLM (~4B, e.g. `qwen3.5:4b-q4_K_M`) for Generated Playlists, Station Themes and DJ Blurbs | Optional | [LLM](#llm-generated-playlists-and-station-themes), [runbook §11](deploy/README.md#11-generated-playlists-optional-llm), [ADR-0004](docs/adr/0004-llm-ranks-library-candidates-never-invents-tracks.md) |
 | [Last.fm](https://www.last.fm/api), Deezer, ListenBrainz | Artist and album info, and similar artists for Generated Playlists. Scrobbling is removed | On by default | [Outside lookups](#lastfm-and-other-outside-lookups) |
@@ -53,7 +53,7 @@ Vinyl Underground is opinionated. It is built for one household on one private n
 **The liberties it takes**, so you can decide whether they suit you:
 
 - **No upstream security fixes, ever.** It is a hard fork, so it must only be reachable from your own devices ([ADR-0001](docs/adr/0001-hard-fork-navidrome.md)).
-- **The Library is read-only to the app**, with one exception: a single `Vinyl Underground/` folder that Promote writes to ([ADR-0008](docs/adr/0008-app-writes-to-one-dedicated-library-folder.md)). There is no dedupe code. Duplicates are moved off the drive instead ([ADR-0002](docs/adr/0002-quarantine-duplicates-instead-of-in-app-dedupe.md)).
+- **The app manages the Library's Files** when you mount the share read-write: it is becoming the tool for tags, covers, names, folders and Quarantine, for the admin only. Safety comes from its write path, not the mount: every write is journaled and can be undone, and is checked before it replaces a File. There is no byte backup ([ADR-0011](docs/adr/0011-app-manages-the-librarys-files.md)). Mounted read-only, editing is off, apart from the `Vinyl Underground/` folder Promote writes to ([ADR-0008](docs/adr/0008-app-writes-to-one-dedicated-library-folder.md)). There is no dedupe code. Duplicates are moved off the drive instead ([ADR-0002](docs/adr/0002-quarantine-duplicates-instead-of-in-app-dedupe.md)).
 - **The cleanup tools do rewrite your Files.** The retag writes new tags into every File it matches, and the cover tool embeds art. Both run only by hand, through a temporary writable mount, ask or dry-run first, and the cover tool can back up and restore.
 - **The LLM never picks music you don't own.** It turns a Prompt into filters, and the server builds the candidates from the Library. The LLM only ranks and trims them and writes Blurbs ([ADR-0004](docs/adr/0004-llm-ranks-library-candidates-never-invents-tracks.md)).
 - **Artist and album names leave the machine** for Last.fm and MusicBrainz lookups, unless you turn them off, and the retag sends audio fingerprints to AcoustID. What you play never does: scrobbling is removed.
@@ -157,7 +157,7 @@ Clone this repo on the host (`git clone https://github.com/CrimsonCowLabs/vinyl-
 
 ### 1. Mount the music share read-only
 
-The app never writes to the Library ([ADR-0002](docs/adr/0002-quarantine-duplicates-instead-of-in-app-dedupe.md)); the one exception is an optional folder for Promote ([ADR-0008](docs/adr/0008-app-writes-to-one-dedicated-library-folder.md), [below](#inbox-uploads-ripping-and-promote)). Mount the share on the host read-only, and the container binds it read-only again at `/music`.
+The app edits the Library's Files only when the Library is writable ([ADR-0011](docs/adr/0011-app-manages-the-librarys-files.md)). This step mounts the share read-only, which keeps editing off; to let the app edit, [mount it read-write instead](#or-mount-it-read-write). The container binds it at `/music`, read-only unless `VU_LIBRARY_MODE=rw`. Promote has its own optional folder ([ADR-0008](docs/adr/0008-app-writes-to-one-dedicated-library-folder.md), [below](#inbox-uploads-ripping-and-promote)).
 
 A credentials file, readable only by root, keeps the password out of `/etc/fstab`:
 
@@ -186,6 +186,29 @@ sudo mount /mnt/music
 findmnt -no OPTIONS /mnt/music | tr , '\n' | grep -x ro    # prints "ro"
 touch /mnt/music/.vu-check                                 # must fail: "Read-only file system"
 ```
+
+#### Or mount it read-write
+
+Editing the Library's Files needs the whole share mounted read-write, on the host and in the container. The app checks at startup by making and removing a File in each library's folder (it doesn't read the mount options), and logs `Editing the Library is on` or `off`. With a read-only Library, editing is off: the editing controls stay hidden, and nothing falls back to keeping edits in the app. The Libraries page shows whether each library can be edited. A Listener never sees editing.
+
+Use `rw` instead of `ro` in the `/etc/fstab` line, and give new Files and folders sensible permissions:
+
+```
+//nas-host/music  /mnt/music  cifs  rw,vers=3.0,credentials=/etc/samba-creds/nas,uid=1000,gid=1000,file_mode=0664,dir_mode=0775,iocharset=utf8,noserverino,_netdev,nofail  0  0
+```
+
+- `file_mode`/`dir_mode` set the permissions CIFS reports for Files and folders. `uid`/`gid` must be the user the app runs as, or it can't write.
+- The NAS user in the credentials file must be allowed to write to the share.
+- Keep the mountpoint itself not writable (`install -d -m 555`, as above), so if the mount fails the app finds a folder it can't write to, and editing is off.
+
+Then set `VU_LIBRARY_MODE=rw` in `deploy/.env`, so the container binds `/music` read-write too, and check:
+
+```bash
+sudo mount /mnt/music
+touch /mnt/music/.vu-check && rm /mnt/music/.vu-check    # must succeed
+```
+
+The editing itself arrives in later releases; until then, even with a writable Library, the app writes nothing to it but that startup check and Promote.
 
 Start the app only once the share is mounted. If the app starts without it, it sees an empty Library and marks its Tracks missing; they come back, with their favorites and play counts, at the next scan once the share is mounted again.
 

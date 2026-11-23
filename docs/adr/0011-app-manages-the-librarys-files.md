@@ -1,0 +1,16 @@
+# The app manages the Library's Files
+
+ADR-0002 and ADR-0008 kept the Library read-only to the app, apart from one `Vinyl Underground/` folder for Promote. That kept ~23k Files safe from a bug in the app, but it left every fix outside the app: Corrections are an overlay applied whenever a File's tags are read, the files themselves stay wrong for every other player, and cleanup (retagging, covers, folder names, Quarantine) runs by hand through a temporary writable mount. We chose to make the app the Library manager instead. The owner mounts the whole music share read-write, and safety comes from the app's write path, not from the mount.
+
+Every write goes through that path. It is admin only, and it runs as a persistent background job queue, one write at a time. Each write is recorded in the **Edit journal** first: the File's original tags and path are kept forever, and any File, or a whole job, can be undone; an undo is journaled too. A write is made to a temporary copy, which is re-read and checked (the tags are what was asked for, and the audio data is unchanged) before it replaces the File. A File whose modification time or size changed since the last scan is skipped, not overwritten. We keep no byte backup of the share: the journal and the check are the safety net.
+
+## Consequences
+
+- At startup the app checks whether each library's folder is writable by making and removing a File in it, not by reading the mount options. With a read-only Library, editing is off: the editing controls stay hidden, and nothing falls back to an in-app overlay. A Listener never sees editing.
+- Corrections become write-through: saving one writes the File's tags. The existing Corrections are migrated into the Files, and the apply-on-read overlay is retired. Only "this image is wrong for the album" stays as app data.
+- The app's own edits keep a Track's ID: its row is re-keyed in place when a File's tags or path change, as Promote does, so favorites, Playlist entries and play counts carry over.
+- Tag edits never move Files. **Organize** is the only way Files are renamed or moved, and only through a plan the admin has reviewed, into one naming scheme: `<Album Artist>/<Album> (<Year>)/<NN> <Title>.<ext>`, with `<D>-<NN>` for multi-disc albums. Folders whose names differ only in letter case are merged through Organize.
+- Quarantine becomes a journaled move made from the app. Only "Empty Quarantine", after a confirmation, deletes Files.
+- mp3 Files are written as ID3v2.4, and tags the app doesn't know are kept. An album cover is written as the folder's `cover.jpg`; embedding it into the Files is optional.
+- This supersedes the read-only parts of ADR-0002 (the Library mounted read-only, and the manual Quarantine step) and of ADR-0008 (the app writing to one folder only). Quarantining Duplicates rather than grouping them still holds.
+- Later (#171), Promote will move Files into the organised tree, and the dedicated `Vinyl Underground/` mount goes away. Until then Promote is unchanged.
