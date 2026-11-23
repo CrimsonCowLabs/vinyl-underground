@@ -8,7 +8,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"maps"
 
 	. "github.com/Masterminds/squirrel"
 	"github.com/deluan/rest"
@@ -53,7 +52,7 @@ func New(ds model.DataStore, queue *editjob.Queue) *Manager {
 func (m *Manager) Tracks(ctx context.Context, sel Selection) (model.MediaFiles, error) {
 	switch {
 	case sel.Filter != nil:
-		filters := maps.Clone(sel.Filter)
+		filters := queryFilters(sel.Filter)
 		filters["missing"] = "false"
 		res, err := m.ds.Resource(ctx, model.MediaFile{}).ReadAll(rest.QueryOptions{Filters: filters, Sort: "path"})
 		if err != nil {
@@ -75,14 +74,38 @@ func (m *Manager) Tracks(ctx context.Context, sel Selection) (model.MediaFiles, 
 	return nil, ErrNoSelection
 }
 
-// ErrNothingToChange is a bulk edit that would write no File: each already holds the value, or
-// can't be edited.
-var ErrNothingToChange = errors.New("none of the selected Tracks would change")
+// queryFilters are a JSON filter's values as the listing's query string has them: a string, or
+// a list of strings. The listing's filters read them so (a JSON boolean or number would not do).
+func queryFilters(filter map[string]any) map[string]any {
+	res := make(map[string]any, len(filter))
+	for k, v := range filter {
+		switch v := v.(type) {
+		case nil:
+		case []any:
+			vs := make([]string, len(v))
+			for i, e := range v {
+				vs[i] = fmt.Sprint(e)
+			}
+			res[k] = vs
+		case []string:
+			res[k] = v
+		default:
+			res[k] = fmt.Sprint(v)
+		}
+	}
+	return res
+}
+
+// ErrNothingToChange is a bulk edit of Tracks none of which can be edited.
+var ErrNothingToChange = errors.New("none of the selected Tracks can be edited")
 
 // Run queues the bulk edit as one edit job, with one tags step (editjob.TagsStep) for each File
-// the preview shows changing, in path order. Tracks that already hold the value, or that can't
-// be edited, are left out. The job runs in the background (see editjob.Queue), is listed in the
-// Edit history and can be undone as a whole, as any job.
+// that can be edited, in path order; those that can't are left out. A Track whose scanned value
+// already reads as the new one is in the job too: the scanned value may be one the scanner
+// derived (a date from ORIGINALDATE, artists split from ARTIST), not the File's own tag, so the
+// step reads the File and writes only what differs (a step of a File that holds it already is
+// unchanged). The job runs in the background (see editjob.Queue), is listed in the Edit history
+// and can be undone as a whole, as any job.
 func (m *Manager) Run(ctx context.Context, edit BulkEdit) (*model.EditJob, error) {
 	rows, values, err := m.plan(ctx, edit)
 	if err != nil {
@@ -90,7 +113,7 @@ func (m *Manager) Run(ctx context.Context, edit BulkEdit) (*model.EditJob, error
 	}
 	var steps []model.EditJobStep
 	for _, r := range rows {
-		if r.Status != StatusChange {
+		if r.Status != StatusChange && r.Status != StatusUnchanged {
 			continue
 		}
 		s, err := editjob.TagsStep(r.ID, tagedit.Values{edit.Field: values})

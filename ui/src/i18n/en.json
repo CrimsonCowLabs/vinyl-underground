@@ -644,10 +644,10 @@
         "clear": "Clear this field",
         "preview": "Preview",
         "change": "Old → new",
-        "unchanged": "Already holds this value",
-        "summary": "%{smart_count} of %{total} Tracks will change (%{unchanged} already hold this value, %{refused} can't be edited). |||| %{smart_count} of %{total} Tracks will change (%{unchanged} already hold this value, %{refused} can't be edited).",
+        "unchanged": "Seems to hold this value already: its File is checked, and written only if it differs",
+        "summary": "%{smart_count} of %{total} Tracks will change. %{unchanged} seem to hold this value already, so their Files are only checked; %{refused} can't be edited. |||| %{smart_count} of %{total} Tracks will change. %{unchanged} seem to hold this value already, so their Files are only checked; %{refused} can't be edited.",
         "more": "and %{smart_count} more Track |||| and %{smart_count} more Tracks",
-        "run": "Write %{smart_count} File |||| Write %{smart_count} Files",
+        "run": "Edit %{smart_count} File |||| Edit %{smart_count} Files",
         "done": "The tags were written to %{smart_count} File |||| The tags were written to %{smart_count} Files",
         "doneSkipped": "The tags were written, but %{smart_count} File was skipped. The Activity panel says why. |||| The tags were written, but %{smart_count} Files were skipped. The Activity panel says why.",
         "inBackground": "The edit is running in the background. The Activity panel shows how it goes.",
@@ -656,7 +656,7 @@
           "invalid": "A value isn’t valid: numbers must be numbers, dates YYYY, YYYY-MM or YYYY-MM-DD, and MusicBrainz IDs UUIDs. Only one value for a single-valued field.",
           "noSelection": "Select some Tracks first.",
           "tooMany": "Too many Tracks are selected one by one. Use Edit all matching instead.",
-          "nothingToChange": "None of these Tracks would change.",
+          "nothingToChange": "None of these Tracks can be edited.",
           "unknown": "The bulk edit could not be made."
         }
       }

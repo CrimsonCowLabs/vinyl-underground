@@ -179,16 +179,21 @@ func (q *Queue) Wait(ctx context.Context, id string, d time.Duration) (*model.Ed
 		q.mu.Lock()
 		changed := q.changed
 		q.mu.Unlock()
-		job, err := q.Job(ctx, id)
-		if err != nil || job.State == model.EditJobDone {
-			return job, err
+		// Only the job's row while it runs: a job may have a step per File of the Library, and
+		// it changes after each File. Its steps are read once, at the end.
+		job, err := q.ds.EditJob(ctx).Get(id)
+		if err != nil {
+			return nil, err
+		}
+		if job.State == model.EditJobDone {
+			return q.Job(ctx, id)
 		}
 		select {
 		case <-changed:
 		case <-timeout.C:
-			return job, nil
+			return q.Job(ctx, id)
 		case <-ctx.Done():
-			return job, nil
+			return q.Job(context.WithoutCancel(ctx), id)
 		}
 	}
 }

@@ -148,6 +148,27 @@ describe('BulkEditDialog', () => {
     )
   })
 
+  it("doesn't take an empty value for clearing the field", async () => {
+    renderDialog()
+    await setField('albumartist')
+    expect(screen.getByTestId('bulk-edit-preview')).toBeDisabled()
+    fireEvent.change(screen.getByTestId('tag-albumartist-0'), {
+      target: { value: '  ' },
+    })
+    expect(screen.getByTestId('bulk-edit-preview')).toBeDisabled()
+    fireEvent.click(screen.getByTestId('bulk-edit-clear'))
+    expect(screen.getByTestId('bulk-edit-preview')).toBeEnabled()
+  })
+
+  it('runs every File that may change, including those that seem to hold the value', async () => {
+    renderDialog()
+    await setField('albumartist', 'The Band')
+    fireEvent.click(screen.getByTestId('bulk-edit-preview'))
+    expect((await screen.findByTestId('bulk-edit-run')).textContent).toContain(
+      '"smart_count":2',
+    )
+  })
+
   it('runs the edit as one job, and says so when it is done', async () => {
     mockRun.mockResolvedValue({
       job: { state: 'done', done: 1, skipped: 0 },
@@ -185,7 +206,7 @@ describe('BulkEditDialog', () => {
   })
 
   it("explains a refusal, and can't run an edit that changes nothing", async () => {
-    mockPreview.mockResolvedValueOnce({ ...preview, changes: 0 })
+    mockPreview.mockResolvedValueOnce({ ...preview, changes: 0, unchanged: 0 })
     renderDialog()
     await setField('albumartist', 'The Band')
     fireEvent.click(screen.getByTestId('bulk-edit-preview'))

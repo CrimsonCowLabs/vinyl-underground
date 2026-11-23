@@ -157,10 +157,13 @@ var _ = Describe("Library manager API", func() {
 		})
 	})
 
-	It("refuses an edit no File would take, a field that isn't edited in bulk, and no selection", func() {
-		w := do(admin, http.MethodPost, "/libraryManager/edit", map[string]any{"ids": []string{"t1"}, "field": "album", "values": []string{"Old Album"}})
+	It("refuses an edit no File can take,a field that isn't edited in bulk, and no selection", func() {
+		// Its only Track's library is read-only now.
+		core.SetLibraryEditing(core.LibraryEditing{Enabled: true, Libraries: []core.LibraryWritable{{ID: 1, Name: "Music", Writable: false}}})
+		w := do(admin, http.MethodPost, "/libraryManager/edit", setAlbum)
 		Expect(w.Code).To(Equal(http.StatusUnprocessableEntity), w.Body.String())
 		Expect(errorCode(w)).To(Equal("nothingToChange"))
+		core.SetLibraryEditing(core.LibraryEditing{Enabled: true, Libraries: []core.LibraryWritable{{ID: 1, Name: "Music", Writable: true}}})
 
 		w = do(admin, http.MethodPost, "/libraryManager/preview", map[string]any{"ids": []string{"t1"}, "field": "title", "values": []string{"X"}})
 		Expect(w.Code).To(Equal(http.StatusBadRequest), w.Body.String())

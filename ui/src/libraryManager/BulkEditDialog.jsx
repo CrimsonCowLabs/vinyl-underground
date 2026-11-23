@@ -71,6 +71,10 @@ const Values = ({ values }) => {
 
 Values.propTypes = { values: PropTypes.arrayOf(PropTypes.string) }
 
+// The Files the job checks: those that change, and those whose scanned value already reads as
+// the new one (the scanner may have derived it, so the File is read, and written if it differs).
+const toRun = (preview) => preview.changes + preview.unchanged
+
 // What the edit does to a Track: its change, or why its File is left alone.
 const statusKey = (status) =>
   status === 'change'
@@ -177,6 +181,8 @@ export const BulkEditDialog = ({ open, selection, count, onClose, onDone }) => {
   }, [open, notify])
 
   const field = (fields || []).find((f) => f.key === key)
+  // Leaving the value empty doesn't clear the field: that takes "Clear this field".
+  const hasValue = clear || values.some((v) => v.trim() !== '')
   const request = () =>
     bulkEditRequest({ selection, field: key, values, clear })
 
@@ -302,11 +308,11 @@ export const BulkEditDialog = ({ open, selection, count, onClose, onDone }) => {
               color="primary"
               variant="contained"
               onClick={handleRun}
-              disabled={busy || preview.changes === 0}
+              disabled={busy || toRun(preview) === 0}
               data-testid="bulk-edit-run"
             >
               {translate('resources.libraryTrack.bulkEdit.run', {
-                smart_count: preview.changes,
+                smart_count: toRun(preview),
               })}
             </Button>
           </>
@@ -315,7 +321,7 @@ export const BulkEditDialog = ({ open, selection, count, onClose, onDone }) => {
             color="primary"
             variant="contained"
             onClick={handlePreview}
-            disabled={busy || !field}
+            disabled={busy || !field || !hasValue}
             data-testid="bulk-edit-preview"
           >
             {translate('resources.libraryTrack.bulkEdit.preview')}

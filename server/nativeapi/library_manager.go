@@ -81,8 +81,12 @@ func (api *Router) runBulkEdit(w http.ResponseWriter, r *http.Request) {
 		writeBulkEditError(w, r, err)
 		return
 	}
+	queued := job
 	if job, err = api.editQueue.Wait(ctx, job.ID, cmp.Or(api.editWait, defaultEditWait)); err != nil {
-		writeBulkEditError(w, r, err)
+		// The job is queued, and runs: an error here would have the admin queue it again.
+		log.Warn(ctx, "Could not follow a bulk edit job; it runs in the background", "job", queued.ID, err)
+		queued.Steps = model.EditJobSteps{}
+		_ = rest.RespondWithJSON(w, http.StatusAccepted, queued)
 		return
 	}
 	status := http.StatusOK

@@ -125,6 +125,12 @@ var _ = Describe("Library manager", Ordered, func() {
 			Expect(idsOf(mfs)).To(Equal([]string{"track-1"}))
 		})
 
+		It("matches nothing, rather than failing, for a filter value of the wrong type", func() {
+			mfs, err := m.Tracks(ctx, librarymanager.Selection{Filter: map[string]any{"title": float64(5), "folder": true}})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(mfs).To(BeEmpty())
+		})
+
 		It("resolves the selected Tracks, in path order, without missing Files", func() {
 			mfs, err := m.Tracks(ctx, librarymanager.Selection{IDs: []string{"track-4", "track-1", "track-5", "no-such-track"}})
 			Expect(err).ToNot(HaveOccurred())
@@ -300,9 +306,23 @@ var _ = Describe("Library manager", Ordered, func() {
 			Expect(tagOf("Artist/Album/01 One.mp3", "GENRE")).To(BeEmpty())
 		})
 
-		It("queues nothing when no File would change", func() {
+		// The scanned value can be one the scanner derived, not the File's own tag: here track-2
+		// reads as "The Artist", which its File doesn't hold.
+		It("writes a File whose scanned value already reads as the new one, if the File doesn't hold it", func() {
+			Expect(tagOf("Artist/Album/02 Two.mp3", "ALBUMARTIST")).ToNot(Equal([]string{"The Artist"}))
+			job, err := m.Run(ctx, librarymanager.BulkEdit{
+				Selection: librarymanager.Selection{IDs: []string{"track-2"}},
+				Field:     "albumartist", Values: []string{"The Artist"},
+			})
+			Expect(err).ToNot(HaveOccurred())
+			done := runQueue(job.ID)
+			Expect(done.Done).To(Equal(1))
+			Expect(tagOf("Artist/Album/02 Two.mp3", "ALBUMARTIST")).To(Equal([]string{"The Artist"}))
+		})
+
+		It("queues nothing when none of the Files can be edited", func() {
 			_, err := m.Run(ctx, librarymanager.BulkEdit{
-				Selection: librarymanager.Selection{IDs: []string{"track-2", "track-3"}},
+				Selection: librarymanager.Selection{IDs: []string{"track-3"}},
 				Field:     "albumartist", Values: []string{"The Artist"},
 			})
 			Expect(err).To(MatchError(librarymanager.ErrNothingToChange))
