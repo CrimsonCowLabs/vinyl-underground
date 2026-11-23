@@ -27,6 +27,8 @@ func (api *Router) addOrganizeRoute(r chi.Router) {
 	r.Route("/organize", func(r chi.Router) {
 		r.Post("/plan", api.planOrganize)
 		r.Post("/run", api.runOrganize)
+		// #169: the case merge (see addCaseMergeRoute).
+		api.addCaseMergeRoute(r)
 	})
 }
 
