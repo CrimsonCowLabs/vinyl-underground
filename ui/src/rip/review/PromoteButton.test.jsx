@@ -91,6 +91,11 @@ describe('PromoteButton', () => {
     ).toBeNull()
   })
 
+  it('is a main action, as Save is', () => {
+    render(<PromoteButton jobId="j1" review={review} show={vi.fn()} />)
+    expect(promoteAll()).toHaveClass('MuiButton-containedPrimary')
+  })
+
   it('promotes every File once confirmed, and the job leaves the list', async () => {
     const show = vi.fn()
     render(<PromoteButton jobId="j1" review={review} show={show} />)

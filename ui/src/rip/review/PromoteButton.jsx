@@ -63,6 +63,8 @@ const PromoteButton = ({ jobId, review, dirty, show }) => {
   const button = (
     <Button
       color="primary"
+      variant="contained"
+      size="small"
       onClick={() => setConfirming(true)}
       disabled={dirty || busy || files.length === 0}
     >

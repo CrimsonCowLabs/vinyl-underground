@@ -63,8 +63,11 @@ const UploadForm = ({ upload = uploadAll }) => {
           onChange={handleFiles}
         />
         <Button
-          variant="outlined"
+          variant="contained"
           color="primary"
+          size="small"
+          // On one line, however long the help text beside it
+          style={{ flexShrink: 0, whiteSpace: 'nowrap' }}
           disabled={busy}
           onClick={() => input.current?.click()}
         >

@@ -156,6 +156,42 @@ describe('ReviewCard proposals (#34)', () => {
     })
   })
 
+  it('keeps Track rows the same height, with or without a proposal under a field', async () => {
+    // The first Track has proposals; the second has none.
+    await renderCard({
+      ...proposed,
+      tracks: [
+        proposed.tracks[0],
+        { ...track('c', 2, 'Second', undefined), artist: 'Band' },
+      ],
+    })
+    // Every Track field keeps a line for a hint, filled or not, and a hint never wraps.
+    for (const label of [
+      'resources.song.fields.title 1',
+      'resources.song.fields.title 2',
+      'resources.song.fields.artist 2',
+      'resources.song.fields.trackNumber 2',
+    ]) {
+      const hint = field(label)
+        .closest('.MuiFormControl-root')
+        .querySelector('.MuiFormHelperText-root')
+      expect(hint).not.toBeNull()
+      expect(getComputedStyle(hint).whiteSpace).toBe('nowrap')
+    }
+  })
+
+  it('offers "Use proposals" and "Refresh proposals" as outlined buttons', async () => {
+    await renderCard()
+    for (const name of [
+      'resources.rip.review.useProposals',
+      'resources.rip.review.refreshProposals',
+    ]) {
+      expect(screen.getByRole('button', { name })).toHaveClass(
+        'MuiButton-outlined',
+      )
+    }
+  })
+
   it('has no proposals bar on a card without proposals', async () => {
     await renderCard({
       ...proposed,

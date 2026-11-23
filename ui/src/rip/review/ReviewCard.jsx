@@ -17,9 +17,11 @@ import {
   Tooltip,
   Typography,
 } from '@material-ui/core'
+import { makeStyles } from '@material-ui/core/styles'
 import DeleteIcon from '@material-ui/icons/Delete'
 import { httpClient } from '../../dataProvider'
 import { DiscardDialog, DiscardJobButton } from './DiscardDialog'
+import { useDiscardStyles } from './discardStyles'
 import { errorText, jobUrl } from './reviewApi'
 import {
   applyProposals,
@@ -45,11 +47,89 @@ import {
 // PROPOSALS_POLL_MS is how often the card looks again while proposals are being worked out.
 export const PROPOSALS_POLL_MS = 3000
 
+// The Track table's columns. The table lays them out at these widths whatever is in them, so the
+// card fits the room it has (beside the Now Playing panel, say) and its fields shrink to suit,
+// rather than a long title widening the card and the job table it sits in. Title and Artist share
+// what the number and the bin leave.
+const COLUMNS = {
+  trackNumber: '4.5em',
+  title: '60%',
+  artist: '40%',
+  discard: '2.75em',
+}
+
+const useStyles = makeStyles(
+  (theme) => ({
+    // A long playlist's card scrolls within itself, so its footer stays in view. It can't stick
+    // to the bottom of the window instead: the job table's card scrolls sideways (see Layout),
+    // which would hold it there.
+    card: {
+      display: 'flex',
+      flexDirection: 'column',
+      maxHeight: 'max(320px, calc(100vh - 200px))',
+    },
+    content: {
+      flex: '1 1 auto',
+      minHeight: 0,
+      overflowY: 'auto',
+    },
+    // Album, Album artist and Year in one row, while there is room for them
+    header: {
+      display: 'flex',
+      flexWrap: 'wrap',
+      alignItems: 'flex-start',
+      gap: theme.spacing(1),
+      marginBottom: theme.spacing(1),
+    },
+    albumField: { flex: '2 1 12em', minWidth: 0 },
+    yearField: { flex: '0 1 7em', minWidth: '5em' },
+    tracks: {
+      tableLayout: 'fixed',
+      width: '100%',
+      '& th, & td': {
+        padding: theme.spacing(0.5),
+        verticalAlign: 'top',
+      },
+      '& th': { paddingTop: theme.spacing(1) },
+    },
+    // A failed Track's reason, which a fixed column would otherwise run on past
+    failed: { overflowWrap: 'anywhere' },
+    // A proposal under a field: small, and on one line, cut short if it is too long, so a Track
+    // with proposals is no taller than one without
+    hint: {
+      fontSize: '0.6875rem',
+      lineHeight: '1rem',
+      height: '1rem',
+      margin: '2px 4px 0',
+      whiteSpace: 'nowrap',
+      overflow: 'hidden',
+      textOverflow: 'ellipsis',
+    },
+    hintLink: {
+      display: 'block',
+      maxWidth: '100%',
+      overflow: 'hidden',
+      textOverflow: 'ellipsis',
+      whiteSpace: 'nowrap',
+      textAlign: 'left',
+    },
+    footer: {
+      flexShrink: 0,
+      gap: theme.spacing(1),
+      borderTop: `1px solid ${theme.palette.divider}`,
+      padding: theme.spacing(1, 2),
+    },
+    // Discard sits apart from the actions that keep the job
+    discard: { marginLeft: 'auto' },
+  }),
+  { name: 'NDReviewCard' },
+)
+
 // ReviewCard is a finished job's review card: its album-level tags and its Track list, read from
 // the Files, to edit and save into them, and Discard for the whole job or one Track. Only the
-// admin sees Rips at all.
+// admin sees Rips at all. Save, the actions and Discard sit in its footer.
 //
-// Slots for later work: trackExtra(track) renders next to a Track's title (e.g. #32's "already
+// Slots for later work: trackExtra(track) renders under a Track's title (e.g. #32's "already
 // have" indicator), and actions are more buttons beside Save and Discard: an element, or a
 // function given { jobId, review, dirty (unsaved edits), show(review) } (e.g. #36's "Promote
 // all").
@@ -64,6 +144,8 @@ const ReviewCard = ({ record, trackExtra, actions }) => {
   const translate = useTranslate()
   const notify = useNotify()
   const refresh = useRefresh()
+  const classes = useStyles()
+  const discardClasses = useDiscardStyles()
   const jobId = record?.id
   // draft is the job's unsaved edits from before the card was last remounted, if it has any.
   const [draft] = useState(() => getDraft(jobId))
@@ -138,7 +220,12 @@ const ReviewCard = ({ record, trackExtra, actions }) => {
   if (loadError) {
     // Discard still works on a job whose tags can't be read.
     return (
-      <Box display="flex" alignItems="center">
+      <Box
+        display="flex"
+        alignItems="center"
+        flexWrap="wrap"
+        style={{ gap: 8 }}
+      >
         <Typography color="error">
           {translate('resources.rip.review.loadError', { error: loadError })}
         </Typography>
@@ -155,6 +242,10 @@ const ReviewCard = ({ record, trackExtra, actions }) => {
   const invalid = invalidFields(values)
   const hasInvalid = Object.keys(invalid).length > 0
   const proposed = proposedValues(review)
+  // A card with proposals keeps a line under every Track field for one, so each row is as tall
+  // as the next whichever fields have proposals.
+  const hintLine =
+    !!review.proposalsPending || review.tracks.some((t) => t.proposal)
 
   const handleRefreshProposals = () =>
     httpClient(`${jobUrl(jobId)}/proposals`, { method: 'POST' })
@@ -167,15 +258,26 @@ const ReviewCard = ({ record, trackExtra, actions }) => {
     const hint = fieldHint(fileValue, value, proposedValue)
     if (!hint) return undefined
     if (hint.offer) {
+      const text = translate('resources.rip.review.proposed', {
+        value: hint.offer,
+      })
       return (
-        <Link component="button" type="button" variant="caption" onClick={take}>
-          {translate('resources.rip.review.proposed', { value: hint.offer })}
+        <Link
+          component="button"
+          type="button"
+          variant="inherit"
+          className={classes.hintLink}
+          title={text}
+          onClick={take}
+        >
+          {text}
         </Link>
       )
     }
-    return hint.file
+    const text = hint.file
       ? translate('resources.rip.review.proposedFile', { file: hint.file })
       : translate('resources.rip.review.proposedNew')
+    return <span title={text}>{text}</span>
   }
 
   // Saving changes only the Files' tags, which the job list doesn't show, so the card takes in
@@ -224,13 +326,15 @@ const ReviewCard = ({ record, trackExtra, actions }) => {
         () => setValues(setAlbumField(values, field, proposed[field])),
       )}
       error={!!invalid[field]}
+      FormHelperTextProps={{ className: classes.hint }}
+      className={field === 'year' ? classes.yearField : classes.albumField}
       size="small"
       margin="dense"
       variant="outlined"
     />
   )
 
-  const trackField = (track, field, label, width) => (
+  const trackField = (track, field, label) => (
     <TextField
       inputProps={{
         'aria-label': `${translate(label)} ${track.position}`,
@@ -239,24 +343,27 @@ const ReviewCard = ({ record, trackExtra, actions }) => {
       onChange={(e) =>
         setValues(setTrackField(values, track.itemId, field, e.target.value))
       }
-      helperText={proposalHint(
-        track[field],
-        values.tracks[track.itemId]?.[field],
-        proposed.tracks[track.itemId]?.[field],
-        () =>
-          setValues(
-            setTrackField(
-              values,
-              track.itemId,
-              field,
-              proposed.tracks[track.itemId][field],
+      helperText={
+        proposalHint(
+          track[field],
+          values.tracks[track.itemId]?.[field],
+          proposed.tracks[track.itemId]?.[field],
+          () =>
+            setValues(
+              setTrackField(
+                values,
+                track.itemId,
+                field,
+                proposed.tracks[track.itemId][field],
+              ),
             ),
-          ),
-      )}
+        ) ?? (hintLine ? ' ' : undefined)
+      }
+      FormHelperTextProps={{ className: classes.hint }}
       error={field === 'trackNumber' && !!invalid[track.itemId]}
       size="small"
-      fullWidth={!width}
-      style={width ? { width } : undefined}
+      variant="outlined"
+      fullWidth
     />
   )
 
@@ -264,6 +371,7 @@ const ReviewCard = ({ record, trackExtra, actions }) => {
     <Tooltip title={translate('resources.rip.review.discardTrack')}>
       <IconButton
         size="small"
+        className={discardClasses.icon}
         aria-label={`${translate('resources.rip.review.discardTrack')} ${t.position}`}
         onClick={() => setDiscarding(t)}
       >
@@ -273,20 +381,30 @@ const ReviewCard = ({ record, trackExtra, actions }) => {
   )
 
   return (
-    <Card variant="outlined">
-      <CardContent>
+    <Card variant="outlined" className={classes.card}>
+      <CardContent className={classes.content}>
         <ProposalsBar
           review={review}
           proposed={proposed}
           onUse={() => setValues(applyProposals(values, proposed))}
           onRefresh={handleRefreshProposals}
         />
-        <Box display="flex" style={{ gap: 8 }} flexWrap="wrap">
+        <div className={classes.header} data-testid="review-header">
           {albumField('album', 'resources.song.fields.album')}
           {albumField('albumArtist', 'resources.song.fields.albumArtist')}
           {albumField('year', 'resources.song.fields.year')}
-        </Box>
-        <Table size="small">
+        </div>
+        <Table
+          size="small"
+          className={classes.tracks}
+          style={{ tableLayout: 'fixed' }}
+          data-testid="review-tracks"
+        >
+          <colgroup>
+            {Object.entries(COLUMNS).map(([column, width]) => (
+              <col key={column} data-column={column} style={{ width }} />
+            ))}
+          </colgroup>
           <TableHead>
             <TableRow>
               <TableCell>
@@ -307,14 +425,11 @@ const ReviewCard = ({ record, trackExtra, actions }) => {
                         t,
                         'trackNumber',
                         'resources.song.fields.trackNumber',
-                        48,
                       )}
                     </TableCell>
                     <TableCell>
-                      <Box display="flex" alignItems="center">
-                        {trackField(t, 'title', 'resources.song.fields.title')}
-                        {trackExtra && trackExtra(t)}
-                      </Box>
+                      {trackField(t, 'title', 'resources.song.fields.title')}
+                      {trackExtra && trackExtra(t)}
                     </TableCell>
                     <TableCell>
                       {trackField(t, 'artist', 'resources.song.fields.artist')}
@@ -324,7 +439,11 @@ const ReviewCard = ({ record, trackExtra, actions }) => {
                   <>
                     <TableCell>{t.position}</TableCell>
                     <TableCell colSpan={2}>
-                      <Typography variant="body2" color="error">
+                      <Typography
+                        variant="body2"
+                        color="error"
+                        className={classes.failed}
+                      >
                         {translate(`resources.rip.status.${t.status}`, {
                           _: t.status,
                         })}
@@ -339,10 +458,15 @@ const ReviewCard = ({ record, trackExtra, actions }) => {
           </TableBody>
         </Table>
       </CardContent>
-      <CardActions>
+      <CardActions
+        disableSpacing
+        className={classes.footer}
+        data-testid="review-footer"
+      >
         <Button
           color="primary"
           variant="contained"
+          size="small"
           onClick={handleSave}
           disabled={!edits || hasInvalid || saving}
         >
@@ -351,10 +475,12 @@ const ReviewCard = ({ record, trackExtra, actions }) => {
         {typeof actions === 'function'
           ? actions({ jobId, review, dirty: !!edits, show })
           : actions}
-        <DiscardJobButton
-          jobId={jobId}
-          fileCount={review.tracks.filter((t) => t.path).length}
-        />
+        <span className={classes.discard}>
+          <DiscardJobButton
+            jobId={jobId}
+            fileCount={review.tracks.filter((t) => t.path).length}
+          />
+        </span>
       </CardActions>
       <DiscardDialog
         open={!!discarding}
