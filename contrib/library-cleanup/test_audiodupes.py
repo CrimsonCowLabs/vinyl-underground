@@ -36,6 +36,17 @@ class CandidateSets(unittest.TestCase):
 
         self.assertEqual(candidate_sets(files), [["A/Copy of Song 1.mp3", "A/Song 1 1.mp3", "A/Song 1.mp3", "A/Song.mp3"]])
 
+    def test_groups_a_bracketed_track_number_with_the_numbered_file(self) -> None:
+        files = scan("Mer de Noms/(1)The Hollow.mp3", "Mer de Noms/01 The Hollow.mp3", "Mer de Noms/(12)Over.mp3", "Mer de Noms/12 - Over.mp3")
+
+        self.assertEqual(
+            candidate_sets(files),
+            [["Mer de Noms/(1)The Hollow.mp3", "Mer de Noms/01 The Hollow.mp3"], ["Mer de Noms/(12)Over.mp3", "Mer de Noms/12 - Over.mp3"]],
+        )
+
+    def test_a_bracketed_track_number_without_a_numbered_file_is_not_a_copy(self) -> None:
+        self.assertEqual(candidate_sets(scan("A/(1)The Hollow.mp3", "A/02 The Hollow.mp3", "A/(3) Rose.mp3")), [])
+
     def test_a_trailing_number_without_its_original_is_not_a_copy(self) -> None:
         self.assertEqual(candidate_sets(scan("A/Track 1.mp3", "A/Track 2.mp3", "King/6 of 6.mp3")), [])
 
