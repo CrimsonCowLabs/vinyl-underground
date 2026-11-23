@@ -98,17 +98,28 @@ func (e *Editor) file(ctx context.Context, trackID string) (*file, error) {
 	if err != nil {
 		return nil, err
 	}
-	if !writable(mf.LibraryID) {
-		return nil, ErrEditingOff
+	if err := CanEdit(mf); err != nil {
+		return nil, err
 	}
 	lib, err := e.ds.Library(ctx).Get(mf.LibraryID)
 	if err != nil {
 		return nil, err
 	}
-	if !Editable(mf.Path) {
-		return nil, ErrUnsupportedFormat
-	}
 	return &file{mf: mf, lib: lib, abs: filepath.Join(lib.Path, filepath.FromSlash(mf.Path))}, nil
+}
+
+// CanEdit is the refusal an edit of the Track mf meets before anything is read, if any: its
+// library isn't writable (ErrEditingOff), or its File is of a kind that can't be checked
+// (ErrUnsupportedFormat, see Editable). It reads nothing, so it suits checking many Tracks at
+// once.
+func CanEdit(mf *model.MediaFile) error {
+	if !writable(mf.LibraryID) {
+		return ErrEditingOff
+	}
+	if !Editable(mf.Path) {
+		return ErrUnsupportedFormat
+	}
+	return nil
 }
 
 // Editable reports whether a File at path is of a format whose edits can be checked.

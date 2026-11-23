@@ -143,6 +143,21 @@ var _ = Describe("ToMediaFile", func() {
 		})
 	})
 
+	Describe("album artist tag", func() {
+		DescribeTable("records that the File has one",
+			func(tags model.RawTags) {
+				Expect(toMediaFile(tags).HasAlbumArtist).To(BeTrue())
+			},
+			Entry("ALBUMARTIST", model.RawTags{"ARTIST": {"A"}, "ALBUMARTIST": {"B"}}),
+			Entry("ALBUMARTISTS", model.RawTags{"ARTIST": {"A"}, "ALBUMARTISTS": {"B", "C"}}),
+		)
+		It("records that it has none, though the album artist falls back to the artist", func() {
+			mf = toMediaFile(model.RawTags{"ARTIST": {"A"}})
+			Expect(mf.HasAlbumArtist).To(BeFalse())
+			Expect(mf.AlbumArtist).To(Equal("A"))
+		})
+	})
+
 	Describe("BPM", func() {
 		It("maps the BPM tag rounded to the nearest integer", func() {
 			mf = toMediaFile(model.RawTags{"BPM": {"120.6"}})

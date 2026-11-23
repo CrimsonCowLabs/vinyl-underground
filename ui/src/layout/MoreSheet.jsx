@@ -21,6 +21,7 @@ import {
   translatedResourceName,
   userSettingsLink,
 } from './navItems'
+import { useLibraryEditing } from '../library/useLibraryEditing'
 
 const useStyles = makeStyles(
   (theme) => {
@@ -130,6 +131,7 @@ export const MoreSheet = ({ open, onClose }) => {
   const translate = useTranslate()
   const resources = useSelector(getResources)
   const { permissions } = usePermissions()
+  const editing = useLibraryEditing()
   const offline = useIsOffline()
   const [generating, setGenerating] = useState(false)
 
@@ -229,7 +231,7 @@ export const MoreSheet = ({ open, onClose }) => {
         }),
         ...userLink,
       }),
-    ...settingsResources(resources).map(renderResourceLink),
+    ...settingsResources(resources, editing.enabled).map(renderResourceLink),
   ].filter(Boolean)
 
   return (

@@ -13,6 +13,7 @@ const config = vi.hoisted(() => ({
 }))
 let permissions
 let offline
+let editingEnabled = false
 
 vi.mock('../config', () => ({ default: config }))
 
@@ -30,6 +31,10 @@ vi.mock('../download', () => ({
 }))
 
 vi.mock('../common/LibrarySelector', () => ({ default: () => null }))
+
+vi.mock('../library/useLibraryEditing', () => ({
+  useLibraryEditing: () => ({ loaded: true, enabled: editingEnabled }),
+}))
 
 vi.mock('../playlist/GeneratePlaylistButton', () => ({
   GeneratePlaylistDialog: ({ open }) =>
@@ -74,6 +79,7 @@ const RESOURCES = {
     ...listed('library', settings),
     ...listed('missing', settings),
     ...listed('correction', settings),
+    ...listed('libraryTrack', { subMenu: 'settings', editing: true }),
     ...unlisted('genre'),
   },
 }
@@ -131,6 +137,20 @@ describe('<MoreSheet />, what the tab bar leaves out', () => {
     localStorage.setItem('userId', 'u1')
   })
   afterEach(cleanup)
+
+  it('lists the Library manager only while editing is on', () => {
+    editingEnabled = false
+    renderSheet('admin')
+    expect(item('resources.libraryTrack.name')).not.toBeInTheDocument()
+    cleanup()
+    editingEnabled = true
+    renderSheet('admin')
+    expect(item('resources.libraryTrack.name')).toHaveAttribute(
+      'href',
+      '/libraryTrack',
+    )
+    editingEnabled = false
+  })
 
   it('is a sheet titled More', () => {
     renderSheet('listener')
