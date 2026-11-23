@@ -266,27 +266,33 @@ var _ = Describe("Rip API", func() {
 		It("shows the admin the installed version and the latest release's", func() {
 			w := doPath(&admin, http.MethodGet, "/ytdlp")
 			Expect(w.Code).To(Equal(http.StatusOK))
-			Expect(w.Body.String()).To(MatchJSON(`{"version":"2026.01.01","latest":"2026.11.01"}`))
+			Expect(w.Body.String()).To(MatchJSON(`{"version":"2026.01.01","latest":"2026.11.01","newer":true}`))
 		})
 
 		It("shows the same version for both when yt-dlp is up to date", func() {
 			updater.version = "2026.11.01"
 			w := doPath(&admin, http.MethodGet, "/ytdlp")
-			Expect(w.Body.String()).To(MatchJSON(`{"version":"2026.11.01","latest":"2026.11.01"}`))
+			Expect(w.Body.String()).To(MatchJSON(`{"version":"2026.11.01","latest":"2026.11.01","newer":false}`))
+		})
+
+		It("doesn't call the latest release newer than a nightly built after it", func() {
+			updater.version = "2026.11.01.232857"
+			w := doPath(&admin, http.MethodGet, "/ytdlp")
+			Expect(w.Body.String()).To(MatchJSON(`{"version":"2026.11.01.232857","latest":"2026.11.01","newer":false}`))
 		})
 
 		It("shows the latest release's version before yt-dlp is installed", func() {
 			updater.version = ""
 			w := doPath(&admin, http.MethodGet, "/ytdlp")
 			Expect(w.Code).To(Equal(http.StatusOK))
-			Expect(w.Body.String()).To(MatchJSON(`{"version":"","latest":"2026.11.01"}`))
+			Expect(w.Body.String()).To(MatchJSON(`{"version":"","latest":"2026.11.01","newer":true}`))
 		})
 
 		It("still shows the installed version when the latest release can't be looked up", func() {
 			updater.latestErr = errors.New("GitHub is down")
 			w := doPath(&admin, http.MethodGet, "/ytdlp")
 			Expect(w.Code).To(Equal(http.StatusOK))
-			Expect(w.Body.String()).To(MatchJSON(`{"version":"2026.01.01"}`))
+			Expect(w.Body.String()).To(MatchJSON(`{"version":"2026.01.01","newer":false}`))
 		})
 
 		It("updates yt-dlp for the admin and says what changed", func() {
@@ -372,10 +378,14 @@ func (u *fakeUpdater) Version(context.Context) (string, error) {
 	return u.version, nil
 }
 
+// Latest returns no version with an error, as Binary.Latest does.
 func (u *fakeUpdater) Latest(context.Context) (string, error) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
-	return u.latest, u.latestErr
+	if u.latestErr != nil {
+		return "", u.latestErr
+	}
+	return u.latest, nil
 }
 
 func (u *fakeUpdater) updates() int {

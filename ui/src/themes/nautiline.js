@@ -771,7 +771,16 @@ const NautilineTheme = {
           'button>span:first-child>span': {
             display: 'none',
           },
-          'button:hover>span:first-child>span': customTooltipStyle(),
+          // Below the button, not above it: the toolbar sits at the top of
+          // a list's card, which clips anything above it when its table
+          // scrolls sideways (see Layout)
+          'button:hover>span:first-child>span': {
+            ...customTooltipStyle(),
+            bottom: 'auto',
+            top: '100%',
+            marginBottom: 0,
+            marginTop: spacing.xs,
+          },
           'button>span:first-child>svg': {
             color: colors.text.secondary,
           },

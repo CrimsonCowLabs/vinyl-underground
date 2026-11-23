@@ -130,7 +130,9 @@ type fakeReleases struct {
 	// afterSums runs once a release's SHA2-256SUMS has been served, e.g. to publish a new release.
 	afterSums func()
 	// down makes looking up the latest release fail, as when GitHub is down or limits the lookups.
-	down   bool
+	down bool
+	// stall, when set, holds the next lookup of the latest release until it is closed.
+	stall  chan struct{}
 	server *httptest.Server
 }
 
@@ -160,8 +162,15 @@ func (f *fakeReleases) serve(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	f.requests = append(f.requests, r.URL.Path)
 	latest, down := f.latest, f.down
+	var stall chan struct{}
+	if strings.HasPrefix(r.URL.Path, "/releases/latest/") {
+		stall, f.stall = f.stall, nil
+	}
 	f.mu.Unlock()
 	if name, ok := strings.CutPrefix(r.URL.Path, "/releases/latest/download/"); ok {
+		if stall != nil {
+			<-stall
+		}
 		if down {
 			http.Error(w, "rate limit exceeded", http.StatusForbidden)
 			return
@@ -182,6 +191,25 @@ func (f *fakeReleases) serve(w http.ResponseWriter, r *http.Request) {
 	if name == "SHA2-256SUMS" && after != nil {
 		after()
 	}
+}
+
+// setDown makes looking up the latest release fail (down) or work again.
+func (f *fakeReleases) setDown(down bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.down = down
+}
+
+// stallNext holds the next lookup of the latest release until the returned function is called.
+// Cleanup calls it too, so a test that fails part-way doesn't leave the server waiting.
+func (f *fakeReleases) stallNext() (release func()) {
+	stall := make(chan struct{})
+	f.mu.Lock()
+	f.stall = stall
+	f.mu.Unlock()
+	release = sync.OnceFunc(func() { close(stall) })
+	DeferCleanup(release)
+	return release
 }
 
 // lookups counts the requests for the latest release.
@@ -385,19 +413,17 @@ var _ = Describe("Binary.Latest", func() {
 	})
 
 	It("reports a failed lookup, and doesn't try again straight away", func(ctx SpecContext) {
-		releases.mu.Lock()
-		releases.down = true
-		releases.mu.Unlock()
-		_, err := bin.Latest(ctx)
+		releases.setDown(true)
+		tag, err := bin.Latest(ctx)
 		Expect(err).To(HaveOccurred())
-		_, err = bin.Latest(ctx)
+		Expect(tag).To(BeEmpty(), "a failed lookup returns no version")
+		tag, err = bin.Latest(ctx)
 		Expect(err).To(HaveOccurred())
+		Expect(tag).To(BeEmpty())
 		Expect(releases.lookups()).To(Equal(1))
 
 		By("trying again a few minutes later")
-		releases.mu.Lock()
-		releases.down = false
-		releases.mu.Unlock()
+		releases.setDown(false)
 		releases.publish("2026.12.01", asset, versionScript("2026.12.01"))
 		now = now.Add(failedLatestKeptFor + time.Second)
 		Expect(bin.Latest(ctx)).To(Equal("2026.12.01"))
@@ -418,4 +444,82 @@ var _ = Describe("Binary.Latest", func() {
 		bin.ReleaseURL = releases.server.URL + "/releases/download/2026.10.01"
 		Expect(bin.Latest(ctx)).To(BeEmpty())
 	})
+
+	It("doesn't remember the lookup as failed when the page waiting on it is closed", func(ctx SpecContext) {
+		release := releases.stallNext()
+		pageCtx, closePage := context.WithCancel(ctx)
+		done := make(chan error, 1)
+		go func() {
+			_, err := bin.Latest(pageCtx)
+			done <- err
+		}()
+		Eventually(releases.lookups).Should(Equal(1))
+		closePage()
+		Eventually(done).Should(Receive(MatchError(context.Canceled)))
+
+		release()
+		Expect(bin.Latest(ctx)).To(Equal("2026.11.01"))
+		Expect(releases.lookups()).To(Equal(1), "the lookup the closed page started is kept")
+	})
+
+	It("looks up nothing on a platform with no standalone build", func(ctx SpecContext) {
+		bin.Asset = ""
+		Expect(bin.Latest(ctx)).To(BeEmpty(), "Update can't install a release, so none is offered")
+		Expect(releases.lookups()).To(BeZero())
+	})
+
+	It("doesn't hold up an update while a lookup waits on GitHub", func(ctx SpecContext) {
+		release := releases.stallNext()
+		go func() { _, _ = bin.Latest(ctx) }()
+		Eventually(releases.lookups).Should(Equal(1))
+
+		updated := make(chan error, 1)
+		go func() {
+			_, err := bin.Update(ctx)
+			updated <- err
+		}()
+		Eventually(updated, "5s").Should(Receive(BeNil()))
+		release()
+	})
+
+	It("shares one lookup among pages loaded at the same time", func(ctx SpecContext) {
+		release := releases.stallNext()
+		type result struct {
+			tag string
+			err error
+		}
+		results := make(chan result, 2)
+		for range 2 {
+			go func() {
+				tag, err := bin.Latest(ctx)
+				results <- result{tag, err}
+			}()
+		}
+		Eventually(releases.lookups).Should(Equal(1))
+		Consistently(releases.lookups, "200ms").Should(Equal(1))
+		release()
+		for range 2 {
+			Eventually(results).Should(Receive(Equal(result{tag: "2026.11.01"})))
+		}
+		Expect(releases.lookups()).To(Equal(1))
+	})
+})
+
+var _ = Describe("NewerVersion", func() {
+	DescribeTable("tells whether the latest release is newer than the installed version",
+		func(latest, installed string, want bool) {
+			Expect(NewerVersion(latest, installed)).To(Equal(want))
+		},
+		Entry("a later day", "2026.11.01", "2026.10.01", true),
+		Entry("the same version", "2026.11.01", "2026.11.01", false),
+		Entry("an older release", "2026.10.01", "2026.11.01", false),
+		Entry("numbers, not text", "2026.10.1", "2026.9.30", true),
+		Entry("a second release on the same day", "2026.11.01.1", "2026.11.01", true),
+		Entry("a nightly newer than the latest stable", "2026.11.01", "2026.11.01.232857", false),
+		Entry("a nightly older than the latest stable", "2026.11.02", "2026.11.01.232857", true),
+		Entry("nothing installed yet", "2026.11.01", "", true),
+		Entry("no latest release known", "", "2026.11.01", false),
+		Entry("an unreadable version that differs", "2026.11.01", "master", true),
+		Entry("an unreadable version that matches", "master", "master", false),
+	)
 })
