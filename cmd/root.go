@@ -92,6 +92,7 @@ func runNavidrome(ctx context.Context) {
 	}
 	checkInbox(ctx)
 	checkPromoteFolder(ctx)
+	checkLibraryEditing(ctx)
 
 	g, ctx := errgroup.WithContext(ctx)
 	ripper := startRipper(ctx, g)
@@ -216,6 +217,21 @@ func checkPromoteFolder(ctx context.Context) {
 	default:
 		conf.Server.Inbox.PromotePath = path
 		log.Info(ctx, "Promote is enabled", "path", path)
+	}
+}
+
+// checkLibraryEditing decides once at startup whether editing the Library's Files is on, by
+// trying a write in each library's folder (ADR-0011). With no writable folder, editing is off.
+func checkLibraryEditing(ctx context.Context) {
+	editing, err := core.DetectLibraryEditing(ctx, CreateDataStore())
+	if err != nil {
+		log.Error(ctx, "Editing the Library is off: could not check its folders", err)
+	}
+	core.SetLibraryEditing(editing)
+	if editing.Enabled {
+		log.Info(ctx, "Editing the Library is on", "libraries", editing.Libraries)
+	} else {
+		log.Info(ctx, "Editing the Library is off: no Library folder is writable")
 	}
 }
 

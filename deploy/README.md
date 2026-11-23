@@ -29,6 +29,7 @@ Nothing is required. With no `.env`, the stack uses these defaults:
 | Setting | Default |
 |---|---|
 | `VU_LIBRARY_DIR` | `/mnt/music` (mounted read-only) |
+| `VU_LIBRARY_MODE` | `ro`; `rw` binds the Library read-write, which editing its Files needs ([ADR-0011](../docs/adr/0011-app-manages-the-librarys-files.md)) |
 | `VU_DATA_DIR` | `./data` (created and handed to `VU_UID` on first start) |
 | `VU_INBOX_DIR` | `./inbox` (mounted read-write at `/inbox`; created and handed to `VU_UID` on first start) |
 | `VU_UID` / `VU_GID` | `1000` / `1000` |
