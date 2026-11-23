@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Masterminds/squirrel"
 	"github.com/navidrome/navidrome/model"
 )
 
@@ -77,6 +78,18 @@ func (m *MockEditJournalRepo) LastWritten(libraryID int, path string) (*model.Ed
 	return nil, model.ErrNotFound
 }
 
+func (m *MockEditJournalRepo) ForJob(jobID string) ([]model.EditEntry, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	res := []model.EditEntry{}
+	for _, e := range m.entries {
+		if e.JobID == jobID {
+			res = append(res, e)
+		}
+	}
+	return res, nil
+}
+
 func (m *MockEditJournalRepo) After(e *model.EditEntry) ([]model.EditEntry, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -113,10 +126,24 @@ func (m *MockEditJournalRepo) GetAll(options ...model.QueryOptions) ([]model.Edi
 	return res, nil
 }
 
-func (m *MockEditJournalRepo) CountAll(...model.QueryOptions) (int64, error) {
+// CountAll counts every entry, or with a squirrel.Eq{"job_id": id} filter, the job's (other
+// options are ignored).
+func (m *MockEditJournalRepo) CountAll(options ...model.QueryOptions) (int64, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return int64(len(m.entries)), nil
+	jobID, byJob := "", false
+	if len(options) > 0 {
+		if eq, ok := options[0].Filters.(squirrel.Eq); ok {
+			jobID, byJob = eq["job_id"].(string)
+		}
+	}
+	var n int64
+	for _, e := range m.entries {
+		if !byJob || e.JobID == jobID {
+			n++
+		}
+	}
+	return n, nil
 }
 
 // All returns every entry, in the order they were first recorded.

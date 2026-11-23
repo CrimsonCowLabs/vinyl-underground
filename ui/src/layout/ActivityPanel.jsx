@@ -22,6 +22,7 @@ import subsonic from '../subsonic'
 import { useInitialScanStatus } from './useInitialScanStatus'
 import { useInterval } from '../common'
 import { useScanElapsedTime } from './useScanElapsedTime'
+import EditJobsActivity from './EditJobsActivity'
 import { formatDuration, formatShortDuration } from '../utils'
 import config from '../config'
 
@@ -76,6 +77,8 @@ const ActivityPanel = () => {
   const serverStart = useSelector((state) => state.activity.serverStart)
   const up = serverStart.startTime
   const scanStatus = useSelector((state) => state.activity.scanStatus)
+  const editJob = useSelector((state) => state.activity.editJob)
+  const editing = Boolean(editJob) && editJob.state !== 'done'
   const elapsed = useScanElapsedTime(
     scanStatus.scanning,
     scanStatus.elapsedTime,
@@ -136,7 +139,7 @@ const ActivityPanel = () => {
           )}
         </IconButton>
       </Tooltip>
-      {scanStatus.scanning && (
+      {(scanStatus.scanning || editing) && (
         <CircularProgress size={24} className={classes.progress} />
       )}
       <Popover
@@ -211,6 +214,7 @@ const ActivityPanel = () => {
               </Box>
             )}
           </CardContent>
+          <EditJobsActivity />
           <Divider />
           <CardActions>
             <Tooltip title={translate('activity.quickScan')}>

@@ -3,6 +3,7 @@ package persistence
 import (
 	"context"
 
+	"github.com/Masterminds/squirrel"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
 	. "github.com/onsi/ginkgo/v2"
@@ -49,6 +50,22 @@ var _ = Describe("EditJournalRepository", func() {
 		got, err := repo.LastWritten(1, "a.mp3")
 		Expect(err).ToNot(HaveOccurred())
 		Expect(got.CopySum).To(Equal("new"))
+	})
+
+	It("lists the entries of an edit job, oldest first", func() {
+		a := &model.EditEntry{JobID: "job-1", Kind: model.EditTags, State: model.EditWritten, LibraryID: 1, Path: "a.mp3"}
+		other := &model.EditEntry{JobID: "job-2", Kind: model.EditTags, State: model.EditWritten, LibraryID: 1, Path: "b.mp3"}
+		b := &model.EditEntry{JobID: "job-1", Kind: model.EditTags, State: model.EditFailed, LibraryID: 1, Path: "c.mp3"}
+		for _, e := range []*model.EditEntry{a, other, b} {
+			Expect(repo.Put(e)).To(Succeed())
+		}
+		got, err := repo.ForJob("job-1")
+		Expect(err).ToNot(HaveOccurred())
+		Expect(got).To(HaveLen(2))
+		// The Edit history counts a job's entries this way.
+		Expect(repo.CountAll(model.QueryOptions{Filters: squirrel.Eq{"job_id": "job-1"}})).To(BeEquivalentTo(2))
+		Expect(got[0].Path).To(Equal("a.mp3"))
+		Expect(got[1].Path).To(Equal("c.mp3"))
 	})
 
 	It("lists the entries still pending, oldest first", func() {

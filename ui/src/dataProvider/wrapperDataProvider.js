@@ -315,8 +315,9 @@ const wrapperDataProvider = {
     httpClient(`${REST_URL}/trackTags/${id}`).then(({ json }) => ({
       data: json,
     })),
-  // Writes the changed fields (by key; no values removes a tag) into the Track's File:
-  // { changed, track, warning }.
+  // Writes the changed fields (by key; no values removes a tag) into the Track's File, as an
+  // edit job the server waits for a little: { changed, track, warning, jobId }, or
+  // { jobId, background: true } when the job carries on in the background.
   editTrackTags: (id, values) =>
     httpClient(`${REST_URL}/trackTags/${id}`, {
       method: 'PUT',
@@ -333,10 +334,17 @@ const wrapperDataProvider = {
     httpClient(`${REST_URL}/correction/${id}/undo`, { method: 'POST' }).then(
       ({ json }) => ({ data: { id, ...json } }),
     ),
-  // Undoes an Edit journal entry (admin only): writes the File's earlier values back, journaled
-  // as a new entry: { changed, track, entryId, warning }. A refusal's body has an `error` code.
+  // Undoes an Edit journal entry (admin only), as an edit job of one File: writes the File's
+  // earlier values back, journaled as a new entry: { changed, track, entryId, warning, jobId },
+  // or { jobId, background: true } while the job carries on. A refusal's body has an `error` code.
   undoEdit: (id) =>
     httpClient(`${REST_URL}/editHistory/${id}/undo`, { method: 'POST' }).then(
+      ({ json }) => ({ data: json }),
+    ),
+  // Undoes a whole edit job (admin only), as a job of its own: the undo job, { id, state, total,
+  // done, skipped, steps } with its skipped Files, still running unless state is 'done'.
+  undoEditJob: (jobId) =>
+    httpClient(`${REST_URL}/editJob/${jobId}/undo`, { method: 'POST' }).then(
       ({ json }) => ({ data: json }),
     ),
 }

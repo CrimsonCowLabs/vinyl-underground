@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/navidrome/navidrome/model"
+	"github.com/navidrome/navidrome/model/id"
 )
 
 var (
@@ -31,7 +32,7 @@ var (
 // undoer undoes one written entry of its kind, through the write path (Editor.apply for tags),
 // and journals the undo as a new entry with UndoOf set to the entry it undoes. It is called with
 // writeMu held.
-type undoer func(e *Editor, ctx context.Context, entry *model.EditEntry) (*Result, error)
+type undoer func(e *Editor, ctx context.Context, jobID string, entry *model.EditEntry) (*Result, error)
 
 // undoers are the undo of each kind of Edit journal entry. Every kind that writes to a File
 // brings its own, and its entries keep what it needs:
@@ -68,6 +69,12 @@ var undoers = map[model.EditKind]undoer{
 // the last scan's (ErrChangedOnDisk), or its tags no longer hold what the entry wrote
 // (ErrTagsChanged).
 func (e *Editor) Undo(ctx context.Context, entryID string) (*Result, error) {
+	return e.UndoInJob(ctx, id.NewRandom(), entryID)
+}
+
+// UndoInJob is Undo, as one step of the edit job jobID: the undo's Edit journal entry has the
+// job's ID.
+func (e *Editor) UndoInJob(ctx context.Context, jobID, entryID string) (*Result, error) {
 	writeMu.Lock()
 	defer writeMu.Unlock()
 	ctx = context.WithoutCancel(ctx)
@@ -83,11 +90,11 @@ func (e *Editor) Undo(ctx context.Context, entryID string) (*Result, error) {
 	if !ok {
 		return nil, fmt.Errorf("%w: %s writes have no undo yet", ErrNotUndoable, entry.Kind)
 	}
-	return undo(e, ctx, entry)
+	return undo(e, ctx, jobID, entry)
 }
 
 // undoTags undoes a tag edit (see undoers).
-func (e *Editor) undoTags(ctx context.Context, entry *model.EditEntry) (*Result, error) {
+func (e *Editor) undoTags(ctx context.Context, jobID string, entry *model.EditEntry) (*Result, error) {
 	later, err := e.ds.EditJournal(ctx).After(entry)
 	if err != nil {
 		return nil, err
@@ -129,7 +136,7 @@ func (e *Editor) undoTags(ctx context.Context, entry *model.EditEntry) (*Result,
 		}
 		set[k] = slices.Clone(entry.OriginalTags[k])
 	}
-	return e.apply(ctx, f, cur, set, entry.ID)
+	return e.apply(ctx, jobID, f, cur, set, entry.ID)
 }
 
 // standing drops, from the later writes to a File (oldest first), each write that a later one

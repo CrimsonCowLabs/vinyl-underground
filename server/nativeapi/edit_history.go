@@ -6,7 +6,9 @@ import (
 
 	"github.com/deluan/rest"
 	"github.com/go-chi/chi/v5"
+	"github.com/navidrome/navidrome/core/editjob"
 	"github.com/navidrome/navidrome/core/tagedit"
+	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/utils/req"
 )
 
@@ -40,15 +42,17 @@ func (api *Router) listEditHistory(w http.ResponseWriter, r *http.Request) {
 	_ = rest.RespondWithJSON(w, http.StatusOK, entries)
 }
 
+// undoEdit undoes one entry as an edit job of one File (#162), as the per-Track Edit runs: it
+// waits a little for the job, then answers that it runs in the background.
 func (api *Router) undoEdit(w http.ResponseWriter, r *http.Request) {
-	if api.tagEditor == nil {
+	if api.tagEditor == nil || api.editQueue == nil {
 		writeTagEditError(w, r, tagedit.ErrEditingOff)
 		return
 	}
-	res, err := api.tagEditor.Undo(r.Context(), chi.URLParam(r, "id"))
+	step, err := editjob.UndoStep(chi.URLParam(r, "id"))
 	if err != nil {
 		writeTagEditError(w, r, err)
 		return
 	}
-	_ = rest.RespondWithJSON(w, http.StatusOK, res)
+	api.runFileJob(w, r, model.EditUndo, step)
 }

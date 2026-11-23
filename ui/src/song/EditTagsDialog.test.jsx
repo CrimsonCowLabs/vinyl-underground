@@ -131,6 +131,36 @@ describe('EditTagsDialog', () => {
     )
   })
 
+  it('closes and says the edit runs in the background when its job takes longer', async () => {
+    mockEditTrackTags.mockResolvedValue({
+      data: { jobId: 'job-1', background: true },
+    })
+    await open()
+    type('title', 'Song (Live)')
+    save()
+    await waitFor(() => expect(onClose).toHaveBeenCalled())
+    expect(mockNotify).toHaveBeenCalledWith(
+      'resources.song.tagEditor.savingInBackground',
+      expect.objectContaining({ type: 'info' }),
+    )
+    expect(mockNotify).not.toHaveBeenCalledWith(
+      'resources.song.tagEditor.saved',
+      expect.anything(),
+    )
+    // The Track still has its old tags: nothing to refresh yet.
+    expect(mockRefresh).not.toHaveBeenCalled()
+  })
+
+  it('tells the admin when a restart interrupted the edit', async () => {
+    mockEditTrackTags.mockRejectedValue({ body: { error: 'interrupted' } })
+    await open()
+    type('title', 'x')
+    save()
+    await waitFor(() =>
+      screen.getByText('resources.song.tagEditor.errors.interrupted'),
+    )
+  })
+
   it('does not save when nothing changed', async () => {
     await open()
     expect(screen.getByText('ra.action.save').closest('button').disabled).toBe(

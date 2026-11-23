@@ -61,6 +61,13 @@ func (r *editJournalRepository) Pending() ([]model.EditEntry, error) {
 	return res, err
 }
 
+func (r *editJournalRepository) ForJob(jobID string) ([]model.EditEntry, error) {
+	res := []model.EditEntry{}
+	err := r.queryAll(Select("*").From(r.tableName).Where(Eq{"job_id": jobID}).
+		OrderBy("created_at", "rowid"), &res)
+	return res, err
+}
+
 // After orders by rowid: entries are only ever added (kept forever), so it is the order they were
 // recorded in, even within one timestamp.
 func (r *editJournalRepository) After(e *model.EditEntry) ([]model.EditEntry, error) {
