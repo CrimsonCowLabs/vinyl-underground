@@ -172,12 +172,12 @@ const OrganizeDialog = ({ open, scope, title, onClose, onDone }) => {
   const notify = useNotify()
   const [plan, setPlan] = useState(null)
   const [busy, setBusy] = useState(false)
-  const [shown, setShown] = useState(pageRows)
 
+  // load shows the plan from its first rows.
   const load = useCallback(
-    (rows) => {
+    () => {
       setBusy(true)
-      return planOrganize(scope, 0, rows)
+      return planOrganize(scope, 0, pageRows)
         .then(setPlan)
         .catch((err) => {
           notify(errorKey(err), { type: 'warning' })
@@ -192,17 +192,31 @@ const OrganizeDialog = ({ open, scope, title, onClose, onDone }) => {
   useEffect(() => {
     if (!open) {
       setPlan(null)
-      setShown(pageRows)
       return
     }
-    load(pageRows)
+    load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
+  // handleMore adds the next rows of both lists. Should the plan have changed meanwhile, it is
+  // shown again from the start.
   const handleMore = () => {
-    const rows = shown + pageRows
-    setShown(rows)
-    load(rows)
+    const start = Math.max(plan.moves.length, plan.left.length)
+    setBusy(true)
+    planOrganize(scope, start, start + pageRows)
+      .then((next) => {
+        if (next.token !== plan.token) {
+          notify('resources.organize.errors.planChanged', { type: 'warning' })
+          return load()
+        }
+        setPlan({
+          ...plan,
+          moves: plan.moves.concat(next.moves),
+          left: plan.left.concat(next.left),
+        })
+      })
+      .catch((err) => notify(errorKey(err), { type: 'warning' }))
+      .finally(() => setBusy(false))
   }
 
   const handleRun = useCallback(() => {
@@ -226,10 +240,10 @@ const OrganizeDialog = ({ open, scope, title, onClose, onDone }) => {
         notify(errorKey(err), { type: 'warning' })
         setBusy(false)
         // The Library changed since: the plan is shown again, as it is now.
-        if (err?.body?.error === 'planChanged') load(shown)
+        if (err?.body?.error === 'planChanged') load()
       })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(scope), plan, notify, onDone, shown])
+  }, [JSON.stringify(scope), plan, notify, onDone])
 
   return (
     <Dialog

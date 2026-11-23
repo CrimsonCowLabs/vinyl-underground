@@ -106,6 +106,16 @@ var _ = Describe("Move", func() {
 		Expect(tree(root)).To(Equal(map[string]string{"new/01 A.mp3": "audio"}))
 	})
 
+	It("leaves both copies for SettleMove when the move can't be recorded nor its copy removed", func() {
+		err := Move(faultyFS{FS: OS{}, op: "remove", match: "01 A.mp3"}, src, dest, MoveHooks{Placed: func() error { return errInjected }})
+		Expect(err).To(MatchError(ErrBothLeft))
+		Expect(tree(root)).To(Equal(map[string]string{"old/a.mp3": "audio", "new/01 A.mp3": "audio"}))
+		moved, err := SettleMove(OS{}, src, dest, sum("audio"))
+		Expect(err).ToNot(HaveOccurred())
+		Expect(moved).To(BeTrue())
+		Expect(tree(root)).To(Equal(map[string]string{"new/01 A.mp3": "audio"}))
+	})
+
 	It("refuses a File with other names: a copy would split it from them", func() {
 		Expect(os.Link(src, filepath.Join(root, "old", "b.mp3"))).To(Succeed())
 		Expect(Move(OS{}, src, dest, MoveHooks{})).To(MatchError(ErrLinked))

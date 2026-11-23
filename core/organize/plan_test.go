@@ -164,7 +164,7 @@ var _ = Describe("Plan", func() {
 		Entry("no album", func(mf *model.MediaFile) { mf.Album = "" }, ReasonNoAlbum),
 		Entry("an unknown album", func(mf *model.MediaFile) { mf.Album = "Unknown Album" }, ReasonNoAlbum),
 		Entry("no title", func(mf *model.MediaFile) { mf.Title = "" }, ReasonNoTitle),
-		Entry("a title that is only a number", func(mf *model.MediaFile) { mf.Title = "05" }, ReasonNoTitle),
+		Entry("a title that is only its track number", func(mf *model.MediaFile) { mf.Title = "01" }, ReasonNoTitle),
 		Entry(`a title "Track NN"`, func(mf *model.MediaFile) { mf.Title = "Track 01" }, ReasonNoTitle),
 		Entry("a title still starting with its track number", func(mf *model.MediaFile) { mf.Title = "01 Song" }, ReasonTitleNumber),
 		Entry("a title starting with its track number in brackets", func(mf *model.MediaFile) { mf.Title = "(1)Song" }, ReasonTitleNumber),
@@ -173,6 +173,11 @@ var _ = Describe("Plan", func() {
 		}, ReasonTitleNumber),
 		Entry("no track number", func(mf *model.MediaFile) { mf.TrackNumber = 0 }, ReasonNoTrackNumber),
 	)
+
+	It("places a Track whose title is a number that isn't its track number", func() {
+		l.track("x/a.mp3", song("1979", 5))
+		Expect(moves(plan(everything))).To(HaveKeyWithValue("x/a.mp3", "Band/Record (1999)/05 1979.mp3"))
+	})
 
 	It("places a Track whose title only starts with a number that isn't its track", func() {
 		l.track("x/a.mp3", song("7 Seconds", 3))

@@ -177,6 +177,13 @@ func (e *Editor) move(ctx context.Context, jobID string, m Move, undoOf string, 
 		entry.Error = err.Error()
 		_ = journal.Put(entry)
 		res.Warning = "The File was moved, but its old copy is still there; it is removed when the app next starts."
+	case errors.Is(err, safefile.ErrBothLeft):
+		// The File is at both paths: the entry stays pending, so the next start finishes the move
+		// (Settle), and the Track follows it.
+		log.Error(ctx, "A move left its File at both paths; the next start finishes it", "path", src, err)
+		entry.Error = err.Error()
+		_ = journal.Put(entry)
+		return nil, err
 	case err != nil:
 		log.Warn(ctx, "Could not move a File", "path", m.Path, "newPath", newPath, err)
 		e.close(ctx, entry, false, err)

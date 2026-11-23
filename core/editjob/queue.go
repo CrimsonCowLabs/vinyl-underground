@@ -456,12 +456,13 @@ func (q *Queue) recover(ctx context.Context, job *model.EditJob, s *model.EditJo
 }
 
 // fileKey is the File a step writes: its Track, or, for a File that is no Track's (an album's
-// cover.jpg, written or moved), its path.
+// cover.jpg, written or moved), its kind, path and Args, which name it (with its library, or the
+// entry an undo undoes): its path alone may be another library's File's too.
 func fileKey(s *model.EditJobStep) string {
 	if s.MediaFileID != "" {
 		return "track:" + s.MediaFileID
 	}
-	return "path:" + s.Path
+	return "file:" + string(s.Kind) + "\x00" + s.Path + "\x00" + s.Args
 }
 
 // sameFile reports whether the journal entry e wrote the step's File (see fileKey): a step's Path

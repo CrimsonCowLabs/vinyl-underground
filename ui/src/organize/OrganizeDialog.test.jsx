@@ -142,13 +142,40 @@ describe('OrganizeDialog', () => {
     expect(screen.getByTestId('organize-run')).toBeDisabled()
   })
 
-  it('loads more of the plan', async () => {
-    mockPlan.mockResolvedValue({ ...plan, totalMoves: 250 })
+  it('adds the next rows of the plan, past what one page holds', async () => {
+    mockPlan.mockResolvedValueOnce({ ...plan, totalMoves: 250 })
+    mockPlan.mockResolvedValueOnce({
+      ...plan,
+      totalMoves: 250,
+      moves: [
+        {
+          trackId: 't9',
+          path: 'iTunes/y/z.mp3',
+          newPath: 'Band/Other/01 Z.mp3',
+          status: 'move',
+        },
+      ],
+      left: [],
+    })
     renderDialog()
     await screen.findByText('iTunes/x/a.mp3')
     fireEvent.click(screen.getByTestId('organize-more'))
-    await waitFor(() =>
-      expect(mockPlan).toHaveBeenLastCalledWith(scope, 0, 200),
+    await screen.findByText('iTunes/y/z.mp3')
+    expect(mockPlan).toHaveBeenLastCalledWith(scope, 2, 102)
+    expect(screen.getByText('iTunes/x/a.mp3')).toBeInTheDocument()
+  })
+
+  it('shows the plan again from the start when it changed while paging', async () => {
+    mockPlan.mockResolvedValueOnce({ ...plan, totalMoves: 250 })
+    mockPlan.mockResolvedValueOnce({ ...plan, token: 'tok-2', totalMoves: 250 })
+    renderDialog()
+    await screen.findByText('iTunes/x/a.mp3')
+    fireEvent.click(screen.getByTestId('organize-more'))
+    await waitFor(() => expect(mockPlan).toHaveBeenCalledTimes(3))
+    expect(mockPlan).toHaveBeenLastCalledWith(scope, 0, 100)
+    expect(mockNotify).toHaveBeenCalledWith(
+      'resources.organize.errors.planChanged',
+      { type: 'warning' },
     )
   })
 })

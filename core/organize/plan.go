@@ -21,6 +21,7 @@ import (
 	"path"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/Masterminds/squirrel"
@@ -389,7 +390,7 @@ func (lp *libraryPlan) unplaceable(mf *model.MediaFile, al album) string {
 	c := retag.Clean(retag.Local{Title: mf.Title, Artist: mf.Artist, Album: mf.Album, AlbumArtist: mf.AlbumArtist,
 		Track: mf.TrackNumber, Disc: mf.DiscNumber, Year: mf.Year, Stem: stem, Folder: path.Base(dirOf(mf.Path))})
 	switch {
-	case c.Has(retag.FlagNoTitle) || libpath.SafeName(mf.Title, "") == "":
+	case (c.Has(retag.FlagNoTitle) && !numberTitle(mf)) || libpath.SafeName(mf.Title, "") == "":
 		return ReasonNoTitle
 	case c.Has(retag.FlagNumberKept) || c.TookNumber():
 		return ReasonTitleNumber
@@ -399,6 +400,13 @@ func (lp *libraryPlan) unplaceable(mf *model.MediaFile, al album) string {
 		return ReasonNoDiscNumber
 	}
 	return ""
+}
+
+// numberTitle reports whether the Track's title is a number that isn't its track number: a real
+// title ("1979", "2112"), which retag's FlagNoTitle can't tell from a lost one ("05" on track 5).
+func numberTitle(mf *model.MediaFile) bool {
+	n, err := strconv.Atoi(strings.TrimSpace(mf.Title))
+	return err == nil && n != mf.TrackNumber
 }
 
 // splitAlbum reports whether the Track has no album artist of its own (the scanner gave it its

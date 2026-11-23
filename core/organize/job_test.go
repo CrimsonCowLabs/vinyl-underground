@@ -178,6 +178,24 @@ var _ = Describe("Run", func() {
 		Expect(l.files()).To(HaveKey("Band/Record (1999)/01 One.mp3"))
 	})
 
+	It("never sweeps a Track's old copy that its move couldn't remove into the new folder", func() {
+		job := &model.EditJob{ID: "job-x", Kind: model.EditOrganize}
+		// The Track moved, but its old copy is still there, and its entry pending (Settle removes it).
+		mf, err := l.ds.MediaFile(l.ctx).GetAll()
+		Expect(err).ToNot(HaveOccurred())
+		for _, m := range mf {
+			Expect(l.ds.MediaFile(l.ctx).Relocate(m.ID, 1, "Band/Record (1999)/"+filepath.Base(m.Path), "f")).To(Succeed())
+			Expect(l.ds.EditJournal(l.ctx).Put(&model.EditEntry{JobID: job.ID, Kind: model.EditMove, State: model.EditPending,
+				LibraryID: 1, MediaFileID: m.ID, Path: m.Path, NewPath: "Band/Record (1999)/" + filepath.Base(m.Path)})).To(Succeed())
+		}
+		k := jobKind{ds: l.ds, editor: editor}
+		Expect(k.sweep(l.ctx, job, FolderMove{LibraryID: 1, Path: "iTunes_Library/Band/Record", NewPath: "Band/Record (1999)"})).To(Succeed())
+		Expect(l.files()).To(HaveKey("iTunes_Library/Band/Record/a.mp3"))
+		Expect(l.files()).To(HaveKey("iTunes_Library/Band/Record/b.mp3"))
+		Expect(l.files()).To(HaveKey("Band/Record (1999)/cover.jpg"), "the album's other Files still go")
+		Expect(l.files()).ToNot(HaveKey("Band/Record (1999)/a.mp3"))
+	})
+
 	It("carries on after a restart in the middle of a move: the move is finished, then the rest", func() {
 		job := organize()
 		steps, err := l.ds.EditJob(l.ctx).Steps(job.ID)

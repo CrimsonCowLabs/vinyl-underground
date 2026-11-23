@@ -636,6 +636,7 @@
         "coverChanged": "The cover was changed outside the app since this write, so undoing it would overwrite that.",
         "pathTaken": "Another File is at this File's old path now, so it isn't moved back over it.",
         "caseTwin": "A folder on the way has a twin whose name differs only in letter case. Merge the two first.",
+        "outside": "A folder on the way leads out of the library (a link), so nothing is moved through it.",
         "unknown": "The write could not be undone."
       }
     },

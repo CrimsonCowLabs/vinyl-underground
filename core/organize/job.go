@@ -82,6 +82,18 @@ func (k jobKind) sweep(ctx context.Context, job *model.EditJob, f FolderMove) er
 		log.Info(ctx, "Organize left an album folder's other Files, as some of its Tracks didn't move", "job", job.ID, "folder", f.Path)
 		return nil
 	}
+	// A Track's old copy a move couldn't remove (it is removed at the next start) isn't the
+	// album's other File.
+	entries, err := k.ds.EditJournal(ctx).ForJob(job.ID)
+	if err != nil {
+		return err
+	}
+	moved := map[string]bool{}
+	for _, e := range entries {
+		if e.LibraryID == f.LibraryID && e.MediaFileID != "" {
+			moved[e.Path] = true
+		}
+	}
 	fsys := k.editor.FS()
 	dirs := []string{f.Path}
 	for i := 0; i < len(dirs); i++ {
@@ -94,8 +106,8 @@ func (k jobKind) sweep(ctx context.Context, job *model.EditJob, f FolderMove) er
 			switch {
 			case e.IsDir():
 				dirs = append(dirs, rel)
-			case !e.Type().IsRegular(), strings.Contains(e.Name(), ".vu-"), slices.Contains(f.Keep, rel):
-				// A link, a write's hidden temp, or a File the plan flagged.
+			case !e.Type().IsRegular(), strings.Contains(e.Name(), ".vu-"), slices.Contains(f.Keep, rel), moved[rel]:
+				// A link, a write's hidden temp, a File the plan flagged, or a Track's old copy.
 			default:
 				m := tagedit.Move{LibraryID: f.LibraryID, Path: rel, NewPath: path.Join(f.NewPath, strings.TrimPrefix(rel, f.Path+"/"))}
 				if _, err := k.editor.MoveInJob(ctx, job.ID, m); err != nil {

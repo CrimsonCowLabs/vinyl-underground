@@ -187,8 +187,10 @@ var _ = Describe("Queue", func() {
 		})
 
 		It("tells Files that are no Track's apart by their path (a cover.jpg moved with its album)", func() {
-			steps := fileSteps("cover.jpg", "notes.txt")
-			steps[0].MediaFileID, steps[1].MediaFileID = "", ""
+			steps := fileSteps("cover.jpg", "notes.txt", "cover.jpg")
+			steps[0].MediaFileID, steps[1].MediaFileID, steps[2].MediaFileID = "", "", ""
+			// The same path in two libraries: two Files.
+			steps[0].Args, steps[1].Args, steps[2].Args = `{"libraryId":1}`, `{"libraryId":1}`, `{"libraryId":2}`
 			Expect(q.Enqueue(ctx, fakeKind, steps)).Error().ToNot(HaveOccurred())
 
 			twice := fileSteps("cover.jpg", "cover.jpg")

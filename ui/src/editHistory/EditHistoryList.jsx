@@ -46,6 +46,7 @@ const knownErrors = [
   'coverChanged',
   'pathTaken',
   'caseTwin',
+  'outside',
 ]
 
 // What a cover write (the folder's cover.jpg) or an embed (Embed in Files) did, by whether it

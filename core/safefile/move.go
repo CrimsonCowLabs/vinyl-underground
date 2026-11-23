@@ -22,6 +22,9 @@ var (
 	// the case-insensitive NAS a path into either may reach the other, so nothing is moved
 	// through it until the two are merged.
 	ErrCaseTwin = errors.New("a folder on the way has a twin whose name differs only in letter case; merge them first")
+	// ErrBothLeft is a move whose Placed hook failed, and whose copy at the new path couldn't be
+	// removed again: the File is whole at both paths, and SettleMove finishes the move.
+	ErrBothLeft = errors.New("the move couldn't be recorded, and its copy at the new path couldn't be removed")
 	// ErrOutside is a folder that leads out of the root it should be in (a symlink).
 	ErrOutside = errors.New("the path leads out of its library")
 )
@@ -52,7 +55,8 @@ type MoveHooks struct {
 // At every step the File is whole at src, or at dest, or both:
 //
 //   - a failure before the copy is placed leaves the File at src, and the temp is removed;
-//   - hooks.Placed failing removes the copy from dest again;
+//   - hooks.Placed failing removes the copy from dest again (ErrBothLeft if it can't: SettleMove
+//     finishes the move);
 //   - src that can't be removed is ErrSourceLeft: the move is done, and SettleMove removes it.
 //
 // A restart in the middle is settled by SettleMove, from the checksum hooks.Copied got.
@@ -94,7 +98,7 @@ func Move(fsys FS, src, dest string, hooks MoveHooks) (err error) {
 		if err := hooks.Placed(); err != nil {
 			if rmErr := fsys.Remove(dest); rmErr != nil {
 				// Both copies are there: SettleMove finishes the move from them.
-				return fmt.Errorf("%w (and the copy at the new path could not be removed: %v)", err, rmErr)
+				return fmt.Errorf("%w: %v, then %v", ErrBothLeft, err, rmErr)
 			}
 			return err
 		}
