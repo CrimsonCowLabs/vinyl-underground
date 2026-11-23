@@ -647,6 +647,7 @@
         "embedRemoved": "Embedded cover removed",
         "moved": "Moved",
         "albumFile": "A File moved with its album",
+        "renamedWithAll": "A folder or File renamed with all it holds (its Tracks follow it)",
         "deleted": "Deleted for good, by Empty Quarantine"
       },
       "notifications": {

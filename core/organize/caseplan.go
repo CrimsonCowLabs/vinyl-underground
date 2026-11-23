@@ -99,7 +99,7 @@ func (o *Organizer) CasePlan(ctx context.Context) (*CasePlan, error) {
 	}
 	if res.Phase == "" {
 		for _, m := range merges {
-			steps, err := planCaseMergesWith(m.walk, m.cl.alike)
+			steps, err := planCaseMergesWith(m.walk, caseLook{alike: m.cl.alike, taken: m.cl.taken})
 			if err != nil {
 				return nil, err
 			}
@@ -189,10 +189,16 @@ type caseLibrary struct {
 	// tagged are the paths with a Phase A tag: the folders and Files the database has, and the
 	// names the Edit journal's renames gave.
 	tagged []string
+	// notDuplicate are the Files an earlier case merge job found weren't byte-identical to the
+	// File they would duplicate (skipped, ErrNotDuplicate): the admin's to decide now.
+	notDuplicate map[string]bool
 }
 
 func (o *Organizer) caseLibrary(ctx context.Context, lib *model.Library) (*caseLibrary, error) {
-	cl := &caseLibrary{o: o, lib: lib, trackAt: map[string]string{}}
+	cl := &caseLibrary{o: o, lib: lib, trackAt: map[string]string{}, notDuplicate: map[string]bool{}}
+	if err := cl.readNotDuplicates(ctx); err != nil {
+		return nil, err
+	}
 	folders, err := o.ds.Folder(ctx).GetAll(model.QueryOptions{
 		Filters: squirrel.And{squirrel.Eq{"folder.library_id": lib.ID}, squirrel.Eq{"folder.missing": false}}})
 	if err != nil {
@@ -348,33 +354,89 @@ func (cl *caseLibrary) walk(rel string) []CaseEntry {
 	return res
 }
 
-// sampleBytes is how much of two same-size Files the plan compares (see alike).
+// sampleBytes is how much of each end of two same-size Files the plan compares (see alike).
 const sampleBytes = 128 << 10
 
-// alike reports whether the Files keep and other (the same size) start with the same bytes: a
-// quick look, so a File whose tags differ is left for the admin rather than planned for Quarantine
-// (the job confirms the whole File byte-identical before it moves it). A File that can't be read
-// isn't alike.
+// alike reports whether the Files keep and other (the same size) start and end with the same
+// bytes: a quick look at where tags are (ID3v2 at the start; ID3v1 and APE at the end), so a File
+// whose tags differ is left for the admin rather than planned for Quarantine. The job confirms the
+// whole File byte-identical before it moves it. A File that can't be read isn't alike.
 func (cl *caseLibrary) alike(keep, other string) bool {
-	head := func(rel string) ([]byte, error) {
+	if cl.notDuplicate[other] {
+		return false
+	}
+	ends := func(rel string) ([]byte, error) {
 		f, err := cl.o.fsys.Open(cl.abs(rel))
 		if err != nil {
 			return nil, err
 		}
 		defer f.Close()
-		b := make([]byte, sampleBytes)
-		n, err := io.ReadFull(f, b)
-		if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) && !errors.Is(err, io.EOF) {
+		b, err := io.ReadAll(io.LimitReader(f, sampleBytes))
+		if err != nil {
 			return nil, err
 		}
-		return b[:n], nil
+		info, err := f.Stat()
+		if err != nil {
+			return nil, err
+		}
+		if s, ok := f.(io.Seeker); ok && info.Size() > 2*sampleBytes {
+			if _, err := s.Seek(-sampleBytes, io.SeekEnd); err != nil {
+				return nil, err
+			}
+		}
+		tail, err := io.ReadAll(f)
+		if err != nil {
+			return nil, err
+		}
+		return append(b, tail...), nil
 	}
-	a, err := head(keep)
+	a, err := ends(keep)
 	if err != nil {
 		return false
 	}
-	b, err := head(other)
+	b, err := ends(other)
 	return err == nil && bytes.Equal(a, b)
+}
+
+// readNotDuplicates reads, from the case merge jobs so far, the Files of the library that a
+// Duplicate step skipped as not byte-identical (see notDuplicate).
+func (cl *caseLibrary) readNotDuplicates(ctx context.Context) error {
+	repo := cl.o.ds.EditJob(ctx)
+	jobs, err := repo.GetAll(0)
+	if err != nil {
+		return err
+	}
+	for _, j := range jobs {
+		if j.Kind != model.EditCaseMerge || j.Skipped == 0 {
+			continue
+		}
+		steps, err := repo.Steps(j.ID, model.EditStepSkipped)
+		if err != nil {
+			return err
+		}
+		for _, s := range steps {
+			if s.Kind != model.EditQuarantineDuplicate || s.Code != tagedit.Code(tagedit.ErrNotDuplicate) {
+				continue
+			}
+			if d, err := editjob.ReadDuplicate(&s); err == nil && d.LibraryID == cl.lib.ID {
+				cl.notDuplicate[d.Path] = true
+			}
+		}
+	}
+	return nil
+}
+
+// taken reports whether something is at rel already (in Quarantine), in any letter case.
+func (cl *caseLibrary) taken(rel string) bool {
+	if _, err := cl.o.fsys.Lstat(cl.abs(rel)); err == nil {
+		return true
+	}
+	for _, e := range cl.listDir(dirOf(rel)) {
+		if libpath.SameName(path.Base(e.Path), path.Base(rel)) {
+			return true
+		}
+	}
+	return false
 }
 
 func (cl *caseLibrary) abs(rel string) string { return (&libraryPlan{lib: cl.lib}).abs(rel) }

@@ -184,7 +184,7 @@ var _ = Describe("Case merge planner", func() {
 				Expect(other).To(Equal("Music/BLONDIE [case-merge]/atomic.mp3"))
 				return false
 			}
-			Expect(planCaseMergesWith(scan, differ)).To(Equal([]CaseStep{
+			Expect(planCaseMergesWith(scan, caseLook{alike: differ})).To(Equal([]CaseStep{
 				step(CaseDecide, "Music/BLONDIE [case-merge]/atomic.mp3", "Music/Blondie/Atomic.mp3"),
 			}))
 		})
@@ -193,6 +193,14 @@ var _ = Describe("Case merge planner", func() {
 			scan := []CaseEntry{f("Music/Blondie/Atomic.mp3", 500), f("Music/Blondie/atomic [case-merge].mp3", 500)}
 			Expect(planCaseMerges(scan)).To(Equal([]CaseStep{
 				step(CaseQuarantine, "Music/Blondie/atomic [case-merge].mp3", "_Quarantine/Music/Blondie/Atomic.mp3", "Music/Blondie/Atomic.mp3"),
+			}))
+		})
+
+		It("numbers a Duplicate's Quarantine path past one taken there already", func() {
+			scan := []CaseEntry{f("Music/Blondie/Atomic.mp3", 500), f("Music/Blondie/atomic [case-merge].mp3", 500)}
+			taken := func(rel string) bool { return rel == "_Quarantine/Music/Blondie/Atomic.mp3" }
+			Expect(planCaseMergesWith(scan, caseLook{taken: taken})).To(Equal([]CaseStep{
+				step(CaseQuarantine, "Music/Blondie/atomic [case-merge].mp3", "_Quarantine/Music/Blondie/Atomic [2].mp3", "Music/Blondie/Atomic.mp3"),
 			}))
 		})
 
@@ -209,6 +217,20 @@ var _ = Describe("Case merge planner", func() {
 				dests = append(dests, s.NewPath)
 			}
 			Expect(dests).To(Equal([]string{"_Quarantine/Music/Blondie/Atomic.mp3", "_Quarantine/Music/Blondie/Atomic [2].mp3"}))
+		})
+
+		It("gives a renamed name its own back once its partner is gone (a run stopped before the rename)", func() {
+			scan := []CaseEntry{
+				f("Music/Atb [case-merge]/a.mp3"),
+				f("Music/Atb [case-merge 2]/b.mp3"),
+				f("Music/Blondie/atomic [case-merge].mp3"),
+			}
+			Expect(planCaseMerges(scan)).To(Equal([]CaseStep{
+				step(CaseRename, "Music/Atb [case-merge 2]", "Music/Atb"),
+				step(CaseMove, "Music/Atb [case-merge]/a.mp3", "Music/Atb/a.mp3"),
+				step(CaseRemoveDir, "Music/Atb [case-merge]", ""),
+				step(CaseRename, "Music/Blondie/atomic [case-merge].mp3", "Music/Blondie/atomic.mp3"),
+			}))
 		})
 
 		It("refuses to plan while names still clash", func() {

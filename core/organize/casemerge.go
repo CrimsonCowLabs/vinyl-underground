@@ -303,25 +303,32 @@ func cmpSteps(a, b CaseStep) int {
 // planCaseMerges is Phase B: the steps, in order, that merge each "[case-merge]" sibling into its
 // partner. It refuses while names still clash (ErrCaseClashesLeft).
 func planCaseMerges(entries []CaseEntry) ([]CaseStep, error) {
-	return planCaseMergesWith(entries, nil)
+	return planCaseMergesWith(entries, caseLook{})
 }
 
-// planCaseMergesWith is planCaseMerges, where a same-name File of the same size goes to
-// Quarantine only if alike(keep, other) says it may be a Duplicate of the File kept (a quick look
-// at the two Files); otherwise it is the admin's to decide. The job still confirms a Duplicate
-// byte-identical before it moves it.
-func planCaseMergesWith(entries []CaseEntry, alike func(keep, other string) bool) ([]CaseStep, error) {
+// caseLook is what Phase B may look at on disk, beyond the listing (either may be nil).
+type caseLook struct {
+	// alike says whether the File other may be a Duplicate of keep (the same size): a quick look
+	// at the two Files. When it says no, the clash is the admin's to decide. The job still
+	// confirms a Duplicate byte-identical before it moves it.
+	alike func(keep, other string) bool
+	// taken says whether something is at the path in Quarantine already, in any letter case.
+	taken func(rel string) bool
+}
+
+// planCaseMergesWith is planCaseMerges, looking at the disk through look.
+func planCaseMergesWith(entries []CaseEntry, look caseLook) ([]CaseStep, error) {
 	if clashes := findCaseClashes(entries); len(clashes) > 0 {
 		return nil, fmt.Errorf("%w: %d sets (e.g. %v in %q)", ErrCaseClashesLeft, len(clashes), clashes[0].Names, clashes[0].Parent)
 	}
-	m := &caseMerger{alike: alike}
+	m := &caseMerger{look: look}
 	m.planDir(buildCaseTree(entries), "")
 	return m.plan, nil
 }
 
 type caseMerger struct {
-	plan  []CaseStep
-	alike func(keep, other string) bool
+	plan []CaseStep
+	look caseLook
 }
 
 func (m *caseMerger) add(s CaseStep) { m.plan = append(m.plan, s) }
@@ -329,17 +336,20 @@ func (m *caseMerger) add(s CaseStep) { m.plan = append(m.plan, s) }
 func sortedNames(n *caseNode) []string { return slices.Sorted(maps.Keys(n.children)) }
 
 // quarantinePath is where a Duplicate of the File keep goes in Quarantine: named after keep,
-// numbered when several copies of it go there.
+// numbered when several copies of it go there, or one is there already.
 func (m *caseMerger) quarantinePath(keep string) string {
-	taken := map[string]bool{}
+	planned := map[string]bool{}
 	for _, s := range m.plan {
 		if s.Op == CaseQuarantine {
-			taken[libpath.Fold(s.NewPath)] = true
+			planned[libpath.Fold(s.NewPath)] = true
 		}
+	}
+	taken := func(p string) bool {
+		return planned[libpath.Fold(p)] || (m.look.taken != nil && m.look.taken(p))
 	}
 	stem, ext := splitExt(quarantine.Into(keep))
 	p := stem + ext
-	for n := 2; taken[libpath.Fold(p)]; n++ {
+	for n := 2; taken(p); n++ {
 		p = fmt.Sprintf("%s [%d]%s", stem, n, ext)
 	}
 	return p
@@ -359,7 +369,7 @@ func (m *caseMerger) resolveFileClash(keep *caseNode, kpath string, other *caseN
 // duplicate reports whether other may be a Duplicate of keep: both Files, of the same size, alike
 // at a look (see planCaseMergesWith).
 func (m *caseMerger) duplicate(keep *caseNode, kpath string, other *caseNode, opath string) bool {
-	return !keep.dir && !other.dir && keep.size == other.size && (m.alike == nil || m.alike(kpath, opath))
+	return !keep.dir && !other.dir && keep.size == other.size && (m.look.alike == nil || m.look.alike(kpath, opath))
 }
 
 func (m *caseMerger) mergeInto(winner *caseNode, wpath string, loser *caseNode, lpath string) {
@@ -424,8 +434,19 @@ func (m *caseMerger) planDir(node *caseNode, p string) {
 				partnerName = n
 			}
 		}
-		if partnerName == "" || len(tagged) == 0 {
+		if len(tagged) == 0 {
 			continue
+		}
+		if partnerName == "" {
+			// The partner is gone (a Phase B run removed it, then stopped before the renamed side
+			// took back its name): the first renamed name takes it back now, and the others merge
+			// into it.
+			first := tagged[0]
+			partnerName = stripCaseTag(first)
+			m.add(CaseStep{Op: CaseRename, Path: joinRel(p, first), NewPath: joinRel(p, partnerName)})
+			node.children[partnerName] = node.children[first]
+			delete(node.children, first)
+			tagged = tagged[1:]
 		}
 		for _, taggedName := range tagged {
 			partner, tag := node.children[partnerName], node.children[taggedName]

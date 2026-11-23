@@ -115,7 +115,8 @@ type duplicateKind struct {
 	editor *tagedit.Editor
 }
 
-func (k duplicateKind) args(step *model.EditJobStep) (tagedit.Duplicate, error) {
+// ReadDuplicate is the Duplicate a Duplicate step sends to Quarantine.
+func ReadDuplicate(step *model.EditJobStep) (tagedit.Duplicate, error) {
 	var d tagedit.Duplicate
 	if err := json.Unmarshal([]byte(step.Args), &d); err != nil || d.Path == "" {
 		return d, fmt.Errorf("%w: a Duplicate step needs its File", tagedit.ErrInvalidTags)
@@ -124,7 +125,7 @@ func (k duplicateKind) args(step *model.EditJobStep) (tagedit.Duplicate, error) 
 }
 
 func (k duplicateKind) Check(ctx context.Context, step *model.EditJobStep) error {
-	d, err := k.args(step)
+	d, err := ReadDuplicate(step)
 	if err != nil {
 		return err
 	}
@@ -133,7 +134,7 @@ func (k duplicateKind) Check(ctx context.Context, step *model.EditJobStep) error
 }
 
 func (k duplicateKind) Run(ctx context.Context, jobID string, step *model.EditJobStep) (Outcome, error) {
-	d, err := k.args(step)
+	d, err := ReadDuplicate(step)
 	if err != nil {
 		return Outcome{}, err
 	}

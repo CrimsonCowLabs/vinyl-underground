@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"time"
 
 	"github.com/navidrome/navidrome/core/editjob"
@@ -277,10 +278,12 @@ var _ = Describe("Case merge", func() {
 	It("skips a Duplicate whose bytes turn out to differ, and leaves it for the admin", func() {
 		run(plan())
 		run(plan())
-		// The two differ only past what the plan looks at.
-		data := make([]byte, sampleBytes+10)
+		// The two differ only in the middle, where the plan doesn't look.
+		data := make([]byte, 3*sampleBytes)
 		Expect(os.WriteFile(filepath.Join(l.dir, "Music/Blondie/Atomic.mp3"), data, 0o644)).To(Succeed())
-		Expect(os.WriteFile(filepath.Join(l.dir, "Music/Blondie/atomic [case-merge].mp3"), append(data[:sampleBytes+9:sampleBytes+9], 1), 0o644)).To(Succeed())
+		other := slices.Clone(data)
+		other[len(other)/2] = 1
+		Expect(os.WriteFile(filepath.Join(l.dir, "Music/Blondie/atomic [case-merge].mp3"), other, 0o644)).To(Succeed())
 		p := plan()
 		Expect(ops(p.Steps)).To(ContainElement("quarantine Music/Blondie/atomic [case-merge].mp3 -> _Quarantine/Music/Blondie/Atomic.mp3"))
 		job := run(p)
@@ -292,5 +295,10 @@ var _ = Describe("Case merge", func() {
 		}
 		Expect(codes).To(ContainElement("notDuplicate Music/Blondie/atomic [case-merge].mp3"))
 		Expect(l.files()).To(HaveKey("Music/Blondie/atomic [case-merge].mp3"))
+
+		// The next plan doesn't try again: the clash is the admin's to decide.
+		p = plan()
+		Expect(ops(p.Steps)).ToNot(ContainElement(ContainSubstring("atomic [case-merge].mp3")))
+		Expect(ops(p.Decide)).To(ContainElement("decide Music/Blondie/atomic [case-merge].mp3 -> Music/Blondie/Atomic.mp3"))
 	})
 })

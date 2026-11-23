@@ -3,6 +3,7 @@ package persistence
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"iter"
 	"maps"
@@ -201,9 +202,20 @@ func (r *mediaFileRepository) Put(m *model.MediaFile) error {
 	if m.CreatedAt.IsZero() {
 		m.CreatedAt = time.Now()
 	}
-	// A Track in Quarantine (#168) keeps its row at the path its File left, for a restore; another
-	// Track's File may be there meanwhile (a case merge's Duplicate, #169), and is that Track's.
-	id, err := r.putByMatch(Eq{"path": m.Path, "library_id": m.LibraryID, "quarantined": false}, m.ID, &dbMediaFile{MediaFile: m})
+	// The File at the path is its Track's: a Track in Quarantine (#168) keeps its row at the path
+	// its File left, and another Track's File may be there meanwhile (a case merge's Duplicate,
+	// #169), which is that Track's. Only when it is the one Track at the path is it taken back.
+	id := m.ID
+	if id == "" {
+		var res struct{ ID string }
+		sel := Select("id").From(r.tableName).Where(Eq{"path": m.Path, "library_id": m.LibraryID}).
+			OrderBy("quarantined").Limit(1)
+		if err := r.queryOne(sel, &res); err != nil && !errors.Is(err, model.ErrNotFound) {
+			return err
+		}
+		id = res.ID
+	}
+	id, err := r.putByMatch(Eq{"path": m.Path, "library_id": m.LibraryID}, id, &dbMediaFile{MediaFile: m})
 	if err != nil {
 		return err
 	}
@@ -479,7 +491,7 @@ func (r *mediaFileRepository) Repath(id string, path, folderID string) error {
 	}
 	// As Relocate, any other Track at that path goes (what is attached to one that isn't missing
 	// moving to id first), but a Track in Quarantine: its row is kept at the path its File left,
-	// for a restore to bring it back to (the scanner passes over it meanwhile).
+	// for a restore to bring it back to (the scanner reads the File there into the other Track).
 	var others []struct {
 		ID      string
 		Missing bool

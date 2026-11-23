@@ -167,6 +167,14 @@ export const EditTrackField = ({ record }) => {
       </Typography>
     )
   }
+  if (record.kind === 'rename') {
+    // A case merge's rename (#169) takes a File or folder with all it holds, its Tracks too.
+    return (
+      <Typography variant="body2" component="span" className={classes.none}>
+        {translate('resources.editHistory.message.renamedWithAll')}
+      </Typography>
+    )
+  }
   if (!record.track && record.kind === 'move' && !record.mediaFileId) {
     // A File moved with its album (its cover.jpg, ...) is no Track's.
     return (

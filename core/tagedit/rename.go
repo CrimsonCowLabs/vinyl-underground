@@ -174,6 +174,24 @@ func (e *Editor) undoRename(ctx context.Context, jobID string, entry *model.Edit
 	if err != nil {
 		return nil, err
 	}
+	// Writes inside what the rename left (a File moved into the folder, a tag edit of one in it)
+	// would be renamed back with it, and their undos lose their way: they are undone first.
+	from, to := entry.NewPath+"/", entry.NewPath+"0"
+	inside, err := e.ds.EditJournal(ctx).GetAll(model.QueryOptions{Sort: "rowid", Filters: squirrel.And{
+		squirrel.Eq{"library_id": entry.LibraryID},
+		squirrel.NotEq{"state": model.EditFailed},
+		squirrel.Expr("rowid > (SELECT rowid FROM edit_journal WHERE id = ?)", entry.ID),
+		squirrel.Or{
+			squirrel.Expr("(path >= ? collate binary and path < ? collate binary)", from, to),
+			squirrel.Expr("(new_path >= ? collate binary and new_path < ? collate binary)", from, to),
+		},
+	}})
+	if err != nil {
+		return nil, err
+	}
+	if len(standing(inside)) > 0 {
+		return nil, fmt.Errorf("%w: something inside %s was moved or written since", ErrChangedLater, entry.NewPath)
+	}
 	return e.rename(ctx, jobID, Rename{LibraryID: entry.LibraryID, Path: entry.NewPath, NewPath: entry.Path}, entry.ID)
 }
 

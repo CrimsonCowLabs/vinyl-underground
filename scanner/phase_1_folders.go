@@ -216,10 +216,9 @@ func (p *phaseFolders) processFolder(entry *folderEntry) (*folderEntry, error) {
 		return entry, err
 	}
 
-	// Load children mediafiles from DB. A Track in Quarantine (#168) is passed over: its File isn't
-	// here, and another Track's File may be at its path (a case merge's Duplicate, #169).
+	// Load children mediafiles from DB
 	cursor, err := p.ds.MediaFile(p.ctx).GetCursor(model.QueryOptions{
-		Filters: squirrel.And{squirrel.Eq{"folder_id": entry.id}, squirrel.Eq{"media_file.quarantined": false}},
+		Filters: squirrel.And{squirrel.Eq{"folder_id": entry.id}},
 	})
 	if err != nil {
 		log.Error(p.ctx, "Scanner: Error loading mediafiles from DB", "folder", entry.path, err)
@@ -230,6 +229,11 @@ func (p *phaseFolders) processFolder(entry *folderEntry) (*folderEntry, error) {
 		if err != nil {
 			log.Error(p.ctx, "Scanner: Error loading mediafiles from DB", "folder", entry.path, err)
 			return entry, err
+		}
+		// A Track in Quarantine (#168) keeps its row at the path its File left; another Track's
+		// File may be there now (a case merge's Duplicate, #169), and that Track is the File's.
+		if prev, ok := dbTracks[mf.Path]; ok && !prev.Quarantined && mf.Quarantined {
+			continue
 		}
 		dbTracks[mf.Path] = &mf
 	}

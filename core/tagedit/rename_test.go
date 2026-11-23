@@ -208,6 +208,23 @@ var _ = Describe("Case merge writes", func() {
 			Expect(err).To(MatchError(ErrChangedLater))
 		})
 
+		It("is refused while a later write to something inside what it renamed stands, and allowed once that is undone", func() {
+			res, err := rename("Music/Atb", "Music/Atb [case-merge]")
+			Expect(err).ToNot(HaveOccurred())
+			put("Music/Queen/c.mp3", "c")
+			moved, err := editor.MoveInJob(ctx, "job-2", Move{LibraryID: 1, Path: "Music/Queen/c.mp3", NewPath: "Music/Atb [case-merge]/c.mp3"})
+			Expect(err).ToNot(HaveOccurred())
+			_, err = editor.UndoInJob(ctx, "job-3", res.Entry)
+			Expect(err).To(MatchError(ErrChangedLater))
+			Expect(files()).To(HaveKey("Music/Atb [case-merge]/c.mp3"))
+
+			_, err = editor.UndoInJob(ctx, "job-4", moved.Entry)
+			Expect(err).ToNot(HaveOccurred())
+			_, err = editor.UndoInJob(ctx, "job-5", res.Entry)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(files()).To(HaveKey("Music/Atb/b.mp3"))
+		})
+
 		It("is refused when what the rename left is gone", func() {
 			res, err := rename("Music/Atb", "Music/Atb [case-merge]")
 			Expect(err).ToNot(HaveOccurred())
