@@ -906,7 +906,10 @@
       },
       "ytdlp": {
         "version": "yt-dlp %{version}",
+        "versionAvailable": "yt-dlp %{version} · %{latest} available",
+        "versionUpToDate": "yt-dlp %{version} · up to date",
         "notInstalled": "yt-dlp is not installed yet",
+        "notInstalledAvailable": "yt-dlp is not installed yet · %{latest} available",
         "unknown": "yt-dlp's version is unknown (%{error})",
         "update": "Update yt-dlp",
         "updating": "Updating yt-dlp...",

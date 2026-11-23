@@ -689,6 +689,8 @@ func (u *fakeUpdater) Update(context.Context) (UpdateResult, error) {
 
 func (u *fakeUpdater) Version(context.Context) (string, error) { return "2026.01.01", nil }
 
+func (u *fakeUpdater) Latest(context.Context) (string, error) { return "2026.11.01", nil }
+
 func (u *fakeUpdater) updates() int {
 	u.mu.Lock()
 	defer u.mu.Unlock()
@@ -1025,6 +1027,11 @@ var _ = Describe("Ripper and yt-dlp updates", func() {
 		It("reports the installed version", func() {
 			start()
 			Expect(ripper.YtDlpVersion(ctx)).To(Equal("2026.01.01"))
+		})
+
+		It("reports the latest release's version", func() {
+			start()
+			Expect(ripper.YtDlpLatest(ctx)).To(Equal("2026.11.01"))
 		})
 	})
 

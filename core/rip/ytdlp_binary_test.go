@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -128,7 +129,9 @@ type fakeReleases struct {
 	requests []string
 	// afterSums runs once a release's SHA2-256SUMS has been served, e.g. to publish a new release.
 	afterSums func()
-	server    *httptest.Server
+	// down makes looking up the latest release fail, as when GitHub is down or limits the lookups.
+	down   bool
+	server *httptest.Server
 }
 
 func newFakeReleases(asset string, tags ...string) *fakeReleases {
@@ -156,9 +159,13 @@ func (f *fakeReleases) publish(tag, asset string, content []byte) {
 func (f *fakeReleases) serve(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	f.requests = append(f.requests, r.URL.Path)
-	latest := f.latest
+	latest, down := f.latest, f.down
 	f.mu.Unlock()
 	if name, ok := strings.CutPrefix(r.URL.Path, "/releases/latest/download/"); ok {
+		if down {
+			http.Error(w, "rate limit exceeded", http.StatusForbidden)
+			return
+		}
 		http.Redirect(w, r, "/releases/download/"+latest+"/"+name, http.StatusFound)
 		return
 	}
@@ -175,6 +182,19 @@ func (f *fakeReleases) serve(w http.ResponseWriter, r *http.Request) {
 	if name == "SHA2-256SUMS" && after != nil {
 		after()
 	}
+}
+
+// lookups counts the requests for the latest release.
+func (f *fakeReleases) lookups() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	n := 0
+	for _, p := range f.requests {
+		if strings.HasPrefix(p, "/releases/latest/") {
+			n++
+		}
+	}
+	return n
 }
 
 // downloads counts the requests for a release asset (from any release).
@@ -322,5 +342,80 @@ var _ = Describe("Binary.Update", func() {
 
 	It("reports no version before yt-dlp is installed", func(ctx SpecContext) {
 		Expect(bin.Version(ctx)).To(BeEmpty())
+	})
+})
+
+var _ = Describe("Binary.Latest", func() {
+	const asset = "yt-dlp_musllinux"
+	var (
+		dir      string
+		releases *fakeReleases
+		bin      *Binary
+		now      time.Time
+	)
+
+	BeforeEach(func() {
+		dir = filepath.Join(GinkgoT().TempDir(), "bin")
+		releases = newFakeReleases(asset, "2026.10.01", "2026.11.01")
+		now = time.Date(2026, 11, 23, 12, 0, 0, 0, time.UTC)
+		bin = &Binary{
+			Dir: dir, ReleaseURL: releases.server.URL + "/releases/latest/download", Asset: asset,
+			Client: releases.server.Client(), TempDir: filepath.Join(dir, "tmp-update"),
+			now: func() time.Time { return now },
+		}
+	})
+
+	It("returns the latest release's version", func(ctx SpecContext) {
+		Expect(bin.Latest(ctx)).To(Equal("2026.11.01"))
+		Expect(releases.downloads(asset)).To(BeZero())
+		Expect(releases.downloads("SHA2-256SUMS")).To(BeZero(), "only the latest tag is looked up")
+	})
+
+	It("looks it up at most once an hour", func(ctx SpecContext) {
+		Expect(bin.Latest(ctx)).To(Equal("2026.11.01"))
+		releases.publish("2026.12.01", asset, versionScript("2026.12.01"))
+		now = now.Add(59 * time.Minute)
+		Expect(bin.Latest(ctx)).To(Equal("2026.11.01"))
+		Expect(releases.lookups()).To(Equal(1))
+
+		By("looking it up again once the hour is up")
+		now = now.Add(2 * time.Minute)
+		Expect(bin.Latest(ctx)).To(Equal("2026.12.01"))
+		Expect(releases.lookups()).To(Equal(2))
+	})
+
+	It("reports a failed lookup, and doesn't try again straight away", func(ctx SpecContext) {
+		releases.mu.Lock()
+		releases.down = true
+		releases.mu.Unlock()
+		_, err := bin.Latest(ctx)
+		Expect(err).To(HaveOccurred())
+		_, err = bin.Latest(ctx)
+		Expect(err).To(HaveOccurred())
+		Expect(releases.lookups()).To(Equal(1))
+
+		By("trying again a few minutes later")
+		releases.mu.Lock()
+		releases.down = false
+		releases.mu.Unlock()
+		releases.publish("2026.12.01", asset, versionScript("2026.12.01"))
+		now = now.Add(failedLatestKeptFor + time.Second)
+		Expect(bin.Latest(ctx)).To(Equal("2026.12.01"))
+	})
+
+	It("knows the latest release after an update, without looking it up again", func(ctx SpecContext) {
+		Expect(bin.Latest(ctx)).To(Equal("2026.11.01"))
+		releases.publish("2026.12.01", asset, versionScript("2026.12.01"))
+		_, err := bin.Update(ctx)
+		Expect(err).ToNot(HaveOccurred())
+		lookups := releases.lookups()
+
+		Expect(bin.Latest(ctx)).To(Equal("2026.12.01"))
+		Expect(releases.lookups()).To(Equal(lookups))
+	})
+
+	It("returns no version for a release folder that doesn't redirect, such as a mirror", func(ctx SpecContext) {
+		bin.ReleaseURL = releases.server.URL + "/releases/download/2026.10.01"
+		Expect(bin.Latest(ctx)).To(BeEmpty())
 	})
 })

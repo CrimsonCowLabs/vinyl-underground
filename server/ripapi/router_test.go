@@ -99,7 +99,7 @@ var _ = Describe("Rip API", func() {
 		Expect(users.Put(&listener)).To(Succeed())
 
 		fetcher = &fakeFetcher{n: 3}
-		updater = &fakeUpdater{}
+		updater = &fakeUpdater{version: "2026.01.01", latest: "2026.11.01"}
 		matcher = &fakeMatcher{have: map[string]model.RipMatches{}}
 		ripper := rip.New(ds, fetcher, nil, rip.Options{Matcher: matcher})
 		router = server.JWTVerifier(New(ds, ripper))
@@ -263,7 +263,27 @@ var _ = Describe("Rip API", func() {
 			router = server.JWTVerifier(New(ds, ripper))
 		})
 
-		It("shows the admin the installed version", func() {
+		It("shows the admin the installed version and the latest release's", func() {
+			w := doPath(&admin, http.MethodGet, "/ytdlp")
+			Expect(w.Code).To(Equal(http.StatusOK))
+			Expect(w.Body.String()).To(MatchJSON(`{"version":"2026.01.01","latest":"2026.11.01"}`))
+		})
+
+		It("shows the same version for both when yt-dlp is up to date", func() {
+			updater.version = "2026.11.01"
+			w := doPath(&admin, http.MethodGet, "/ytdlp")
+			Expect(w.Body.String()).To(MatchJSON(`{"version":"2026.11.01","latest":"2026.11.01"}`))
+		})
+
+		It("shows the latest release's version before yt-dlp is installed", func() {
+			updater.version = ""
+			w := doPath(&admin, http.MethodGet, "/ytdlp")
+			Expect(w.Code).To(Equal(http.StatusOK))
+			Expect(w.Body.String()).To(MatchJSON(`{"version":"","latest":"2026.11.01"}`))
+		})
+
+		It("still shows the installed version when the latest release can't be looked up", func() {
+			updater.latestErr = errors.New("GitHub is down")
 			w := doPath(&admin, http.MethodGet, "/ytdlp")
 			Expect(w.Code).To(Equal(http.StatusOK))
 			Expect(w.Body.String()).To(MatchJSON(`{"version":"2026.01.01"}`))
@@ -321,11 +341,15 @@ var _ = Describe("Rip API", func() {
 })
 
 // fakeUpdater stands in for yt-dlp's updates. When block is set, an update waits for it to close.
+// version is the installed version, and latest the latest release's (or latestErr).
 type fakeUpdater struct {
-	mu    sync.Mutex
-	calls int
-	err   error
-	block chan struct{}
+	mu        sync.Mutex
+	calls     int
+	err       error
+	block     chan struct{}
+	version   string
+	latest    string
+	latestErr error
 }
 
 func (u *fakeUpdater) Update(context.Context) (rip.UpdateResult, error) {
@@ -342,7 +366,17 @@ func (u *fakeUpdater) Update(context.Context) (rip.UpdateResult, error) {
 	return rip.UpdateResult{Previous: "2026.01.01", Version: "2026.11.01", Updated: true}, nil
 }
 
-func (u *fakeUpdater) Version(context.Context) (string, error) { return "2026.01.01", nil }
+func (u *fakeUpdater) Version(context.Context) (string, error) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	return u.version, nil
+}
+
+func (u *fakeUpdater) Latest(context.Context) (string, error) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	return u.latest, u.latestErr
+}
 
 func (u *fakeUpdater) updates() int {
 	u.mu.Lock()

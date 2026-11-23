@@ -18,7 +18,9 @@
 //	                                    422: {error} for a playlist of more than 300 items
 //	POST /api/rip {url, confirm: true}  queues it anyway: a playlist of 51 to 300 items, or videos
 //	                                    the Library already seems to have
-//	GET  /api/rip/ytdlp                 the installed yt-dlp's version
+//	GET  /api/rip/ytdlp                 {version, latest}: the installed yt-dlp's version and
+//	                                    the latest release's (left out when it can't be looked
+//	                                    up)
 //	POST /api/rip/ytdlp/update          updates yt-dlp
 //
 // Reviewing and discarding a job is in review.go, promoting it in promote.go, and uploads in
@@ -47,6 +49,7 @@ type Ripper interface {
 	Enqueue(ctx context.Context, url string, confirmed bool) (*model.RipJob, error)
 	Jobs(ctx context.Context) (model.RipJobs, error)
 	YtDlpVersion(ctx context.Context) (string, error)
+	YtDlpLatest(ctx context.Context) (string, error)
 	UpdateYtDlp(ctx context.Context, wait bool) (rip.UpdateResult, error)
 	Reviewer
 	Promoter
@@ -183,7 +186,19 @@ func (api *Router) ytDlpVersion(w http.ResponseWriter, r *http.Request) {
 		_ = rest.RespondWithError(w, http.StatusInternalServerError, "Could not read yt-dlp's version: "+err.Error())
 		return
 	}
-	_ = rest.RespondWithJSON(w, http.StatusOK, map[string]string{"version": version})
+	status := ytDlpStatus{Version: version}
+	if status.Latest, err = api.ripper.YtDlpLatest(r.Context()); err != nil {
+		// Not knowing of a newer release mustn't hide the installed one.
+		log.Warn(r.Context(), "Could not look up the latest yt-dlp", err)
+		status.Latest = ""
+	}
+	_ = rest.RespondWithJSON(w, http.StatusOK, status)
+}
+
+// ytDlpStatus is the installed yt-dlp's version and the latest release's ("" when not known).
+type ytDlpStatus struct {
+	Version string `json:"version"`
+	Latest  string `json:"latest,omitempty"`
 }
 
 // updateYtDlp updates yt-dlp now. It refuses, rather than waits, while a Rip is running, as a
