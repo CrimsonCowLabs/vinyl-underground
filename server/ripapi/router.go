@@ -18,9 +18,9 @@
 //	                                    422: {error} for a playlist of more than 300 items
 //	POST /api/rip {url, confirm: true}  queues it anyway: a playlist of 51 to 300 items, or videos
 //	                                    the Library already seems to have
-//	GET  /api/rip/ytdlp                 {version, latest}: the installed yt-dlp's version and
+//	GET  /api/rip/ytdlp                 {version, latest, newer}: the installed yt-dlp's version,
 //	                                    the latest release's (left out when it can't be looked
-//	                                    up)
+//	                                    up), and whether the latest is newer than the installed
 //	POST /api/rip/ytdlp/update          updates yt-dlp
 //
 // Reviewing and discarding a job is in review.go, promoting it in promote.go, and uploads in
@@ -186,19 +186,22 @@ func (api *Router) ytDlpVersion(w http.ResponseWriter, r *http.Request) {
 		_ = rest.RespondWithError(w, http.StatusInternalServerError, "Could not read yt-dlp's version: "+err.Error())
 		return
 	}
-	status := ytDlpStatus{Version: version}
-	if status.Latest, err = api.ripper.YtDlpLatest(r.Context()); err != nil {
-		// Not knowing of a newer release mustn't hide the installed one.
+	latest, err := api.ripper.YtDlpLatest(r.Context())
+	if err != nil {
+		// Not knowing of a newer release mustn't hide the installed one. latest is "" then.
 		log.Warn(r.Context(), "Could not look up the latest yt-dlp", err)
-		status.Latest = ""
 	}
-	_ = rest.RespondWithJSON(w, http.StatusOK, status)
+	_ = rest.RespondWithJSON(w, http.StatusOK, ytDlpStatus{
+		Version: version, Latest: latest, Newer: rip.NewerVersion(latest, version),
+	})
 }
 
-// ytDlpStatus is the installed yt-dlp's version and the latest release's ("" when not known).
+// ytDlpStatus is the installed yt-dlp's version, the latest release's ("" when not known), and
+// whether the latest is newer, so worth updating to.
 type ytDlpStatus struct {
 	Version string `json:"version"`
 	Latest  string `json:"latest,omitempty"`
+	Newer   bool   `json:"newer"`
 }
 
 // updateYtDlp updates yt-dlp now. It refuses, rather than waits, while a Rip is running, as a
