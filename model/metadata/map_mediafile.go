@@ -101,6 +101,7 @@ func (md Metadata) mapMediaFile(libID int, folderID string) model.MediaFile {
 	mf.ExplicitStatus = md.mapExplicitStatusTag()
 	mf.Source = md.String(model.TagSource)
 	mf.SourceURL = md.String(model.TagSourceURL)
+	mf.HasAlbumArtist = len(md.Strings(model.TagAlbumArtist)) > 0 || len(md.Strings(model.TagAlbumArtists)) > 0
 
 	// Dates
 	date, origDate, relDate := md.mapDates()

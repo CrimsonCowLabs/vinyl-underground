@@ -69,6 +69,15 @@ type Options struct {
 	HTTP *http.Client
 	// Limiter spaces the requests. Defaults to the one all Clients share.
 	Limiter *Limiter
+	// Store, if set, keeps every answer for good, so a long job that is stopped and run again
+	// doesn't ask MusicBrainz again (the in-memory cache only lasts a day, and a run).
+	Store Store
+}
+
+// Store keeps answers by request URL.
+type Store interface {
+	Get(key string) ([]byte, bool)
+	Set(key string, body []byte)
 }
 
 // Client asks MusicBrainz's web service. It is safe for concurrent use.
@@ -76,6 +85,7 @@ type Client struct {
 	base    string
 	http    *http.Client
 	limiter *Limiter
+	store   Store
 	cache   cache.SimpleCache[string, []byte]
 }
 
@@ -84,6 +94,7 @@ func New(opts Options) *Client {
 		base:    cmp.Or(opts.BaseURL, DefaultBaseURL),
 		http:    cmp.Or(opts.HTTP, &http.Client{Timeout: 30 * time.Second}),
 		limiter: cmp.Or(opts.Limiter, shared),
+		store:   opts.Store,
 		cache:   cache.NewSimpleCache[string, []byte](cache.Options{SizeLimit: cacheSize, DefaultTTL: cacheTTL}),
 	}
 }
@@ -125,6 +136,17 @@ func (c *Client) SearchReleases(ctx context.Context, artist, title string) ([]Re
 	return res.Releases, err
 }
 
+// Release looks up one release with its media, their tracks and recordings, the artists
+// credited, and its release group.
+func (c *Client) Release(ctx context.Context, id string) (*Release, error) {
+	var res Release
+	params := url.Values{"inc": {"recordings artist-credits release-groups"}}
+	if err := c.get(ctx, "release/"+url.PathEscape(id), params, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
 // luceneEscape escapes a phrase for a quoted Lucene term.
 func luceneEscape(s string) string {
 	return strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(s)
@@ -134,7 +156,15 @@ func (c *Client) get(ctx context.Context, path string, params url.Values, into a
 	params.Set("fmt", "json")
 	u := c.base + path + "?" + params.Encode()
 	body, err := c.cache.GetWithLoader(u, func(u string) ([]byte, time.Duration, error) {
+		if c.store != nil {
+			if b, ok := c.store.Get(u); ok {
+				return b, cacheTTL, nil
+			}
+		}
 		b, err := c.fetch(ctx, u)
+		if err == nil && c.store != nil {
+			c.store.Set(u, b)
+		}
 		return b, cacheTTL, err
 	})
 	if err != nil {

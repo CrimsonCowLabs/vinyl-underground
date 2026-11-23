@@ -121,6 +121,10 @@ func (k undoKind) Check(ctx context.Context, step *model.EditJobStep) error {
 	if entry.State != model.EditWritten {
 		return fmt.Errorf("%w: it was never written (%s)", tagedit.ErrNotUndoable, entry.State)
 	}
+	// A folder cover (#164) is no Track's: its library is checked directly.
+	if entry.Kind == model.EditCover && !tagedit.Writable(entry.LibraryID) {
+		return tagedit.ErrEditingOff
+	}
 	if _, err := k.editor.Check(ctx, entry.MediaFileID); errors.Is(err, tagedit.ErrEditingOff) {
 		return err
 	}

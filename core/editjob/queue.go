@@ -3,8 +3,9 @@
 // one at a time, in order, so the Library is never written to in parallel. A job a restart
 // interrupted carries on first, from where it stopped.
 //
-// What a step writes is up to its kind (StepKind): tag edits for now; moves, Quarantine moves,
-// cover writes and undos later. Each kind writes through the Edit journal, with the job's ID.
+// What a step writes is up to its kind (StepKind): tag edits, undos, an album's folder cover
+// and Embed in Files (cover.go); moves and Quarantine moves later. Each kind writes through the
+// Edit journal, with the job's ID.
 package editjob
 
 import (
@@ -209,16 +210,21 @@ func (q *Queue) Wait(ctx context.Context, id string, d time.Duration) (*model.Ed
 		q.mu.Lock()
 		changed := q.changed
 		q.mu.Unlock()
-		job, err := q.Job(ctx, id)
-		if err != nil || job.State == model.EditJobDone {
-			return job, err
+		// Only the job's row while it runs: a job may have a step per File of the Library, and
+		// it changes after each File. Its steps are read once, at the end.
+		job, err := q.ds.EditJob(ctx).Get(id)
+		if err != nil {
+			return nil, err
+		}
+		if job.State == model.EditJobDone {
+			return q.Job(ctx, id)
 		}
 		select {
 		case <-changed:
 		case <-timeout.C:
-			return job, nil
+			return q.Job(ctx, id)
 		case <-ctx.Done():
-			return job, nil
+			return q.Job(context.WithoutCancel(ctx), id)
 		}
 	}
 }

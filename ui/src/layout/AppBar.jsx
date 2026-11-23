@@ -25,6 +25,7 @@ import UserMenu from './UserMenu'
 import config from '../config'
 import { OfflineIndicator } from '../download/OfflineIndicator'
 import { settingsResources, userSettingsLink } from './navItems'
+import { useLibraryEditing } from '../library/useLibraryEditing'
 
 const useStyles = makeStyles(
   (theme) => ({
@@ -75,6 +76,7 @@ const CustomUserMenu = ({ onClick, ...rest }) => {
   const resources = useSelector(getResources)
   const classes = useStyles(rest)
   const { permissions } = usePermissions()
+  const editing = useLibraryEditing()
 
   const renderUserMenuItemLink = () => {
     const link = userSettingsLink(resources, permissions)
@@ -124,7 +126,9 @@ const CustomUserMenu = ({ onClick, ...rest }) => {
         )}
         <Divider />
         {renderUserMenuItemLink()}
-        {settingsResources(resources).map(renderSettingsMenuItemLink)}
+        {settingsResources(resources, editing.enabled).map(
+          renderSettingsMenuItemLink,
+        )}
         <Divider />
         <DialogMenuItem
           label={translate('menu.about')}

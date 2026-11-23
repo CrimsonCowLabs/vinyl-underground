@@ -78,6 +78,54 @@ describe('Edit history page', () => {
     ).toHaveLength(3)
   })
 
+  describe('album covers', () => {
+    const cover = {
+      ...entry,
+      kind: 'cover',
+      path: 'Artist/Album/cover.jpg',
+      track: undefined,
+      changes: [],
+    }
+
+    it.each([
+      [{ originalImage: {}, image: { sum: 'b' } }, 'coverWritten'],
+      [{ originalImage: { sum: 'a' }, image: { sum: 'b' } }, 'coverReplaced'],
+      [{ originalImage: { sum: 'b' }, image: {} }, 'coverRemoved'],
+    ])('says what a folder cover write did (%j)', (images, message) => {
+      render(<EditChangesField record={{ ...cover, ...images }} />)
+      expect(
+        screen.getByText(`resources.editHistory.message.${message}`),
+      ).toBeTruthy()
+    })
+
+    it('says what an embed did', () => {
+      render(
+        <EditChangesField
+          record={{
+            ...entry,
+            kind: 'embed',
+            changes: [],
+            originalImage: {},
+            image: { sum: 'b' },
+          }}
+        />,
+      )
+      expect(
+        screen.getByText('resources.editHistory.message.embedAdded'),
+      ).toBeTruthy()
+    })
+
+    it('names a folder cover as no Track’s', () => {
+      render(<EditTrackField record={cover} />)
+      expect(
+        screen.getByText('resources.editHistory.message.albumCover'),
+      ).toBeTruthy()
+      expect(
+        screen.queryByText('resources.editHistory.message.trackGone'),
+      ).toBeNull()
+    })
+  })
+
   it('shows the Track, and the File when the Track is gone', () => {
     const { rerender } = render(<EditTrackField record={entry} />)
     expect(screen.getByText('Song (Live)')).toBeTruthy()

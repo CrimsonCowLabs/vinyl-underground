@@ -4,6 +4,7 @@ package tagedit
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/hex"
 	"errors"
@@ -58,6 +59,8 @@ type Editor struct {
 	scanner Scanner
 	fsys    safefile.FS
 	tagger  Tagger
+	// images keeps the images cover writes and embeds replaced, for their undo.
+	images journalImages
 	// scanAttempts and scanRetryDelay bound how long an edit waits for a busy scanner.
 	scanAttempts   int
 	scanRetryDelay time.Duration
@@ -97,21 +100,39 @@ func (e *Editor) file(ctx context.Context, trackID string) (*file, error) {
 	if err != nil {
 		return nil, err
 	}
-	if !writable(mf.LibraryID) {
-		return nil, ErrEditingOff
+	if err := CanEdit(mf); err != nil {
+		return nil, err
 	}
 	lib, err := e.ds.Library(ctx).Get(mf.LibraryID)
 	if err != nil {
 		return nil, err
 	}
-	ext := strings.TrimPrefix(strings.ToLower(path.Ext(mf.Path)), ".")
-	if !slices.Contains(editable, ext) {
-		return nil, ErrUnsupportedFormat
-	}
 	return &file{mf: mf, lib: lib, abs: filepath.Join(lib.Path, filepath.FromSlash(mf.Path))}, nil
 }
 
-// writable reports whether editing is on for the library libID (checked at startup).
+// CanEdit is the refusal an edit of the Track mf meets before anything is read, if any: its
+// library isn't writable (ErrEditingOff), or its File is of a kind that can't be checked
+// (ErrUnsupportedFormat, see Editable). It reads nothing, so it suits checking many Tracks at
+// once.
+func CanEdit(mf *model.MediaFile) error {
+	if !writable(mf.LibraryID) {
+		return ErrEditingOff
+	}
+	if !Editable(mf.Path) {
+		return ErrUnsupportedFormat
+	}
+	return nil
+}
+
+// Editable reports whether a File at path is of a format whose edits can be checked.
+func Editable(path string) bool {
+	ext := strings.TrimPrefix(strings.ToLower(filepath.Ext(path)), ".")
+	return slices.Contains(editable, ext)
+}
+
+// Writable reports whether editing is on for the library libID (checked at startup).
+func Writable(libID int) bool { return writable(libID) }
+
 func writable(libID int) bool {
 	editing := core.CurrentLibraryEditing()
 	if !editing.Enabled {
@@ -172,13 +193,34 @@ func (e *Editor) Edit(ctx context.Context, trackID string, edit Values) (*Result
 
 // EditInJob is Edit, as one step of the edit job jobID: its Edit journal entry has the job's ID.
 func (e *Editor) EditInJob(ctx context.Context, jobID, trackID string, edit Values) (*Result, error) {
-	return e.RewriteInJob(ctx, jobID, trackID, func(Values) (Values, error) { return edit, nil })
+	return e.EditWith(ctx, trackID, edit, EditOptions{JobID: jobID})
 }
 
 // RewriteInJob is EditInJob with the edit worked out by rewrite from the File's fields as they
 // are when it is written (read once it is guarded, while no other write can change it): e.g.
 // renaming one of its artists, which leaves the others alone.
 func (e *Editor) RewriteInJob(ctx context.Context, jobID, trackID string, rewrite func(cur Values) (Values, error)) (*Result, error) {
+	return e.RewriteWith(ctx, trackID, rewrite, EditOptions{JobID: jobID})
+}
+
+// EditOptions change how Edit records and finishes a write, for a job of many writes.
+type EditOptions struct {
+	// JobID groups the write with the job's others in the Edit journal, so the whole job can be
+	// undone. Empty makes the write a job of its own.
+	JobID string
+	// NoRescan leaves the File's folder unscanned (step 6): the job rescans it once, with Rescan,
+	// after its last write there. Until then the Track shows its old tags.
+	NoRescan bool
+}
+
+// EditWith is Edit, for one write of a job.
+func (e *Editor) EditWith(ctx context.Context, trackID string, edit Values, opts EditOptions) (*Result, error) {
+	return e.RewriteWith(ctx, trackID, func(Values) (Values, error) { return edit, nil }, opts)
+}
+
+// RewriteWith is EditWith with the edit worked out by rewrite (see RewriteInJob).
+func (e *Editor) RewriteWith(ctx context.Context, trackID string, rewrite func(cur Values) (Values, error), opts EditOptions) (*Result, error) {
+	opts.JobID = cmp.Or(opts.JobID, id.NewRandom())
 	writeMu.Lock()
 	defer writeMu.Unlock()
 	// Once started, an edit runs to the end, and its journal entry is closed, even if the admin
@@ -207,16 +249,16 @@ func (e *Editor) RewriteInJob(ctx context.Context, jobID, trackID string, rewrit
 	if len(set) == 0 {
 		return &Result{Changed: false, Track: f.mf}, nil
 	}
-	return e.apply(ctx, jobID, f, orig, set, "")
+	return e.apply(ctx, opts, f, orig, set, "")
 }
 
 // apply journals and writes set (TagLib properties) into the File f, whose tags are orig, and
 // re-keys its Track: steps 2 to 6 of Edit, once the File is guarded, as part of the edit job
-// jobID. undoOf is the entry the write undoes, if it is an undo (see Undo).
-func (e *Editor) apply(ctx context.Context, jobID string, f *file, orig, set map[string][]string, undoOf string) (*Result, error) {
+// opts.JobID. undoOf is the entry the write undoes, if it is an undo (see Undo).
+func (e *Editor) apply(ctx context.Context, opts EditOptions, f *file, orig, set map[string][]string, undoOf string) (*Result, error) {
 	trackID := f.mf.ID
 	entry := &model.EditEntry{
-		JobID: jobID, Kind: model.EditTags, State: model.EditPending,
+		JobID: opts.JobID, Kind: model.EditTags, State: model.EditPending,
 		LibraryID: f.mf.LibraryID, MediaFileID: f.mf.ID, Path: f.mf.Path, NewPath: f.mf.Path,
 		OriginalTags: model.EditTagValues(orig), Changes: model.EditTagValues(set), UndoOf: undoOf,
 	}
@@ -228,38 +270,55 @@ func (e *Editor) apply(ctx context.Context, jobID string, f *file, orig, set map
 		return nil, fmt.Errorf("recording the edit in the Edit journal: %w", err)
 	}
 
-	if err := e.write(ctx, f.abs, orig, set, entry); err != nil {
-		if errors.Is(err, safefile.ErrInterrupted) {
-			// The File is moved aside (and the copy is checked): try to put it back now, or a
-			// restart does.
-			if written, serr := safefile.Settle(e.fsys, f.abs, sumOf(entry)); serr == nil {
-				// Put back already: it is a plain failure (or, if the copy got there, a success).
-				if written {
-					e.close(ctx, entry, true, nil)
-					return e.done(ctx, f, entry, set)
-				}
-				log.Warn(ctx, "Replacing an edited File failed; it was put back", "path", f.abs, err)
-				err = errors.New("replacing the File failed; it was put back as it was")
-				e.close(ctx, entry, false, err)
-			} else {
-				entry.Error = err.Error()
-				_ = journal.Put(entry)
-				log.Error(ctx, "An edit left a File moved aside; it is put back at the next start", "path", f.abs, err, "settle", serr)
-			}
-		} else {
-			e.close(ctx, entry, false, err)
-		}
+	write := func(temp string) error { return e.tagger.Write(temp, set) }
+	check := func(temp string) error { return e.verify(f.abs, temp, orig, set) }
+	// closeWrite settles an interrupted replace, as before: put back is a plain failure, the
+	// copy in place a success.
+	if err := e.closeWrite(ctx, f.abs, entry, e.write(ctx, f.abs, entry, write, check)); err != nil {
 		log.Warn(ctx, "Could not edit a Track's tags", "id", trackID, "path", f.abs, err)
 		return nil, err
 	}
-	e.close(ctx, entry, true, nil)
-	return e.done(ctx, f, entry, set)
+	return e.done(ctx, f, entry, set, opts)
+}
+
+// closeWrite records in its journal entry how the write of the File at abs ended, with err (nil
+// when it was written), and returns the error the write failed with, if it did.
+func (e *Editor) closeWrite(ctx context.Context, abs string, entry *model.EditEntry, err error) error {
+	if err == nil {
+		e.close(ctx, entry, true, nil)
+		return nil
+	}
+	if !errors.Is(err, safefile.ErrInterrupted) {
+		e.close(ctx, entry, false, err)
+		return err
+	}
+	// The File is moved aside (and the copy is checked): try to put it back now, or a restart
+	// does.
+	written, serr := safefile.Settle(e.fsys, abs, sumOf(entry))
+	if serr != nil {
+		entry.Error = err.Error()
+		_ = e.ds.EditJournal(ctx).Put(entry)
+		log.Error(ctx, "A write left a File moved aside; it is put back at the next start", "path", abs, err, "settle", serr)
+		return err
+	}
+	// Put back already: it is a plain failure (or, if the copy got there, a success).
+	if written {
+		e.close(ctx, entry, true, nil)
+		return nil
+	}
+	log.Warn(ctx, "Replacing a File failed; it was put back", "path", abs, err)
+	err = errors.New("replacing the File failed; it was put back as it was")
+	e.close(ctx, entry, false, err)
+	return err
 }
 
 // done re-keys a Track whose File an edit wrote (step 6 of Edit).
-func (e *Editor) done(ctx context.Context, f *file, entry *model.EditEntry, set map[string][]string) (*Result, error) {
+func (e *Editor) done(ctx context.Context, f *file, entry *model.EditEntry, set map[string][]string, opts EditOptions) (*Result, error) {
 	log.Info(ctx, "Edited a Track's tags", "id", f.mf.ID, "path", f.abs, "tags", slices.Sorted(maps.Keys(set)))
 	res := &Result{Changed: true, Entry: entry.ID, Track: f.mf}
+	if opts.NoRescan {
+		return res, nil
+	}
 	if err := e.rekey(ctx, f); err != nil {
 		log.Warn(ctx, "Scan after an edit failed; the Track shows its new tags after the next scan", "path", f.abs, err)
 		res.Warning = "The File was written; the app shows its new tags after the next scan."
@@ -287,9 +346,10 @@ func (e *Editor) guard(f *file) error {
 }
 
 // write makes the checked, edited copy of the File at abs and puts it in the File's place
-// (steps 3 to 5 of Edit). On failure the temp copy is gone, and the File untouched, unless the
-// error is safefile.ErrInterrupted.
-func (e *Editor) write(ctx context.Context, abs string, orig, set map[string][]string, entry *model.EditEntry) (err error) {
+// (steps 3 to 5 of Edit): change writes the edit into the copy, and check verifies it. On
+// failure the temp copy is gone, and the File untouched, unless the error is
+// safefile.ErrInterrupted.
+func (e *Editor) write(ctx context.Context, abs string, entry *model.EditEntry, change, check func(temp string) error) (err error) {
 	temp := safefile.TempName(abs)
 	if err := e.clearOldCopy(ctx, abs, entry); err != nil {
 		return err
@@ -314,10 +374,10 @@ func (e *Editor) write(ctx context.Context, abs string, orig, set map[string][]s
 	}
 	// The copy becomes the File: it keeps the File's permissions and owner.
 	safefile.KeepAttrs(e.fsys, info, temp)
-	if err := e.tagger.Write(temp, set); err != nil {
+	if err := change(temp); err != nil {
 		return err
 	}
-	if err := e.verify(abs, temp, orig, set); err != nil {
+	if err := check(temp); err != nil {
 		return err
 	}
 	copySum, _, err := safefile.Hash(e.fsys, temp)
@@ -444,6 +504,14 @@ func (e *Editor) close(ctx context.Context, entry *model.EditEntry, written bool
 	}
 }
 
+// Rescan rescans the folder dir (relative to the library libraryID) after a job's writes made
+// with EditOptions.NoRescan, so its Tracks get their new tags and keep their IDs.
+func (e *Editor) Rescan(ctx context.Context, libraryID int, dir string) error {
+	writeMu.Lock()
+	defer writeMu.Unlock()
+	return e.rekey(ctx, &file{mf: &model.MediaFile{LibraryID: libraryID, Path: path.Join(dir, "_")}})
+}
+
 // rekey rescans the edited File's folder, so its Track (the same row, found by the File's path)
 // gets its new tags, and its album and artists are brought up to date (step 6 of Edit). A busy
 // scanner is waited for, a little.
@@ -484,6 +552,10 @@ func (e *Editor) Settle(ctx context.Context) {
 		lib, err := e.ds.Library(ctx).Get(entry.LibraryID)
 		if err != nil {
 			log.Error(ctx, "Could not settle an interrupted edit: its library is gone", "entry", entry.ID, err)
+			continue
+		}
+		if entry.Kind == model.EditCover {
+			e.settleCover(ctx, lib, entry)
 			continue
 		}
 		abs := filepath.Join(lib.Path, filepath.FromSlash(entry.Path))

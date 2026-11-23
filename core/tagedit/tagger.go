@@ -16,6 +16,18 @@ type Tagger interface {
 	// Write sets the given properties in the File at path (no values removes one), and leaves
 	// every other tag as it is.
 	Write(path string, set map[string][]string) error
+	// Pictures returns the File's embedded pictures, in order.
+	Pictures(path string) ([]Picture, error)
+	// WritePicture puts p first among the File's pictures, in the place of the first one (or as
+	// the only one); nil removes the first one. Every tag and other picture is left as it is.
+	WritePicture(path string, p *Picture) error
+}
+
+// Picture is an image embedded in a File.
+type Picture struct {
+	Data []byte
+	// Type is the picture's type ("Front Cover"), where the format has one.
+	Type, Description, Mime string
 }
 
 // taglibTagger is TagLib. It saves mp3s as ID3v2.4, and keeps a tag it doesn't map: TagLib
@@ -35,6 +47,49 @@ func (taglibTagger) Read(path string) (map[string][]string, error) {
 }
 
 func (taglibTagger) Write(path string, set map[string][]string) error {
+	return keepID3v1(path, func() error {
+		if err := taglib.WriteTags(path, set, 0); err != nil {
+			return fmt.Errorf("writing the tags: %w", err)
+		}
+		return nil
+	})
+}
+
+func (taglibTagger) Pictures(path string) ([]Picture, error) {
+	f, err := taglib.OpenReadOnly(path)
+	if err != nil {
+		return nil, fmt.Errorf("reading the pictures: %w", err)
+	}
+	defer f.Close()
+	var res []Picture
+	for i, desc := range f.Properties().Images {
+		data, err := f.Image(i)
+		if err != nil {
+			return nil, fmt.Errorf("reading the pictures: %w", err)
+		}
+		res = append(res, Picture{Data: data, Type: desc.Type, Description: desc.Description, Mime: desc.MIMEType})
+	}
+	return res, nil
+}
+
+func (taglibTagger) WritePicture(path string, p *Picture) error {
+	return keepID3v1(path, func() error {
+		var err error
+		if p == nil {
+			err = taglib.WriteImageOptions(path, nil, 0, "", "", "")
+		} else {
+			err = taglib.WriteImageOptions(path, p.Data, 0, p.Type, p.Description, p.Mime)
+		}
+		if err != nil {
+			return fmt.Errorf("writing the picture: %w", err)
+		}
+		return nil
+	})
+}
+
+// keepID3v1 runs a TagLib save of the File at path, and removes the ID3v1 tag it adds to an mp3
+// that had none.
+func keepID3v1(path string, save func() error) error {
 	mp3 := strings.EqualFold(filepath.Ext(path), ".mp3")
 	hadV1 := false
 	if mp3 {
@@ -43,8 +98,8 @@ func (taglibTagger) Write(path string, set map[string][]string) error {
 			return err
 		}
 	}
-	if err := taglib.WriteTags(path, set, 0); err != nil {
-		return fmt.Errorf("writing the tags: %w", err)
+	if err := save(); err != nil {
+		return err
 	}
 	if mp3 && !hadV1 {
 		// TagLib copies the ID3v2 tag into a new ID3v1 one when it saves an mp3; an ID3v1 tag is

@@ -204,7 +204,7 @@
       },
       "coverPicker": {
         "title": "Choose a cover for %{name}",
-        "help": "The chosen cover is used everywhere, over the usual cover order, until it is undone on the Corrections page.",
+        "help": "The chosen or uploaded cover is written to the album's folder as cover.jpg, replacing the one there. The Edit history can undo it.",
         "sources": {
           "local": "Album folder",
           "external": "Last.fm",
@@ -221,13 +221,32 @@
         "failed": "Couldn't reach this source",
         "partial": "Some covers couldn't be loaded",
         "use": "Use this cover",
-        "chosen": "Cover chosen. It shows once it has been processed",
+        "chosen": "Cover written to the album's folder. It shows once it has been processed",
+        "writtenWarning": "Cover written to the album's folder. %{warning}",
+        "unchanged": "The album's folder has this cover already",
+        "writingInBackground": "The cover is being written in the background. The Activity panel shows how it goes.",
+        "editingOff": "This album's library is read-only, so a cover can't be written to it. You can still mark the cover wrong.",
+        "embed": "Embed in Files",
+        "embedTitle": "Embed the cover in every File",
+        "embedContent": "Write the album's folder cover into each of its Files? This rewrites every File on the drive and makes each one larger. It runs as one job, which the Edit history can undo.",
+        "embedded": "The cover was embedded in the album's Files",
+        "embeddedSkipped": "The cover was embedded, but %{smart_count} File was skipped. The Activity panel says why. |||| The cover was embedded, but %{smart_count} Files were skipped. The Activity panel says why.",
+        "embeddingInBackground": "The cover is being embedded in the background. The Activity panel shows how it goes.",
+        "errors": {
+          "editingOff": "This album's library is read-only, so nothing was written.",
+          "invalidImage": "That file isn't an image the app can read.",
+          "noAlbumFolder": "This album has no folder of its own for its cover (its Tracks are in several folders, or in the library's root).",
+          "sharedFolder": "Another album's Tracks are in this album's folder, so its cover would be theirs too.",
+          "noFolderCover": "The album has no cover.jpg in its folder yet. Choose or upload a cover first.",
+          "linked": "The cover File has other names (a symlink or hard link), so the app doesn't replace it.",
+          "oldCopyLeft": "An earlier write left an old copy of the cover beside it. Check it and remove it, then try again."
+        },
         "current": "Current cover",
         "markWrong": "Mark wrong",
         "markedWrong": "Cover marked wrong. The album uses the next cover once it has been processed",
         "upload": "Upload a cover image",
         "uploadButton": "Upload",
-        "uploaded": "Cover uploaded. It shows once it has been processed"
+        "uploaded": "Cover uploaded and written to the album's folder. It shows once it has been processed"
       }
     },
     "artist": {
@@ -578,13 +597,21 @@
         "undoContent": "Write the earlier values back into the File? The undo is listed here too, and can be undone in turn.",
         "job": "One of %{smart_count} writes in a job",
         "undoJobTitle": "Undo this job",
-        "undoJobContent": "Write the earlier values back into every File this job wrote? It runs as a job of its own, and any File a later write changed is skipped."
+        "undoJobContent": "Write the earlier values back into every File this job wrote? It runs as a job of its own, and any File a later write changed is skipped.",
+        "albumCover": "Album folder cover",
+        "coverWritten": "Cover written to the album's folder",
+        "coverReplaced": "Album folder cover replaced",
+        "coverRemoved": "Album folder cover removed",
+        "embedAdded": "Cover embedded in the File",
+        "embedReplaced": "Embedded cover replaced",
+        "embedRemoved": "Embedded cover removed"
       },
       "notifications": {
         "undone": "The earlier values were written back to the File",
         "undoneRescanPending": "The earlier values were written back to the File. The app shows them after the next scan.",
         "undoInBackground": "The undo is running in the background. The Activity panel shows how it goes.",
         "undoneJob": "The earlier values were written back to the job's Files",
+        "undoneCover": "The album folder's earlier cover was put back",
         "undoneJobSkipped": "The job was undone, but %{smart_count} File was skipped. The Activity panel says why. |||| The job was undone, but %{smart_count} Files were skipped. The Activity panel says why."
       },
       "errors": {
@@ -603,7 +630,70 @@
         "interrupted": "A restart interrupted the undo. Check the File's tags, and undo it again if they weren't put back.",
         "jobUnfinished": "This job hasn't finished yet. Undo it once it has.",
         "sameFileTwice": "This job wrote the same File twice, so it can't be undone as a whole. Undo its writes one at a time.",
+        "coverChanged": "The cover was changed outside the app since this write, so undoing it would overwrite that.",
         "unknown": "The write could not be undone."
+      }
+    },
+    "libraryTrack": {
+      "name": "Library manager |||| Library manager",
+      "fields": {
+        "title": "Title",
+        "artist": "Artist",
+        "album": "Album",
+        "albumArtist": "Album artist",
+        "year": "Year",
+        "trackNumber": "Track",
+        "path": "File",
+        "suffix": "Format",
+        "bitRate": "Bitrate",
+        "folder": "Folder",
+        "artists_id": "Artist",
+        "album_id": "Album",
+        "format": "Format",
+        "rip": "Rips",
+        "missing_tag": "Missing tags"
+      },
+      "rip": {
+        "true": "Only Rips",
+        "false": "No Rips"
+      },
+      "missingTag": {
+        "album": "No album",
+        "album_artist": "No album artist",
+        "year": "No year",
+        "track_number": "No track number"
+      },
+      "actions": {
+        "editSelected": "Edit tags",
+        "editMatching": "Edit all %{smart_count} matching",
+        "editHistory": "Edit history"
+      },
+      "message": {
+        "editingOff": "Editing is off: the Library is read-only, so the Library manager can't change its Files."
+      },
+      "bulkEdit": {
+        "titleSelected": "Edit the tags of %{smart_count} Track |||| Edit the tags of %{smart_count} Tracks",
+        "titleMatching": "Edit the tags of all %{smart_count} matching Track |||| Edit the tags of all %{smart_count} matching Tracks",
+        "help": "Set one field to the same value in every File, or clear it. You'll see each Track's old and new value before anything is written. It runs as one job, which the Edit history can undo as a whole.",
+        "field": "Field",
+        "clear": "Clear this field",
+        "preview": "Preview",
+        "change": "Old → new",
+        "unchanged": "Seems to hold this value already: its File is checked, and written only if it differs",
+        "summary": "%{smart_count} of %{total} Tracks will change. %{unchanged} seem to hold this value already, so their Files are only checked; %{refused} can't be edited. |||| %{smart_count} of %{total} Tracks will change. %{unchanged} seem to hold this value already, so their Files are only checked; %{refused} can't be edited.",
+        "more": "and %{smart_count} more Track |||| and %{smart_count} more Tracks",
+        "run": "Edit %{smart_count} File |||| Edit %{smart_count} Files",
+        "done": "The tags were written to %{smart_count} File |||| The tags were written to %{smart_count} Files",
+        "doneSkipped": "The tags were written, but %{smart_count} File was skipped. The Activity panel says why. |||| The tags were written, but %{smart_count} Files were skipped. The Activity panel says why.",
+        "inBackground": "The edit is running in the background. The Activity panel shows how it goes.",
+        "errors": {
+          "editingOff": "Editing is off: the Library is read-only.",
+          "invalid": "A value isn’t valid: numbers must be numbers, dates YYYY, YYYY-MM or YYYY-MM-DD, and MusicBrainz IDs UUIDs. Only one value for a single-valued field.",
+          "noSelection": "Select some Tracks first.",
+          "tooMany": "Too many Tracks are selected one by one. Use Edit all matching instead.",
+          "nothingToChange": "None of these Tracks can be edited.",
+          "unknown": "The bulk edit could not be made."
+        }
       }
     },
     "library": {
@@ -1183,7 +1273,9 @@
         "albumEdit": "Album edit",
         "trackNumbers": "Track order",
         "artistRename": "Artist rename",
-        "artistMerge": "Artist merge"
+        "artistMerge": "Artist merge",
+        "cover": "Album cover",
+        "embed": "Embed in Files"
       },
       "files": "%{smart_count} File |||| %{smart_count} Files",
       "queued": "Waiting for the edit before it",

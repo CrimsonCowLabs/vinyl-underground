@@ -30,9 +30,12 @@ export const subMenuResources = (resources, subMenu) =>
   )
 
 // The settings and admin pages in the user menu, after the Listener's own
-// link
-export const settingsResources = (resources) =>
-  subMenuResources(resources, 'settings').filter((r) => r.name !== 'user')
+// link. A page that edits the Library's Files (options.editing, e.g. the
+// Library manager) is listed only while editing is on (ADR-0011).
+export const settingsResources = (resources, editing = false) =>
+  subMenuResources(resources, 'settings').filter(
+    (r) => r.name !== 'user' && (editing || !r.options.editing),
+  )
 
 // The Users link in the settings: all of them for an admin; otherwise the
 // Listener's own profile, when they may edit it

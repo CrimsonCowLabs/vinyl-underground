@@ -212,6 +212,12 @@ var tagEditStatus = map[string]int{
 	tagedit.CodeInternal:    http.StatusInternalServerError,
 	"sameFileTwice":         http.StatusUnprocessableEntity,
 	"jobUnfinished":         http.StatusConflict,
+	// Album covers (#164).
+	"invalidImage":  http.StatusBadRequest,
+	"noAlbumFolder": http.StatusUnprocessableEntity,
+	"sharedFolder":  http.StatusUnprocessableEntity,
+	"coverChanged":  http.StatusConflict,
+	"noFolderCover": http.StatusUnprocessableEntity,
 }
 
 // writeTagEditError answers a failed read or edit with a code the dialog translates, and the

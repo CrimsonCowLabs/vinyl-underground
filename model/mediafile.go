@@ -98,6 +98,10 @@ type MediaFile struct {
 	// They are read from the File on every scan, so they are never set in the app alone.
 	Source    string `structs:"source" json:"source,omitempty"`
 	SourceURL string `structs:"source_url" json:"sourceUrl,omitempty"`
+	// HasAlbumArtist is whether the File has an album artist tag (ALBUMARTIST or ALBUMARTISTS).
+	// Without one, AlbumArtist falls back to the artist (or Various Artists), so only this tells
+	// the Library manager's "no album artist" filter (#166) which Files lack it.
+	HasAlbumArtist bool `structs:"has_album_artist" json:"hasAlbumArtist"`
 
 	Tags         Tags         `structs:"tags" json:"tags,omitempty" hash:"ignore"`       // All imported tags from the original file
 	Participants Participants `structs:"participants" json:"participants" hash:"ignore"` // All artists that participated in this track
