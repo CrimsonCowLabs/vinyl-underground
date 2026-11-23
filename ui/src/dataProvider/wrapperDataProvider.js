@@ -267,13 +267,15 @@ const wrapperDataProvider = {
       `${REST_URL}/albumCover/${albumId}/candidates/${candidateId}/preview`,
       { signal },
     ).then((blob) => ({ data: blob })),
+  // Choosing a candidate writes it as the album folder's cover.jpg (#164), as an edit job:
+  // { jobId, changed, entryId, warning }, or { jobId, background: true } while it runs on.
   chooseAlbumCover: (albumId, candidateId) =>
     httpClient(`${REST_URL}/correction/albumCover`, {
       method: 'POST',
       body: JSON.stringify({ albumId, candidateId }),
-    }).then(({ json }) => ({ data: { id: json.correction.id, ...json } })),
-  // Uploading an image makes it the album's cover, like a chosen candidate. Marking the cover
-  // wrong blocks the image the album shows (its imageHash, as the admin saw it).
+    }).then(({ json }) => ({ data: { id: json.jobId, ...json } })),
+  // Uploading an image writes it as the album's cover, like a chosen candidate. Marking the
+  // cover wrong blocks the image the album shows (its imageHash, as the admin saw it).
   uploadAlbumCover: (albumId, file) => {
     const body = new FormData()
     body.append('albumId', albumId)
@@ -281,8 +283,15 @@ const wrapperDataProvider = {
     return httpClient(`${REST_URL}/correction/albumCoverUpload`, {
       method: 'POST',
       body,
-    }).then(({ json }) => ({ data: { id: json.correction.id, ...json } }))
+    }).then(({ json }) => ({ data: { id: json.jobId, ...json } }))
   },
+  // Embed in Files: the album folder's cover into each of its Files, as one edit job, { id,
+  // state, total, done, skipped, steps } with its skipped Files, still running unless state is
+  // 'done'.
+  embedAlbumCover: (albumId) =>
+    httpClient(`${REST_URL}/albumCover/${albumId}/embed`, {
+      method: 'POST',
+    }).then(({ json }) => ({ data: json })),
   blockAlbumCover: (albumId, imageHash) =>
     httpClient(`${REST_URL}/correction/albumCoverBlock`, {
       method: 'POST',

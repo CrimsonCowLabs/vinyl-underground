@@ -2,32 +2,35 @@ package nativeapi
 
 import (
 	"bufio"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
-	"path/filepath"
 	"strings"
 
 	"github.com/deluan/rest"
 	"github.com/go-chi/chi/v5"
 	"github.com/navidrome/navidrome/core/artwork"
-	"github.com/navidrome/navidrome/core/corrections"
+	"github.com/navidrome/navidrome/core/editjob"
+	"github.com/navidrome/navidrome/core/tagedit"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/server"
 )
 
 // addAlbumCoverRoute serves the cover picker (admin only, see routes): each source's candidates
-// for an album, and their previews. Choosing one is a Correction (POST /correction/albumCover).
-// A preview URL with the login token in it is refused (server.NoTokenInURL).
+// for an album, and their previews. Choosing one (POST /correction/albumCover) writes it as the
+// album's folder cover. A preview URL with the login token in it is refused
+// (server.NoTokenInURL). POST /albumCover/{albumId}/embed is Embed in Files.
 func (api *Router) addAlbumCoverRoute(r chi.Router) {
 	r.Route("/albumCover/{albumId}/candidates", func(r chi.Router) {
 		r.Get("/", api.listCoverCandidates)
 		r.With(server.NoTokenInURL).Get("/{candidateId}/preview", api.previewCoverCandidate)
 	})
+	r.Post("/albumCover/{albumId}/embed", api.embedAlbumCover)
 }
 
 func (api *Router) listCoverCandidates(w http.ResponseWriter, r *http.Request) {
@@ -63,7 +66,9 @@ func (api *Router) previewCoverCandidate(w http.ResponseWriter, r *http.Request)
 	}
 }
 
-// chooseAlbumCover stores the candidate's image and saves it as the album's cover Correction.
+// chooseAlbumCover writes the candidate's image as the album's folder cover (cover.jpg, #164),
+// as an edit job of one File it waits a little for (see runFileJob). With editing off it answers
+// editingOff: no cover Correction is made any more.
 func (api *Router) chooseAlbumCover(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		AlbumID     string `json:"albumId"`
@@ -73,23 +78,84 @@ func (api *Router) chooseAlbumCover(w http.ResponseWriter, r *http.Request) {
 		writeCorrectionError(w, r, fmt.Errorf("%w: %w", model.ErrValidation, err))
 		return
 	}
-	stored, cand, err := api.coverPicker.Store(r.Context(), body.AlbumID, body.CandidateID)
+	if api.tagEditor == nil || api.editQueue == nil {
+		writeTagEditError(w, r, tagedit.ErrEditingOff)
+		return
+	}
+	stored, _, err := api.coverPicker.Store(r.Context(), body.AlbumID, body.CandidateID)
 	if err != nil {
 		writeCoverError(w, r, err)
 		return
 	}
-	res, err := api.corrections.ChooseAlbumCover(r.Context(), body.AlbumID,
-		corrections.AlbumCover{StoredCover: stored, Source: cand.Description()})
+	img, err := artwork.ChosenCoverStore().Open(stored.Hash, stored.Mime)
 	if err != nil {
-		writeCorrectionError(w, r, err)
+		writeCoverError(w, r, err)
 		return
 	}
-	_ = rest.RespondWithJSON(w, http.StatusOK, res)
+	defer img.Close()
+	data, err := io.ReadAll(img)
+	if err != nil {
+		writeCoverError(w, r, err)
+		return
+	}
+	api.writeAlbumCover(w, r, body.AlbumID, data)
 }
 
-// uploadAlbumCover stores an uploaded image and saves it as the album's cover Correction, as if it
-// were a chosen candidate. Its size is capped like other uploads (MaxImageUploadSize), and it must
-// decode as an image (artwork.StoreChosenCover).
+// writeAlbumCover queues the write of the image as the album's folder cover, and answers as an
+// edit does (runFileJob).
+func (api *Router) writeAlbumCover(w http.ResponseWriter, r *http.Request, albumID string, data []byte) {
+	if api.tagEditor == nil || api.editQueue == nil {
+		writeTagEditError(w, r, tagedit.ErrEditingOff)
+		return
+	}
+	step, err := editjob.CoverStep(api.tagEditor, albumID, data)
+	if err != nil {
+		writeTagEditError(w, r, err)
+		return
+	}
+	api.runFileJob(w, r, model.EditCover, step)
+}
+
+// embedAlbumCover embeds the album's folder cover into each of its Files (Embed in Files, #164),
+// as one edit job of a step per File, and waits a little for it. It answers the job: done, with
+// the Files it skipped and why, or, with 202, still running in the background.
+func (api *Router) embedAlbumCover(w http.ResponseWriter, r *http.Request) {
+	if api.tagEditor == nil || api.editQueue == nil {
+		writeTagEditError(w, r, tagedit.ErrEditingOff)
+		return
+	}
+	ctx := r.Context()
+	steps, err := editjob.EmbedSteps(ctx, api.ds, api.tagEditor, chi.URLParam(r, "albumId"))
+	if err != nil {
+		writeTagEditError(w, r, err)
+		return
+	}
+	job, err := api.editQueue.Enqueue(ctx, model.EditEmbed, steps)
+	if err != nil {
+		writeTagEditError(w, r, err)
+		return
+	}
+	if job, err = api.editQueue.Wait(ctx, job.ID, cmp.Or(api.editWait, defaultEditWait)); err != nil {
+		writeTagEditError(w, r, err)
+		return
+	}
+	status := http.StatusOK
+	if job.State != model.EditJobDone {
+		status = http.StatusAccepted
+	}
+	skipped := model.EditJobSteps{}
+	for _, s := range job.Steps {
+		if s.State == model.EditStepSkipped {
+			skipped = append(skipped, s)
+		}
+	}
+	job.Steps = skipped
+	_ = rest.RespondWithJSON(w, status, job)
+}
+
+// uploadAlbumCover writes an uploaded image as the album's folder cover, as if it were a chosen
+// candidate (see chooseAlbumCover). Its size is capped like other uploads (MaxImageUploadSize),
+// and it must decode as an image (invalidImage).
 func (api *Router) uploadAlbumCover(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	r.Body = http.MaxBytesReader(w, r.Body, artwork.MaxImageUploadSize())
@@ -107,13 +173,14 @@ func (api *Router) uploadAlbumCover(w http.ResponseWriter, r *http.Request) {
 			log.Warn(ctx, "Error removing multipart temp files", err)
 		}
 	}()
-	file, header, err := r.FormFile("image")
+	file, _, err := r.FormFile("image")
 	if err != nil {
 		writeCorrectionError(w, r, fmt.Errorf("%w: no image: %w", model.ErrValidation, err))
 		return
 	}
 	defer file.Close()
-	// Before storing: nothing sweeps the store, so an image for no album would stay there
+	// Before keeping it: the journal's images are never swept, so an image for no album would
+	// stay there
 	albumID := r.FormValue("albumId")
 	if _, err := api.ds.Album(ctx).Get(albumID); err != nil {
 		writeCorrectionError(w, r, err)
@@ -124,18 +191,7 @@ func (api *Router) uploadAlbumCover(w http.ResponseWriter, r *http.Request) {
 		writeCorrectionError(w, r, err)
 		return
 	}
-	stored, err := artwork.StoreChosenCover(data)
-	if err != nil {
-		writeCorrectionError(w, r, err)
-		return
-	}
-	res, err := api.corrections.ChooseAlbumCover(ctx, albumID,
-		corrections.AlbumCover{StoredCover: stored, Source: "Upload: " + filepath.Base(header.Filename)})
-	if err != nil {
-		writeCorrectionError(w, r, err)
-		return
-	}
-	_ = rest.RespondWithJSON(w, http.StatusOK, res)
+	api.writeAlbumCover(w, r, albumID, data)
 }
 
 // blockAlbumCover marks the image the album shows wrong for it: imageHash is the album's

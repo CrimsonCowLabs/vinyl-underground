@@ -45,17 +45,48 @@ type undoer func(e *Editor, ctx context.Context, jobID string, entry *model.Edit
 //     File, or Path is taken), and re-keys the Track by path, as Promote does. Changes stays
 //     empty.
 //   - a Quarantine move, later: the same as a move, with NewPath inside Quarantine.
-//   - a cover write, later: NewPath is the cover File written (the folder's cover.jpg) and
-//     CopySum its checksum; the cover it replaced, if any, is kept beside the journal (by entry
-//     ID), since tags can't hold it. Its undo puts that cover back, or removes the written one,
-//     when the File at NewPath still has CopySum's checksum.
+//   - a cover write (#164, cover.go): NewPath is the cover File (the folder's cover.jpg), Image
+//     the image written (none for a removal) and OriginalImage the cover it replaced (none when
+//     there was none); their bytes are kept by checksum in the journal's images (journalImages),
+//     since tags can't hold them. Its undo puts OriginalImage back, or removes the cover, while
+//     the File at NewPath still holds Image (ErrCoverChanged otherwise). Any later write of the
+//     cover conflicts.
+//   - an embed (#164, embed.go): Path is the File, Image the picture it put first in the File and
+//     OriginalImage the one it replaced there (none when it had none). Its undo writes
+//     OriginalImage back there, or removes the picture, through the write path, while the File's
+//     first picture is still Image. A later embed into the File conflicts; a later tag edit
+//     doesn't.
 //
 // A later write conflicts with an entry when it touched the same File (see
 // model.EditJournalRepository.After) and the same tags, or moved the File; each undoer refuses
 // such an entry with ErrChangedLater. The job queue (#162) undoes a whole job by undoing its
 // entries, newest first, with Undo.
 var undoers = map[model.EditKind]undoer{
-	model.EditTags: (*Editor).undoTags,
+	model.EditTags:  (*Editor).undoTags,
+	model.EditCover: (*Editor).undoCover,
+	model.EditEmbed: (*Editor).undoEmbed,
+}
+
+// checkLater refuses an entry because of the later writes to its File: one still pending
+// (ErrUnfinished), the entry's own undo, standing (ErrAlreadyUndone), or another standing write
+// that conflict says conflicts with it (its error).
+func (e *Editor) checkLater(ctx context.Context, entry *model.EditEntry, conflict func(later model.EditEntry) error) error {
+	later, err := e.ds.EditJournal(ctx).After(entry)
+	if err != nil {
+		return err
+	}
+	if slices.ContainsFunc(later, func(l model.EditEntry) bool { return l.State == model.EditPending }) {
+		return ErrUnfinished
+	}
+	for _, l := range standing(later) {
+		if l.UndoOf == entry.ID {
+			return ErrAlreadyUndone
+		}
+		if err := conflict(l); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Undo undoes the written Edit journal entry entryID: it writes the File's values from before
@@ -95,24 +126,18 @@ func (e *Editor) UndoInJob(ctx context.Context, jobID, entryID string) (*Result,
 
 // undoTags undoes a tag edit (see undoers).
 func (e *Editor) undoTags(ctx context.Context, jobID string, entry *model.EditEntry) (*Result, error) {
-	later, err := e.ds.EditJournal(ctx).After(entry)
-	if err != nil {
-		return nil, err
-	}
 	// An unfinished write may have changed the File; it is settled at the next start.
-	if slices.ContainsFunc(later, func(l model.EditEntry) bool { return l.State == model.EditPending }) {
-		return nil, ErrUnfinished
-	}
-	for _, l := range standing(later) {
-		switch {
-		case l.UndoOf == entry.ID:
-			return nil, ErrAlreadyUndone
-		case l.NewPath != l.Path:
-			return nil, fmt.Errorf("%w: the File was moved since", ErrChangedLater)
+	err := e.checkLater(ctx, entry, func(l model.EditEntry) error {
+		if l.NewPath != l.Path {
+			return fmt.Errorf("%w: the File was moved since", ErrChangedLater)
 		}
 		if same := overlap(l.Changes, entry.Changes); len(same) > 0 {
-			return nil, fmt.Errorf("%w: %s", ErrChangedLater, strings.Join(same, ", "))
+			return fmt.Errorf("%w: %s", ErrChangedLater, strings.Join(same, ", "))
 		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	f, err := e.file(ctx, entry.MediaFileID)

@@ -28,6 +28,10 @@ type HistoryEntry struct {
 	// Track is the File's Track as the app has it now; nil when it is gone.
 	Track   *HistoryTrack `json:"track,omitempty"`
 	Changes []TagChange   `json:"changes"`
+	// OriginalImage and Image are, for a cover write or an embed, the image it replaced and the one
+	// it wrote (an empty sum: none).
+	OriginalImage model.EditImage `json:"originalImage"`
+	Image         model.EditImage `json:"image"`
 	// UndoOf is the entry this one undid, for an undo. Redo is an undo of an undo: it wrote the
 	// undone values again.
 	UndoOf    string    `json:"undoOf,omitempty"`
@@ -75,6 +79,7 @@ func (e *Editor) History(ctx context.Context, offset, limit int) ([]HistoryEntry
 			ID: en.ID, JobID: en.JobID, Kind: en.Kind, State: en.State, UserID: en.UserID,
 			LibraryID: en.LibraryID, Path: en.Path, NewPath: en.NewPath, UndoOf: en.UndoOf,
 			Error: en.Error, CreatedAt: en.CreatedAt, Changes: []TagChange{},
+			OriginalImage: en.OriginalImage, Image: en.Image,
 		}
 		for _, k := range slices.Sorted(maps.Keys(en.Changes)) {
 			h.Changes = append(h.Changes, TagChange{Tag: k, Old: nonNil(en.OriginalTags[k]), New: nonNil(en.Changes[k])})

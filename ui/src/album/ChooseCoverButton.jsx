@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react'
 import PropTypes from 'prop-types'
 import {
   Button,
+  Confirm,
   useDataProvider,
   useNotify,
   usePermissions,
@@ -25,7 +26,9 @@ import BlockIcon from '@material-ui/icons/Block'
 import BrokenImageIcon from '@material-ui/icons/BrokenImage'
 import CloudUploadIcon from '@material-ui/icons/CloudUpload'
 import ImageSearchIcon from '@material-ui/icons/ImageSearch'
+import InsertPhotoIcon from '@material-ui/icons/InsertPhoto'
 import subsonic from '../subsonic'
+import { useLibraryEditing } from '../library/useLibraryEditing'
 
 const useStyles = makeStyles((theme) => ({
   section: { marginTop: theme.spacing(2) },
@@ -125,16 +128,38 @@ const knownErrors = [
   'tooLarge',
 ]
 
-// The error message for a failed choice, upload or block: a code the server answered with
-// with the action's own wording for some codes ({ notFound: 'albumNotFound' }).
-const errorKey = (err, overrides) => {
+// The refusals of a cover write (cover.jpg) or of Embed in Files (#164), worded in the picker.
+const coverWriteErrors = [
+  'editingOff',
+  'invalidImage',
+  'noAlbumFolder',
+  'sharedFolder',
+  'noFolderCover',
+  'linked',
+  'oldCopyLeft',
+]
+
+// The error message for a failed choice, upload, block or embed: a code the server answered
+// with, with the action's own wording for some codes ({ notFound: 'albumNotFound' }).
+const errorKey = (err, overrides = {}) => {
   const code = err?.body?.error
+  if (coverWriteErrors.includes(code)) {
+    return `resources.album.coverPicker.errors.${code}`
+  }
   const key = overrides[code] ?? (knownErrors.includes(code) ? code : 'unknown')
   return `resources.correction.errors.${key}`
 }
 
-// What the album shows now, to mark wrong, and the upload of an image of the admin's own.
-const CurrentCover = ({ record, busy, onMarkWrong, onUpload }) => {
+// What the album shows now, to mark wrong, the upload of an image of the admin's own, and Embed
+// in Files. Writing (an upload, an embed) needs the album's library to be writable.
+const CurrentCover = ({
+  record,
+  busy,
+  writable,
+  onMarkWrong,
+  onUpload,
+  onEmbed,
+}) => {
   const classes = useStyles()
   const translate = useTranslate()
   return (
@@ -160,13 +185,14 @@ const CurrentCover = ({ record, busy, onMarkWrong, onUpload }) => {
           size="small"
           component="label"
           startIcon={<CloudUploadIcon />}
-          disabled={busy}
+          disabled={busy || !writable}
         >
           {translate('resources.album.coverPicker.uploadButton')}
           <input
             type="file"
             accept="image/*"
             hidden
+            disabled={busy || !writable}
             aria-label={translate('resources.album.coverPicker.upload')}
             onChange={(e) => {
               const file = e.target.files?.[0]
@@ -174,6 +200,14 @@ const CurrentCover = ({ record, busy, onMarkWrong, onUpload }) => {
               if (file) onUpload(file)
             }}
           />
+        </MuiButton>
+        <MuiButton
+          size="small"
+          startIcon={<InsertPhotoIcon />}
+          onClick={onEmbed}
+          disabled={busy || !writable}
+        >
+          {translate('resources.album.coverPicker.embed')}
         </MuiButton>
       </div>
     </section>
@@ -183,8 +217,45 @@ const CurrentCover = ({ record, busy, onMarkWrong, onUpload }) => {
 CurrentCover.propTypes = {
   record: PropTypes.object.isRequired,
   busy: PropTypes.bool,
+  writable: PropTypes.bool,
   onMarkWrong: PropTypes.func.isRequired,
   onUpload: PropTypes.func.isRequired,
+  onEmbed: PropTypes.func.isRequired,
+}
+
+// The note on a cover write that ended: written (with the server's warning, if another image
+// still outranks it), unchanged, or still running in the background.
+const writtenNote = (data, done) => {
+  if (data?.background) {
+    return ['resources.album.coverPicker.writingInBackground', { type: 'info' }]
+  }
+  if (data?.changed === false) {
+    return ['resources.album.coverPicker.unchanged', { type: 'info' }]
+  }
+  if (data?.warning) {
+    return [
+      'resources.album.coverPicker.writtenWarning',
+      { type: 'warning', messageArgs: { warning: data.warning } },
+    ]
+  }
+  return [done, { type: 'info' }]
+}
+
+// The note on an Embed in Files job.
+const embeddedNote = (data) => {
+  if (data?.state !== 'done') {
+    return [
+      'resources.album.coverPicker.embeddingInBackground',
+      { type: 'info' },
+    ]
+  }
+  if (data.skipped > 0) {
+    return [
+      'resources.album.coverPicker.embeddedSkipped',
+      { type: 'warning', messageArgs: { smart_count: data.skipped } },
+    ]
+  }
+  return ['resources.album.coverPicker.embedded', { type: 'info' }]
 }
 
 const CandidateTile = ({ albumId, candidate, selected, onSelect }) => {
@@ -325,16 +396,21 @@ const ChooseCoverDialog = ({ record, onClose }) => {
   const [selected, setSelected] = useState(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
+  const [confirmEmbed, setConfirmEmbed] = useState(false)
+  // A cover is written to the album's folder (#164): only while its library is writable
+  const { isWritable } = useLibraryEditing()
+  const writable = isWritable(record.libraryId) === true
 
-  // Runs one of the dialog's actions, closing it once saved, or showing why it failed
+  // Runs one of the dialog's actions, closing it once saved, or showing why it failed. note
+  // is the notification for what the request answered.
   const save = useCallback(
-    (request, done, errorFor) => {
+    (request, note, errorFor) => {
       setSaving(true)
       setError(null)
       request()
-        .then(() => {
+        .then(({ data } = {}) => {
           onClose()
-          notify(done, { type: 'info' })
+          notify(...note(data))
           refresh()
         })
         .catch((err) => {
@@ -349,7 +425,7 @@ const ChooseCoverDialog = ({ record, onClose }) => {
     () =>
       save(
         () => dataProvider.chooseAlbumCover(record.id, selected),
-        'resources.album.coverPicker.chosen',
+        (data) => writtenNote(data, 'resources.album.coverPicker.chosen'),
         (err) =>
           errorKey(err, { notFound: 'coverNotFound', invalid: 'invalidImage' }),
       ),
@@ -359,7 +435,7 @@ const ChooseCoverDialog = ({ record, onClose }) => {
     () =>
       save(
         () => dataProvider.blockAlbumCover(record.id, record.imageHash),
-        'resources.album.coverPicker.markedWrong',
+        () => ['resources.album.coverPicker.markedWrong', { type: 'info' }],
         (err) =>
           errorKey(err, {
             notFound: 'albumNotFound',
@@ -373,12 +449,21 @@ const ChooseCoverDialog = ({ record, onClose }) => {
     (file) =>
       save(
         () => dataProvider.uploadAlbumCover(record.id, file),
-        'resources.album.coverPicker.uploaded',
+        (data) => writtenNote(data, 'resources.album.coverPicker.uploaded'),
         (err) =>
           errorKey(err, { notFound: 'albumNotFound', invalid: 'invalidImage' }),
       ),
     [save, dataProvider, record.id],
   )
+  // Embed in Files rewrites every File of the album, so it asks first
+  const handleEmbed = useCallback(() => {
+    setConfirmEmbed(false)
+    save(
+      () => dataProvider.embedAlbumCover(record.id),
+      embeddedNote,
+      (err) => errorKey(err, { notFound: 'albumNotFound' }),
+    )
+  }, [save, dataProvider, record.id])
 
   const classes = useStyles()
   return (
@@ -396,11 +481,25 @@ const ChooseCoverDialog = ({ record, onClose }) => {
         <DialogContentText>
           {translate('resources.album.coverPicker.help')}
         </DialogContentText>
+        {!writable && (
+          <DialogContentText className={classes.section}>
+            {translate('resources.album.coverPicker.editingOff')}
+          </DialogContentText>
+        )}
         <CurrentCover
           record={record}
           busy={saving}
+          writable={writable}
           onMarkWrong={handleMarkWrong}
           onUpload={handleUpload}
+          onEmbed={() => setConfirmEmbed(true)}
+        />
+        <Confirm
+          isOpen={confirmEmbed}
+          title="resources.album.coverPicker.embedTitle"
+          content="resources.album.coverPicker.embedContent"
+          onConfirm={handleEmbed}
+          onClose={() => setConfirmEmbed(false)}
         />
         {sourcesFor(record).map((source) => (
           <CandidateSection
@@ -425,7 +524,7 @@ const ChooseCoverDialog = ({ record, onClose }) => {
           color="primary"
           variant="contained"
           onClick={handleUse}
-          disabled={saving || !selected}
+          disabled={saving || !selected || !writable}
           startIcon={saving ? <CircularProgress size={16} /> : null}
         >
           {translate('resources.album.coverPicker.use')}
@@ -440,8 +539,10 @@ ChooseCoverDialog.propTypes = {
   onClose: PropTypes.func.isRequired,
 }
 
-// "Choose Cover" on an album page (admin only): lists the covers every source offers, and saves
-// the chosen one as an album cover Correction, which wins over the usual cover order.
+// "Choose Cover" on an album page (admin only): lists the covers every source offers, and writes
+// the chosen (or an uploaded) one to the album's folder as cover.jpg (#164), as an edit job.
+// Embed in Files writes that cover into each of the album's Files; marking the cover wrong stays
+// app data.
 export const ChooseCoverButton = ({ record, className, size }) => {
   const translate = useTranslate()
   const { permissions } = usePermissions()

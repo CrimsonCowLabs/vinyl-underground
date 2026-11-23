@@ -40,6 +40,16 @@ func Code(err error) string {
 		return "notUndoable"
 	case errors.Is(err, ErrOldCopyLeft):
 		return "oldCopyLeft"
+	case errors.Is(err, ErrInvalidImage):
+		return "invalidImage"
+	case errors.Is(err, ErrNoAlbumFolder):
+		return "noAlbumFolder"
+	case errors.Is(err, ErrSharedFolder):
+		return "sharedFolder"
+	case errors.Is(err, ErrCoverChanged):
+		return "coverChanged"
+	case errors.Is(err, ErrNoFolderCover):
+		return "noFolderCover"
 	}
 	return CodeInternal
 }
