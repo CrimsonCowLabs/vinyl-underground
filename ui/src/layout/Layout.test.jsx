@@ -14,10 +14,12 @@ import Layout from './Layout'
 
 // react-admin's layout stands in as the page: the sidebar and the content
 vi.mock('react-admin', () => ({
-  Layout: ({ className, children, sidebar: Sidebar }) => (
+  Layout: ({ className, classes, children, sidebar: Sidebar }) => (
     <div data-testid="page" className={className}>
       <Sidebar>the menu</Sidebar>
-      {children}
+      <div data-testid="content" className={classes?.content}>
+        {children}
+      </div>
     </div>
   ),
   Sidebar: ({ children }) => <aside>{children}</aside>,
@@ -60,7 +62,14 @@ const setup = () => {
   store.dispatch(playTracks({ t1: { id: 't1', title: 'Lamplight Freeway' } }))
   render(
     <Provider store={store}>
-      <Layout>content</Layout>
+      <Layout>
+        <div data-testid="list" className="RaList-content-7">
+          <table />
+        </div>
+        <div data-testid="grid" className="RaList-content-8">
+          <ul />
+        </div>
+      </Layout>
     </Provider>,
   )
   return {
@@ -71,20 +80,22 @@ const setup = () => {
   }
 }
 
-// The page's right padding in px, from the style rules matching it (jsdom's
-// getComputedStyle misses JSS updating a rule in place)
-const pageRoomOnTheRight = () => {
-  const page = screen.getByTestId('page')
+// The last value set for a style property on an element, from the style rules
+// matching it (jsdom's getComputedStyle misses JSS updating a rule in place)
+const styleOf = (testId, property) => {
+  const el = screen.getByTestId(testId)
   const rules = [...document.styleSheets].flatMap((sheet) => [
     ...sheet.cssRules,
   ])
   return rules
-    .filter((rule) => rule.selectorText && page.matches(rule.selectorText))
-    .map((rule) => rule.style.getPropertyValue('padding-right'))
+    .filter((rule) => rule.selectorText && el.matches(rule.selectorText))
+    .map((rule) => rule.style.getPropertyValue(property))
     .filter(Boolean)
-    .map(parseFloat)
     .pop()
 }
+
+// The page's right padding in px
+const pageRoomOnTheRight = () => parseFloat(styleOf('page', 'padding-right'))
 
 describe('Layout beside the Now Playing panel', () => {
   beforeEach(() => screenWidth(1440))
@@ -111,6 +122,33 @@ describe('Layout beside the Now Playing panel', () => {
     dispatch(openNowPlaying())
 
     expect(pageRoomOnTheRight()).toBe(0)
+  })
+})
+
+describe('Layout with something too wide on the page', () => {
+  beforeEach(() => screenWidth(1440))
+  afterEach(() => {
+    cleanup()
+    delete window.matchMedia
+  })
+
+  // Otherwise a wide table widens the page and runs on under the panel
+  it('lets the page and its content narrow below what is in them', () => {
+    setup()
+    expect(styleOf('page', 'min-width')).toBe('0')
+    expect(styleOf('content', 'min-width')).toBe('0')
+  })
+
+  it("scrolls a list's table sideways within its card", () => {
+    setup()
+    expect(styleOf('list', 'min-width')).toBe('0')
+    expect(styleOf('list', 'overflow-x')).toBe('auto')
+  })
+
+  it("leaves a grid of covers' card overflowing as before", () => {
+    setup()
+    expect(styleOf('grid', 'min-width')).toBe('0')
+    expect(styleOf('grid', 'overflow-x')).toBeUndefined()
   })
 })
 

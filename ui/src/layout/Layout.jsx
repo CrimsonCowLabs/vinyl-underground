@@ -25,10 +25,31 @@ const useStyles = makeStyles({
     // Within react-admin's width: 100%, so the page narrows rather than
     // running on under the panel
     boxSizing: 'border-box',
+    // react-admin's own min-width: fit-content lets anything too wide on the
+    // page, such as a table with long URLs, widen the whole layout and run it
+    // on under the panel; capped at the window, the page narrows instead
+    minWidth: 0,
     // react-admin's floating Create button (phones only) sits above the
     // mini player and the tab bar, not behind them
     '& [class*="RaCreateButton-floating"]': {
       bottom: (props) => `calc(${props.playerRoom || '0px'} + 16px)`,
+    },
+  },
+  // The page's content area may shrink below the width of what is in it (a
+  // flex item's min-width is otherwise its content's), so a wide table must
+  // fit or scroll within it rather than widen the page
+  content: {
+    minWidth: 0,
+    // A list's card shrinks with the page too, and a table too wide for it
+    // (Songs or Libraries beside the panel, say) scrolls sideways inside the
+    // card rather than running on past the page's edge. Only a table's card
+    // scrolls: a grid of album covers keeps its visible overflow, which some
+    // themes rely on
+    '& [class*="RaList-content"]': {
+      minWidth: 0,
+    },
+    '& [class*="RaList-content"]:has(table)': {
+      overflowX: 'auto',
     },
   },
 })
@@ -59,6 +80,7 @@ const Layout = (props) => {
       <RALayout
         {...props}
         className={classes.root}
+        classes={{ content: classes.content }}
         menu={Menu}
         sidebar={isDesktop ? Sidebar : NoSidebar}
         appBar={AppBar}

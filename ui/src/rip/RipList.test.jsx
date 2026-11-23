@@ -1,7 +1,9 @@
 import React from 'react'
-import { render } from '@testing-library/react'
-import { describe, it, expect, vi } from 'vitest'
-import { RipItems, RipStatusField } from './RipList.jsx'
+import { fireEvent, render, screen } from '@testing-library/react'
+import { ListContextProvider } from 'react-admin'
+import { TestContext } from 'ra-test'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import RipList, { Clipped, RipItems, RipStatusField } from './RipList.jsx'
 import { alreadyHaveExtra } from './alreadyHaveExtra'
 import RipJobPanel from './review/RipJobPanel.jsx'
 
@@ -14,6 +16,51 @@ vi.mock('react-admin', async () => {
       opts && Object.keys(opts).some((k) => k !== '_')
         ? `${key} ${JSON.stringify(opts)}`
         : key,
+  }
+})
+
+// The page's width, as useWiderThan would measure it
+const page = vi.hoisted(() => ({ wide: true }))
+vi.mock('./useWiderThan', () => ({
+  useWiderThan: () => [() => {}, page.wide],
+}))
+vi.mock('./useRipPolling', () => ({ useRipPolling: () => {} }))
+// The list stands in with jobs already loaded, so only the table is under test
+const jobs = vi.hoisted(() => ({
+  j1: {
+    id: 'j1',
+    kind: 'rip',
+    status: 'failed',
+    title: 'Great Album',
+    source: 'youtube',
+    url: 'https://music.youtube.com/playlist?list=OLAK5uy_a_long_id',
+    folder: 'Great Album',
+    error: 'ERROR: Sign in to confirm you are not a bot',
+    createdAt: '2026-11-20T10:00:00Z',
+    items: [],
+  },
+}))
+vi.mock('../common', async (importOriginal) => {
+  const { ListContextProvider } = await import('react-admin')
+  const { cloneElement } = await import('react')
+  return {
+    ...(await importOriginal()),
+    List: ({ children }) => (
+      <ListContextProvider
+        value={{
+          resource: 'rip',
+          basePath: '/rip',
+          data: jobs,
+          ids: Object.keys(jobs),
+          currentSort: { field: 'createdAt', order: 'DESC' },
+          loaded: true,
+          total: 1,
+          selectedIds: [],
+        }}
+      >
+        {cloneElement(children, { resource: 'rip', basePath: '/rip' })}
+      </ListContextProvider>
+    ),
   }
 })
 
@@ -123,5 +170,98 @@ describe('RipStatusField', () => {
       />,
     )
     expect(container.textContent).toBe('resources.rip.status.ready')
+  })
+})
+
+// The cut-short cells watch their size; jsdom has no ResizeObserver
+let savedObserver
+beforeEach(() => {
+  savedObserver = window.ResizeObserver
+  window.ResizeObserver = class {
+    observe() {}
+    disconnect() {}
+  }
+})
+afterEach(() => {
+  window.ResizeObserver = savedObserver
+})
+
+describe('RipList', () => {
+  const renderList = () =>
+    render(
+      <TestContext enableReducers>
+        <RipList resource="rip" basePath="/rip" />
+      </TestContext>,
+    )
+  const headers = () =>
+    screen.getAllByRole('columnheader').map((th) => th.textContent)
+
+  it('shows every column where there is room', () => {
+    page.wide = true
+    renderList()
+    expect(headers()).toEqual(
+      expect.arrayContaining([
+        'resources.rip.fields.source',
+        'resources.rip.fields.path',
+        'resources.rip.fields.url',
+        'resources.rip.fields.error',
+      ]),
+    )
+    expect(screen.getByText('youtube')).toBeInTheDocument()
+  })
+
+  it('drops the Source and File columns where the page is narrow', () => {
+    page.wide = false
+    renderList()
+    const shown = headers()
+    expect(shown).not.toContain('resources.rip.fields.source')
+    expect(shown).not.toContain('resources.rip.fields.path')
+    expect(shown).toEqual(
+      expect.arrayContaining([
+        'resources.rip.fields.status',
+        'resources.rip.fields.title',
+        'resources.rip.fields.url',
+        'resources.rip.fields.error',
+        'resources.rip.fields.createdAt',
+      ]),
+    )
+    expect(screen.queryByText('youtube')).not.toBeInTheDocument()
+    // The URL and error are still there, cut short if need be
+    expect(screen.getByText(jobs.j1.url)).toBeInTheDocument()
+    expect(screen.getByText(jobs.j1.error)).toBeInTheDocument()
+  })
+})
+
+describe('Clipped', () => {
+  // jsdom lays nothing out, so the text is made to look wider than its cell
+  beforeEach(() => {
+    Object.defineProperty(HTMLElement.prototype, 'scrollWidth', {
+      configurable: true,
+      get: () => 500,
+    })
+    Object.defineProperty(HTMLElement.prototype, 'clientWidth', {
+      configurable: true,
+      get: () => 100,
+    })
+  })
+  afterEach(() => {
+    delete HTMLElement.prototype.scrollWidth
+    delete HTMLElement.prototype.clientWidth
+  })
+
+  it('shows the full text on hover when it is cut short', async () => {
+    const path = 'Inbox/Some Artist/Some Album (Deluxe Edition) [2024]'
+    render(<Clipped title={path} />)
+    const text = screen.getByText(path)
+    expect(text).toHaveStyle({ textOverflow: 'ellipsis', whiteSpace: 'nowrap' })
+
+    fireEvent.mouseOver(text)
+
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(path)
+  })
+
+  it('shows nothing for an empty cell', () => {
+    const { container } = render(<Clipped title="" />)
+    expect(container).toBeEmptyDOMElement()
   })
 })
