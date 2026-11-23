@@ -59,7 +59,50 @@
         "download": "Download",
         "playNext": "Play Next",
         "info": "Get Info",
-        "instantMix": "Instant Mix"
+        "instantMix": "Instant Mix",
+        "editTags": "Edit tags"
+      },
+      "tagEditor": {
+        "title": "Edit tags",
+        "help": "These are the tags in the Track's File. Only the ones you change are written into the File, which is checked before it replaces the original.",
+        "add": "Add %{name}",
+        "remove": "Remove",
+        "saved": "Tags saved to the File",
+        "savedRescanPending": "Tags saved to the File. The app shows them after the next scan.",
+        "fields": {
+          "title": "Title",
+          "artist": "Artist",
+          "artists": "Artists",
+          "album": "Album",
+          "albumartist": "Album artist",
+          "albumartists": "Album artists",
+          "date": "Date",
+          "originaldate": "Original date",
+          "tracknumber": "Track number",
+          "tracktotal": "Total tracks",
+          "discnumber": "Disc number",
+          "disctotal": "Total discs",
+          "genre": "Genre",
+          "compilation": "Compilation",
+          "bpm": "BPM",
+          "comment": "Comment",
+          "lyrics": "Lyrics",
+          "musicbrainz_trackid": "MusicBrainz recording ID",
+          "musicbrainz_releasetrackid": "MusicBrainz track ID",
+          "musicbrainz_albumid": "MusicBrainz release ID",
+          "musicbrainz_artistid": "MusicBrainz artist ID",
+          "musicbrainz_albumartistid": "MusicBrainz album artist ID",
+          "musicbrainz_releasegroupid": "MusicBrainz release group ID"
+        },
+        "errors": {
+          "changedOnDisk": "The File changed on disk since the last scan. Rescan the library first.",
+          "editingOff": "This Track's library is read-only, so its File can't be edited.",
+          "invalid": "A value isn’t valid: numbers must be numbers, dates YYYY, YYYY-MM or YYYY-MM-DD, and MusicBrainz IDs UUIDs.",
+          "notFound": "This Track is no longer in the Library.",
+          "unsupportedFormat": "Only mp3, m4a, aiff and wav Files can be edited for now.",
+          "notVerified": "The edited copy didn’t check out, so the File was left as it was.",
+          "unknown": "The tags could not be saved."
+        }
       }
     },
     "album": {

@@ -27,6 +27,8 @@ import config from '../config'
 import { playSimilar } from './playbackActions.js'
 import { formatBytes } from '../utils'
 import { useRedirect } from 'react-admin'
+import { useLibraryEditing } from '../library/useLibraryEditing'
+import { EditTagsDialog } from '../song/EditTagsDialog'
 
 const useStyles = makeStyles({
   noWrap: {
@@ -52,6 +54,20 @@ const MoreButton = ({ record, onClick, info }) => {
   )
 }
 
+// EditTagsMenuItem opens the Track's Edit dialog. It is only there for the admin, while the
+// Track's library is writable (ADR-0011); it mounts with the open menu, so editing is only asked
+// about then.
+const EditTagsMenuItem = ({ record, onClick }) => {
+  const translate = useTranslate()
+  const { enabled, isWritable } = useLibraryEditing()
+  if (!enabled || isWritable(record.libraryId) !== true) return null
+  return (
+    <MenuItem onClick={onClick}>
+      {translate('resources.song.actions.editTags')}
+    </MenuItem>
+  )
+}
+
 export const SongContextMenu = ({
   resource,
   record,
@@ -70,6 +86,7 @@ export const SongContextMenu = ({
   const [playlistsLoaded, setPlaylistsLoaded] = useState(false)
   const { permissions } = usePermissions()
   const redirect = useRedirect()
+  const [editTagsOpen, setEditTagsOpen] = useState(false)
 
   const options = {
     playNow: {
@@ -275,7 +292,23 @@ export const SongContextMenu = ({
             )
           )
         })}
+        {present && (
+          <EditTagsMenuItem
+            record={record}
+            onClick={(e) => {
+              e.stopPropagation()
+              setAnchorEl(null)
+              setEditTagsOpen(true)
+            }}
+          />
+        )}
       </Menu>
+      {editTagsOpen && (
+        <EditTagsDialog
+          record={record}
+          onClose={() => setEditTagsOpen(false)}
+        />
+      )}
       <Menu
         anchorEl={playlistAnchorEl}
         open={Boolean(playlistAnchorEl)}
