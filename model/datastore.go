@@ -48,6 +48,7 @@ type DataStore interface {
 	StationSkip(ctx context.Context) StationSkipRepository
 	DJ(ctx context.Context) DJRepository
 	Correction(ctx context.Context) CorrectionRepository
+	EditJournal(ctx context.Context) EditJournalRepository
 
 	Resource(ctx context.Context, model any) ResourceRepository
 
