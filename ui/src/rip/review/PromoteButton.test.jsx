@@ -99,6 +99,11 @@ describe('PromoteButton', () => {
     ).toBeNull()
   })
 
+  it('is a main action, as Save is', () => {
+    render(<PromoteButton jobId="j1" review={review} show={vi.fn()} />)
+    expect(promoteAll()).toHaveClass('MuiButton-containedPrimary')
+  })
+
   it('shows where each File lands in the Library before anything moves, and why any stays', async () => {
     http.mockReturnValueOnce(reply(plan))
     render(<PromoteButton jobId="j1" review={review} show={vi.fn()} />)

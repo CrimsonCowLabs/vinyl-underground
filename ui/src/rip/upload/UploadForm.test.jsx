@@ -22,6 +22,13 @@ const pick = (input, ...names) =>
   })
 
 describe('UploadForm', () => {
+  it('offers Upload as the main action', () => {
+    const { getByRole } = render(<UploadForm upload={vi.fn()} />)
+    const button = getByRole('button', { name: 'resources.rip.upload.button' })
+    expect(button).toHaveClass('MuiButton-containedPrimary')
+    expect(button).toHaveClass('MuiButton-sizeSmall')
+  })
+
   it('takes several Files at once, and shows each one’s progress as it uploads', async () => {
     let report
     let finish

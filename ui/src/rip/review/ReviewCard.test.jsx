@@ -6,10 +6,18 @@ import {
   waitFor,
   within,
 } from '@testing-library/react'
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import ReviewCard from './ReviewCard.jsx'
 import RipJobPanel from './RipJobPanel.jsx'
 import { clearAllDrafts } from './reviewDrafts'
+import { stubResizeObserver } from '../../common/stubResizeObserver'
+
+// RipJobPanel cuts the job's origin short with Clipped, which watches its size.
+let restoreResizeObserver
+beforeEach(() => {
+  restoreResizeObserver = stubResizeObserver().restore
+})
+afterEach(() => restoreResizeObserver())
 
 const notify = vi.fn()
 const refresh = vi.fn()
@@ -69,6 +77,10 @@ const review = {
 
 const job = { id: 'j1', status: 'ready', folder: 'Album' }
 const reply = (json) => Promise.resolve({ json })
+
+// destructive says whether a button has Discard's red, the theme's error colour (useDiscardStyles).
+// jsdom doesn't apply the colour itself, so this looks for the styles' class.
+const destructive = (button) => /\bNDRipDiscard-/.test(button.className)
 
 const renderCard = async (props = {}) => {
   http.mockReturnValueOnce(reply(review))
@@ -287,6 +299,93 @@ describe('ReviewCard', () => {
   })
 })
 
+// The review card's look (#190): one header row of album fields, fixed Track columns, every field
+// outlined, and Save, Promote all and Discard in a footer.
+describe("ReviewCard's layout", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    clearAllDrafts()
+  })
+
+  it('puts Album, Album artist and Year in one header row', async () => {
+    await renderCard()
+    const header = screen.getByTestId('review-header')
+    for (const label of [
+      'resources.song.fields.album',
+      'resources.song.fields.albumArtist',
+      'resources.song.fields.year',
+    ]) {
+      expect(header).toContainElement(screen.getByLabelText(label))
+    }
+  })
+
+  it('gives the Track number a narrow fixed column, and Title more room than Artist', async () => {
+    await renderCard()
+    const table = screen.getByTestId('review-tracks')
+    expect(table.style.tableLayout).toBe('fixed')
+    const width = (name) =>
+      table.querySelector(`col[data-column="${name}"]`).style.width
+    expect(width('trackNumber')).toMatch(/^\d+(\.\d+)?em$/)
+    expect(parseFloat(width('title'))).toBeGreaterThan(
+      parseFloat(width('artist')),
+    )
+  })
+
+  it('outlines every Track field, like the album fields', async () => {
+    await renderCard()
+    for (const label of [
+      'resources.song.fields.album',
+      'resources.song.fields.trackNumber 1',
+      'resources.song.fields.title 1',
+      'resources.song.fields.artist 3',
+    ]) {
+      expect(
+        screen.getByLabelText(label).closest('.MuiOutlinedInput-root'),
+      ).not.toBeNull()
+    }
+  })
+
+  it('puts Save, the other actions and Discard in its footer', async () => {
+    await renderCard({ actions: <button>Promote all</button> })
+    const footer = screen.getByTestId('review-footer')
+    const save = within(footer).getByRole('button', { name: 'ra.action.save' })
+    expect(save).toHaveClass('MuiButton-containedPrimary')
+    expect(
+      within(footer).getByRole('button', { name: 'Promote all' }),
+    ).toBeInTheDocument()
+    const discard = within(footer).getByRole('button', {
+      name: 'resources.rip.review.discard',
+    })
+    // The same size as the page's other buttons.
+    expect(save).toHaveClass('MuiButton-sizeSmall')
+    expect(discard).toHaveClass('MuiButton-sizeSmall')
+  })
+
+  it('marks Discard, for the job and for a Track, in red', async () => {
+    await renderCard()
+    const discard = screen.getByRole('button', {
+      name: 'resources.rip.review.discard',
+    })
+    expect(discard).toHaveClass('MuiButton-outlined')
+    expect(destructive(discard)).toBe(true)
+    expect(
+      destructive(
+        screen.getByRole('button', {
+          name: 'resources.rip.review.discardTrack 1',
+        }),
+      ),
+    ).toBe(true)
+
+    fireEvent.click(discard)
+    const dialog = await screen.findByRole('dialog')
+    const confirm = within(dialog).getByRole('button', {
+      name: 'resources.rip.review.discard',
+    })
+    expect(confirm).toHaveClass('MuiButton-contained')
+    expect(destructive(confirm)).toBe(true)
+  })
+})
+
 // The Rip list remounts every expanded card on each refresh (react-admin 3 keys the list's content
 // on its refresh counter): a new key does the same here.
 describe('ReviewCard across refreshes', () => {
@@ -498,6 +597,16 @@ describe('RipJobPanel', () => {
     expect(screen.queryByTestId('items')).toBeNull()
   })
 
+  it("cuts a long URL short above the card, so it can't widen the job table", async () => {
+    http.mockReturnValueOnce(reply(review))
+    const url = 'https://www.youtube.com/playlist?list=' + 'x'.repeat(200)
+    render(<RipJobPanel record={{ ...job, kind: 'rip', url }} />)
+    await screen.findByDisplayValue('Rip Album')
+    const link = within(screen.getByTestId('job-origin')).getByRole('link')
+    expect(link.textContent).toBe(url)
+    expect(link.closest('[class*="NDClipped-clipped"]')).not.toBeNull()
+  })
+
   it('offers Discard for a failed job, under its item list', async () => {
     render(
       <RipJobPanel
@@ -506,9 +615,11 @@ describe('RipJobPanel', () => {
       />,
     )
     expect(screen.getByTestId('items')).toBeInTheDocument()
-    fireEvent.click(
-      screen.getByRole('button', { name: 'resources.rip.review.discard' }),
-    )
+    const discard = screen.getByRole('button', {
+      name: 'resources.rip.review.discard',
+    })
+    expect(destructive(discard)).toBe(true)
+    fireEvent.click(discard)
     const dialog = await screen.findByRole('dialog')
     expect(dialog.textContent).toContain('resources.rip.review.confirmNoFiles')
     http.mockReturnValueOnce(reply(null))

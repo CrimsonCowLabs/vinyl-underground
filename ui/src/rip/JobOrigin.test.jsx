@@ -1,8 +1,16 @@
 import React from 'react'
 import { render } from '@testing-library/react'
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import JobOrigin from './JobOrigin'
 import RipJobPanel from './review/RipJobPanel'
+import { stubResizeObserver } from '../common/stubResizeObserver'
+
+// The panel cuts the job's origin short with Clipped, which watches its size.
+let restoreResizeObserver
+beforeEach(() => {
+  restoreResizeObserver = stubResizeObserver().restore
+})
+afterEach(() => restoreResizeObserver())
 
 vi.mock('react-admin', async () => {
   const actual = await vi.importActual('react-admin')
