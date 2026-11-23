@@ -182,4 +182,43 @@ describe('wrapperDataProvider', () => {
       })
     })
   })
+
+  describe('saves that write to the Files', () => {
+    it("sends the album's values with its Tracks' changed numbers, answering the edit job", async () => {
+      const answer = {
+        jobId: 'job-1',
+        done: true,
+        albumId: 'al-2',
+        job: { skipped: 0 },
+      }
+      mockHttpClient.mockResolvedValue({ json: answer })
+      const tracks = [{ id: 'mf-1', discNumber: 1, trackNumber: 2 }]
+      await expect(
+        wrapperDataProvider.correctAlbum('al-1', {
+          name: 'Record',
+          albumArtist: 'Band',
+          year: 1999,
+          tracks,
+        }),
+      ).resolves.toEqual({ data: { id: 'job-1', ...answer } })
+      expect(mockHttpClient).toHaveBeenCalledWith('/api/correction/album', {
+        method: 'POST',
+        body: JSON.stringify({
+          albumId: 'al-1',
+          name: 'Record',
+          albumArtist: 'Band',
+          year: 1999,
+          tracks,
+        }),
+      })
+    })
+
+    it('answers a rename still running in the background', async () => {
+      const answer = { jobId: 'job-2', background: true, done: false }
+      mockHttpClient.mockResolvedValue({ json: answer })
+      await expect(
+        wrapperDataProvider.renameArtist('ar-1', 'Band'),
+      ).resolves.toEqual({ data: { id: 'job-2', ...answer } })
+    })
+  })
 })

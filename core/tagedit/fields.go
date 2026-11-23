@@ -135,11 +135,12 @@ func Clean(key string, vs []string) ([]string, error) {
 	if !ok {
 		return nil, fmt.Errorf("%w: no field %q", ErrInvalidTags, key)
 	}
-	return clean(f, vs)
+	return clean(f, vs, false)
 }
 
-// clean trims an edit's values, drops empty ones, and checks them.
-func clean(f Field, vs []string) ([]string, error) {
+// clean trims an edit's values, drops empty ones, and checks them. A single-valued field holds
+// one value, unless many (the File holds several already).
+func clean(f Field, vs []string, many bool) ([]string, error) {
 	var res []string
 	for _, v := range vs {
 		if f.Type != TypeLongText {
@@ -180,7 +181,7 @@ func clean(f Field, vs []string) ([]string, error) {
 		}
 		res = append(res, v)
 	}
-	if len(res) > 1 && !f.Multi && f.Type != TypeLongText {
+	if len(res) > 1 && !f.Multi && f.Type != TypeLongText && !many {
 		return nil, fmt.Errorf("%w: %s holds one value", ErrInvalidTags, f.Key)
 	}
 	return res, nil
@@ -198,7 +199,9 @@ func changes(cur map[string][]string, edit Values) (map[string][]string, error) 
 		if !ok {
 			return nil, fmt.Errorf("%w: no field %q", ErrInvalidTags, k)
 		}
-		vs, err := clean(f, vs)
+		// A File may hold several values of a single-valued field (e.g. two ARTIST frames): an
+		// edit may keep them.
+		vs, err := clean(f, vs, len(have[k]) > 1)
 		if err != nil {
 			return nil, err
 		}

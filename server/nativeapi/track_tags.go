@@ -169,7 +169,7 @@ func (api *Router) undoEditJob(w http.ResponseWriter, r *http.Request) {
 		writeTagEditError(w, r, err)
 		return
 	}
-	job, err := api.editQueue.Enqueue(ctx, model.EditUndo, steps)
+	job, err := api.editQueue.EnqueueWith(ctx, model.EditUndo, editjob.UndoJobArgs(chi.URLParam(r, "id")), steps)
 	if err != nil {
 		writeTagEditError(w, r, err)
 		return

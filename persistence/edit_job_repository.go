@@ -30,6 +30,9 @@ func (r *editJobRepository) Put(job *model.EditJob) error {
 		job.CreatedAt = now
 	}
 	job.UpdatedAt = now
+	if job.Args == "" {
+		job.Args = "{}"
+	}
 	id, err := r.put(job.ID, job)
 	if err != nil {
 		return err

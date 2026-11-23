@@ -3,9 +3,11 @@
 // one at a time, in order, so the Library is never written to in parallel. A job a restart
 // interrupted carries on first, from where it stopped.
 //
-// What a step writes is up to its kind (StepKind): tag edits, undos, an album's folder cover
-// and Embed in Files (cover.go); moves and Quarantine moves later. Each kind writes through the
-// Edit journal, with the job's ID.
+// What a step writes is up to its kind (StepKind): tag edits (set, or rewritten from each File's
+// own: rewrite.go), undos, an album's folder cover and Embed in Files (cover.go); moves and
+// Quarantine moves later. Each kind writes through the Edit journal, with the job's ID. What a
+// job does beyond its Files (e.g. moving an Artist's stars to its new name) is up to its
+// JobKind (see Queue.Handle).
 package editjob
 
 import (
@@ -65,12 +67,31 @@ type StepKind interface {
 	Code(err error) string
 }
 
+// JobKind does what a job of its kind does beyond writing its Files, and undoes it with the job's
+// undo (see Handle): e.g. an artist rename job moves the Artist's stars to its new name, and
+// removes the Corrections its Files no longer need. Each runs in the queue, and an error leaves
+// the job as it was, to be tried again later, so each must be safe to run again.
+type JobKind interface {
+	// Start runs as the job starts, before any of its Files is written (and as its redo does).
+	Start(ctx context.Context, job *model.EditJob) error
+	// Done runs once every step of the job has ended (steps), before the job is done (and once a
+	// redo's steps have).
+	Done(ctx context.Context, job *model.EditJob, steps model.EditJobSteps) error
+	// Undone runs once the steps of a job undoing the job's Files have ended (steps).
+	Undone(ctx context.Context, job *model.EditJob, steps model.EditJobSteps) error
+}
+
 // Queue keeps the edit jobs and runs them, in the background (see Run).
 type Queue struct {
-	ds     model.DataStore
-	broker events.Broker
-	kinds  map[model.EditKind]StepKind
-	wake   chan struct{}
+	ds       model.DataStore
+	broker   events.Broker
+	kinds    map[model.EditKind]StepKind
+	jobKinds map[model.EditKind]JobKind
+	wake     chan struct{}
+	// hookFails counts, by job, the failures of its JobKind in a row, up to hookTries (see
+	// giveUp). Only Run's goroutine touches it.
+	hookFails map[string]int
+	hookTries int
 
 	// mu guards changed, which is closed (and replaced) whenever a job changes, for Wait.
 	mu      sync.Mutex
@@ -82,12 +103,23 @@ func New(ds model.DataStore, broker events.Broker, kinds map[model.EditKind]Step
 	if broker == nil {
 		broker = events.NoopBroker()
 	}
-	return &Queue{ds: ds, broker: broker, kinds: kinds, wake: make(chan struct{}, 1), changed: make(chan struct{})}
+	return &Queue{ds: ds, broker: broker, kinds: kinds, jobKinds: map[model.EditKind]JobKind{},
+		hookFails: map[string]int{}, hookTries: 10, wake: make(chan struct{}, 1), changed: make(chan struct{})}
+}
+
+// Handle makes k do what jobs of the kind do beyond their steps. Call it before Run.
+func (q *Queue) Handle(kind model.EditKind, k JobKind) {
+	q.jobKinds[kind] = k
 }
 
 // Enqueue queues a job of the given kind, for the user in ctx, with one step per File, in
 // order. Every step is checked by its kind first: if any is refused, nothing is queued.
 func (q *Queue) Enqueue(ctx context.Context, kind model.EditKind, steps []model.EditJobStep) (*model.EditJob, error) {
+	return q.EnqueueWith(ctx, kind, "", steps)
+}
+
+// EnqueueWith is Enqueue, with the job's own Args (read by its JobKind, see Handle).
+func (q *Queue) EnqueueWith(ctx context.Context, kind model.EditKind, args string, steps []model.EditJobStep) (*model.EditJob, error) {
 	if len(steps) == 0 {
 		return nil, errors.New("an edit job needs at least one File")
 	}
@@ -109,7 +141,7 @@ func (q *Queue) Enqueue(ctx context.Context, kind model.EditKind, steps []model.
 		}
 		files[s.MediaFileID] = true
 	}
-	job := &model.EditJob{Kind: kind, State: model.EditJobQueued, Total: len(steps)}
+	job := &model.EditJob{Kind: kind, Args: args, State: model.EditJobQueued, Total: len(steps)}
 	if u, ok := request.UserFrom(ctx); ok {
 		job.UserID = u.ID
 	}
@@ -250,6 +282,10 @@ func (q *Queue) process(runCtx context.Context, job *model.EditJob) bool {
 	}
 	if job.State == model.EditJobQueued {
 		log.Info(ctx, "Starting an edit job", "job", job.ID, "files", len(steps))
+		if err := q.hook(ctx, job, nil, true); err != nil && !q.giveUp(ctx, job, err) {
+			log.Error(ctx, "Could not start an edit job; it is tried again later", "job", job.ID, "kind", job.Kind, err)
+			return false
+		}
 	} else {
 		log.Info(ctx, "Carrying on with an edit job a stop interrupted", "job", job.ID)
 	}
@@ -285,12 +321,82 @@ func (q *Queue) process(runCtx context.Context, job *model.EditJob) bool {
 			return false
 		}
 	}
+	if err := q.hook(ctx, job, steps, false); err != nil && !q.giveUp(ctx, job, err) {
+		log.Error(ctx, "Could not finish an edit job; it is tried again later", "job", job.ID, "kind", job.Kind, err)
+		return false
+	}
+	delete(q.hookFails, job.ID)
 	job.State, job.Current = model.EditJobDone, ""
 	if err := q.save(ctx, job, steps); err != nil {
 		return false
 	}
 	log.Info(ctx, "Finished an edit job", "job", job.ID, "files", job.Total, "skipped", job.Skipped)
 	return true
+}
+
+// giveUp reports whether the job's kind has failed (err) hookTries times in a row (since the app
+// started): its Files are what matter, so rather than holding up every job after it, the job
+// carries on without what its kind does, which the error log says.
+func (q *Queue) giveUp(ctx context.Context, job *model.EditJob, err error) bool {
+	q.hookFails[job.ID]++
+	if q.hookFails[job.ID] < q.hookTries {
+		return false
+	}
+	delete(q.hookFails, job.ID)
+	log.Error(ctx, "Gave up on what an edit job's kind does beyond its Files; the job carries on without it",
+		"job", job.ID, "kind", job.Kind, "tries", q.hookTries, err)
+	return true
+}
+
+// hook runs the JobKind of the job (see Handle) as it starts (starting), or once its steps have
+// ended (starting false). A job undoing another runs that one's kind: its Undone once its steps have ended, or,
+// when it undoes an undo (a redo), the kind's Start and Done, as the job it redoes did.
+func (q *Queue) hook(ctx context.Context, job *model.EditJob, steps model.EditJobSteps, starting bool) error {
+	target, undone, err := q.undoes(ctx, job, 0)
+	if err != nil || target == nil {
+		return err
+	}
+	k, ok := q.jobKinds[target.Kind]
+	if !ok {
+		return nil
+	}
+	switch {
+	case starting && undone:
+		return nil
+	case starting:
+		err = k.Start(ctx, target)
+	case undone:
+		err = k.Undone(ctx, target, steps)
+	default:
+		err = k.Done(ctx, target, steps)
+	}
+	if err != nil || target == job {
+		return err
+	}
+	// The kind may have noted something in the job it undoes or redoes (its Args).
+	return q.ds.EditJob(ctx).Put(target)
+}
+
+// undoes returns the job whose kind runs for job: job itself, or, for an undo job, the job it
+// undoes (and that job's, for an undo of an undo), and whether that job is being undone. It is
+// nil for an undo with no job (of single Files, from the Edit history).
+func (q *Queue) undoes(ctx context.Context, job *model.EditJob, depth int) (*model.EditJob, bool, error) {
+	if job.Kind != model.EditUndo {
+		return job, false, nil
+	}
+	of := undoJobOf(job)
+	if of == "" || depth > 100 {
+		return nil, false, nil
+	}
+	undone, err := q.ds.EditJob(ctx).Get(of)
+	if errors.Is(err, model.ErrNotFound) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	target, wasUndone, err := q.undoes(ctx, undone, depth+1)
+	return target, !wasUndone, err
 }
 
 // runStep writes the step's File, and records its outcome in the step.

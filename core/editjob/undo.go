@@ -69,6 +69,27 @@ func UndoJobSteps(ctx context.Context, ds model.DataStore, jobID string) ([]mode
 	return steps, nil
 }
 
+// undoJobArgs are an undo job's Args: the job whose Files it undoes, whose JobKind (see
+// Queue.Handle) undoes the rest once they are.
+type undoJobArgs struct {
+	Undoes string `json:"undoes,omitempty"`
+}
+
+// UndoJobArgs are the Args of a job of UndoJobSteps(jobID) (see Queue.EnqueueWith).
+func UndoJobArgs(jobID string) string {
+	b, _ := json.Marshal(undoJobArgs{Undoes: jobID})
+	return string(b)
+}
+
+// undoJobOf returns the job an undo job undoes, or "" for an undo of single Files.
+func undoJobOf(job *model.EditJob) string {
+	var a undoJobArgs
+	if job.Args == "" || json.Unmarshal([]byte(job.Args), &a) != nil {
+		return ""
+	}
+	return a.Undoes
+}
+
 // undoKind runs undo steps, with tagedit.Editor.UndoInJob. A refused undo (a later write changed
 // the same fields, it was undone already, ...) skips the File with the refusal's code.
 type undoKind struct {

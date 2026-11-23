@@ -90,6 +90,12 @@ type Corrections interface {
 	// Undo stops applying the Correction, rescans the folders of the Tracks it applied to, and
 	// then deletes it. If the rescan fails, it stays marked as undoing, and Undo can be retried.
 	Undo(ctx context.Context, id string) (*Applied, error)
+
+	// The album Edit dialog, Track order and artist rename and merge write to the Files instead
+	// (#163): these work out the edit job each queues (see write.go).
+	PlanAlbumEdit(ctx context.Context, albumID string, fix *AlbumFix, numbers []TrackNumber) (*Plan, error)
+	PlanArtistRename(ctx context.Context, artistID, name string) (*Plan, error)
+	PlanArtistMerge(ctx context.Context, artistID, intoID string) (*Plan, error)
 }
 
 // AlbumCover is a stored image to make an album's cover, and where it came from, as shown to the

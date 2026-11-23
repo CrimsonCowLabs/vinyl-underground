@@ -511,6 +511,14 @@ var _ = Describe("Editor", func() {
 		unchanged()
 	})
 
+	It("keeps several values of a single-valued field when the File holds several", func() {
+		set, err := changes(map[string][]string{"ARTIST": {"Ann", "Bob"}}, Values{"artist": {"Anne", "Bob"}})
+		Expect(err).ToNot(HaveOccurred())
+		Expect(set).To(Equal(map[string][]string{"ARTIST": {"Anne", "Bob"}}))
+		_, err = changes(map[string][]string{"ARTIST": {"Ann"}}, Values{"artist": {"Anne", "Bob"}})
+		Expect(err).To(MatchError(ErrInvalidTags))
+	})
+
 	It("is off when editing is off, or the Track's library is read-only", func() {
 		track("test.mp3")
 		core.SetLibraryEditing(core.LibraryEditing{})

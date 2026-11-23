@@ -7,6 +7,10 @@ import "time"
 // undoes, with UndoOf set.
 const EditUndo EditKind = "undo"
 
+// EditRewrite is the kind of a step that edits a File's tags as worked out from the tags the File
+// holds when it is written (see editjob.RewriteStep): e.g. renaming one of its artists.
+const EditRewrite EditKind = "rewrite"
+
 // EditJobState is where an edit job is in its life.
 type EditJobState string
 
@@ -41,8 +45,11 @@ const (
 type EditJob struct {
 	ID     string `structs:"id" json:"id"`
 	UserID string `structs:"user_id" json:"userId"`
-	// Kind is what the job does (tags, for now).
-	Kind  EditKind     `structs:"kind" json:"kind"`
+	// Kind is what the job does (tags, undo, or a job kind of its own, see editjob.JobKind).
+	Kind EditKind `structs:"kind" json:"kind"`
+	// Args are the job's own input, as JSON, read by its kind's JobKind (e.g. the Artist an artist
+	// rename job renames). Most jobs have none: their steps hold all they write.
+	Args  string       `structs:"args" json:"-"`
 	State EditJobState `structs:"state" json:"state"`
 	// Total is how many steps (Files) the job has. Done is how many have ended, Skipped how many
 	// of those weren't written. Current is the File being written now, relative to its library.
@@ -99,4 +106,19 @@ type EditJobRepository interface {
 	PutStep(step *EditJobStep) error
 	// Steps returns the steps of the job, in order; with states, only those in the states.
 	Steps(jobID string, states ...EditStepState) (EditJobSteps, error)
+
+	// KeepArtistAnnotations keeps, with the artist rename (or merge) job jobID, every Listener's
+	// star and rating of the Artist fromID, as they are before the job writes its Files: once the
+	// Files name the Artist's new name, fromID is gone, and so are its annotations. Keeping again
+	// replaces what was kept. Play counts aren't kept: each scan counts them from the Tracks.
+	KeepArtistAnnotations(jobID, fromID string) error
+	// MergeArtistAnnotations merges what the job kept into Artist toID's annotations, as an artist
+	// merge Correction does: toID keeps its own star and rating, taking the kept ones only where
+	// it has none, and fromID loses them. It merges what was kept once only, so it can run again.
+	MergeArtistAnnotations(jobID, fromID, toID string) error
+	// SplitArtistAnnotations undoes MergeArtistAnnotations: fromID gets back what was kept, and
+	// toID loses the star and rating it took, unless they changed since. With all (a rename: toID
+	// is only fromID's new name), fromID also gets the star and rating toID got since. Nothing is
+	// kept afterwards.
+	SplitArtistAnnotations(jobID, fromID, toID string, all bool) error
 }

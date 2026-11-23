@@ -196,6 +196,13 @@ func (e *Editor) EditInJob(ctx context.Context, jobID, trackID string, edit Valu
 	return e.EditWith(ctx, trackID, edit, EditOptions{JobID: jobID})
 }
 
+// RewriteInJob is EditInJob with the edit worked out by rewrite from the File's fields as they
+// are when it is written (read once it is guarded, while no other write can change it): e.g.
+// renaming one of its artists, which leaves the others alone.
+func (e *Editor) RewriteInJob(ctx context.Context, jobID, trackID string, rewrite func(cur Values) (Values, error)) (*Result, error) {
+	return e.RewriteWith(ctx, trackID, rewrite, EditOptions{JobID: jobID})
+}
+
 // EditOptions change how Edit records and finishes a write, for a job of many writes.
 type EditOptions struct {
 	// JobID groups the write with the job's others in the Edit journal, so the whole job can be
@@ -208,6 +215,11 @@ type EditOptions struct {
 
 // EditWith is Edit, for one write of a job.
 func (e *Editor) EditWith(ctx context.Context, trackID string, edit Values, opts EditOptions) (*Result, error) {
+	return e.RewriteWith(ctx, trackID, func(Values) (Values, error) { return edit, nil }, opts)
+}
+
+// RewriteWith is EditWith with the edit worked out by rewrite (see RewriteInJob).
+func (e *Editor) RewriteWith(ctx context.Context, trackID string, rewrite func(cur Values) (Values, error), opts EditOptions) (*Result, error) {
 	opts.JobID = cmp.Or(opts.JobID, id.NewRandom())
 	writeMu.Lock()
 	defer writeMu.Unlock()
@@ -223,6 +235,10 @@ func (e *Editor) EditWith(ctx context.Context, trackID string, edit Values, opts
 		return nil, err
 	}
 	orig, err := e.tagger.Read(f.abs)
+	if err != nil {
+		return nil, err
+	}
+	edit, err := rewrite(valuesOf(orig))
 	if err != nil {
 		return nil, err
 	}

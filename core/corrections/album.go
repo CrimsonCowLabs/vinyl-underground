@@ -112,7 +112,7 @@ func (c *corrections) CorrectAlbum(ctx context.Context, albumID string, fix Albu
 	// again while it has none (the archive failed, or had none then). Other edits leave it be.
 	fetchCover := fix.MbzAlbumID != "" && cr.ImageHash == "" && c.opts.PickedCover != nil
 	if !changed && !fetchCover {
-		return nil, fmt.Errorf("%w: nothing changed", model.ErrValidation)
+		return nil, ErrNothingToWrite
 	}
 	if err := c.checkSharedFolder(ctx, *al); err != nil {
 		return nil, err
