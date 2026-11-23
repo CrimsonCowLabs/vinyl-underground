@@ -60,7 +60,10 @@ func (e *Editor) QuarantineInJob(ctx context.Context, jobID, trackID string) (*R
 		return nil, err
 	}
 	m := Move{LibraryID: lib.ID, TrackID: mf.ID, Path: mf.Path, NewPath: quarantine.Into(mf.Path), Kind: model.EditQuarantine}
-	return e.quarantineMove(ctx, func() (*Result, error) { return e.move(ctx, jobID, m, "", nil) }, mf.ID, true)
+	return e.quarantineMove(ctx, func(before func() error) (*Result, error) {
+		m.Before = before
+		return e.move(ctx, jobID, m, "", nil)
+	}, mf.ID, true)
 }
 
 // CheckQuarantine is the refusal a Track's move into Quarantine meets before its File is looked
@@ -103,10 +106,13 @@ func (e *Editor) RestoreInJob(ctx context.Context, jobID string, libID int, rel 
 	if err != nil {
 		return nil, err
 	}
-	// The move names no Track: the Track's row is at the File's old path, not at rel, and stays
-	// there for the File to come back to. The step is told by its path, in its library.
-	m := Move{LibraryID: libID, Path: rel, NewPath: quarantine.Original(rel), Kind: model.EditQuarantine}
-	return e.quarantineMove(ctx, func() (*Result, error) { return e.move(ctx, jobID, m, "", nil) }, trackID, false)
+	// The Track's row is at the File's old path already, and stays there for the File to come
+	// back to (the move leaves the row alone).
+	m := Move{LibraryID: libID, TrackID: trackID, Path: rel, NewPath: quarantine.Original(rel), Kind: model.EditQuarantine}
+	return e.quarantineMove(ctx, func(before func() error) (*Result, error) {
+		m.Before = before
+		return e.move(ctx, jobID, m, "", nil)
+	}, trackID, false)
 }
 
 // CheckRestore is the refusal a restore of the File at rel in Quarantine meets before the File is
@@ -150,29 +156,28 @@ func (e *Editor) undoQuarantine(ctx context.Context, jobID string, entry *model.
 			return nil, err
 		}
 	}
-	trackID := entry.MediaFileID
-	if trackID == "" {
-		// A restore of a File the recipes moved: its Track is the row at where it went.
-		if mfs, err := e.ds.MediaFile(ctx).GetAll(model.QueryOptions{Max: 1, Filters: squirrel.Eq{
-			"media_file.library_id": entry.LibraryID, "media_file.path": entry.NewPath}}); err == nil && len(mfs) > 0 {
-			trackID = mfs[0].ID
-		}
-	}
-	return e.quarantineMove(ctx, func() (*Result, error) { return e.undoMove(ctx, jobID, entry) }, trackID, into)
+	return e.quarantineMove(ctx, func(before func() error) (*Result, error) {
+		return e.undoMoveWith(ctx, jobID, entry, before)
+	}, entry.MediaFileID, into)
 }
 
 // quarantineMove runs a move into Quarantine (into) or out of it, of the Track trackID's File
-// (if it has one), and brings the Track up to date. Into Quarantine, the Track is marked before
-// its File goes, so no scan in between takes it for an ordinary missing Track, which the Missing
-// files page and PurgeMissing delete; the mark is taken off again if the File stays.
-func (e *Editor) quarantineMove(ctx context.Context, move func() (*Result, error), trackID string, into bool) (*Result, error) {
+// (if it has one), and brings the Track up to date. Into Quarantine, the Track is marked once the
+// move is journaled and before its File goes (Move.Before), so no scan in between takes it for an
+// ordinary missing Track, which the Missing files page and PurgeMissing delete; the mark is taken
+// off again if the File stays (or by Settle, after a stop).
+func (e *Editor) quarantineMove(ctx context.Context, move func(before func() error) (*Result, error), trackID string, into bool) (*Result, error) {
 	repo := e.ds.MediaFile(ctx)
+	var before func() error
 	if into && trackID != "" {
-		if err := repo.MarkQuarantined(true, trackID); err != nil {
-			return nil, fmt.Errorf("marking the Track as in Quarantine: %w", err)
+		before = func() error {
+			if err := repo.MarkQuarantined(true, trackID); err != nil {
+				return fmt.Errorf("marking the Track as in Quarantine: %w", err)
+			}
+			return nil
 		}
 	}
-	res, err := move()
+	res, err := move(before)
 	if err != nil {
 		if into && trackID != "" && !errors.Is(err, safefile.ErrUnrecorded) {
 			if merr := repo.MarkQuarantined(false, trackID); merr != nil {

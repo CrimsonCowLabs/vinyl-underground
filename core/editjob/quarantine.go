@@ -137,17 +137,19 @@ func (k restoreKind) args(step *model.EditJobStep) (restoreArgs, error) {
 	return a, nil
 }
 
-// Check refuses a restore up front. The move names no Track (see RestoreInJob), so the queue
-// tells the step, and a restart its journal entry, by its path in its library (its Args').
+// Check refuses a restore up front, and fills in the Track that comes back with the File, if any:
+// the queue tells the step, and a restart its journal entry, by it (or else by its path, in its
+// library).
 func (k restoreKind) Check(ctx context.Context, step *model.EditJobStep) error {
 	a, err := k.args(step)
 	if err != nil {
 		return err
 	}
-	if _, err := k.editor.CheckRestore(ctx, a.LibraryID, a.Path); err != nil {
+	trackID, err := k.editor.CheckRestore(ctx, a.LibraryID, a.Path)
+	if err != nil {
 		return err
 	}
-	step.Path = a.Path
+	step.MediaFileID, step.Path = trackID, a.Path
 	return nil
 }
 

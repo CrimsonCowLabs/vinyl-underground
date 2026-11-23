@@ -834,7 +834,7 @@
         "noSelection": "Select the Tracks to send to Quarantine.",
         "tooMany": "Too many Tracks selected one by one.",
         "notFound": "This Track, or File, is no longer there.",
-        "changedOnDisk": "The File isn't where the app last saw it. Rescan the library first.",
+        "changedOnDisk": "The File changed on disk since the last scan, or isn't where the app last saw it. Rescan the library first.",
         "pathTaken": "A File is already there, in some letter case, so nothing was moved.",
         "caseTwin": "A folder on the way has a twin whose name differs only in letter case. Merge the two first.",
         "outside": "A folder on the way leads out of the library (a link), so nothing is moved through it.",

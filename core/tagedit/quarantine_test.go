@@ -160,6 +160,13 @@ var _ = Describe("Quarantine moves", func() {
 			Expect(err).To(MatchError(ErrInQuarantine))
 		})
 
+		It("flags a File where one of its folders should be", func() {
+			write("_Quarantine/Artist", "a File")
+			_, err := editor.QuarantineInJob(ctx, "job-1", "mf-1")
+			Expect(Code(err)).To(Equal("pathTaken"))
+			Expect(content(songPath)).To(Equal("song"))
+		})
+
 		It("marks the Track as in Quarantine before its File goes, so no scan in between purges it", func() {
 			var atRename *model.MediaFile
 			editor.fsys = renameSpyFS{FS: safefile.OS{}, onRename: func() { atRename = track("mf-1") }}
@@ -205,6 +212,19 @@ var _ = Describe("Quarantine moves", func() {
 			Expect(entry(e.ID).State).To(Equal(model.EditWritten))
 			Expect(track("mf-1").Quarantined).To(BeTrue())
 			Expect(track("mf-1").Missing).To(BeTrue())
+		})
+
+		It("takes the mark off a Track whose undo of a restore a stop cut off before the File moved", func() {
+			// An undo sending a restored File back: journaled, its Track marked, then the stop.
+			info, err := os.Stat(abs(songPath))
+			Expect(err).ToNot(HaveOccurred())
+			e := &model.EditEntry{JobID: "job-1", Kind: model.EditQuarantine, State: model.EditPending, LibraryID: 1,
+				MediaFileID: "mf-1", Path: songPath, NewPath: "_Quarantine/" + songPath, CopySum: safefile.RenameMark(info), UndoOf: "r-1"}
+			Expect(ds.EditJournal(ctx).Put(e)).To(Succeed())
+			Expect(ds.MediaFile(ctx).MarkQuarantined(true, "mf-1")).To(Succeed())
+			editor.Settle(ctx)
+			Expect(entry(e.ID).State).To(Equal(model.EditFailed))
+			Expect(track("mf-1").Quarantined).To(BeFalse())
 		})
 
 		It("closes as failed a move the stop cut off before the File was moved", func() {
@@ -289,9 +309,29 @@ var _ = Describe("Quarantine moves", func() {
 			Expect(content(songPath)).To(Equal("song"))
 			e := entry(res.Entry)
 			Expect(e.Kind).To(Equal(model.EditQuarantine))
-			Expect(e.MediaFileID).To(BeEmpty(), "the Track's row stays at the File's old path, for it to come back to")
+			Expect(e.MediaFileID).To(Equal("mf-1"))
 			Expect(e.Path).To(Equal("_Quarantine/" + songPath))
 			Expect(e.NewPath).To(Equal(songPath))
+			Expect(track("mf-1").Quarantined).To(BeFalse())
+		})
+
+		It("is undone by sending the File, and its Track, back to Quarantine; restoring that again brings the Track back", func() {
+			write("_Quarantine/"+songPath, "song")
+			Expect(os.Remove(abs(songPath))).To(Succeed())
+			Expect(ds.MediaFile(ctx).MarkQuarantined(true, "mf-1")).To(Succeed())
+			Expect(ds.MediaFile(ctx).MarkMissing(true, &model.MediaFile{ID: "mf-1"})).To(Succeed())
+			res, err := editor.RestoreInJob(ctx, "job-2", 1, "_Quarantine/"+songPath)
+			Expect(err).ToNot(HaveOccurred())
+
+			undo, err := editor.Undo(ctx, res.Entry)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(content("_Quarantine/" + songPath)).To(Equal("song"))
+			Expect(entry(undo.Entry).MediaFileID).To(Equal("mf-1"))
+			Expect(track("mf-1").Quarantined).To(BeTrue())
+
+			_, err = editor.Undo(ctx, undo.Entry)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(content(songPath)).To(Equal("song"))
 			Expect(track("mf-1").Quarantined).To(BeFalse())
 		})
 

@@ -27,6 +27,10 @@ type Move struct {
 	// Kind is the kind the move is journaled as: model.EditMove when empty. Another kind must be
 	// registered with RegisterMoveKind first.
 	Kind model.EditKind `json:"kind,omitempty"`
+	// Before, if set, runs once the move is journaled (pending) and before the File moves; an
+	// error stops the move, and the entry is closed as failed. Quarantine marks the Track there,
+	// so a restart's Settle can take the mark off again.
+	Before func() error `json:"-"`
 }
 
 // moveKinds are the journal kinds that are moves made by MoveInJob, each with whether the move
@@ -118,12 +122,15 @@ func (e *Editor) move(ctx context.Context, jobID string, m Move, undoOf string, 
 			return nil, err
 		}
 	}
+	// rowAtNew is a Track whose row is at the File's new path already: the move being undone
+	// left it there, or a move that leaves the row alone brings the File back to it (a restore
+	// from Quarantine).
+	rowAtNew := false
 	if mf != nil {
 		switch {
 		case mf.LibraryID == m.LibraryID && mf.Path == m.Path:
-		case undoOf != "" && mf.LibraryID == m.LibraryID && mf.Path == m.NewPath:
-			// The move being undone left the Track's row where it was.
-			relocate = false
+		case (undoOf != "" || !relocate) && mf.LibraryID == m.LibraryID && mf.Path == m.NewPath:
+			relocate, rowAtNew = false, true
 		default:
 			return nil, fmt.Errorf("%w: the Track isn't at %s", ErrChangedOnDisk, m.Path)
 		}
@@ -133,7 +140,7 @@ func (e *Editor) move(ctx context.Context, jobID string, m Move, undoOf string, 
 		if err := check(src); err != nil {
 			return nil, err
 		}
-	case mf != nil:
+	case mf != nil && !rowAtNew:
 		if err := e.guard(&file{mf: mf, lib: lib, abs: src}); err != nil {
 			return nil, err
 		}
@@ -156,6 +163,12 @@ func (e *Editor) move(ctx context.Context, jobID string, m Move, undoOf string, 
 	journal := e.ds.EditJournal(ctx)
 	if err := journal.Put(entry); err != nil {
 		return nil, fmt.Errorf("recording the move in the Edit journal: %w", err)
+	}
+	if m.Before != nil {
+		if err := m.Before(); err != nil {
+			e.close(ctx, entry, false, err)
+			return nil, err
+		}
 	}
 	err = safefile.Move(e.fsys, src, absPath(lib, newPath), safefile.MoveHooks{
 		// A rename (on one share) is told by the File's size and time, a copy (across
@@ -237,6 +250,11 @@ func absPath(lib *model.Library, rel string) string {
 // (ErrChangedLater), when the File at NewPath isn't the one moved (ErrChangedOnDisk), and when
 // Path is taken (safefile.ErrDestTaken).
 func (e *Editor) undoMove(ctx context.Context, jobID string, entry *model.EditEntry) (*Result, error) {
+	return e.undoMoveWith(ctx, jobID, entry, nil)
+}
+
+// undoMoveWith is undoMove, running before once the undo is journaled (see Move.Before).
+func (e *Editor) undoMoveWith(ctx context.Context, jobID string, entry *model.EditEntry, before func() error) (*Result, error) {
 	err := e.checkLater(ctx, entry, func(l model.EditEntry) error {
 		return fmt.Errorf("%w: the File was written or moved since", ErrChangedLater)
 	})
@@ -265,7 +283,7 @@ func (e *Editor) undoMove(ctx context.Context, jobID string, entry *model.EditEn
 		}
 		return nil
 	}
-	m := Move{LibraryID: entry.LibraryID, TrackID: entry.MediaFileID, Path: entry.NewPath, NewPath: entry.Path, Kind: entry.Kind}
+	m := Move{LibraryID: entry.LibraryID, TrackID: entry.MediaFileID, Path: entry.NewPath, NewPath: entry.Path, Kind: entry.Kind, Before: before}
 	return e.move(ctx, jobID, m, entry.ID, check)
 }
 

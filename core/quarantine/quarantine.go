@@ -74,7 +74,7 @@ func lookup(fsys safefile.FS, dir, name string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	// The exact name first: a case-sensitive share may hold both.
+	// The exact name first: a case-sensitive share may hold both (listing reads that one).
 	if i := slices.IndexFunc(entries, func(e fs.DirEntry) bool { return e.Name() == name }); i >= 0 {
 		return entries[i].Name(), nil
 	}
@@ -88,7 +88,9 @@ func lookup(fsys safefile.FS, dir, name string) (string, error) {
 
 // Ensure makes the library at root's Quarantine folder, reusing one in another letter case
 // (safefile.EnsureDir), with the .ndignore that keeps the scanner out of it. It returns the
-// folder, relative to root, as it is on disk.
+// folder, relative to root, as it is on disk. Two folders whose names differ only in letter case
+// (possible on a case-sensitive share) are refused (safefile.ErrCaseTwin), as every move is:
+// merge them first.
 func Ensure(fsys safefile.FS, root string) (string, error) {
 	dir, err := safefile.EnsureDir(fsys, root, Folder())
 	if err != nil {
