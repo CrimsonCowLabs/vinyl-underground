@@ -45,7 +45,7 @@ describe('YtDlpControl', () => {
 
   it('says when a newer release is available and highlights Update', async () => {
     http.mockReturnValueOnce(
-      reply({ version: '2026.10.01', latest: '2026.11.01' }),
+      reply({ version: '2026.10.01', latest: '2026.11.01', newer: true }),
     )
     render(<YtDlpControl />)
 
@@ -59,7 +59,7 @@ describe('YtDlpControl', () => {
 
   it('says when the installed version is the latest', async () => {
     http.mockReturnValueOnce(
-      reply({ version: '2026.11.01', latest: '2026.11.01' }),
+      reply({ version: '2026.11.01', latest: '2026.11.01', newer: false }),
     )
     render(<YtDlpControl />)
 
@@ -71,8 +71,28 @@ describe('YtDlpControl', () => {
     expect(highlighted(updateButton())).toBe(false)
   })
 
+  it('says up to date when the installed version is newer than the latest release', async () => {
+    http.mockReturnValueOnce(
+      reply({
+        version: '2026.11.01.232857',
+        latest: '2026.11.01',
+        newer: false,
+      }),
+    )
+    render(<YtDlpControl />)
+
+    expect(
+      await screen.findByText(
+        /resources.rip.ytdlp.versionUpToDate.*2026.11.01.232857/,
+      ),
+    ).toBeInTheDocument()
+    expect(highlighted(updateButton())).toBe(false)
+  })
+
   it('says which release Update will install when yt-dlp is not installed yet', async () => {
-    http.mockReturnValueOnce(reply({ version: '', latest: '2026.11.01' }))
+    http.mockReturnValueOnce(
+      reply({ version: '', latest: '2026.11.01', newer: true }),
+    )
     render(<YtDlpControl />)
 
     expect(
@@ -111,13 +131,13 @@ describe('YtDlpControl', () => {
   it('updates yt-dlp on demand and shows the new version', async () => {
     http
       .mockReturnValueOnce(
-        reply({ version: '2026.10.01', latest: '2026.11.01' }),
+        reply({ version: '2026.10.01', latest: '2026.11.01', newer: true }),
       )
       .mockReturnValueOnce(
         reply({ previous: '2026.10.01', version: '2026.11.01', updated: true }),
       )
       .mockReturnValueOnce(
-        reply({ version: '2026.11.01', latest: '2026.11.01' }),
+        reply({ version: '2026.11.01', latest: '2026.11.01', newer: false }),
       )
     render(<YtDlpControl />)
     await screen.findByText(/versionAvailable/)
@@ -197,7 +217,7 @@ describe('YtDlpControl', () => {
   it("shows the updated version even when the new state can't be read back", async () => {
     http
       .mockReturnValueOnce(
-        reply({ version: '2026.10.01', latest: '2026.11.01' }),
+        reply({ version: '2026.10.01', latest: '2026.11.01', newer: true }),
       )
       .mockReturnValueOnce(
         reply({ previous: '2026.10.01', version: '2026.11.01', updated: true }),
