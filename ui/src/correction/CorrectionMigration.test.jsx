@@ -74,10 +74,15 @@ const plan = {
         from: 'Band – Recrod',
         to: 'Band – Record',
       },
-      changes: [{ field: 'album', to: 'Record' }],
+      changes: [
+        { field: 'album', to: 'Record' },
+        {
+          field: 'musicbrainz_albumid',
+          to: 'a7f8ed5e-1111-4a1b-9c1d-123456789abc',
+        },
+      ],
       files: 2,
       flags: [],
-      keepsRelease: true,
       lastRun: [{ path: 'Band/Record/01.mp3', code: 'changedOnDisk' }],
     },
   ],
@@ -111,9 +116,12 @@ describe('Correction migration', () => {
         'Band/Record/03.flac: resources.correction.migration.codes.unsupportedFormat',
       ),
     ).toBeTruthy()
+    // A picked MusicBrainz release is written too (#170).
     expect(
-      screen.getByText('resources.correction.migration.keepsRelease'),
-    ).toBeTruthy()
+      screen.getByText(
+        /resources.correction.migration.fields.musicbrainz_albumid/,
+      ).textContent,
+    ).toContain('a7f8ed5e-1111-4a1b-9c1d-123456789abc')
     expect(
       screen.getByText(/resources.correction.migration.lastRun/),
     ).toBeTruthy()

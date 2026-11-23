@@ -78,7 +78,7 @@ FileFlags.propTypes = { flags: PropTypes.array, label: PropTypes.string }
 export const MigrationItem = ({ item }) => {
   const classes = useStyles()
   const translate = useTranslate()
-  const { correction, changes, files, flags, keepsRelease, lastRun } = item
+  const { correction, changes, files, flags, lastRun } = item
   return (
     <ListItem divider alignItems="flex-start">
       <ListItemText
@@ -108,11 +108,6 @@ export const MigrationItem = ({ item }) => {
                   })
                 : translate('resources.correction.migration.noFiles')}
             </Typography>
-            {keepsRelease && (
-              <Typography variant="body2" color="textSecondary">
-                {translate('resources.correction.migration.keepsRelease')}
-              </Typography>
-            )}
             <FileFlags
               flags={flags}
               label="resources.correction.migration.flagged"
