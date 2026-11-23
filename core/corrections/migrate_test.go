@@ -315,7 +315,7 @@ var _ = Describe("Migrating Corrections into the Files", func() {
 			stored, err := artwork.StoreChosenCover(cover)
 			Expect(err).ToNot(HaveOccurred())
 			album = addCorrection(model.Correction{Kind: model.CorrectionAlbum, MatchKey: folder.ID, From: "Recrod",
-				To: "MusicBrainz: Record (GB, CD, 1999)",
+				To:         "MusicBrainz: Record (GB, CD, 1999)",
 				MbzAlbumID: "a7f8ed5e-1111-4a1b-9c1d-123456789abc", MbzReleaseGroupID: "b7f8ed5e-1111-4a1b-9c1d-123456789abc",
 				ImageHash: stored.Hash, ImageMime: stored.Mime})
 			m, err := svc.PlanMigration(ctx, editor)

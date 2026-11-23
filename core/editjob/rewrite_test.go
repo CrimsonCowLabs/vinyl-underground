@@ -80,7 +80,7 @@ var _ = Describe("Rewrite", func() {
 
 	It("fills fields only where the File holds none, and never drops a field it sets", func() {
 		r := Rewrite{
-			Set: tagedit.Values{"albumartist": {"Band"}, "musicbrainz_albumartistid": {"id-band"}},
+			Set:  tagedit.Values{"albumartist": {"Band"}, "musicbrainz_albumartistid": {"id-band"}},
 			Drop: map[string][]string{"albumartist": {"albumartists", "musicbrainz_albumartistid"}},
 			Fill: tagedit.Values{"musicbrainz_trackid": {"rec-1"}, "musicbrainz_releasetrackid": {"rt-1"}},
 		}
