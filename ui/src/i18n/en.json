@@ -702,7 +702,7 @@
         "titleNumber": "The title starts with a number. Run retag, or fix the title first",
         "noTrackNumber": "No track number",
         "noDiscNumber": "No disc number, on a multi-disc album",
-        "caseTwin": "A folder on the way has a twin whose name differs only in letter case. Merge the two first",
+        "caseTwin": "A folder on the way has a twin whose name differs only in letter case. Merge them first, with Merge case twins in the Library manager",
         "samePath": "Another File is planned for the same path",
         "pathTaken": "A File is at the new path already",
         "editingOff": "Its library is read-only",
