@@ -25,3 +25,17 @@ func (OS) RenameNoReplace(oldname, newname string) error {
 	}
 	return nil
 }
+
+// RenameExclusive renames oldname to newname by renameat2's RENAME_NOREPLACE only: fs.ErrExist
+// when anything is at newname (on the case-insensitive NAS, a name differing only in letter case
+// too), errors.ErrUnsupported where the filesystem doesn't take the flag: never a plain rename.
+func (OS) RenameExclusive(oldname, newname string) error {
+	err := unix.Renameat2(unix.AT_FDCWD, oldname, unix.AT_FDCWD, newname, unix.RENAME_NOREPLACE)
+	switch {
+	case errors.Is(err, unix.EINVAL) || errors.Is(err, unix.ENOSYS) || errors.Is(err, unix.ENOTSUP):
+		return errors.ErrUnsupported
+	case err != nil:
+		return &os.LinkError{Op: "rename", Old: oldname, New: newname, Err: err}
+	}
+	return nil
+}

@@ -116,6 +116,31 @@ var _ = Describe("MediaRepository", func() {
 			Expect(at[0].ID).To(Equal("rel-mf-1"))
 			Expect(at[0].Starred).To(BeTrue())
 		})
+
+		It("Repath points the Track at its renamed File, keeping its ID and its updated_at", func() {
+			scanned := time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC)
+			Expect(mr.Put(&model.MediaFile{ID: "rel-mf-1", LibraryID: 1, Path: "Music/Atb/song.mp3", FolderID: "f-old", Title: "Song", UpdatedAt: scanned})).To(Succeed())
+			Expect(mr.SetStar(true, "rel-mf-1")).To(Succeed())
+
+			Expect(mr.Repath("rel-mf-1", "Music/Atb [case-merge]/song.mp3", "f-new")).To(Succeed())
+
+			got, err := mr.Get("rel-mf-1")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(got.Path).To(Equal("Music/Atb [case-merge]/song.mp3"))
+			Expect(got.FolderID).To(Equal("f-new"))
+			Expect(got.LibraryID).To(Equal(1))
+			Expect(got.Starred).To(BeTrue())
+			Expect(got.UpdatedAt.Unix()).To(Equal(scanned.Unix()))
+			Expect(got.Missing).To(BeFalse())
+			Expect(mr.Repath("rel-mf-nope", "x", "f")).To(MatchError(model.ErrNotFound))
+
+			Expect(mr.Put(&model.MediaFile{ID: "rel-mf-2", LibraryID: 1, Path: "Music/Atb/gone.mp3", Missing: true})).To(Succeed())
+			Expect(mr.Repath("rel-mf-2", "Music/Atb [case-merge]/gone.mp3", "f-new")).To(Succeed())
+			got, err = mr.Get("rel-mf-2")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(got.Path).To(Equal("Music/Atb [case-merge]/gone.mp3"))
+			Expect(got.Missing).To(BeTrue(), "the next scan finds its File")
+		})
 	})
 
 	Describe("GetCursor", func() {

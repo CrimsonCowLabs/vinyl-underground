@@ -583,6 +583,10 @@ func (e *Editor) Settle(ctx context.Context) {
 			e.settleDelete(ctx, lib, entry)
 			continue
 		}
+		if entry.Kind == model.EditRename {
+			e.settleRename(ctx, lib, entry)
+			continue
+		}
 		if entry.Kind == model.EditQuarantine {
 			e.settleQuarantine(ctx, lib, entry)
 			continue

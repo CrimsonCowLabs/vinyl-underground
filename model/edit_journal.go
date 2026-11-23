@@ -35,6 +35,11 @@ const (
 	// EditDelete is a File in Quarantine that Empty Quarantine deleted for good (#168): Path is
 	// where it was, and NewPath is empty. It can't be undone.
 	EditDelete EditKind = "delete"
+	// EditRename is a File or folder renamed or moved with all it holds, by one rename (a case
+	// merge, #169): Path is the name the rename took (on the NAS, the case twin it reached, if it
+	// reached that one) and NewPath where it put it. Every Track under Path was pointed at its
+	// place under NewPath, keeping its ID. It has no Track of its own (MediaFileID is empty).
+	EditRename EditKind = "rename"
 )
 
 // EditState is how far a write got.

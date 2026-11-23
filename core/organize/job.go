@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/navidrome/navidrome/core/editjob"
+	"github.com/navidrome/navidrome/core/quarantine"
 	"github.com/navidrome/navidrome/core/safefile"
 	"github.com/navidrome/navidrome/core/tagedit"
 	"github.com/navidrome/navidrome/log"
@@ -23,7 +24,9 @@ const maxScanTargets = 200
 
 // JobKinds are Organize's job kind, for the edit job queue (editjob.Queue.Handle).
 func JobKinds(ds model.DataStore, editor *tagedit.Editor) map[model.EditKind]editjob.JobKind {
-	return map[model.EditKind]editjob.JobKind{model.EditOrganize: jobKind{ds: ds, editor: editor}}
+	k := jobKind{ds: ds, editor: editor}
+	// #169: the case merge's two phases tidy and rescan the same way.
+	return map[model.EditKind]editjob.JobKind{model.EditOrganize: k, model.EditCaseRename: k, model.EditCaseMerge: k}
 }
 
 // jobKind is what an Organize job does beyond moving its Files: once they have moved (or moved
@@ -135,10 +138,10 @@ func (k jobKind) tidy(ctx context.Context, job *model.EditJob) error {
 	}
 	dirs := map[int][]string{}
 	for _, e := range entries {
-		if e.Kind != model.EditMove || e.State != model.EditWritten {
+		if e.State != model.EditWritten {
 			continue
 		}
-		for _, p := range []string{e.Path, e.NewPath} {
+		for _, p := range tidyPaths(e) {
 			if d := dirOf(p); !slices.Contains(dirs[e.LibraryID], d) {
 				dirs[e.LibraryID] = append(dirs[e.LibraryID], d)
 			}
@@ -178,6 +181,22 @@ func (k jobKind) tidy(ctx context.Context, job *model.EditJob) error {
 	}
 	if err := k.editor.RescanTargets(ctx, targets); err != nil {
 		log.Warn(ctx, "Scan after Organize failed; the moved Tracks show at their new place after the next scan", "job", job.ID, err)
+	}
+	return nil
+}
+
+// tidyPaths are the paths of a written entry whose folders the job tidies and rescans: a move's
+// (or a case merge's rename's) old and new path; a case merge's Duplicate moved into Quarantine
+// (or out, by its undo), its path in the Library.
+func tidyPaths(e model.EditEntry) []string {
+	switch e.Kind {
+	case model.EditMove, model.EditRename:
+		return []string{e.Path, e.NewPath}
+	case model.EditQuarantine:
+		if quarantine.Within(e.Path) {
+			return []string{e.NewPath}
+		}
+		return []string{e.Path}
 	}
 	return nil
 }

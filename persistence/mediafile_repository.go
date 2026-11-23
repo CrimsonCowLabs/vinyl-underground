@@ -468,6 +468,22 @@ func (r *mediaFileRepository) Relocate(id string, libraryID int, path, folderID 
 	return nil
 }
 
+func (r *mediaFileRepository) Repath(id string, path, folderID string) error {
+	var cur struct {
+		LibraryID int
+		UpdatedAt time.Time
+		Missing   bool
+	}
+	if err := r.queryOne(Select("library_id", "updated_at", "missing").From(r.tableName).Where(Eq{"id": id}), &cur); err != nil {
+		return err
+	}
+	if err := r.Relocate(id, cur.LibraryID, path, folderID); err != nil {
+		return err
+	}
+	_, err := r.executeSQL(Update(r.tableName).Set("updated_at", cur.UpdatedAt).Set("missing", cur.Missing).Where(Eq{"id": id}))
+	return err
+}
+
 func (r *mediaFileRepository) ReassignReferences(prevID, newID string) error {
 	if err := r.ReassignAnnotation(prevID, newID); err != nil {
 		return fmt.Errorf("reassigning annotations: %w", err)
