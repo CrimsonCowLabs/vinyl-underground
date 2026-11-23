@@ -52,8 +52,6 @@ func (l *fakeLibrary) EditWith(_ context.Context, id string, v tagedit.Values, o
 				mf.Year, _ = strconv.Atoi(vs[0])
 			case "musicbrainz_trackid":
 				mf.MbzRecordingID = vs[0]
-			case "musicbrainz_albumid":
-				mf.MbzAlbumID = vs[0]
 			}
 		}
 	}
@@ -158,6 +156,17 @@ var _ = Describe("Run", func() {
 		Expect(report.String()).To(ContainSubstring("skipped\tA/B/Song 1.mp3"))
 	})
 
+	It("takes a path as a folder, not a prefix of a name", func() {
+		lib.mfs = model.MediaFiles{
+			track("1", "Radiohead/01 - X.mp3", "01 - X", 0, 200),
+			track("2", "Radiohead Tribute/01 - Y.mp3", "01 - Y", 0, 200),
+		}
+		opts.PathPrefix = "Radiohead"
+		run()
+		Expect(lib.edits).To(HaveKey("1"))
+		Expect(lib.edits).NotTo(HaveKey("2"))
+	})
+
 	It("skips a File that changed on disk, and goes on", func() {
 		lib.mfs = model.MediaFiles{
 			track("1", "A/B/01 - X.mp3", "01 - X", 0, 200),
@@ -183,7 +192,7 @@ var _ = Describe("Run", func() {
 			opts.MusicBrainz = mb
 		})
 
-		It("names Files with no real title from the album's release, and tags the album's IDs", func() {
+		It("names Files with no real title from the album's release, and tags the tracks' IDs", func() {
 			lib.mfs = model.MediaFiles{
 				track("1", "R/OKC/01 Airbag.mp3", "Airbag", 1, 200),
 				track("2", "R/OKC/02.mp3", "Track 02", 2, 201),
@@ -192,7 +201,7 @@ var _ = Describe("Run", func() {
 			sum := run()
 			Expect(mb.searches).To(Equal([]string{"Radiohead|OK Computer"}))
 			Expect(lib.edits["2"]).To(HaveKeyWithValue("title", []string{"Paranoid Android"}))
-			Expect(lib.edits["1"]).To(HaveKeyWithValue("musicbrainz_albumid", []string{"rel"}))
+			Expect(lib.edits["1"]).To(HaveKeyWithValue("musicbrainz_trackid", []string{"rec1-1"}))
 			Expect(lib.edits["1"]).NotTo(HaveKey("title"))
 			Expect(sum.FromMusicBrainz).To(Equal(3))
 		})
@@ -208,7 +217,30 @@ var _ = Describe("Run", func() {
 				track("3", "R/OKC/03 Subterranean.mp3", "Subterranean Homesick Alien", 3, 202),
 			}
 			run()
-			Expect(lib.edits["1"]).To(HaveKeyWithValue("musicbrainz_albumid", []string{"rel"}))
+			Expect(report.String()).To(ContainSubstring("musicbrainz release rel\t"))
+			Expect(report.String()).NotTo(ContainSubstring("release bigger"))
+		})
+
+		It("names the closest release when none matches", func() {
+			mb.found = []musicbrainz.Release{{ID: "rel", Score: 100, Title: "OK Computer", ArtistCredit: credit("Radiohead", "a-rh")}}
+			lib.mfs = model.MediaFiles{
+				track("1", "R/OKC/01 Creep.mp3", "Creep", 0, 200),
+				track("2", "R/OKC/02 Karma.mp3", "Karma Police", 2, 201),
+			}
+			run()
+			Expect(report.String()).To(ContainSubstring("closest: OK Computer by Radiohead, release rel"))
+		})
+
+		It("reports where MusicBrainz differs from a File it changes nothing in", func() {
+			lib.mfs = model.MediaFiles{
+				track("1", "R/OKC/01 Airbag.mp3", "Airbag", 1, 200),
+				track("2", "R/OKC/02 Paranoid Android.mp3", "Paranoid Android", 2, 201),
+				track("3", "R/OKC/03 Subterranean.mp3", "Subterranean Homesick Alien", 0, 202),
+			}
+			lib.mfs[0].Year = 2001
+			lib.mfs[0].MbzRecordingID = "rec1-1"
+			run()
+			Expect(report.String()).To(ContainSubstring("noted\tR/OKC/01 Airbag.mp3\t\tmusicbrainz release rel\tkept year 2001"))
 		})
 
 		It("asks nothing for an album with nothing to repair", func() {

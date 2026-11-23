@@ -133,17 +133,6 @@ type ReleaseGroup struct {
 	FirstReleaseDate string   `json:"first-release-date"`
 }
 
-// IDs are the credit's artists' MusicBrainz IDs, in order.
-func (c ArtistCredits) IDs() []string {
-	var ids []string
-	for _, a := range c {
-		if a.Artist.ID != "" {
-			ids = append(ids, a.Artist.ID)
-		}
-	}
-	return ids
-}
-
 // ArtistCredit is one artist of a credit, with the phrase joining it to the next.
 type ArtistCredit struct {
 	Name       string `json:"name"`

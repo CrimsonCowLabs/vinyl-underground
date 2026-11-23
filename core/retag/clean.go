@@ -14,8 +14,8 @@ import (
 
 // Local is what is known about a File without asking anyone: its tags, and its name and folder.
 type Local struct {
-	Title, Artist, Album string
-	Track, Disc, Year    int
+	Title, Artist, Album, AlbumArtist string
+	Track, Disc, Year                 int
 	// Stem is the File's name without its extension; Folder the name of the folder it is in.
 	Stem, Folder string
 }
@@ -40,11 +40,19 @@ const (
 // Cleaned is a File's Local values after the local fixes.
 type Cleaned struct {
 	Local
+	// Orig are the File's values before the local fixes: a data source fills what was empty
+	// there, over a value the fixes only guessed from the File's name or folder.
+	Orig Local
 	// Fixes say what changed, for the report.
 	Fixes []string
 	Flags []Flag
 	// Alt is the title without its leading number, with FlagNumberKept.
 	Alt string
+}
+
+// Junk reports whether the File has a title, artist or album a data source should repair.
+func (c Cleaned) Junk() bool {
+	return c.Has(FlagNoTitle) || c.Has(FlagSlug) || c.Has(FlagNumberKept) || c.Has(FlagUnknownArtist) || c.Has(FlagNoAlbum)
 }
 
 // Has reports whether the File has the flag.
@@ -67,7 +75,7 @@ var (
 	// "5-15 After da Hour", "1-07 17": a disc and a track number.
 	discTrackRe = regexp.MustCompile(`^(\d{1,2})-(\d{2})\s+(.+)$`)
 	// "10 - Bones", "03. Airbag", "04_Lucky", "01 Halloween", "12 Fake Plastic Trees".
-	trackPrefixRe = regexp.MustCompile(`^(\d{1,3})(\s*[-–.]\s*|_|\s+)(.+)$`)
+	trackPrefixRe = regexp.MustCompile(`^(\d{1,3})(\s*[-–]\s*|\.\s*|_|\s+)(.+)$`)
 	trackNNRe     = regexp.MustCompile(`(?i)^track\s*(\d{1,3})$`)
 	onlyNumberRe  = regexp.MustCompile(`^\d+$`)
 	// In a File's name: "2-03 Foo", "07 Foo", "07. Foo", "7 - Foo", "07_Foo".
@@ -80,7 +88,7 @@ var (
 // Clean makes the fixes local evidence settles, and flags the rest. Cleaning a cleaned File
 // changes nothing.
 func Clean(in Local) Cleaned {
-	c := Cleaned{Local: in}
+	c := Cleaned{Local: in, Orig: in}
 	c.Title = squeeze(c.Title)
 	c.Artist = squeeze(c.Artist)
 	c.Album = squeeze(c.Album)
@@ -171,7 +179,11 @@ func (c *Cleaned) stripNumber() {
 	if !c.trackFits(n) {
 		return
 	}
-	setApart := strings.TrimSpace(m[2]) != "" || (len(m[1]) >= 2 && m[1][0] == '0')
+	// A separator with no space after one digit may be part of the title ("3.5 Minutes",
+	// "4-Ever"), as may a number only followed by a space.
+	sep := m[2]
+	joined := !strings.ContainsAny(sep, " \t") && len(m[1]) < 2
+	setApart := !joined && (strings.TrimSpace(sep) != "" || (len(m[1]) >= 2 && m[1][0] == '0'))
 	if !setApart {
 		c.Alt = m[3]
 		c.flag(FlagNumberKept)

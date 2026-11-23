@@ -340,7 +340,7 @@ Docker binds the host mount as it is when the container starts. Start the contai
 `retag` fixes the tags of every File in the Library (not the Inbox, not Quarantine), with no review, so the player never shows a track number in a title:
 
 - **Local fixes:** a leading track number is taken off the title when it is set apart (`10 - Bones`, `03. Airbag`, `01 Halloween`) and the File has no other track number, or the same one; `20 Eyes` on track 29 stays. Also `NN. Artist - Title (Year)` under an unknown artist, file extensions (`Song.mp3`), the artist's name at the front, extra spaces, and titles made from file names (`Rosa_Parks`). Empty track and disc numbers come from the File's name, an empty year from the folder's `(1970)`.
-- **MusicBrainz:** each folder's album is matched against MusicBrainz releases (by title, position and length). A match names `Track 06` and number-only titles, settles titles that may start with their number (`12 Fake Plastic Trees`), fills empty track and disc numbers, years and unknown artists, and adds MusicBrainz IDs.
+- **MusicBrainz:** each folder's album is matched against MusicBrainz releases (by title, position and length). A match names `Track 06` and number-only titles, settles titles that may start with their number (`12 Fake Plastic Trees`), fills track and disc numbers and years the File had none of (over a guess from its name or folder), unknown artists and "Unknown Album", and adds the track's MusicBrainz recording ID. Album IDs are left alone, so an album kept as one folder per disc isn't split.
 - **AcoustID** (with `ND_ACOUSTID_APIKEY` in `.env`): a File no album match repaired, and still holding junk, is fingerprinted (the first two minutes) and named by its audio.
 - A value that is set and looks right is never overwritten; where MusicBrainz differs, the report says so. What nothing settles is left as it is, and flagged in the report.
 
@@ -353,7 +353,7 @@ docker compose run --rm vinyl-underground retag --apply
 docker compose start vinyl-underground
 ```
 
-`--path "iTunes_Library/Music/Radiohead/"` limits a run to one folder, `--no-musicbrainz` and `--no-acoustid` turn the lookups off. Each run writes `retag-<time>.tsv` to the data folder: one line per File it changed (or would), skipped or flagged, with the changes and the reason. MusicBrainz allows one request a second, so a first run over the whole Library takes hours; answers are kept in the cache folder, so a run stopped with Ctrl-C (between Files) and started again carries on, and a second run changes nothing it already fixed. Files named like Duplicates (`Song 1.mp3` beside `Song.mp3`) are left for Quarantine.
+`--path "iTunes_Library/Music/Radiohead/"` limits a run to one folder, `--no-musicbrainz` and `--no-acoustid` turn the lookups off. Each run writes `retag-<time>.tsv` to the data folder: one line per File it changed (or would), skipped or flagged, or kept where MusicBrainz differs (`noted`), with the changes, the reason and, when no release matched, the closest one. MusicBrainz allows one request a second, so a first run over the whole Library takes hours; answers are kept in the cache folder, so a run stopped with Ctrl-C (between Files) and started again carries on, and a second run changes nothing it already fixed. Files named like Duplicates (`Song 1.mp3` beside `Song.mp3`) are left as they are, for the Quarantine tools to check (retag doesn't compare their audio).
 
 Every write goes through the Edit journal, as one job per run (its ID is printed at the end), with each File's original tags kept.
 

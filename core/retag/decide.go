@@ -18,7 +18,6 @@ const minAcoustIDScore = 0.9
 // that is set and looks right is kept, and a difference is noted.
 type Want struct {
 	Local
-	AlbumArtist string
 	// IDs are the MusicBrainz IDs to add, by tagedit field key.
 	IDs map[string][]string
 }
@@ -48,10 +47,12 @@ func betterTitle(f File, cur, title string) string {
 	return cur
 }
 
-// fromRelease repairs the File from the release track it was placed on. whole says every File
-// of its folder was placed on the release: only then are the album's IDs added, as an album
-// whose Files have different album IDs would be split in two.
-func (w *Want) fromRelease(f File, p Placed, rel *musicbrainz.Release, whole bool) (notes []string) {
+// fromRelease repairs the File from the release track it was placed on. A track number, disc
+// number or year the File had none of comes from the release, over one the local fixes guessed
+// from its name or folder. Only the track's IDs are added: the album's would give the album a new
+// ID, which an album kept as one folder per disc, placed a folder at a time, could get on one
+// disc and not the other, splitting it in two.
+func (w *Want) fromRelease(f File, p Placed, rel *musicbrainz.Release) (notes []string) {
 	t := p.Track
 	w.Title = betterTitle(f, w.Title, t.Title)
 	artist := t.ArtistCredit
@@ -65,17 +66,20 @@ func (w *Want) fromRelease(f File, p Placed, rel *musicbrainz.Release, whole boo
 		notes = append(notes, fmt.Sprintf("kept artist %q; MusicBrainz credits %q", w.Artist, artist.String()))
 	}
 	if f.Has(FlagNoAlbum) {
-		w.Album, w.AlbumArtist = rel.Title, rel.ArtistCredit.String()
+		w.Album = rel.Title
+		if unknownArtist(f.Orig.AlbumArtist) {
+			w.AlbumArtist = rel.ArtistCredit.String()
+		}
 	}
 	switch {
-	case w.Track == 0:
+	case f.Orig.Track == 0:
 		w.Track = t.Position
 	case w.Track != t.Position:
 		notes = append(notes, fmt.Sprintf("kept track number %d; MusicBrainz has %d", w.Track, t.Position))
 	}
 	// A folder may number a two-disc album's tracks straight through: its disc is only the
 	// release's where its track number is too.
-	if w.Disc == 0 && len(rel.Media) > 1 && w.Track == t.Position {
+	if f.Orig.Disc == 0 && len(rel.Media) > 1 && w.Track == t.Position {
 		w.Disc = p.Disc
 	}
 	year := atoi(yearOf(rel.ReleaseGroup.FirstReleaseDate))
@@ -84,7 +88,7 @@ func (w *Want) fromRelease(f File, p Placed, rel *musicbrainz.Release, whole boo
 	}
 	switch {
 	case year == 0:
-	case w.Year == 0:
+	case f.Orig.Year == 0:
 		w.Year = year
 	case w.Year != year:
 		notes = append(notes, fmt.Sprintf("kept year %d; MusicBrainz has %d", w.Year, year))
@@ -92,12 +96,6 @@ func (w *Want) fromRelease(f File, p Placed, rel *musicbrainz.Release, whole boo
 	if f.MbzRecordingID == "" && f.MbzAlbumID == "" {
 		w.setID("musicbrainz_trackid", t.Recording.ID)
 		w.setID("musicbrainz_releasetrackid", t.ID)
-		w.setID("musicbrainz_artistid", artist.IDs()...)
-		if whole {
-			w.setID("musicbrainz_albumid", rel.ID)
-			w.setID("musicbrainz_releasegroupid", rel.ReleaseGroup.ID)
-			w.setID("musicbrainz_albumartistid", rel.ArtistCredit.IDs()...)
-		}
 	}
 	return notes
 }
@@ -127,7 +125,7 @@ func (w *Want) fromAcoustID(f File, results []acoustid.Result) (notes []string, 
 				best, rec = s, r
 			}
 		}
-		if best < titleThreshold && !f.Has(FlagNumberKept) {
+		if best < titleThreshold {
 			return []string{fmt.Sprintf("AcoustID names %q, not %q", rec.Title, f.Title)}, false
 		}
 	} else {
@@ -141,17 +139,9 @@ func (w *Want) fromAcoustID(f File, results []acoustid.Result) (notes []string, 
 	if f.Has(FlagUnknownArtist) && rec.Artist() != "" {
 		w.Artist = rec.Artist()
 	}
-	if f.Has(FlagNoAlbum) {
-		for _, rg := range rec.ReleaseGroups {
-			if rg.Type == "Album" && len(rg.SecondaryTypes) == 0 {
-				w.Album = rg.Title
-				break
-			}
-		}
-	}
+	// A recording is on many albums: which one this File is from is left as it is.
 	if f.MbzRecordingID == "" {
 		w.setID("musicbrainz_trackid", rec.ID)
-		w.setID("musicbrainz_artistid", rec.ArtistIDs()...)
 	}
 	return nil, true
 }
@@ -175,9 +165,7 @@ func (w Want) values(orig Local) tagedit.Values {
 	text("title", orig.Title, w.Title)
 	text("artist", orig.Artist, w.Artist)
 	text("album", orig.Album, w.Album)
-	if w.AlbumArtist != "" {
-		v["albumartist"] = []string{w.AlbumArtist}
-	}
+	text("albumartist", orig.AlbumArtist, w.AlbumArtist)
 	number("tracknumber", orig.Track, w.Track)
 	number("discnumber", orig.Disc, w.Disc)
 	if orig.Year == 0 {

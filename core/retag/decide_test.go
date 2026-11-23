@@ -32,7 +32,7 @@ var _ = Describe("deciding", func() {
 	It("gives a File with no real title the track's title, and fills what is empty", func() {
 		f := File{Cleaned: Clean(Local{Title: "Track 02", Artist: "Radiohead", Album: "OK Computer"})}
 		w := Want{Local: f.Local}
-		notes := w.fromRelease(f, at(1), rel, false)
+		notes := w.fromRelease(f, at(1), rel)
 		Expect(notes).To(BeEmpty())
 		Expect(w.Title).To(Equal("Paranoid Android"))
 		Expect(w.Track).To(Equal(2))
@@ -42,26 +42,35 @@ var _ = Describe("deciding", func() {
 		Expect(w.IDs).NotTo(HaveKey("musicbrainz_albumid"))
 	})
 
-	It("tags the album's IDs only when the whole folder is placed, so the album isn't split", func() {
+	It("adds only the track's IDs, never the album's, which would give the album a new ID", func() {
 		f := File{Cleaned: Clean(Local{Title: "Airbag", Artist: "Radiohead", Album: "OK Computer", Track: 1, Year: 1997})}
 		w := Want{Local: f.Local}
-		w.fromRelease(f, at(0), rel, true)
-		Expect(w.IDs).To(HaveKeyWithValue("musicbrainz_albumid", []string{"rel"}))
-		Expect(w.IDs).To(HaveKeyWithValue("musicbrainz_releasegroupid", []string{"rg"}))
-		Expect(w.IDs).To(HaveKeyWithValue("musicbrainz_albumartistid", []string{"a-rh"}))
+		w.fromRelease(f, at(0), rel)
+		Expect(w.IDs).To(HaveKey("musicbrainz_trackid"))
+		Expect(w.IDs).NotTo(HaveKey("musicbrainz_albumid"))
+		Expect(w.IDs).NotTo(HaveKey("musicbrainz_releasegroupid"))
+	})
+
+	It("takes the track number and year from the release over ones guessed from the File's name", func() {
+		f := File{Cleaned: Clean(Local{Title: "Paranoid Android", Artist: "Radiohead", Album: "OK Computer", Stem: "07 Paranoid Android", Folder: "OK Computer (2009)"})}
+		Expect(f.Track).To(Equal(7))
+		w := Want{Local: f.Local}
+		w.fromRelease(f, at(1), rel)
+		Expect(w.Track).To(Equal(2))
+		Expect(w.Year).To(Equal(1997))
 	})
 
 	It("adds no IDs to a File that has some already", func() {
 		f := File{Cleaned: Clean(Local{Title: "Airbag", Artist: "Radiohead", Album: "OK Computer", Track: 1, Year: 1997}), MbzRecordingID: "old"}
 		w := Want{Local: f.Local}
-		w.fromRelease(f, at(0), rel, true)
+		w.fromRelease(f, at(0), rel)
 		Expect(w.IDs).To(BeEmpty())
 	})
 
 	It("keeps values that are set, and notes where MusicBrainz differs", func() {
 		f := File{Cleaned: Clean(Local{Title: "Airbag", Artist: "The Smiths", Album: "OK Computer", Track: 5, Year: 2001})}
 		w := Want{Local: f.Local}
-		notes := w.fromRelease(f, at(0), rel, false)
+		notes := w.fromRelease(f, at(0), rel)
 		Expect(w.Year).To(Equal(2001))
 		Expect(w.Track).To(Equal(5))
 		Expect(w.Artist).To(Equal("The Smiths"))
@@ -73,7 +82,7 @@ var _ = Describe("deciding", func() {
 	It("takes a kept number off the title when MusicBrainz's title has none", func() {
 		f := File{Cleaned: Clean(Local{Title: "1 Airbag", Artist: "Radiohead", Album: "OK Computer", Track: 1})}
 		w := Want{Local: f.Local}
-		w.fromRelease(f, at(0), rel, false)
+		w.fromRelease(f, at(0), rel)
 		Expect(w.Title).To(Equal("Airbag"))
 	})
 
@@ -81,22 +90,30 @@ var _ = Describe("deciding", func() {
 		two := release([]string{"Airbag"}, []string{"Lucky", "Karma Police"})
 		f := File{Cleaned: Clean(Local{Title: "Karma Police", Artist: "Radiohead", Album: "OK Computer", Track: 3})}
 		w := Want{Local: f.Local}
-		w.fromRelease(f, Placed{Disc: 2, Track: two.Media[1].Tracks[1], ByTitle: true}, two, false)
+		w.fromRelease(f, Placed{Disc: 2, Track: two.Media[1].Tracks[1], ByTitle: true}, two)
 		Expect(w.Disc).To(Equal(0))
 
 		f = File{Cleaned: Clean(Local{Title: "Karma Police", Artist: "Radiohead", Album: "OK Computer", Track: 2})}
 		w = Want{Local: f.Local}
-		w.fromRelease(f, Placed{Disc: 2, Track: two.Media[1].Tracks[1], ByTitle: true}, two, false)
+		w.fromRelease(f, Placed{Disc: 2, Track: two.Media[1].Tracks[1], ByTitle: true}, two)
 		Expect(w.Disc).To(Equal(2))
 	})
 
 	It("fills an unknown artist and album from the release", func() {
 		f := File{Cleaned: Clean(Local{Title: "Airbag", Artist: "[Unknown Artist]", Track: 1})}
 		w := Want{Local: f.Local}
-		w.fromRelease(f, at(0), rel, false)
+		w.fromRelease(f, at(0), rel)
 		Expect(w.Artist).To(Equal("Radiohead"))
 		Expect(w.Album).To(Equal("Record"))
 		Expect(w.AlbumArtist).To(Equal("Radiohead"))
+	})
+
+	It("keeps an album artist that is set", func() {
+		f := File{Cleaned: Clean(Local{Title: "Airbag", Artist: "Radiohead", AlbumArtist: "Various Artists", Track: 1})}
+		w := Want{Local: f.Local}
+		w.fromRelease(f, at(0), rel)
+		Expect(w.Album).To(Equal("Record"))
+		Expect(w.AlbumArtist).To(Equal("Various Artists"))
 	})
 
 	Describe("from AcoustID", func() {
@@ -138,6 +155,14 @@ var _ = Describe("deciding", func() {
 			Expect(ok).To(BeFalse())
 			Expect(w.Title).To(Equal("13"))
 			Expect(notes).NotTo(BeEmpty())
+		})
+
+		It("takes nothing for a title that may start with its number when no recording has it", func() {
+			f := File{Cleaned: Clean(Local{Title: "12 Fake Plastic Trees", Artist: "[Unknown Artist]", Album: "Mix", Track: 12})}
+			w := Want{Local: f.Local}
+			_, ok := w.fromAcoustID(f, result(0.95, rec("Creep", "Radiohead")))
+			Expect(ok).To(BeFalse())
+			Expect(w.Artist).To(Equal("[Unknown Artist]"))
 		})
 
 		It("keeps a real title, and picks the recording that has it", func() {

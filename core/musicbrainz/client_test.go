@@ -264,7 +264,7 @@ var _ = Describe("Client", func() {
 			t := rel.Media[0].Tracks[0]
 			Expect(t.ID).To(Equal("t-1"))
 			Expect(t.Recording.ID).To(Equal("rec-1"))
-			Expect(t.ArtistCredit.IDs()).To(Equal([]string{"a-1"}))
+			Expect(t.ArtistCredit.String()).To(Equal("Band"))
 
 			req := served()[0]
 			Expect(req.URL.Path).To(Equal("/ws/2/release/rel-1"))

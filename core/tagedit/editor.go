@@ -105,11 +105,16 @@ func (e *Editor) file(ctx context.Context, trackID string) (*file, error) {
 	if err != nil {
 		return nil, err
 	}
-	ext := strings.TrimPrefix(strings.ToLower(path.Ext(mf.Path)), ".")
-	if !slices.Contains(editable, ext) {
+	if !Editable(mf.Path) {
 		return nil, ErrUnsupportedFormat
 	}
 	return &file{mf: mf, lib: lib, abs: filepath.Join(lib.Path, filepath.FromSlash(mf.Path))}, nil
+}
+
+// Editable reports whether a File at path is of a format whose edits can be checked.
+func Editable(path string) bool {
+	ext := strings.TrimPrefix(strings.ToLower(filepath.Ext(path)), ".")
+	return slices.Contains(editable, ext)
 }
 
 // writable reports whether editing is on for the library libID (checked at startup).

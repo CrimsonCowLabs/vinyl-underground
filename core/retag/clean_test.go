@@ -24,7 +24,15 @@ var _ = Describe("Clean", func() {
 		Entry("in a number title stays", Local{Title: "5-3-10-4", Track: 9}, "5-3-10-4", 9),
 		Entry("a chemical formula stays", Local{Title: "C11 H17 N2 O2 S Na", Track: 4}, "C11 H17 N2 O2 S Na", 4),
 		Entry("a disc and track number", Local{Title: "5-15 After da Hour"}, "After da Hour", 15),
+		Entry("a decimal stays", Local{Title: "3.5 Minutes", Track: 3}, "3.5 Minutes", 3),
+		Entry("one digit joined by a hyphen stays", Local{Title: "4-Ever"}, "4-Ever", 0),
 	)
+
+	It("keeps what the File had before the local fixes", func() {
+		out := Clean(Local{Title: "10 - Bones"})
+		Expect(out.Orig.Track).To(Equal(0))
+		Expect(out.Track).To(Equal(10))
+	})
 
 	It("keeps an unpadded number with no separator, and offers the title without it", func() {
 		out := Clean(Local{Title: "12 Fake Plastic Trees", Track: 12})

@@ -66,17 +66,6 @@ func (r Recording) Artist() string {
 	return strings.TrimSpace(b.String())
 }
 
-// ArtistIDs are the credited artists' MusicBrainz IDs.
-func (r Recording) ArtistIDs() []string {
-	var ids []string
-	for _, a := range r.Artists {
-		if a.ID != "" {
-			ids = append(ids, a.ID)
-		}
-	}
-	return ids
-}
-
 // Result is one fingerprint AcoustID matched, with its score (0 to 1) and recordings.
 type Result struct {
 	Score      float64     `json:"score"`
@@ -146,8 +135,11 @@ func (c *Client) Lookup(ctx context.Context, path, version string) ([]Result, er
 			return nil, err
 		}
 		var fp Fingerprint
-		if err := json.Unmarshal(out, &fp); err != nil || fp.Fingerprint == "" {
-			return nil, fmt.Errorf("reading fpcalc's fingerprint of %s: %v", path, err)
+		if err := json.Unmarshal(out, &fp); err != nil {
+			return nil, fmt.Errorf("reading fpcalc's fingerprint of %s: %w", path, err)
+		}
+		if fp.Fingerprint == "" {
+			return nil, fmt.Errorf("fpcalc made no fingerprint of %s", path)
 		}
 		if body, err = c.fetch(ctx, fp); err != nil {
 			return nil, err

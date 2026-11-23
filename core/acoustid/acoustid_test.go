@@ -74,7 +74,6 @@ var _ = Describe("Client", func() {
 		rec := res[0].Recordings[0]
 		Expect(rec.Title).To(Equal("Mickey"))
 		Expect(rec.Artist()).To(Equal("Toni Basil"))
-		Expect(rec.ArtistIDs()).To(Equal([]string{"a-1"}))
 		Expect(rec.ReleaseGroups[0].Title).To(Equal("Word of Mouth"))
 
 		Expect(forms).To(HaveLen(1))

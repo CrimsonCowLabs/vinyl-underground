@@ -89,11 +89,10 @@ type runner struct {
 	sum    Summary
 }
 
-var (
-	// "Song 1.mp3" beside "Song.mp3": a Duplicate a music app left (see GLOSSARY.md).
-	duplicateRe = regexp.MustCompile(`^(.*) [12]$`)
-	editable    = []string{".mp3", ".m4a", ".aiff", ".aif", ".wav"}
-)
+// "Song 1.mp3" beside "Song.mp3" is named like a Duplicate a music app left. Only identical
+// audio makes it one (GLOSSARY.md), which retag doesn't check: it just leaves the File for the
+// Quarantine tools to settle, rather than tag one that may soon be gone.
+var duplicateNameRe = regexp.MustCompile(`^(.*) [12]$`)
 
 // Run retags the libraries' Files, a folder at a time, and stops between Files when ctx ends.
 func Run(ctx context.Context, libs []Library, opts Options) (Summary, error) {
@@ -132,32 +131,32 @@ func Run(ctx context.Context, libs []Library, opts Options) (Summary, error) {
 }
 
 // folders groups the Files to retag by folder, leaving out those under Quarantine or outside
-// PathPrefix, Duplicates, and formats that can't be edited.
+// PathPrefix, those named like a Duplicate, and formats that can't be edited.
 func (r *runner) folders(mfs model.MediaFiles) map[string][]model.MediaFile {
 	names := map[string]bool{}
 	for _, mf := range mfs {
 		names[strings.ToLower(mf.Path)] = true
 	}
+	prefix := strings.Trim(r.PathPrefix, "/")
 	res := map[string][]model.MediaFile{}
 	for _, mf := range mfs {
 		p := mf.Path
 		top, _, _ := strings.Cut(p, "/")
-		ext := strings.ToLower(path.Ext(p))
 		switch {
 		case mf.Missing:
 			continue
-		case r.PathPrefix != "" && !strings.HasPrefix(p, r.PathPrefix):
+		case prefix != "" && p != prefix && !strings.HasPrefix(p, prefix+"/"):
 			continue
 		case strings.EqualFold(top, QuarantineFolder):
 			continue
-		case !slices.Contains(editable, ext):
+		case !tagedit.Editable(p):
 			continue
 		}
 		r.sum.Files++
 		stem := strings.TrimSuffix(path.Base(p), path.Ext(p))
-		if m := duplicateRe.FindStringSubmatch(stem); m != nil && names[strings.ToLower(path.Join(path.Dir(p), m[1]+path.Ext(p)))] {
+		if m := duplicateNameRe.FindStringSubmatch(stem); m != nil && names[strings.ToLower(path.Join(path.Dir(p), m[1]+path.Ext(p)))] {
 			r.sum.Skipped++
-			r.row("skipped", p, "", "", "looks like a Duplicate of the File beside it; left for Quarantine")
+			r.row("skipped", p, "", "", "named like a Duplicate of the File beside it (not checked); left for the Quarantine tools")
 			continue
 		}
 		dir := path.Dir(p)
@@ -172,7 +171,7 @@ func (r *runner) folders(mfs model.MediaFiles) map[string][]model.MediaFile {
 func localOf(mf model.MediaFile) Local {
 	base := path.Base(mf.Path)
 	return Local{
-		Title: mf.Title, Artist: mf.Artist, Album: mf.Album,
+		Title: mf.Title, Artist: mf.Artist, Album: mf.Album, AlbumArtist: mf.AlbumArtist,
 		Track: mf.TrackNumber, Disc: mf.DiscNumber, Year: mf.Year,
 		Stem: strings.TrimSuffix(base, path.Ext(base)), Folder: path.Base(path.Dir(mf.Path)),
 	}
@@ -220,14 +219,13 @@ func (r *runner) folder(ctx context.Context, lib Library, mfs []model.MediaFile)
 	return changed
 }
 
-// needsLookup reports whether the album has anything a data source can repair.
+// needsLookup reports whether the album has anything a data source can repair: junk, or a
+// track number or year the File had none of.
 func needsLookup(ws []*work) bool {
 	for _, w := range ws {
 		f := w.file
-		if len(f.Flags) > 0 || f.Track == 0 || f.Year == 0 {
-			if f.MbzRecordingID == "" || len(f.Flags) > 0 {
-				return true
-			}
+		if f.Junk() || f.Orig.Track == 0 || f.Orig.Year == 0 {
+			return true
 		}
 	}
 	return false
@@ -241,7 +239,7 @@ func (r *runner) fromMusicBrainz(ctx context.Context, ws []*work) {
 	for i, w := range ws {
 		files[i] = w.file
 	}
-	rel, placed, err := r.findRelease(ctx, ws, files)
+	rel, placed, closest, err := r.findRelease(ctx, ws, files)
 	if err != nil {
 		if !errors.Is(err, context.Canceled) {
 			for _, w := range ws {
@@ -251,38 +249,42 @@ func (r *runner) fromMusicBrainz(ctx context.Context, ws []*work) {
 		return
 	}
 	if rel == nil {
+		note := "no MusicBrainz release matches the folder's album"
+		if closest != nil {
+			note += fmt.Sprintf(" (closest: %s by %s, release %s)", closest.Description(), closest.ArtistCredit, closest.ID)
+		}
 		for _, w := range ws {
-			w.notes = append(w.notes, "no MusicBrainz release matches the folder's album")
+			w.notes = append(w.notes, note)
 		}
 		return
 	}
-	whole := len(placed) == len(ws)
 	for _, w := range ws {
 		p, ok := placed[w.file.ID]
 		if !ok {
 			w.notes = append(w.notes, "not on MusicBrainz release "+rel.ID)
 			continue
 		}
-		w.notes = append(w.notes, w.want.fromRelease(w.file, p, rel, whole)...)
+		w.notes = append(w.notes, w.want.fromRelease(w.file, p, rel)...)
 		w.source = "musicbrainz release " + rel.ID
 	}
 }
 
 // findRelease finds the album's release: the one its Files are tagged with, or the best match
-// among a search's, by album artist and title. An album with no name isn't searched for.
-func (r *runner) findRelease(ctx context.Context, ws []*work, files []File) (*musicbrainz.Release, map[string]Placed, error) {
+// among a search's, by album artist and title. An album with no name isn't searched for. With
+// no match, closest is the search's best release, for the report.
+func (r *runner) findRelease(ctx context.Context, ws []*work, files []File) (rel *musicbrainz.Release, placed map[string]Placed, closest *musicbrainz.Release, err error) {
 	if id := ws[0].file.MbzAlbumID; id != "" && allSame(ws, func(w *work) string { return w.file.MbzAlbumID }) {
-		rel, err := r.MusicBrainz.Release(ctx, id)
+		rel, err = r.MusicBrainz.Release(ctx, id)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		if placed, ok := MatchRelease(files, rel); ok {
-			return rel, placed, nil
+			return rel, placed, nil, nil
 		}
-		return nil, nil, nil
+		return nil, nil, rel, nil
 	}
 	if ws[0].file.Has(FlagNoAlbum) {
-		return nil, nil, nil
+		return nil, nil, nil, nil
 	}
 	artist := ws[0].mf.AlbumArtist
 	if unknownArtist(artist) {
@@ -293,10 +295,13 @@ func (r *runner) findRelease(ctx context.Context, ws []*work, files []File) (*mu
 	}
 	cands, err := r.MusicBrainz.SearchReleases(ctx, artist, ws[0].file.Album)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	// The best release places the most Files, then has the fewest tracks over the folder's. One
 	// that places every File and has just as many tracks is taken straight away.
+	if len(cands) > 0 {
+		closest = &cands[0]
+	}
 	var best *musicbrainz.Release
 	var bestPlaced map[string]Placed
 	better := func(rel *musicbrainz.Release, placed map[string]Placed) bool {
@@ -315,7 +320,7 @@ func (r *runner) findRelease(ctx context.Context, ws []*work, files []File) (*mu
 		}
 		rel, err := r.MusicBrainz.Release(ctx, c.ID)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		placed, ok := MatchRelease(files, rel)
 		if !ok || !better(rel, placed) {
@@ -326,7 +331,7 @@ func (r *runner) findRelease(ctx context.Context, ws []*work, files []File) (*mu
 			break
 		}
 	}
-	return best, bestPlaced, nil
+	return best, bestPlaced, closest, nil
 }
 
 func allSame(ws []*work, f func(*work) string) bool {
@@ -341,8 +346,7 @@ func allSame(ws []*work, f func(*work) string) bool {
 // fromAcoustID names a File no release placed, by its fingerprint, when it has junk to repair.
 func (r *runner) fromAcoustID(ctx context.Context, lib Library, w *work) {
 	f := w.file
-	junk := f.Has(FlagNoTitle) || f.Has(FlagSlug) || f.Has(FlagUnknownArtist) || f.Has(FlagNumberKept) || f.Has(FlagNoAlbum)
-	if r.AcoustID == nil || !junk {
+	if r.AcoustID == nil || !f.Junk() {
 		return
 	}
 	abs := filepath.Join(lib.Path, filepath.FromSlash(w.mf.Path))
@@ -374,9 +378,13 @@ func (r *runner) write(ctx context.Context, w *work) bool {
 	notes := strings.Join(append(flags, w.notes...), "; ")
 	if len(vals) == 0 {
 		r.sum.Unchanged++
-		if len(flags) > 0 {
+		switch {
+		case len(flags) > 0:
 			r.sum.Flagged++
 			r.row("flagged", w.mf.Path, "", w.source, notes)
+		case notes != "":
+			// Kept as it is, where a data source differs.
+			r.row("noted", w.mf.Path, "", w.source, notes)
 		}
 		return false
 	}
