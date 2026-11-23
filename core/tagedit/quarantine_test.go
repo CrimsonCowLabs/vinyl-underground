@@ -157,6 +157,15 @@ var _ = Describe("Quarantine moves", func() {
 			Expect(err).To(MatchError(ErrInQuarantine))
 		})
 
+		It("marks the Track as in Quarantine before its File goes, so no scan in between purges it", func() {
+			var atRename *model.MediaFile
+			editor.fsys = renameSpyFS{FS: safefile.OS{}, onRename: func() { atRename = track("mf-1") }}
+			_, err := editor.QuarantineInJob(ctx, "job-1", "mf-1")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(atRename).ToNot(BeNil())
+			Expect(atRename.Quarantined).To(BeTrue())
+		})
+
 		It("leaves the File where it was when the move fails, and closes the entry as failed", func() {
 			editor.fsys = faultyFS{FS: safefile.OS{}, match: "01 Song.mp3"}
 			_, err := editor.QuarantineInJob(ctx, "job-1", "mf-1")
@@ -167,6 +176,7 @@ var _ = Describe("Quarantine moves", func() {
 			Expect(entries).To(HaveLen(1))
 			Expect(entries[0].State).To(Equal(model.EditFailed))
 			Expect(track("mf-1").Missing).To(BeFalse())
+			Expect(track("mf-1").Quarantined).To(BeFalse())
 		})
 	})
 
@@ -263,6 +273,7 @@ var _ = Describe("Quarantine moves", func() {
 			write("_Quarantine/"+songPath, "song")
 			Expect(os.Remove(abs(songPath))).To(Succeed())
 			Expect(ds.MediaFile(ctx).MarkQuarantined(true, "mf-1")).To(Succeed())
+			Expect(ds.MediaFile(ctx).MarkMissing(true, &model.MediaFile{ID: "mf-1"})).To(Succeed())
 
 			res, err := editor.RestoreInJob(ctx, "job-2", 1, "_Quarantine/"+songPath)
 			Expect(err).ToNot(HaveOccurred())
@@ -275,8 +286,13 @@ var _ = Describe("Quarantine moves", func() {
 			Expect(track("mf-1").Quarantined).To(BeFalse())
 		})
 
-		It("refuses a File outside Quarantine", func() {
+		It("refuses a File outside Quarantine, and a .ndignore", func() {
 			_, err := editor.RestoreInJob(ctx, "job-2", 1, songPath)
+			Expect(err).To(MatchError(ErrNotInQuarantine))
+			write("_Quarantine/Artist/.ndignore", "")
+			_, err = editor.RestoreInJob(ctx, "job-2", 1, "_Quarantine/Artist/.ndignore")
+			Expect(err).To(MatchError(ErrNotInQuarantine))
+			_, err = editor.RestoreInJob(ctx, "job-2", 1, "_Quarantine/.ndignore")
 			Expect(err).To(MatchError(ErrNotInQuarantine))
 		})
 	})
@@ -331,12 +347,23 @@ var _ = Describe("Quarantine moves", func() {
 			Expect(abs("_Quarantine/" + songPath)).ToNot(BeAnExistingFile())
 		})
 
-		It("can run again after a stop: the Files gone already are passed over", func() {
+		It("can run again after a stop: the Files gone already are passed over, and their Tracks still go", func() {
 			Expect(os.Remove(abs("_Quarantine/" + songPath))).To(Succeed())
 			res, err := editor.EmptyInJob(ctx, "job-3", files)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(res.Warning).To(BeEmpty())
 			Expect(abs("_Quarantine/Other/Dupe.mp3")).ToNot(BeAnExistingFile())
+			_, err = ds.MediaFile(ctx).Get("mf-1")
+			Expect(err).To(MatchError(model.ErrNotFound))
+		})
+
+		It("never deletes a .ndignore, which keeps the scanner out", func() {
+			write("_Quarantine/Other/.ndignore", "")
+			files = append(files, QuarantinedFile{LibraryID: 1, Path: "_Quarantine/Other/.ndignore", Size: 0})
+			res, err := editor.EmptyInJob(ctx, "job-3", files)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(res.Warning).ToNot(BeEmpty())
+			Expect(abs("_Quarantine/Other/.ndignore")).To(BeAnExistingFile())
 		})
 
 		It("refuses the undo of the move of a File it deleted", func() {
@@ -356,3 +383,14 @@ var _ = Describe("Quarantine moves", func() {
 		})
 	})
 })
+
+// renameSpyFS calls onRename just before each rename.
+type renameSpyFS struct {
+	safefile.FS
+	onRename func()
+}
+
+func (f renameSpyFS) Rename(oldname, newname string) error {
+	f.onRename()
+	return f.FS.Rename(oldname, newname)
+}

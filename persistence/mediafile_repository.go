@@ -519,9 +519,6 @@ func (r *mediaFileRepository) DeleteMissing(ids []string) error {
 func (r *mediaFileRepository) MarkQuarantined(quarantined bool, ids ...string) error {
 	for chunk := range slices.Chunk(ids, 200) {
 		upd := Update(r.tableName).Set("quarantined", quarantined).Where(Eq{"id": chunk})
-		if quarantined {
-			upd = upd.Set("missing", true)
-		}
 		if _, err := r.executeSQL(upd); err != nil {
 			return err
 		}

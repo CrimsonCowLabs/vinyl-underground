@@ -209,7 +209,6 @@ func (m *MockMediaFileRepo) MarkQuarantined(quarantined bool, ids ...string) err
 	for _, id := range ids {
 		if d, ok := m.Data[id]; ok {
 			d.Quarantined = quarantined
-			d.Missing = d.Missing || quarantined
 		}
 	}
 	return nil

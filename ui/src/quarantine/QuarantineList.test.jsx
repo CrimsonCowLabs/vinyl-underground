@@ -35,12 +35,15 @@ vi.mock('react-admin', async (importOriginal) => ({
 const contents = {
   count: 2,
   size: 3 * 1024 * 1024,
+  emptyCount: 2,
+  emptySize: 3 * 1024 * 1024,
   files: [
     {
       libraryId: 1,
       library: 'NAS',
       path: '_Quarantine/Artist/Album/01 Song.mp3',
       size: 2 * 1024 * 1024,
+      writable: true,
       original: 'Artist/Album/01 Song.mp3',
       entryId: 'e1',
       trackId: 't1',
@@ -52,6 +55,7 @@ const contents = {
       library: 'NAS',
       path: '_Quarantine/Loose/Dupe 1.mp3',
       size: 1024 * 1024,
+      writable: true,
       original: 'Loose/Dupe 1.mp3',
     },
   ],
@@ -60,7 +64,7 @@ const contents = {
 describe('<QuarantineList />', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    editing = { loaded: true, enabled: true, isWritable: () => true }
+    editing = { loaded: true, enabled: true }
     mockGet.mockResolvedValue(contents)
   })
 
@@ -125,7 +129,12 @@ describe('<QuarantineList />', () => {
   })
 
   it("can't restore or empty while the library is read-only", async () => {
-    editing = { loaded: true, enabled: false, isWritable: () => false }
+    mockGet.mockResolvedValue({
+      ...contents,
+      emptyCount: 0,
+      emptySize: 0,
+      files: contents.files.map((f) => ({ ...f, writable: false })),
+    })
     render(<QuarantineList />)
     await waitFor(() => screen.getByText('Artist/Album/01 Song.mp3'))
     for (const b of screen.getAllByText(
@@ -137,6 +146,27 @@ describe('<QuarantineList />', () => {
       screen.getByText('resources.quarantine.actions.empty').closest('button')
         .disabled,
     ).toBe(true)
+  })
+
+  it('says which Files Empty Quarantine left, and why', async () => {
+    mockEmpty.mockResolvedValue({
+      job: {
+        skipped: 0,
+        steps: [{ state: 'written', warning: '1 Files changed since' }],
+      },
+    })
+    render(<QuarantineList />)
+    await waitFor(() => screen.getByText('Artist/Album/01 Song.mp3'))
+    fireEvent.click(screen.getByText('resources.quarantine.actions.empty'))
+    fireEvent.click(
+      screen.getByText('resources.quarantine.empty.confirm {"smart_count":2}'),
+    )
+    await waitFor(() =>
+      expect(mockNotify).toHaveBeenCalledWith(
+        'resources.quarantine.notifications.left',
+        { type: 'warning', messageArgs: { warning: '1 Files changed since' } },
+      ),
+    )
   })
 
   it('says when Quarantine is empty', async () => {

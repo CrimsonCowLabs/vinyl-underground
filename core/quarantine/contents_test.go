@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/navidrome/navidrome/conf/configtest"
+	"github.com/navidrome/navidrome/core"
 	"github.com/navidrome/navidrome/core/safefile"
 	"github.com/navidrome/navidrome/db"
 	"github.com/navidrome/navidrome/model"
@@ -73,6 +74,31 @@ var _ = Describe("Contents", func() {
 		Expect(dupe.Original).To(Equal("Loose/Dupe 1.mp3"), "moved by the cleanup recipe: its path beneath Quarantine")
 		Expect(dupe.EntryID).To(BeEmpty())
 		Expect(dupe.TrackID).To(BeEmpty())
+	})
+
+	It("names no move that no longer holds, and counts only what Empty Quarantine can delete", func() {
+		write("_Quarantine/Artist/Song.mp3", "song")
+		e := &model.EditEntry{Kind: model.EditQuarantine, State: model.EditWritten, LibraryID: 1, MediaFileID: "mf-1",
+			Path: "Artist/Song.mp3", NewPath: "_Quarantine/Artist/Song.mp3"}
+		Expect(ds.EditJournal(ctx).Put(e)).To(Succeed())
+		undo := &model.EditEntry{Kind: model.EditQuarantine, State: model.EditWritten, LibraryID: 1, MediaFileID: "mf-1",
+			Path: "_Quarantine/Artist/Song.mp3", NewPath: "Artist/Song.mp3", UndoOf: e.ID}
+		Expect(ds.EditJournal(ctx).Put(undo)).To(Succeed())
+
+		c, err := Contents(ctx, ds, safefile.OS{})
+		Expect(err).ToNot(HaveOccurred())
+		Expect(c.Files).To(HaveLen(1))
+		Expect(c.Files[0].EntryID).To(BeEmpty(), "that move was undone; this File came another way")
+		Expect(c.Files[0].Writable).To(BeFalse())
+		Expect(c.Count).To(Equal(1))
+		Expect(c.EmptyCount).To(Equal(0), "the library is read-only")
+
+		core.SetLibraryEditing(core.LibraryEditing{Enabled: true, Libraries: []core.LibraryWritable{{ID: 1, Writable: true}}})
+		DeferCleanup(core.SetLibraryEditing, core.LibraryEditing{})
+		c, err = Contents(ctx, ds, safefile.OS{})
+		Expect(err).ToNot(HaveOccurred())
+		Expect(c.EmptyCount).To(Equal(1))
+		Expect(c.EmptySize).To(Equal(int64(4)))
 	})
 
 	It("is empty with no Quarantine", func() {

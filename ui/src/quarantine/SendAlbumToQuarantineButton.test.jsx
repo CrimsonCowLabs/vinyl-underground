@@ -29,6 +29,7 @@ vi.mock('react-admin', async (importOriginal) => ({
   ),
   useNotify: () => vi.fn(),
   useRedirect: () => mockRedirect,
+  useRefresh: () => vi.fn(),
   useTranslate: () => (key) => key,
 }))
 
@@ -47,6 +48,16 @@ describe('<SendAlbumToQuarantineButton />', () => {
     fireEvent.click(screen.getByText('resources.quarantine.send.confirm'))
     await waitFor(() => expect(mockRedirect).toHaveBeenCalledWith('/album'))
     expect(mockSend).toHaveBeenCalledWith({ albumId: 'al-1' })
+  })
+
+  it('stays on the album when a Track was skipped', async () => {
+    mockSend.mockResolvedValue({ job: { skipped: 1 }, background: false })
+    render(<SendAlbumToQuarantineButton record={album} />)
+    fireEvent.click(screen.getByText('resources.quarantine.actions.sendAlbum'))
+    fireEvent.click(screen.getByText('resources.quarantine.send.confirm'))
+    await waitFor(() => expect(mockSend).toHaveBeenCalled())
+    await new Promise((r) => setTimeout(r, 0))
+    expect(mockRedirect).not.toHaveBeenCalled()
   })
 
   it('is hidden while editing is off, and for an album in a read-only library', () => {

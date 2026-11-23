@@ -205,8 +205,13 @@ type File struct {
 	Size int64  `json:"size"`
 }
 
-// Files lists every File in the library at root's Quarantine, in path order, leaving out the
-// .ndignore that keeps the scanner out. With no Quarantine folder, there are none.
+// IsIgnoreFile reports whether a File named name is a .ndignore, which keeps the scanner out of
+// its folder: one is never listed in Quarantine, restored or deleted, as moving one into the
+// Library would hide a folder of it, and removing Quarantine's own would have it scanned.
+func IsIgnoreFile(name string) bool { return strings.EqualFold(path.Base(name), ignoreFile) }
+
+// Files lists every File in the library at root's Quarantine, in path order, leaving out every
+// .ndignore (see IsIgnoreFile). With no Quarantine folder, there are none.
 func Files(fsys safefile.FS, root string) ([]File, error) {
 	dir, err := reuse(fsys, root, Folder())
 	if err != nil {
@@ -229,7 +234,7 @@ func Files(fsys safefile.FS, root string) ([]File, error) {
 				if err := walk(p); err != nil {
 					return err
 				}
-			case rel == dir && e.Name() == ignoreFile:
+			case IsIgnoreFile(e.Name()):
 			case e.Type().IsRegular():
 				info, err := e.Info()
 				if err != nil {

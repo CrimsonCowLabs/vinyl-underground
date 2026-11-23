@@ -107,8 +107,9 @@ var _ = Describe("Quarantine", func() {
 	})
 
 	Describe("Files", func() {
-		It("lists every File in Quarantine but its .ndignore, with sizes, in path order", func() {
+		It("lists every File in Quarantine but the .ndignore Files, with sizes, in path order", func() {
 			touch("_Quarantine/.ndignore")
+			touch("_Quarantine/B/.ndignore")
 			touch("_Quarantine/B/2.mp3")
 			touch("_Quarantine/A/1.mp3")
 			touch("Outside/3.mp3")

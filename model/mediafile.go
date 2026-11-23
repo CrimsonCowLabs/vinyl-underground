@@ -587,9 +587,9 @@ type MediaFileRepository interface {
 	// keeping its ID, so everything that refers to it stays attached (Promote, #36). The next
 	// scan of that folder re-reads the File's tags into it.
 	Relocate(id string, libraryID int, path, folderID string) error
-	// MarkQuarantined marks the Tracks ids as moved into Quarantine (#168), and so missing, or,
-	// with quarantined false, as out of it again (the next scan of their Files finds them). A
-	// quarantined Track is kept out of the Missing files page and its deletes.
+	// MarkQuarantined marks the Tracks ids as having their Files in Quarantine (#168), or, with
+	// quarantined false, out of it again. A quarantined Track, once missing, is kept out of the
+	// Missing files page and its deletes, and is never purged.
 	MarkQuarantined(quarantined bool, ids ...string) error
 
 	// The following methods are used exclusively by the scanner:

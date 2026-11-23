@@ -30,7 +30,8 @@ const quarantineErrorKey = (err) => {
 // SendToQuarantineDialog confirms, then sends the selected Tracks' Files to Quarantine as one
 // job (#168): the Files move into the Quarantine folder, keeping their paths, and the Tracks
 // leave the Library. Undo is in the Edit history; single Files come back from the Quarantine
-// page. selection is { ids }, { albumId } or the Library manager's { filter }.
+// page. selection is { ids }, { albumId } or the Library manager's { filter }. onDone gets what
+// the server answered: { job, background }.
 export const SendToQuarantineDialog = ({
   open,
   selection,
@@ -59,7 +60,7 @@ export const SendToQuarantineDialog = ({
             messageArgs: { smart_count: skipped || count },
           },
         )
-        onDone && onDone()
+        onDone && onDone({ job, background })
       })
       .catch((err) => {
         setRunning(false)

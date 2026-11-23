@@ -94,27 +94,33 @@ func (e *Editor) RestoreInJob(ctx context.Context, jobID string, libID int, rel 
 	defer writeMu.Unlock()
 	ctx = context.WithoutCancel(ctx)
 
-	if !writable(libID) {
-		return nil, ErrEditingOff
-	}
-	if !quarantine.Within(rel) || path.Clean(rel) != rel || rel == quarantine.Folder() {
-		return nil, ErrNotInQuarantine
+	trackID, err := e.CheckRestore(ctx, libID, rel)
+	if err != nil {
+		return nil, err
 	}
 	lib, err := e.ds.Library(ctx).Get(libID)
 	if err != nil {
 		return nil, err
 	}
-	orig := quarantine.Original(rel)
-	var trackID string
-	mfs, err := e.ds.MediaFile(ctx).GetAll(model.QueryOptions{Max: 1,
-		Filters: squirrel.Eq{"media_file.library_id": libID, "media_file.path": orig, "media_file.missing": true}})
-	if err != nil {
-		return nil, err
+	return e.move(ctx, jobID, lib, trackID, rel, quarantine.Original(rel), "")
+}
+
+// CheckRestore is the refusal a restore of the File at rel in Quarantine meets before the File is
+// looked at, if any (see RestoreInJob), and the Track that comes back with it, if any: the missing
+// row still at its original path.
+func (e *Editor) CheckRestore(ctx context.Context, libID int, rel string) (string, error) {
+	if !writable(libID) {
+		return "", ErrEditingOff
 	}
-	if len(mfs) > 0 {
-		trackID = mfs[0].ID
+	if !quarantine.Within(rel) || path.Clean(rel) != rel || rel == quarantine.Folder() || quarantine.IsIgnoreFile(rel) {
+		return "", ErrNotInQuarantine
 	}
-	return e.move(ctx, jobID, lib, trackID, rel, orig, "")
+	mfs, err := e.ds.MediaFile(ctx).GetAll(model.QueryOptions{Max: 1, Filters: squirrel.Eq{
+		"media_file.library_id": libID, "media_file.path": quarantine.Original(rel), "media_file.missing": true}})
+	if err != nil || len(mfs) == 0 {
+		return "", err
+	}
+	return mfs[0].ID, nil
 }
 
 // undoQuarantine undoes a move into or out of Quarantine (see undoers): the File goes back from
@@ -164,6 +170,16 @@ func (e *Editor) move(ctx context.Context, jobID string, lib *model.Library, tra
 	if err := e.ds.EditJournal(ctx).Put(entry); err != nil {
 		return nil, fmt.Errorf("recording the move in the Edit journal: %w", err)
 	}
+	// The Track is marked before its File goes, so no scan in between takes it for an ordinary
+	// missing Track, which the Missing files page and PurgeMissing delete.
+	into := quarantine.Within(target)
+	if into && trackID != "" {
+		if err := e.ds.MediaFile(ctx).MarkQuarantined(true, trackID); err != nil {
+			err = fmt.Errorf("marking the Track as in Quarantine: %w", err)
+			e.close(ctx, entry, false, err)
+			return nil, err
+		}
+	}
 
 	err = quarantine.MkdirAll(e.fsys, lib.Path, path.Dir(target))
 	if err == nil {
@@ -179,6 +195,11 @@ func (e *Editor) move(ctx context.Context, jobID string, lib *model.Library, tra
 	case !written:
 		err = fmt.Errorf("moving the File: %w", errors.Join(err, errors.New("the File was left where it was")))
 		e.close(ctx, entry, false, err)
+		if into && trackID != "" {
+			if merr := e.ds.MediaFile(ctx).MarkQuarantined(false, trackID); merr != nil {
+				log.Error(ctx, "Could not take a Track whose File stayed put back out of Quarantine", "id", trackID, merr)
+			}
+		}
 		log.Warn(ctx, "Could not move a File into or out of Quarantine", "from", from, "to", target, err)
 		return nil, err
 	}
@@ -202,7 +223,13 @@ func (e *Editor) moveDone(ctx context.Context, lib *model.Library, entry *model.
 	into := quarantine.Within(entry.NewPath)
 	res := &Result{Changed: true, Entry: entry.ID}
 	if entry.MediaFileID != "" {
-		if err := e.ds.MediaFile(ctx).MarkQuarantined(into, entry.MediaFileID); err != nil {
+		repo := e.ds.MediaFile(ctx)
+		err := repo.MarkQuarantined(into, entry.MediaFileID)
+		if err == nil && into {
+			// It leaves the Library now, whether or not the scan below gets to run.
+			err = repo.MarkMissing(true, &model.MediaFile{ID: entry.MediaFileID})
+		}
+		if err != nil {
 			log.Error(ctx, "Could not mark a Track in or out of Quarantine", "id", entry.MediaFileID, err)
 		}
 	}
@@ -228,6 +255,9 @@ func (e *Editor) settleQuarantine(ctx context.Context, lib *model.Library, entry
 		gone := !safefile.Exists(e.fsys, e.abs(lib, entry.Path))
 		e.close(ctx, entry, gone, interrupted)
 		log.Info(ctx, "Settled an interrupted delete", "path", entry.Path, "deleted", gone)
+		if gone && entry.MediaFileID != "" {
+			e.removeTracks(ctx, []string{entry.MediaFileID})
+		}
 		return
 	}
 	written, known := e.moved(lib, entry)
@@ -286,11 +316,16 @@ func (e *Editor) EmptyInJob(ctx context.Context, jobID string, files []Quarantin
 	left, failed := 0, 0
 	for _, f := range files {
 		lib := libs[f.LibraryID]
+		if !quarantine.Within(f.Path) || path.Clean(f.Path) != f.Path || quarantine.IsIgnoreFile(f.Path) {
+			left++
+			continue
+		}
 		switch info, err := e.fsys.Lstat(e.abs(lib, f.Path)); {
 		case errors.Is(err, fs.ErrNotExist):
-			continue
-		case !quarantine.Within(f.Path) || path.Clean(f.Path) != f.Path || strings.HasSuffix(f.Path, "/.ndignore"):
-			left++
+			// Gone already (an earlier run a stop cut off deleted it): its Track goes still.
+			if trackID := e.quarantinedTrack(ctx, lib, f.Path); trackID != "" {
+				tracks = append(tracks, trackID)
+			}
 			continue
 		case err != nil || !info.Mode().IsRegular() || info.Size() != f.Size:
 			left++
@@ -307,13 +342,7 @@ func (e *Editor) EmptyInJob(ctx context.Context, jobID string, files []Quarantin
 		}
 		e.removeEmptyFolders(lib, path.Dir(f.Path))
 	}
-	if len(tracks) > 0 {
-		if err := e.ds.MediaFile(ctx).MarkQuarantined(false, tracks...); err != nil {
-			log.Error(ctx, "Could not take the deleted Files' Tracks out of Quarantine", err)
-		} else if err := core.NewMaintenance(e.ds).DeleteMissingFiles(ctx, tracks); err != nil {
-			log.Error(ctx, "Could not remove the Tracks of the Files Empty Quarantine deleted", err)
-		}
-	}
+	e.removeTracks(ctx, tracks)
 	var notes []string
 	if left > 0 {
 		notes = append(notes, fmt.Sprintf("%d Files changed since you confirmed, or aren't in Quarantine, and were left", left))
@@ -329,12 +358,7 @@ func (e *Editor) EmptyInJob(ctx context.Context, jobID string, files []Quarantin
 // deleteFile deletes the File at rel in Quarantine for good, journaled, and returns the entry and
 // the Track the journal says the File was, if any (a missing, quarantined row).
 func (e *Editor) deleteFile(ctx context.Context, jobID string, lib *model.Library, rel string) (string, string, error) {
-	var trackID string
-	if last, err := e.ds.EditJournal(ctx).LastWritten(lib.ID, rel); err == nil && last.Kind == model.EditQuarantine && last.MediaFileID != "" {
-		if mf, err := e.ds.MediaFile(ctx).Get(last.MediaFileID); err == nil && mf.Missing && mf.Quarantined {
-			trackID = mf.ID
-		}
-	}
+	trackID := e.quarantinedTrack(ctx, lib, rel)
 	entry := &model.EditEntry{JobID: jobID, Kind: model.EditDelete, State: model.EditPending,
 		LibraryID: lib.ID, MediaFileID: trackID, Path: rel}
 	if u, ok := request.UserFrom(ctx); ok {
@@ -351,6 +375,32 @@ func (e *Editor) deleteFile(ctx context.Context, jobID string, lib *model.Librar
 	}
 	e.close(ctx, entry, true, nil)
 	return entry.ID, trackID, nil
+}
+
+// quarantinedTrack is the Track whose File the app's last move to rel in Quarantine put there,
+// while it is still kept for a restore (missing and quarantined); "" if none.
+func (e *Editor) quarantinedTrack(ctx context.Context, lib *model.Library, rel string) string {
+	last, err := e.ds.EditJournal(ctx).LastWritten(lib.ID, rel)
+	if err != nil || last.Kind != model.EditQuarantine || last.MediaFileID == "" {
+		return ""
+	}
+	mf, err := e.ds.MediaFile(ctx).Get(last.MediaFileID)
+	if err != nil || !mf.Missing || !mf.Quarantined {
+		return ""
+	}
+	return mf.ID
+}
+
+// removeTracks deletes the Tracks of Files Empty Quarantine deleted: they can't come back.
+func (e *Editor) removeTracks(ctx context.Context, tracks []string) {
+	if len(tracks) == 0 {
+		return
+	}
+	if err := e.ds.MediaFile(ctx).MarkQuarantined(false, tracks...); err != nil {
+		log.Error(ctx, "Could not take the deleted Files' Tracks out of Quarantine", err)
+	} else if err := core.NewMaintenance(e.ds).DeleteMissingFiles(ctx, tracks); err != nil {
+		log.Error(ctx, "Could not remove the Tracks of the Files Empty Quarantine deleted", err)
+	}
 }
 
 // removeEmptyFolders removes dir (relative to the library) and the folders above it, up to

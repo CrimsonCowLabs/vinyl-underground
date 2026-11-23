@@ -133,6 +133,31 @@ var _ = Describe("Quarantine jobs", func() {
 			Expect(abs("_Quarantine/"+paths[1])).To(BeARegularFile(), "only that File")
 		})
 
+		It("restores by path a File whose journaled move no longer holds, with the Track at its path", func() {
+			quarantineJob()
+			moved, err := ds.EditJournal(ctx).ForJob(func() string {
+				jobs, _ := ds.EditJob(ctx).GetAll(1)
+				return jobs[0].ID
+			}())
+			Expect(err).ToNot(HaveOccurred())
+			Expect(editor.Undo(ctx, moved[0].ID)).Error().ToNot(HaveOccurred())
+			// Moved back by hand since.
+			Expect(os.MkdirAll(filepath.Dir(abs("_Quarantine/"+moved[0].Path)), 0o755)).To(Succeed())
+			Expect(os.Rename(abs(moved[0].Path), abs("_Quarantine/"+moved[0].Path))).To(Succeed())
+			_, err = db.Db().Exec("update media_file set missing = true where id = ?", moved[0].MediaFileID)
+			Expect(err).ToNot(HaveOccurred())
+
+			step, err := RestoreFileStep(ctx, ds, 1, "_Quarantine/"+moved[0].Path)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(step.Kind).To(Equal(model.EditRestore))
+			job, err := q.Enqueue(ctx, step.Kind, []model.EditJobStep{step})
+			Expect(err).ToNot(HaveOccurred())
+			job = run(job)
+			Expect(job.Skipped).To(Equal(0))
+			Expect(job.Steps[0].MediaFileID).To(Equal(moved[0].MediaFileID), "a restart finds its entry by the Track")
+			Expect(abs(moved[0].Path)).To(BeARegularFile())
+		})
+
 		It("restores a File no journaled move put there to its path beneath Quarantine", func() {
 			write("_Quarantine/Loose/Dupe.mp3", "dupe")
 			step, err := RestoreFileStep(ctx, ds, 1, "_Quarantine/Loose/Dupe.mp3")
@@ -198,9 +223,13 @@ var _ = Describe("Quarantine jobs", func() {
 			Expect(step.Args).To(ContainSubstring("_Quarantine/Band/Record/01 One.mp3"))
 		})
 
-		It("refuses an empty Quarantine", func() {
+		It("refuses an empty Quarantine, and leaves a read-only library's", func() {
 			_, err := ConfirmedEmptyStep(ctx, ds, 0, 0)
 			Expect(err).To(MatchError(ErrNothingInQuarantine))
+			write("_Quarantine/Loose/Dupe.mp3", "dupe!")
+			core.SetLibraryEditing(core.LibraryEditing{Enabled: true, Libraries: []core.LibraryWritable{{ID: 1, Writable: false}}})
+			_, err = ConfirmedEmptyStep(ctx, ds, 1, 5)
+			Expect(err).To(MatchError(tagedit.ErrEditingOff))
 		})
 
 		It("refuses an empty confirmation", func() {

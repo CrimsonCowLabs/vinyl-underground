@@ -192,23 +192,26 @@ const QuarantineList = () => {
     load()
   }, [load])
 
-  const ran = useCallback(
-    (done, background) =>
-      ({ job, background: bg }) => {
-        const skipped = job?.skipped || 0
-        const warning = job?.steps?.find((s) => s.warning)?.warning
-        notify(
-          bg
-            ? background
-            : skipped
-              ? 'resources.quarantine.notifications.skipped'
-              : done,
-          {
-            type: skipped || warning ? 'warning' : 'info',
-            messageArgs: { smart_count: skipped, warning },
-          },
-        )
-      },
+  // What Empty Quarantine did: done, Files left (the step's note says why), the step itself
+  // refused, or still running in the background.
+  const emptied = useCallback(
+    ({ job, background }) => {
+      const step = job?.steps?.[0]
+      if (background) {
+        notify('resources.quarantine.notifications.emptyInBackground', {
+          type: 'info',
+        })
+      } else if (step?.state === 'skipped') {
+        notify(errorKey({ body: { error: step.code } }), { type: 'warning' })
+      } else if (step?.warning) {
+        notify('resources.quarantine.notifications.left', {
+          type: 'warning',
+          messageArgs: { warning: step.warning },
+        })
+      } else {
+        notify('resources.quarantine.notifications.emptied', { type: 'info' })
+      }
+    },
     [notify],
   )
 
@@ -235,24 +238,24 @@ const QuarantineList = () => {
 
   const handleEmpty = useCallback(() => {
     setBusy(true)
-    emptyQuarantine(contents)
-      .then(
-        ran(
-          'resources.quarantine.notifications.emptied',
-          'resources.quarantine.notifications.emptyInBackground',
-        ),
-      )
+    emptyQuarantine({ count: contents.emptyCount, size: contents.emptySize })
+      .then(emptied)
       .catch((err) => notify(errorKey(err), { type: 'warning' }))
       .finally(() => {
         setBusy(false)
         setConfirming(false)
         load()
       })
-  }, [contents, ran, notify, load])
+  }, [contents, emptied, notify, load])
 
   const files = contents?.files || []
-  const canWrite = (libraryId) => editing.isWritable?.(libraryId) === true
-  const anyWritable = files.some((f) => canWrite(f.libraryId))
+  // A restore and Empty Quarantine need the File's library writable, as the server says.
+  const canWrite = (f) => editing.enabled && f.writable === true
+
+  // A shorter list (after a restore, or Empty) starts again at its first page.
+  useEffect(() => {
+    if (page > 0 && page * perPage >= files.length) setPage(0)
+  }, [page, perPage, files.length])
 
   return (
     <Card>
@@ -271,7 +274,7 @@ const QuarantineList = () => {
           </Typography>
           <Button
             startIcon={<DeleteForeverIcon />}
-            disabled={busy || !contents?.count || !anyWritable}
+            disabled={busy || !contents?.emptyCount || !editing.enabled}
             onClick={() => setConfirming(true)}
           >
             {translate('resources.quarantine.actions.empty')}
@@ -309,7 +312,7 @@ const QuarantineList = () => {
                       <FileRow
                         key={`${f.libraryId}:${f.path}`}
                         file={f}
-                        canWrite={canWrite(f.libraryId)}
+                        canWrite={canWrite(f)}
                         busy={busy}
                         onRestore={handleRestore}
                       />
@@ -334,8 +337,8 @@ const QuarantineList = () => {
       </CardContent>
       <EmptyQuarantineDialog
         open={confirming}
-        count={contents?.count || 0}
-        size={contents?.size || 0}
+        count={contents?.emptyCount || 0}
+        size={contents?.emptySize || 0}
         running={busy}
         onClose={() => setConfirming(false)}
         onConfirm={handleEmpty}

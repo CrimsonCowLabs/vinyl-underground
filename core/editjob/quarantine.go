@@ -41,18 +41,18 @@ func RestoreStep(libID int, path string) model.EditJobStep {
 }
 
 // RestoreFileStep is the step that restores the File at path in Quarantine (in the library
-// libID): the undo of the move that put it there, if the Edit journal has one, so the File goes
-// back where it was; otherwise a RestoreStep.
+// libID): the undo of the move that put it there, if the Edit journal has one that still holds
+// (quarantine.Move), so the File goes back where it was; otherwise a RestoreStep.
 func RestoreFileStep(ctx context.Context, ds model.DataStore, libID int, path string) (model.EditJobStep, error) {
 	if !quarantine.Within(path) {
 		return model.EditJobStep{}, tagedit.ErrNotInQuarantine
 	}
-	last, err := ds.EditJournal(ctx).LastWritten(libID, path)
+	move, err := quarantine.Move(ctx, ds, libID, path)
 	switch {
-	case err == nil && last.Kind == model.EditQuarantine:
-		return UndoStep(last.ID)
-	case err != nil && !errors.Is(err, model.ErrNotFound):
+	case err != nil:
 		return model.EditJobStep{}, err
+	case move != nil:
+		return UndoStep(move.ID)
 	}
 	return RestoreStep(libID, path), nil
 }
@@ -80,23 +80,30 @@ func EmptyStep(files []tagedit.QuarantinedFile) (model.EditJobStep, error) {
 		Path: quarantine.Folder(), Args: string(args)}, nil
 }
 
-// ConfirmedEmptyStep is the EmptyStep for every File in Quarantine now (quarantine.Contents),
-// provided they are as many, and as large, as the admin confirmed (count and size): otherwise
+// ConfirmedEmptyStep is the EmptyStep for every File in the Quarantine of the libraries the app
+// can write (quarantine.Contents' EmptyCount and EmptySize), provided they are as many, and as
+// large, as the admin confirmed (count and size): otherwise
 // ErrQuarantineChanged, so Empty Quarantine never deletes what the confirmation didn't state.
 func ConfirmedEmptyStep(ctx context.Context, ds model.DataStore, count int, size int64) (model.EditJobStep, error) {
 	c, err := quarantine.Contents(ctx, ds, safefile.OS{})
 	if err != nil {
 		return model.EditJobStep{}, err
 	}
-	if c.Count == 0 {
+	if c.EmptyCount == 0 {
+		if c.Count > 0 {
+			return model.EditJobStep{}, tagedit.ErrEditingOff
+		}
 		return model.EditJobStep{}, ErrNothingInQuarantine
 	}
-	if c.Count != count || c.Size != size {
-		return model.EditJobStep{}, fmt.Errorf("%w: %d Files (%d bytes), not %d (%d bytes)", ErrQuarantineChanged, c.Count, c.Size, count, size)
+	if c.EmptyCount != count || c.EmptySize != size {
+		return model.EditJobStep{}, fmt.Errorf("%w: %d Files (%d bytes), not %d (%d bytes)", ErrQuarantineChanged, c.EmptyCount, c.EmptySize, count, size)
 	}
-	files := make([]tagedit.QuarantinedFile, len(c.Files))
-	for i, f := range c.Files {
-		files[i] = tagedit.QuarantinedFile{LibraryID: f.LibraryID, Path: f.Path, Size: f.Size}
+	var files []tagedit.QuarantinedFile
+	for _, f := range c.Files {
+		// A read-only library's Quarantine is left as it is.
+		if f.Writable {
+			files = append(files, tagedit.QuarantinedFile{LibraryID: f.LibraryID, Path: f.Path, Size: f.Size})
+		}
 	}
 	return EmptyStep(files)
 }
@@ -134,18 +141,18 @@ func (k restoreKind) args(step *model.EditJobStep) (restoreArgs, error) {
 	return a, nil
 }
 
-func (k restoreKind) Check(_ context.Context, step *model.EditJobStep) error {
+// Check refuses a restore up front, and fills in the Track that comes back with the File, so a
+// restart finds the step's journal entry by it.
+func (k restoreKind) Check(ctx context.Context, step *model.EditJobStep) error {
 	a, err := k.args(step)
 	if err != nil {
 		return err
 	}
-	if !tagedit.Writable(a.LibraryID) {
-		return tagedit.ErrEditingOff
+	trackID, err := k.editor.CheckRestore(ctx, a.LibraryID, a.Path)
+	if err != nil {
+		return err
 	}
-	if !quarantine.Within(a.Path) {
-		return tagedit.ErrNotInQuarantine
-	}
-	step.Path = a.Path
+	step.MediaFileID, step.Path = trackID, a.Path
 	return nil
 }
 

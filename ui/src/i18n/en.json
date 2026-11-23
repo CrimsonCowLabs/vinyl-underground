@@ -739,8 +739,8 @@
         "restored": "The File is back at %{path}",
         "restoreInBackground": "The restore runs in the background. The Activity panel shows how it goes.",
         "emptied": "Quarantine was emptied",
-        "skipped": "Quarantine was emptied, but %{smart_count} File was left: %{warning} |||| Quarantine was emptied, but %{smart_count} Files were left: %{warning}",
-        "emptyInBackground": "Emptying Quarantine runs in the background. The Activity panel shows how it goes."
+        "emptyInBackground": "Emptying Quarantine runs in the background. The Activity panel shows how it goes.",
+        "left": "Quarantine was emptied, but some Files were left: %{warning}"
       },
       "errors": {
         "editingOff": "This library is read-only, so its Files can't be moved.",
