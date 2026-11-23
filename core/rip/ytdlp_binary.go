@@ -16,12 +16,14 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/navidrome/navidrome/log"
+	"golang.org/x/sync/singleflight"
 )
 
 // ytDlpName is the binary's name inside Binary.Dir.
@@ -90,14 +92,34 @@ type Binary struct {
 	// lastVersion is version, readable without mu.
 	lastVersion atomic.Value
 
-	// latestMu guards the latest release's version as last looked up (see Latest). It is apart
-	// from mu so the lookup doesn't wait for an update.
-	latestMu  sync.Mutex
-	latestTag string
-	latestErr error
-	latestAt  time.Time
+	// latestMu guards seen, the latest release as last looked up (see Latest). It is apart from
+	// mu so the lookup doesn't wait for an update, and it is never held across a lookup, so an
+	// update doesn't wait for GitHub either.
+	latestMu sync.Mutex
+	seen     latestSeen
+	// lookups makes the pages that find seen out of date at the same time share one lookup.
+	lookups singleflight.Group
 	// now is the clock (time.Now when nil), set in tests.
 	now func() time.Time
+}
+
+// latestSeen is the latest release's version as of at, or the error looking it up gave.
+type latestSeen struct {
+	tag string
+	err error
+	at  time.Time
+}
+
+// fresh reports whether s is recent enough to use instead of looking the release up again.
+func (s latestSeen) fresh(now time.Time) bool {
+	if s.at.IsZero() {
+		return false
+	}
+	keep := latestKeptFor
+	if s.err != nil {
+		keep = failedLatestKeptFor
+	}
+	return now.Sub(s.at) < keep
 }
 
 // UpdateResult is what Binary.Update did.
@@ -160,32 +182,50 @@ func (b *Binary) Update(ctx context.Context) (UpdateResult, error) {
 }
 
 // Latest returns the latest release's version, or "" when ReleaseURL doesn't say (a release's own
-// folder, as for a mirror). It looks it up at most once an hour, and an update tells it too.
+// folder, as for a mirror) or there is no standalone build for this platform, which Update
+// couldn't install. It looks it up at most once an hour, and an update tells it too. It always
+// returns "" with an error.
+//
+// The lookup carries on when ctx ends (the page waiting on it was closed), so the next page
+// gets its answer rather than a failure remembered for five minutes.
 func (b *Binary) Latest(ctx context.Context) (string, error) {
-	b.latestMu.Lock()
-	defer b.latestMu.Unlock()
-	now := b.clock()
-	if !b.latestAt.IsZero() {
-		keep := latestKeptFor
-		if b.latestErr != nil {
-			keep = failedLatestKeptFor
-		}
-		if now.Sub(b.latestAt) < keep {
-			return b.latestTag, b.latestErr
-		}
+	if b.Asset == "" {
+		return "", nil
 	}
-	ctx, cancel := context.WithTimeout(ctx, latestTimeout)
-	defer cancel()
-	rel, err := b.latest(ctx)
-	b.latestTag, b.latestErr, b.latestAt = rel.tag, err, now
-	return rel.tag, err
+	b.latestMu.Lock()
+	seen := b.seen
+	b.latestMu.Unlock()
+	if seen.fresh(b.clock()) {
+		return seen.tag, seen.err
+	}
+	lookup := b.lookups.DoChan("latest", func() (any, error) {
+		at := b.clock()
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), latestTimeout)
+		defer cancel()
+		rel, err := b.latest(ctx)
+		b.setLatest(latestSeen{tag: rel.tag, err: err, at: at})
+		return rel.tag, err
+	})
+	select {
+	case res := <-lookup:
+		if res.Err != nil {
+			return "", res.Err
+		}
+		return res.Val.(string), nil
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
 }
 
-// rememberLatest keeps the latest release's version that an update has just looked up.
-func (b *Binary) rememberLatest(tag string) {
+// setLatest keeps the latest release as an update or a lookup found it, unless something newer
+// has been kept since (an update that finished while a slower lookup was waiting on GitHub).
+func (b *Binary) setLatest(s latestSeen) {
 	b.latestMu.Lock()
 	defer b.latestMu.Unlock()
-	b.latestTag, b.latestErr, b.latestAt = tag, nil, b.clock()
+	if s.at.Before(b.seen.at) {
+		return
+	}
+	b.seen = s
 }
 
 func (b *Binary) clock() time.Time {
@@ -256,7 +296,7 @@ func (b *Binary) install(ctx context.Context, current string) (version string, u
 	if err != nil {
 		return "", false, err
 	}
-	b.rememberLatest(rel.tag)
+	b.setLatest(latestSeen{tag: rel.tag, at: b.clock()})
 	if current != "" && rel.tag == current {
 		return current, false, nil
 	}
@@ -364,6 +404,42 @@ func (b *Binary) latest(ctx context.Context) (release, error) {
 	default:
 		return release{}, fmt.Errorf("looking up the latest yt-dlp at %s: %s", req.URL, resp.Status)
 	}
+}
+
+// NewerVersion reports whether the latest release is newer than the installed version (true when
+// nothing is installed yet, false when the latest isn't known). yt-dlp's versions are dates
+// (2026.11.01), sometimes with a further number (2026.11.01.1, or a nightly's 2026.11.01.232857),
+// compared number by number, so a nightly newer than the latest stable release isn't behind.
+// When either can't be read that way, any difference counts as newer.
+func NewerVersion(latest, installed string) bool {
+	if latest == "" || latest == installed {
+		return false
+	}
+	l, lok := versionParts(latest)
+	i, iok := versionParts(installed)
+	if !lok || !iok {
+		return true
+	}
+	for n := range min(len(l), len(i)) {
+		if l[n] != i[n] {
+			return l[n] > i[n]
+		}
+	}
+	return len(l) > len(i)
+}
+
+// versionParts splits a dotted version into its numbers, or reports false when it isn't one.
+func versionParts(v string) ([]uint64, bool) {
+	fields := strings.Split(v, ".")
+	parts := make([]uint64, len(fields))
+	for n, f := range fields {
+		p, err := strconv.ParseUint(f, 10, 64)
+		if err != nil {
+			return nil, false
+		}
+		parts[n] = p
+	}
+	return parts, true
 }
 
 // sumFor reads the asset's SHA-256 from a release's SHA2-256SUMS.

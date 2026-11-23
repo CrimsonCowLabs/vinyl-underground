@@ -150,7 +150,8 @@ type Options struct {
 type Updater interface {
 	Update(ctx context.Context) (UpdateResult, error)
 	Version(ctx context.Context) (string, error)
-	// Latest returns the latest release's version, or "" when it can't be told.
+	// Latest returns the latest release's version, or "" when it can't be told (always "" with
+	// an error).
 	Latest(ctx context.Context) (string, error)
 }
 

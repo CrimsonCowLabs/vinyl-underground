@@ -6,11 +6,13 @@ import { REST_URL } from '../consts'
 
 const url = `${REST_URL}/rip/ytdlp`
 
-// statusOf reads the server's {version, latest}. latest is null when the server couldn't look up
-// the latest release.
+// statusOf reads the server's {version, latest, newer}. latest is null when the server couldn't
+// look up the latest release. newer is the server's say on whether latest is newer than version,
+// so a nightly built after the latest release isn't offered an older one.
 const statusOf = (json) => ({
   version: json?.version ?? '',
   latest: json?.latest || null,
+  newer: json?.newer === true,
 })
 
 // YtDlpControl shows the installed yt-dlp's version, says whether a newer release is available,
@@ -40,7 +42,7 @@ const YtDlpControl = () => {
     setUpdating(true)
     httpClient(`${url}/update`, { method: 'POST' })
       .then(({ json }) => {
-        setStatus({ version: json.version, latest: null })
+        setStatus(statusOf({ version: json.version }))
         setLoadError(null)
         notify(
           translate(
@@ -51,7 +53,7 @@ const YtDlpControl = () => {
           ),
           'info',
         )
-        // Read the new state back, so the notice compares the new version with the latest.
+        // Read the new state back, so the version label compares the new version with the latest.
         return httpClient(url)
           .then(({ json }) => setStatus(statusOf(json)))
           .catch(() => {})
@@ -67,7 +69,7 @@ const YtDlpControl = () => {
 
   const version = status?.version
   const latest = status?.latest
-  const newer = status != null && latest != null && latest !== version
+  const newer = status?.newer === true
 
   let label = ''
   if (loadError) {
