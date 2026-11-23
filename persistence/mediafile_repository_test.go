@@ -116,6 +116,60 @@ var _ = Describe("MediaRepository", func() {
 			Expect(at[0].ID).To(Equal("rel-mf-1"))
 			Expect(at[0].Starred).To(BeTrue())
 		})
+
+		It("Put by path reads the File into the Track not in Quarantine there, else takes back the one in Quarantine", func() {
+			p := "Music/Dire Straits/a.mp3"
+			Expect(mr.Put(&model.MediaFile{ID: "rel-mf-1", LibraryID: 1, Path: p, Missing: true})).To(Succeed())
+			Expect(mr.MarkQuarantined(true, "rel-mf-1")).To(Succeed())
+			// Alone at its path (its File put back by hand): the scan takes it back.
+			again := model.MediaFile{LibraryID: 1, Path: p, Title: "Back"}
+			Expect(mr.Put(&again)).To(Succeed())
+			Expect(again.ID).To(Equal("rel-mf-1"))
+
+			Expect(mr.MarkQuarantined(true, "rel-mf-1")).To(Succeed())
+			Expect(mr.Put(&model.MediaFile{ID: "rel-mf-2", LibraryID: 1, Path: p, Title: "Kept"})).To(Succeed())
+			scanned := model.MediaFile{LibraryID: 1, Path: p, Title: "Kept, rescanned"}
+			Expect(mr.Put(&scanned)).To(Succeed())
+			Expect(scanned.ID).To(Equal("rel-mf-2"))
+			q, err := mr.Get("rel-mf-1")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(q.Quarantined).To(BeTrue())
+		})
+
+		It("Repath points the Track at its renamed File, keeping its ID and its updated_at", func() {
+			scanned := time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC)
+			Expect(mr.Put(&model.MediaFile{ID: "rel-mf-1", LibraryID: 1, Path: "Music/Atb/song.mp3", FolderID: "f-old", Title: "Song", UpdatedAt: scanned})).To(Succeed())
+			Expect(mr.SetStar(true, "rel-mf-1")).To(Succeed())
+
+			Expect(mr.Repath("rel-mf-1", "Music/Atb [case-merge]/song.mp3", "f-new")).To(Succeed())
+
+			got, err := mr.Get("rel-mf-1")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(got.Path).To(Equal("Music/Atb [case-merge]/song.mp3"))
+			Expect(got.FolderID).To(Equal("f-new"))
+			Expect(got.LibraryID).To(Equal(1))
+			Expect(got.Starred).To(BeTrue())
+			Expect(got.UpdatedAt.Unix()).To(Equal(scanned.Unix()))
+			Expect(got.Missing).To(BeFalse())
+			Expect(mr.Repath("rel-mf-nope", "x", "f")).To(MatchError(model.ErrNotFound))
+
+			Expect(mr.Put(&model.MediaFile{ID: "rel-mf-2", LibraryID: 1, Path: "Music/Atb/gone.mp3", Missing: true})).To(Succeed())
+			Expect(mr.Repath("rel-mf-2", "Music/Atb [case-merge]/gone.mp3", "f-new")).To(Succeed())
+			got, err = mr.Get("rel-mf-2")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(got.Path).To(Equal("Music/Atb [case-merge]/gone.mp3"))
+			Expect(got.Missing).To(BeTrue(), "the next scan finds its File")
+
+			// A Track in Quarantine at the path stays, for its restore; a ghost there goes.
+			Expect(mr.Put(&model.MediaFile{ID: "rel-mf-3", LibraryID: 1, Path: "Music/Dire Straits/a.mp3", Missing: true})).To(Succeed())
+			Expect(mr.MarkQuarantined(true, "rel-mf-3")).To(Succeed())
+			Expect(mr.Put(&model.MediaFile{ID: "rel-mf-4", LibraryID: 1, Path: "Music/Dire Straits/a.mp3", Missing: true})).To(Succeed())
+			Expect(mr.Repath("rel-mf-1", "Music/Dire Straits/a.mp3", "f-new")).To(Succeed())
+			_, err = mr.Get("rel-mf-3")
+			Expect(err).ToNot(HaveOccurred())
+			_, err = mr.Get("rel-mf-4")
+			Expect(err).To(MatchError(model.ErrNotFound))
+		})
 	})
 
 	Describe("GetCursor", func() {

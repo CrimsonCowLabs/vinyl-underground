@@ -230,6 +230,11 @@ func (p *phaseFolders) processFolder(entry *folderEntry) (*folderEntry, error) {
 			log.Error(p.ctx, "Scanner: Error loading mediafiles from DB", "folder", entry.path, err)
 			return entry, err
 		}
+		// A Track in Quarantine (#168) keeps its row at the path its File left; another Track's
+		// File may be there now (a case merge's Duplicate, #169), and that Track is the File's.
+		if prev, ok := dbTracks[mf.Path]; ok && !prev.Quarantined && mf.Quarantined {
+			continue
+		}
 		dbTracks[mf.Path] = &mf
 	}
 

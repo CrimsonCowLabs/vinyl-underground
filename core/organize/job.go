@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/navidrome/navidrome/core/editjob"
+	"github.com/navidrome/navidrome/core/quarantine"
 	"github.com/navidrome/navidrome/core/safefile"
 	"github.com/navidrome/navidrome/core/tagedit"
 	"github.com/navidrome/navidrome/log"
@@ -27,7 +28,8 @@ const maxScanTargets = 200
 // the Ripper (rip.Ripper.PromoteJobKind), where there is an Inbox.
 func JobKinds(ds model.DataStore, editor *tagedit.Editor) map[model.EditKind]editjob.JobKind {
 	k := jobKind{ds: ds, editor: editor}
-	return map[model.EditKind]editjob.JobKind{model.EditOrganize: k, model.EditPromote: k}
+	// #169: the case merge's two phases tidy and rescan the same way.
+	return map[model.EditKind]editjob.JobKind{model.EditOrganize: k, model.EditPromote: k, model.EditCaseRename: k, model.EditCaseMerge: k}
 }
 
 // jobKind is what an Organize job does beyond moving its Files: once they have moved (or moved
@@ -147,12 +149,23 @@ func (k jobKind) tidy(ctx context.Context, job *model.EditJob) error {
 		}
 	}
 	for _, e := range entries {
-		if e.Kind != model.EditMove || e.State != model.EditWritten {
+		if e.State != model.EditWritten {
 			continue
 		}
-		// A Promote's old path is in the Inbox, its new one in the Library.
-		add(e.LibraryID, e.Path)
-		add(e.DestLibraryID(), e.NewPath)
+		switch e.Kind {
+		case model.EditMove, model.EditRename:
+			// A Promote's old path is in the Inbox, its new one in the Library.
+			add(e.LibraryID, e.Path)
+			add(e.DestLibraryID(), e.NewPath)
+		case model.EditQuarantine:
+			// A case merge's Duplicate (#169), sent to Quarantine or (its undo) back: its folder in
+			// the Library.
+			if quarantine.Within(e.Path) {
+				add(e.LibraryID, e.NewPath)
+			} else {
+				add(e.LibraryID, e.Path)
+			}
+		}
 	}
 	var targets []model.ScanTarget
 	for _, libID := range slices.Sorted(maps.Keys(dirs)) {

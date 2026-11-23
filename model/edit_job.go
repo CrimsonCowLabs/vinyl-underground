@@ -29,6 +29,19 @@ const EditRestore EditKind = "restore"
 // Quarantine for good (#168): the only way the app deletes a File. Its entries are EditDelete.
 const EditEmptyQuarantine EditKind = "emptyQuarantine"
 
+// The case merge (#169), through Organize: EditCaseRename is a Phase A job (one EditRename step
+// per name given a temporary one), EditCaseMerge a Phase B job (EditMove, EditRename,
+// EditRemoveDir and EditQuarantineDuplicate steps). EditRemoveDir is a step that removes a folder
+// the steps before it left empty (no journal entry: undoing the moves makes it again), and
+// EditQuarantineDuplicate one that sends a File to Quarantine once it is confirmed byte-identical
+// to the File it duplicates (its entry is an EditQuarantine).
+const (
+	EditCaseRename          EditKind = "caseRename"
+	EditCaseMerge           EditKind = "caseMerge"
+	EditRemoveDir           EditKind = "removeDir"
+	EditQuarantineDuplicate EditKind = "quarantineDuplicate"
+)
+
 // EditJobState is where an edit job is in its life.
 type EditJobState string
 

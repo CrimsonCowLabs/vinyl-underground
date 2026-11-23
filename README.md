@@ -347,7 +347,7 @@ Every File becomes a Track, exactly as it is tagged, so a messy Library shows up
 | Step | Tool | What it fixes |
 |---|---|---|
 | 0 | [`health.py`](contrib/library-cleanup/README.md#library-health-report) | Measures the Library from the app's database: no year, no album, no cover, Duplicates, albums held twice. Run it before and after each step |
-| 1 | [`casemerge.py`](contrib/library-cleanup/README.md#recipe-merge-names-that-differ-only-by-case) | Folders whose names differ only by case (`ATB` and `Atb`), which a case-insensitive NAS silently merges in listings. Only needed on such a NAS |
+| 1 | *Merge case twins* in the Library manager ([in the app](contrib/library-cleanup/README.md#in-the-app)), or [`casemerge.py`](contrib/library-cleanup/README.md#by-hand) | Folders whose names differ only by case (`ATB` and `Atb`), which a case-insensitive NAS silently merges in listings. Only needed on such a NAS. Run `retag --apply` again afterwards |
 | 2 | [`dupes.py`](contrib/library-cleanup/README.md#recipe-quarantine-duplicates) with jdupes | Byte-identical Duplicates, moved into Quarantine ([step 2 above](#2-move-duplicates-into-quarantine) is the short form) |
 | 3 | [`audiodupes.py`](contrib/library-cleanup/README.md#recipe-quarantine-duplicates-whose-tags-differ) | Duplicates whose audio is identical but whose tags differ (`Song 1.mp3` beside `Song.mp3`) |
 | 4 | [`heldtwice.py`](contrib/library-cleanup/README.md#recipe-quarantine-the-weaker-copy-of-albums-held-twice) | The same album in two folders: the weaker copy's shared Tracks go to Quarantine |

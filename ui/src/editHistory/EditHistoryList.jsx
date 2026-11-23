@@ -111,9 +111,14 @@ export const EditChangesField = ({ record }) => {
       </Typography>
     )
   }
-  if (record.kind === 'move' || record.kind === 'quarantine') {
-    // A move (Organize, #167), or one into or out of Quarantine (#168): where the File was, and
-    // where it went. A Promote's (#171) goes from the Inbox into the Library, or back.
+  if (
+    record.kind === 'move' ||
+    record.kind === 'quarantine' ||
+    record.kind === 'rename'
+  ) {
+    // A move (Organize, #167), one into or out of Quarantine (#168), or a case merge's rename of a
+    // File or folder with all it holds (#169): where it was, and where it went. A Promote's
+    // (#171) goes from the Inbox into the Library, or back.
     return (
       <Typography variant="body2" component="span" className={classes.change}>
         <span className={classes.tag}>
@@ -167,6 +172,14 @@ export const EditTrackField = ({ record }) => {
     return (
       <Typography variant="body2" component="span" className={classes.none}>
         {translate('resources.editHistory.message.albumCover')}
+      </Typography>
+    )
+  }
+  if (record.kind === 'rename') {
+    // A case merge's rename (#169) takes a File or folder with all it holds, its Tracks too.
+    return (
+      <Typography variant="body2" component="span" className={classes.none}>
+        {translate('resources.editHistory.message.renamedWithAll')}
       </Typography>
     )
   }
@@ -307,6 +320,9 @@ const jobKindsUndoneWhole = new Set([
   'organize',
   // Promote (#171): Organize from the Inbox; its undo puts the Files back in the Inbox.
   'promote',
+  // The case merge (#169): as Organize.
+  'caseRename',
+  'caseMerge',
 ])
 
 export const EditJobField = ({ record }) => {

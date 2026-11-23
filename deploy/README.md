@@ -310,6 +310,8 @@ docker compose start vinyl-underground
 
 Every write goes through the Edit journal, as one job per run (its ID is printed at the end), with each File's original tags kept: the whole run can be undone from the Edit history.
 
+**After merging case twins, run `retag --apply` again.** On a case-insensitive NAS, scans miss the Files under names that differ only by letter case (about 10,000 of the reference Library's 23,500), so `retag` never saw them. Once *Merge case twins* in the Library manager has merged them ([`contrib/library-cleanup`](../contrib/library-cleanup/README.md#in-the-app)) and a scan has found them, run it again: it only changes Files that still need it.
+
 ## Updating
 
 For a published image, set the new version in `VU_IMAGE`, then:

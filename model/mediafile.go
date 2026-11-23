@@ -589,6 +589,13 @@ type MediaFileRepository interface {
 	// keeping its ID, so everything that refers to it stays attached (Promote, #36). The next
 	// scan of that folder re-reads the File's tags into it.
 	Relocate(id string, libraryID int, path, folderID string) error
+	// Repath points the Track at its File's new path and folder in the same library, after a
+	// rename that left the File itself as it was (a case merge, #169): as Relocate, but the
+	// Track's updated_at is kept, so the File still counts as unchanged since the last scan (and a
+	// later move of it in the same job isn't refused), and so is its missing flag (the next scan
+	// finds a missing one's File at its new path). A Track in Quarantine at that path stays (its
+	// restore brings its File back there).
+	Repath(id string, path, folderID string) error
 	// MarkQuarantined marks the Tracks ids as having their Files in Quarantine (#168), or, with
 	// quarantined false, out of it again. A quarantined Track, once missing, is kept out of the
 	// Missing files page and its deletes, and is never purged.

@@ -79,6 +79,19 @@ describe('<LibraryManagerList />', () => {
     ).toBeInTheDocument()
   })
 
+  it('offers to merge names that differ only in letter case, as one of its tools', () => {
+    render(
+      <ThemeProvider theme={createTheme()}>
+        <MemoryRouter>
+          <LibraryManagerActions />
+        </MemoryRouter>
+      </ThemeProvider>,
+    )
+    expect(
+      screen.getByText('resources.libraryTrack.actions.caseMerge'),
+    ).toBeInTheDocument()
+  })
+
   it("can't edit all matching when nothing matches", () => {
     listContext = { filterValues: {}, total: 0 }
     render(

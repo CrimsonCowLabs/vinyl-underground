@@ -94,7 +94,13 @@ func (l *library) folders(rel string) {
 // track writes a File at rel and records it as the Track mf (its ID, tags), as a scan would.
 func (l *library) track(rel string, mf model.MediaFile) *model.MediaFile {
 	GinkgoHelper()
-	l.file(rel, "audio of "+rel)
+	return l.trackWith(rel, "audio of "+rel, mf)
+}
+
+// trackWith is track, with the File's content.
+func (l *library) trackWith(rel, content string, mf model.MediaFile) *model.MediaFile {
+	GinkgoHelper()
+	l.file(rel, content)
 	info, err := os.Stat(filepath.Join(l.dir, filepath.FromSlash(rel)))
 	Expect(err).ToNot(HaveOccurred())
 	mf.LibraryID, mf.Path, mf.FolderID = l.lib.ID, rel, model.FolderID(l.lib, path.Dir(rel))

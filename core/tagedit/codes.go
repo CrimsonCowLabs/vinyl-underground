@@ -62,6 +62,10 @@ func Code(err error) string {
 		return "notInQuarantine"
 	case errors.Is(err, ErrDeletedForGood):
 		return "deletedForGood"
+	case errors.Is(err, ErrNotEmpty):
+		return "notEmpty"
+	case errors.Is(err, ErrNotDuplicate):
+		return "notDuplicate"
 	}
 	return CodeInternal
 }

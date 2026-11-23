@@ -64,5 +64,9 @@ func Kinds(ds model.DataStore, editor *tagedit.Editor) map[model.EditKind]StepKi
 		model.EditQuarantine:      quarantineKind{editor: editor},
 		model.EditRestore:         restoreKind{editor: editor},
 		model.EditEmptyQuarantine: emptyKind{editor: editor},
+		// #169: the case merge, through Organize.
+		model.EditRename:              renameKind{editor: editor},
+		model.EditRemoveDir:           removeDirKind{editor: editor},
+		model.EditQuarantineDuplicate: duplicateKind{editor: editor},
 	}
 }
