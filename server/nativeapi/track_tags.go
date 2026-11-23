@@ -91,7 +91,7 @@ func (api *Router) editTrackTags(w http.ResponseWriter, r *http.Request) {
 		writeTagEditError(w, r, err)
 		return
 	}
-	if job.State != model.EditJobDone || len(job.Steps) == 0 {
+	if job.State != model.EditJobDone || len(job.Steps) == 0 || !ended(job.Steps[0].State) {
 		_ = rest.RespondWithJSON(w, http.StatusAccepted, editResult{JobID: job.ID, Background: true})
 		return
 	}
@@ -106,6 +106,12 @@ func (api *Router) editTrackTags(w http.ResponseWriter, r *http.Request) {
 		res.Track = mf
 	}
 	_ = rest.RespondWithJSON(w, http.StatusOK, res)
+}
+
+// ended reports whether a step's outcome is recorded. A done job's step may still read as running
+// when its outcome couldn't be recorded; the queue settles it later.
+func ended(s model.EditStepState) bool {
+	return s == model.EditStepWritten || s == model.EditStepUnchanged || s == model.EditStepSkipped
 }
 
 // listEditJobs returns the latest edit jobs (?_end, default 20), newest first, each with the

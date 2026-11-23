@@ -15,11 +15,18 @@ type MockEditJobRepo struct {
 	mu    sync.Mutex
 	jobs  []model.EditJob
 	steps []model.EditJobStep
+	// FailPut, when set, can fail a Put of the job.
+	FailPut func(*model.EditJob) error
 }
 
 func (m *MockEditJobRepo) Put(job *model.EditJob) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.FailPut != nil {
+		if err := m.FailPut(job); err != nil {
+			return err
+		}
+	}
 	now := time.Now()
 	if job.CreatedAt.IsZero() {
 		job.CreatedAt = now

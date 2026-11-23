@@ -48,7 +48,8 @@ type ScanStatus struct {
 }
 
 // EditJob is an edit job's progress (#162): sent as it starts, after each of its Files, and as it
-// ends.
+// ends. It goes to every client, so it holds no path; the admin's UI reads the job's Files from
+// the admin-only API.
 type EditJob struct {
 	baseEvent
 	ID      string             `json:"id"`
@@ -56,7 +57,6 @@ type EditJob struct {
 	Total   int                `json:"total"`
 	Done    int                `json:"done"`
 	Skipped int                `json:"skipped"`
-	Current string             `json:"current"`
 }
 
 type KeepAlive struct {

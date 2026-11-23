@@ -34,7 +34,6 @@ describe('activityReducer', () => {
       total: 3,
       done: 1,
       skipped: 0,
-      current: 'Artist/Album/02 Song.mp3',
     }
     const newState = activityReducer(initialState, {
       type: EVENT_EDIT_JOB,
@@ -42,6 +41,15 @@ describe('activityReducer', () => {
     })
     expect(newState.editJob).toEqual(data)
     expect(newState.scanStatus).toEqual(initialState.scanStatus)
+  })
+
+  it('drops the last edit job event when the stream reconnects, as one may have been missed', () => {
+    const state = activityReducer(initialState, {
+      type: EVENT_EDIT_JOB,
+      data: { id: 'job-1', state: 'running' },
+    })
+    const newState = activityReducer(state, { type: EVENT_STREAM_RECONNECTED })
+    expect(newState.editJob).toBeUndefined()
   })
 
   it('handles EVENT_SCAN_STATUS action with elapsedTime field', () => {

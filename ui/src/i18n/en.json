@@ -105,7 +105,7 @@
           "notVerified": "The edited copy didn’t check out, so the File was left as it was.",
           "linked": "This File has other names (a symlink or hard link), so the app doesn't replace it.",
           "oldCopyLeft": "An earlier edit left an old copy of this File beside it. Check it and remove it, then try again.",
-          "interrupted": "A restart interrupted the edit, and the File was left as it was. Try again.",
+          "interrupted": "A restart interrupted the edit. Check the File's tags, and edit it again if they weren't saved.",
           "unknown": "The tags could not be saved."
         }
       }

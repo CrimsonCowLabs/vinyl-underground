@@ -25,6 +25,9 @@ import (
 // at the next start): it wasn't written.
 const CodeInterrupted = "interrupted"
 
+// ErrSameFileTwice is a job with two steps for one File.
+var ErrSameFileTwice = errors.New("the same File is in the job twice")
+
 // Outcome is what a step did to its File.
 type Outcome struct {
 	// Changed is false for a File that already held what the step would write.
@@ -74,8 +77,14 @@ func (q *Queue) Enqueue(ctx context.Context, kind model.EditKind, steps []model.
 	if len(steps) == 0 {
 		return nil, errors.New("an edit job needs at least one File")
 	}
+	// One step per File: a restart tells a step's write by its File (see recover).
+	files := map[string]bool{}
 	for i := range steps {
 		s := &steps[i]
+		if files[s.MediaFileID] {
+			return nil, fmt.Errorf("%w: an edit job writes each File once", ErrSameFileTwice)
+		}
+		files[s.MediaFileID] = true
 		s.Kind = cmp.Or(s.Kind, kind)
 		k, ok := q.kinds[s.Kind]
 		if !ok {
@@ -175,6 +184,11 @@ func (q *Queue) Wait(ctx context.Context, id string, d time.Duration) (*model.Ed
 // the stop cut off is finished or rolled back before its job carries on.
 func (q *Queue) Run(ctx context.Context) {
 	for ctx.Err() == nil {
+		// Next sees every job queued so far, so a wake left from one is spent.
+		select {
+		case <-q.wake:
+		default:
+		}
 		job, err := q.ds.EditJob(ctx).Next()
 		switch {
 		case err == nil:
@@ -197,8 +211,11 @@ func (q *Queue) Run(ctx context.Context) {
 // process runs the job's steps still to do, in order. A step that fails is skipped, with its
 // reason, and the others still run. If ctx ends, the job stops between two Files, still running,
 // and carries on at the next start. It returns false when the job's Files couldn't be read or
-// recorded.
-func (q *Queue) process(ctx context.Context, job *model.EditJob) bool {
+// recorded: the job is left running, and the next try settles its Files from the journal.
+func (q *Queue) process(runCtx context.Context, job *model.EditJob) bool {
+	// A File's outcome is recorded even while the app is stopping: runCtx only stops the job
+	// between two Files.
+	ctx := context.WithoutCancel(runCtx)
 	repo := q.ds.EditJob(ctx)
 	steps, err := repo.Steps(job.ID)
 	if err != nil {
@@ -220,16 +237,21 @@ func (q *Queue) process(ctx context.Context, job *model.EditJob) bool {
 	for i := range steps {
 		s := &steps[i]
 		if s.State == model.EditStepRunning {
-			q.recover(ctx, job, s)
+			if err := q.recover(ctx, job, s); err != nil {
+				log.Error(ctx, "Could not settle an edit job's interrupted File", "job", job.ID, "path", s.Path, err)
+				return false
+			}
 		}
 		if s.State != model.EditStepQueued {
 			continue
 		}
-		if ctx.Err() != nil {
+		if runCtx.Err() != nil {
 			return true
 		}
 		job.Current = s.Path
-		q.save(ctx, job, steps)
+		if err := q.save(ctx, job, steps); err != nil {
+			return false
+		}
 		s.State = model.EditStepRunning
 		if err := repo.PutStep(s); err != nil {
 			log.Error(ctx, "Could not record an edit job's File as started", "job", job.ID, "path", s.Path, err)
@@ -237,11 +259,16 @@ func (q *Queue) process(ctx context.Context, job *model.EditJob) bool {
 		}
 		q.runStep(ctx, job, s)
 		if err := repo.PutStep(s); err != nil {
+			// The step stays running in the database; the next try reads its outcome from the
+			// journal.
 			log.Error(ctx, "Could not record how an edit job's File ended", "job", job.ID, "path", s.Path, "state", s.State, err)
+			return false
 		}
 	}
 	job.State, job.Current = model.EditJobDone, ""
-	q.save(ctx, job, steps)
+	if err := q.save(ctx, job, steps); err != nil {
+		return false
+	}
 	log.Info(ctx, "Finished an edit job", "job", job.ID, "files", job.Total, "skipped", job.Skipped)
 	return true
 }
@@ -254,7 +281,7 @@ func (q *Queue) runStep(ctx context.Context, job *model.EditJob, s *model.EditJo
 		return
 	}
 	// Once started, a File's write runs to the end, even if the app is stopping.
-	out, err := k.Run(context.WithoutCancel(ctx), job.ID, s)
+	out, err := k.Run(ctx, job.ID, s)
 	if err != nil {
 		s.State, s.Code, s.Error = model.EditStepSkipped, k.Code(err), err.Error()
 		log.Warn(ctx, "An edit job skipped a File", "job", job.ID, "path", s.Path, "code", s.Code, err)
@@ -270,12 +297,10 @@ func (q *Queue) runStep(ctx context.Context, job *model.EditJob, s *model.EditJo
 // startup settle has already finished or rolled back: written, it is written; rolled back, or
 // still pending (the next start settles it), it is skipped as interrupted. With no entry the
 // File was never touched, and the step runs again.
-func (q *Queue) recover(ctx context.Context, job *model.EditJob, s *model.EditJobStep) {
+func (q *Queue) recover(ctx context.Context, job *model.EditJob, s *model.EditJobStep) error {
 	entries, err := q.ds.EditJournal(ctx).ForJob(job.ID)
 	if err != nil {
-		log.Error(ctx, "Could not read an interrupted edit job's journal", "job", job.ID, err)
-		s.State, s.Code, s.Error = model.EditStepSkipped, CodeInterrupted, "interrupted by a restart"
-		return
+		return err
 	}
 	var entry *model.EditEntry
 	for i := range entries {
@@ -294,18 +319,18 @@ func (q *Queue) recover(ctx context.Context, job *model.EditJob, s *model.EditJo
 		s.Error = cmp.Or(entry.Error, "interrupted by a restart")
 	default:
 		s.State, s.Code, s.EntryID = model.EditStepSkipped, CodeInterrupted, entry.ID
-		s.Error = "interrupted by a restart; the File is put back as it was at the next start"
+		// Settle couldn't tell yet: the next start finishes the write or puts the File back.
+		s.Error = "interrupted by a restart; the next start finishes the write or puts the File back as it was"
 	}
 	log.Info(ctx, "Settled an edit job's interrupted File", "job", job.ID, "path", s.Path, "state", s.State)
-	if s.State != model.EditStepQueued {
-		if err := q.ds.EditJob(ctx).PutStep(s); err != nil {
-			log.Error(ctx, "Could not record an interrupted File's outcome", "job", job.ID, "path", s.Path, err)
-		}
+	if s.State == model.EditStepQueued {
+		return nil
 	}
+	return q.ds.EditJob(ctx).PutStep(s)
 }
 
 // save records the job's progress, counted from its steps, and tells the UI.
-func (q *Queue) save(ctx context.Context, job *model.EditJob, steps model.EditJobSteps) {
+func (q *Queue) save(ctx context.Context, job *model.EditJob, steps model.EditJobSteps) error {
 	job.Done, job.Skipped = 0, 0
 	for _, s := range steps {
 		switch s.State {
@@ -318,16 +343,19 @@ func (q *Queue) save(ctx context.Context, job *model.EditJob, steps model.EditJo
 	}
 	if err := q.ds.EditJob(ctx).Put(job); err != nil {
 		log.Error(ctx, "Could not record an edit job's progress", "job", job.ID, err)
+		return err
 	}
 	q.changedJob(ctx, job)
+	return nil
 }
 
-// changedJob tells Wait, and the UI, that the job changed.
+// changedJob tells Wait, and the UI, that the job changed. The event goes to every client, so
+// it holds no path: the admin's Activity panel reloads the jobs from the admin-only API.
 func (q *Queue) changedJob(ctx context.Context, job *model.EditJob) {
 	q.mu.Lock()
 	close(q.changed)
 	q.changed = make(chan struct{})
 	q.mu.Unlock()
 	q.broker.SendBroadcastMessage(ctx, &events.EditJob{ID: job.ID, State: job.State, Total: job.Total,
-		Done: job.Done, Skipped: job.Skipped, Current: job.Current})
+		Done: job.Done, Skipped: job.Skipped})
 }

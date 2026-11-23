@@ -58,8 +58,11 @@ export const activityReducer = (previousState = initialState, payload) => {
     case EVENT_EDIT_JOB:
       // The latest edit job event: the Activity panel shows its progress.
       return { ...previousState, editJob: data }
-    case EVENT_STREAM_RECONNECTED:
-      return { ...previousState, streamReconnected: Date.now() }
+    case EVENT_STREAM_RECONNECTED: {
+      // An edit job event missed while the stream was down would leave a stale one.
+      const { editJob, ...rest } = previousState
+      return { ...rest, streamReconnected: Date.now() }
+    }
     default:
       return previousState
   }

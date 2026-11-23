@@ -180,6 +180,12 @@ var _ = Describe("Queue", func() {
 			Expect(jobs.GetAll(0)).To(BeEmpty())
 		})
 
+		It("refuses a job that writes a File twice", func() {
+			steps := append(fileSteps("a.mp3", "b.mp3"), fileSteps("a.mp3")...)
+			Expect(q.Enqueue(ctx, fakeKind, steps)).Error().To(MatchError(ErrSameFileTwice))
+			Expect(jobs.GetAll(0)).To(BeEmpty())
+		})
+
 		It("refuses a job with no steps", func() {
 			Expect(q.Enqueue(ctx, fakeKind, nil)).Error().To(HaveOccurred())
 		})
@@ -237,7 +243,7 @@ var _ = Describe("Queue", func() {
 			Expect(now.Current).To(Equal("b.mp3"))
 			Expect(broker.Sent()).To(ContainElement(SatisfyAll(
 				HaveField("ID", job.ID), HaveField("State", model.EditJobRunning),
-				HaveField("Done", 1), HaveField("Total", 2), HaveField("Current", "b.mp3"))))
+				HaveField("Done", 1), HaveField("Total", 2))))
 
 			kind.hold <- struct{}{}
 			wait(job)
@@ -267,6 +273,26 @@ var _ = Describe("Queue", func() {
 			Expect(list[0].Steps).To(HaveLen(1))
 			Expect(list[0].Steps[0].Path).To(Equal("b.mp3"))
 		})
+	})
+
+	It("waits a while, rather than retrying at once, when it can't record a job's progress", func() {
+		job, err := q.Enqueue(ctx, fakeKind, fileSteps("a.mp3"))
+		Expect(err).ToNot(HaveOccurred())
+		var tries atomic.Int32
+		jobs.FailPut = func(j *model.EditJob) error {
+			if j.State == model.EditJobDone {
+				tries.Add(1)
+				return errors.New("disk full")
+			}
+			return nil
+		}
+		run()
+		Eventually(tries.Load).Should(BeEquivalentTo(1))
+		Consistently(tries.Load, 200*time.Millisecond).Should(BeEquivalentTo(1))
+		got, err := q.Job(ctx, job.ID)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(got.State).To(Equal(model.EditJobRunning))
+		Expect(got.Steps[0].State).To(Equal(model.EditStepWritten))
 	})
 
 	Describe("Wait", func() {
