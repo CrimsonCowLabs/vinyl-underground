@@ -3,9 +3,6 @@ package corrections_test
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"sync"
-	"time"
 
 	"github.com/navidrome/navidrome/core/corrections"
 	"github.com/navidrome/navidrome/core/editjob"
@@ -18,24 +15,6 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
-
-// fakeScanner records the folders a job kind rescans.
-type fakeScanner struct {
-	mu    sync.Mutex
-	scans [][]model.ScanTarget
-	full  []bool
-	err   error // a scan that fails is not recorded
-}
-
-func (f *fakeScanner) ScanFolders(_ context.Context, full bool, targets []model.ScanTarget) ([]string, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.err != nil {
-		return nil, f.err
-	}
-	f.scans, f.full = append(f.scans, targets), append(f.full, full)
-	return nil, nil
-}
 
 // rewrites returns each step's Track and the Rewrite it writes.
 func rewrites(plan *corrections.Plan) map[string]editjob.Rewrite {
@@ -52,14 +31,13 @@ func rewrites(plan *corrections.Plan) map[string]editjob.Rewrite {
 
 var _ = Describe("Writing Corrections to the Files", func() {
 	var (
-		ctx     context.Context
-		ds      model.DataStore
-		svc     corrections.Corrections
-		scanner *fakeScanner
-		kinds   map[model.EditKind]editjob.JobKind
-		al      model.Album
-		cd1     *model.Folder
-		cd2     *model.Folder
+		ctx   context.Context
+		ds    model.DataStore
+		svc   corrections.Corrections
+		kinds map[model.EditKind]editjob.JobKind
+		al    model.Album
+		cd1   *model.Folder
+		cd2   *model.Folder
 	)
 
 	numberTrack := func(id string, disc, track int) {
@@ -103,9 +81,8 @@ var _ = Describe("Writing Corrections to the Files", func() {
 			_, err := db.Db().Exec("delete from " + table)
 			Expect(err).ToNot(HaveOccurred())
 		}
-		svc = corrections.NewWithOptions(ds, &fakeRefresher{targets: map[string][]model.ScanTarget{}}, corrections.Options{Wait: time.Second})
-		scanner = &fakeScanner{}
-		kinds = corrections.JobKinds(ds, scanner)
+		svc = corrections.NewWithOptions(ds, corrections.Options{})
+		kinds = corrections.JobKinds(ds)
 
 		cd1 = model.NewFolder(model.Library{ID: 1}, "Band/Record/CD1")
 		cd2 = model.NewFolder(model.Library{ID: 1}, "Band/Record/CD2")
@@ -188,19 +165,14 @@ var _ = Describe("Writing Corrections to the Files", func() {
 			// The MusicBrainz release (#170) stays a Correction; the year is the Files' now.
 			Expect(left[0].Year).To(BeZero())
 			Expect(left[0].MbzAlbumID).To(Equal(old.MbzAlbumID))
-			Expect(scanner.full).To(Equal([]bool{true}))
-			Expect(scanner.scans[0]).To(ConsistOf(
-				model.ScanTarget{LibraryID: 1, FolderPath: "Band/Record/CD1"}, model.ScanTarget{LibraryID: 1, FolderPath: "Band/Record/CD2"}))
 
 			// Running again (a restart) changes nothing more, and the undo puts it back whole.
 			Expect(kinds[plan.Kind].Done(ctx, job, steps)).To(Succeed())
-			Expect(scanner.scans).To(HaveLen(1))
 			Expect(kinds[plan.Kind].Undone(ctx, job, steps)).To(Succeed())
 			left = correctionsOf(model.CorrectionAlbum)
 			Expect(left).To(HaveLen(1))
 			Expect(left[0].Year).To(Equal(1997))
 			Expect(left[0].MbzAlbumID).To(Equal(old.MbzAlbumID))
-			Expect(scanner.scans).To(HaveLen(2))
 		})
 
 		It("deletes an album Correction it leaves with nothing, and removes only the written Files' track numbers", func() {
@@ -240,7 +212,6 @@ var _ = Describe("Writing Corrections to the Files", func() {
 			job, steps := queued(plan, map[string]model.EditStepState{"mf-1": model.EditStepSkipped, "mf-2": model.EditStepSkipped})
 			Expect(kinds[plan.Kind].Done(ctx, job, steps)).To(Succeed())
 			Expect(correctionsOf(model.CorrectionAlbum)).To(HaveLen(1))
-			Expect(scanner.scans).To(BeEmpty())
 		})
 	})
 
@@ -297,14 +268,13 @@ var _ = Describe("Writing Corrections to the Files", func() {
 		It("gives the new name as album artist to the Tracks an album Correction gives the Artist", func() {
 			albumFix := model.Correction{Kind: model.CorrectionAlbum, MatchKey: model.AlbumFolderKey(al), AlbumArtist: "Greatful Dead", Year: 1977}
 			Expect(ds.Correction(ctx).Add(&albumFix)).To(Succeed())
-			_, err := db.Db().Exec("update media_file set correction_ids = ? where id = 'mf-2'", `["`+albumFix.ID+`"]`)
-			Expect(err).ToNot(HaveOccurred())
 			credit("mf-2", model.RoleAlbumArtist, dead)
 
+			// The album Correction applies to every File in the album's folders, as it did on read.
 			plan, err := svc.PlanArtistRename(ctx, dead.ID, "Grateful Dead")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(rewrites(plan)["mf-2"].Set).To(Equal(tagedit.Values{"albumartist": {"Grateful Dead"}}))
-			Expect(rewrites(plan)["mf-1"].Set).To(BeEmpty())
+			Expect(rewrites(plan)["mf-1"].Set).To(Equal(tagedit.Values{"albumartist": {"Grateful Dead"}}))
 
 			job, steps := queued(plan, nil)
 			Expect(kinds[plan.Kind].Done(ctx, job, steps)).To(Succeed())
@@ -344,31 +314,6 @@ var _ = Describe("Writing Corrections to the Files", func() {
 			Expect(back).To(HaveLen(1))
 			Expect(back[0].MatchKey).To(Equal("grateful ded"))
 			Expect(back[0].To).To(Equal("Greatful Dead"))
-		})
-
-		It("rescans again, after an undo put Corrections back, when the rescan failed", func() {
-			typo := model.Correction{Kind: model.CorrectionArtistRename, MatchKey: "grateful ded", From: "Grateful Ded", To: "Greatful Dead"}
-			Expect(ds.Correction(ctx).Add(&typo)).To(Succeed())
-			plan, err := svc.PlanArtistRename(ctx, dead.ID, "Grateful Dead")
-			Expect(err).ToNot(HaveOccurred())
-			k := kinds[plan.Kind]
-			job, steps := queued(plan, nil)
-			Expect(k.Done(ctx, job, steps)).To(Succeed())
-			// The rename applied to a folder: put back, it is rescanned.
-			a := map[string]any{}
-			Expect(json.Unmarshal([]byte(job.Args), &a)).To(Succeed())
-			a["folders"] = []string{cd1.ID}
-			b, _ := json.Marshal(a)
-			job.Args = string(b)
-
-			scanner.err = errors.New("busy")
-			Expect(k.Undone(ctx, job, steps)).ToNot(Succeed())
-			Expect(correctionsOf(model.CorrectionArtistRename)).To(HaveLen(1))
-			scanner.err = nil
-			scans := len(scanner.scans)
-			Expect(k.Undone(ctx, job, steps)).To(Succeed())
-			Expect(scanner.scans).To(HaveLen(scans + 1))
-			Expect(correctionsOf(model.CorrectionArtistRename)).To(HaveLen(1))
 		})
 	})
 })

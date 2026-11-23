@@ -1,52 +1,48 @@
-// Package corrections lets admins fix wrong tag values without touching the (read-only) Files.
-// A Correction is kept in the database and applied by the scanner whenever it reads tags (see
-// metadata.Corrections), so saving or undoing one rescans the folders it affects and refreshes
-// them (see refresh.Refresher).
+// Package corrections writes an admin's fixes to wrong tag values into the Files (ADR-0011): the
+// album Edit dialog, Track order and artist renames and merges are edit jobs (write.go), and the
+// Corrections the app kept before, which it applied whenever it read a File's tags, are written
+// into the Files by the Correction migration (migrate.go, #165). Nothing applies a Correction on
+// read any more. What stays app data is kept here too: an image marked wrong for an album (a
+// cover block), which artwork skips, and a MusicBrainz release picked with Find on MusicBrainz,
+// whose Cover Art Archive cover the album shows, until its IDs are written into the Files (#170).
 package corrections
 
 import (
-	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"path/filepath"
-	"slices"
 	"strings"
-	"time"
 
 	"github.com/Masterminds/squirrel"
 	"github.com/navidrome/navidrome/consts"
 	"github.com/navidrome/navidrome/core/artwork"
-	"github.com/navidrome/navidrome/core/refresh"
+	"github.com/navidrome/navidrome/core/tagedit"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
-	"github.com/navidrome/navidrome/model/metadata"
 )
 
 var (
 	// ErrArtistExists is returned when renaming an Artist to the name of another Artist: that
-	// merges them, which MergeArtist does.
+	// merges them, which PlanArtistMerge does.
 	ErrArtistExists = fmt.Errorf("%w: an Artist with that name already exists", model.ErrAlreadyExists)
-	// ErrRenamedAway is returned when renaming an Artist to a name a Correction renames away:
-	// undoing that Correction is the way to get it back.
-	ErrRenamedAway = fmt.Errorf("%w: a Correction renames that name away; undo it instead", model.ErrValidation)
-	// ErrUndoLaterFirst is returned when undoing an artist rename or merge that a later Correction
-	// builds on: one renaming its new name onward (A→B, then B→C), or merging another Artist into
-	// its new name. Undoing that one first keeps the Artists' stars and play counts apart.
-	ErrUndoLaterFirst = fmt.Errorf("%w: a later Correction builds on this one; undo it first", model.ErrValidation)
+	// ErrRenamedAway is returned when renaming an Artist to a name a Correction not yet migrated
+	// renames away: the migration would rename it again.
+	ErrRenamedAway = fmt.Errorf("%w: a Correction renames that name away; migrate it first", model.ErrValidation)
 	// ErrCoverChanged is returned when marking an album's cover wrong, but the album no longer
 	// shows the image the admin saw (or shows none).
 	ErrCoverChanged = fmt.Errorf("%w: the album's cover has changed", model.ErrValidation)
+	// ErrMigrateFirst is returned when undoing a Correction the migration writes into the Files:
+	// only the app data a Correction still is (a cover block, a picked release) can be undone.
+	ErrMigrateFirst = fmt.Errorf("%w: this Correction is written into the Files by the migration", model.ErrValidation)
 )
 
 // Applied is the outcome of saving or undoing a Correction.
 type Applied struct {
 	Correction model.Correction `json:"correction"`
-	// ArtistID is the ID the Artist has once its folders are rescanned.
-	ArtistID string `json:"artistId,omitempty"`
-	// AlbumID is the ID a corrected album has once its folders are rescanned (if Done).
+	// AlbumID is the album a Correction of it was saved for.
 	AlbumID string `json:"albumId,omitempty"`
-	// Done is false when the rescan outlasted Options.Wait and carries on in the background.
+	// Done is always true: saving or undoing one rescans nothing.
 	Done bool `json:"done"`
 	// PickCover is what the Cover Art Archive answered for a release picked with Find on
 	// MusicBrainz, when saving asked it; empty otherwise.
@@ -56,193 +52,57 @@ type Applied struct {
 type Corrections interface {
 	// GetAll returns every Correction, newest first, with how many Tracks each applies to now.
 	GetAll(ctx context.Context) (model.Corrections, error)
-	// RenameArtist saves a Correction renaming the Artist everywhere in the Library, then rescans
-	// the folders of the albums it is album artist or Track artist on, and refreshes it.
-	RenameArtist(ctx context.Context, artistID, name string) (*Applied, error)
-	// ChooseAlbumCover makes the image the album's cover, over every source in CoverArtPriority,
-	// replacing an earlier choice; it is the album's disc art and its Tracks' art too. The
-	// Correction is keyed by the album's folder (see model.AlbumFolderKey), and saving it refreshes
-	// the artwork of the albums in that folder and of their Tracks. The image must already be in the
-	// chosen-cover store (see artwork.ChosenCoverStore). Choosing an image blocked for the album
-	// lifts the block.
-	ChooseAlbumCover(ctx context.Context, albumID string, cover AlbumCover) (*Applied, error)
 	// BlockAlbumCover marks the image the album shows wrong for it, by its content hash (the one
 	// the client saw, ErrCoverChanged if the album shows another now). The album, its disc art and
 	// its tracks' own art skip it from then on, falling back to the next source in the cover
-	// order. Marking the chosen cover wrong also removes the choice.
+	// order.
 	BlockAlbumCover(ctx context.Context, albumID, imageHash string) (*Applied, error)
-	// MergeArtist saves a Correction renaming the Artist to the name of the Artist intoID, merging
-	// them: their stars, ratings and play counts are joined (see
-	// model.CorrectionRepository.MergeArtistAnnotations). It rescans like RenameArtist.
-	MergeArtist(ctx context.Context, artistID, intoID string) (*Applied, error)
-	// CorrectAlbum saves a Correction of the album's title, album artist and year, and of its
-	// MusicBrainz release, keyed by its folder (see model.AlbumFolderKey) and replacing an earlier
-	// one, then rescans the album's folders and refreshes it. Only what differs from the album now
-	// is corrected. A picked release's Cover Art Archive cover is kept with it (Options.PickedCover)
-	// and outranks CoverArtPriority, for the album, its disc art and its Tracks' own art.
+	// CorrectAlbum saves the MusicBrainz release picked for the album with Find on MusicBrainz
+	// (fix's MbzAlbumID and MbzReleaseGroupID) as an album Correction keyed by its folder (see
+	// model.AlbumFolderKey), replacing an earlier pick. Its Cover Art Archive cover is kept with
+	// it (Options.PickedCover) and outranks CoverArtPriority, for the album, its disc art and its
+	// Tracks' own art. The release's IDs are not applied to the Tracks' tags: writing them into
+	// the Files is #170. The album's title, album artist and year go to the Files (PlanAlbumEdit).
 	CorrectAlbum(ctx context.Context, albumID string, fix AlbumFix) (*Applied, error)
-	// CorrectTrackNumbers saves one Correction of the disc and track numbers of the album's
-	// Tracks, each tied to its File, replacing (and keeping what it renumbered of) an earlier one
-	// for the album, then rescans the album's folders and refreshes it. Tracks whose numbers are
-	// unchanged are left out, and one set back to its tagged numbers is dropped. Two Tracks of a
-	// disc may end up with one number: that is the admin's call. Track IDs are unchanged.
-	CorrectTrackNumbers(ctx context.Context, albumID string, tracks []TrackNumber) (*Applied, error)
-	// Undo stops applying the Correction, rescans the folders of the Tracks it applied to, and
-	// then deletes it. If the rescan fails, it stays marked as undoing, and Undo can be retried.
+	// Undo deletes a cover block or a picked release, and resolves the covers of the albums it
+	// applied to again. The Corrections the migration writes can't be undone (ErrMigrateFirst).
 	Undo(ctx context.Context, id string) (*Applied, error)
 
-	// The album Edit dialog, Track order and artist rename and merge write to the Files instead
-	// (#163): these work out the edit job each queues (see write.go).
+	// The album Edit dialog, Track order and artist rename and merge write to the Files (#163):
+	// these work out the edit job each queues (see write.go).
 	PlanAlbumEdit(ctx context.Context, albumID string, fix *AlbumFix, numbers []TrackNumber) (*Plan, error)
 	PlanArtistRename(ctx context.Context, artistID, name string) (*Plan, error)
 	PlanArtistMerge(ctx context.Context, artistID, intoID string) (*Plan, error)
+
+	// PlanMigration lists every Correction the Correction migration writes into the Files (#165),
+	// with what writing it changes and the Files it can't write; it writes nothing.
+	PlanMigration(ctx context.Context, editor *tagedit.Editor) (*Migration, error)
+	// MigrationJob works out the migration's edit job (JobMigrate). With no File to write it
+	// removes the Corrections that apply to nothing, and returns ErrNothingToWrite.
+	MigrationJob(ctx context.Context, editor *tagedit.Editor) (*Plan, error)
 }
 
-// AlbumCover is a stored image to make an album's cover, and where it came from, as shown to the
-// admin ("Cover Art Archive: Record (GB, CD, 1999)").
-type AlbumCover struct {
-	artwork.StoredCover
-	Source string
-}
-
-// Options: Wait is how long saving or undoing waits for its rescan before returning and letting
-// it finish in the background. PickedCover fetches and stores a picked release's Cover Art Archive
-// front cover (see artwork.FetchPickedCover); nil asks nothing, and a pick has no cover.
+// Options: PickedCover fetches and stores a picked release's Cover Art Archive front cover (see
+// artwork.FetchPickedCover); nil asks nothing, and a pick has no cover.
 type Options struct {
-	Wait        time.Duration
 	PickedCover func(ctx context.Context, releaseID, releaseGroupID string) (artwork.StoredCover, error)
 }
 
-func New(ds model.DataStore, refresher refresh.Refresher) Corrections {
-	return NewWithOptions(ds, refresher, Options{PickedCover: artwork.FetchPickedCover})
+func New(ds model.DataStore) Corrections {
+	return NewWithOptions(ds, Options{PickedCover: artwork.FetchPickedCover})
 }
 
-func NewWithOptions(ds model.DataStore, refresher refresh.Refresher, opts Options) Corrections {
-	opts.Wait = cmp.Or(opts.Wait, 5*time.Second)
-	return &corrections{ds: ds, refresher: refresher, opts: opts}
+func NewWithOptions(ds model.DataStore, opts Options) Corrections {
+	return &corrections{ds: ds, opts: opts}
 }
 
 type corrections struct {
-	ds        model.DataStore
-	refresher refresh.Refresher
-	opts      Options
+	ds   model.DataStore
+	opts Options
 }
 
 func (c *corrections) GetAll(ctx context.Context) (model.Corrections, error) {
 	return c.ds.Correction(ctx).GetAll()
-}
-
-func (c *corrections) RenameArtist(ctx context.Context, artistID, name string) (*Applied, error) {
-	name = strings.Join(strings.Fields(name), " ")
-	ar, err := c.ds.Artist(ctx).Get(artistID)
-	if err != nil {
-		return nil, err
-	}
-	switch {
-	case name == "":
-		return nil, fmt.Errorf("%w: the new name is empty", model.ErrValidation)
-	case name == ar.Name:
-		return nil, fmt.Errorf("%w: the name is unchanged", model.ErrValidation)
-	case isPlaceholder(ar.Name):
-		return nil, fmt.Errorf("%w: %s can't be renamed", model.ErrValidation, ar.Name)
-	}
-	newID := metadata.ArtistID(name)
-	if newID != ar.ID {
-		if _, err := c.ds.Artist(ctx).Get(newID); err == nil {
-			return nil, ErrArtistExists
-		} else if !errors.Is(err, model.ErrNotFound) {
-			return nil, err
-		}
-	}
-	return c.saveArtistRename(ctx, ar, model.CorrectionArtistRename, name)
-}
-
-func (c *corrections) MergeArtist(ctx context.Context, artistID, intoID string) (*Applied, error) {
-	ar, err := c.ds.Artist(ctx).Get(artistID)
-	if err != nil {
-		return nil, err
-	}
-	into, err := c.ds.Artist(ctx).Get(intoID)
-	if err != nil {
-		return nil, err
-	}
-	switch {
-	case ar.ID == into.ID:
-		return nil, fmt.Errorf("%w: an Artist can't be merged into itself", model.ErrValidation)
-	case isPlaceholder(ar.Name) || isPlaceholder(into.Name):
-		return nil, fmt.Errorf("%w: %s and %s can't be merged", model.ErrValidation, ar.Name, into.Name)
-	}
-	return c.saveArtistRename(ctx, ar, model.CorrectionArtistMerge, into.Name)
-}
-
-// saveArtistRename saves the Correction renaming (or merging) the Artist to name, and rescans the
-// Artist's folders.
-func (c *corrections) saveArtistRename(ctx context.Context, ar *model.Artist, kind model.CorrectionKind, name string) (*Applied, error) {
-	if _, err := c.artistCorrection(ctx, model.ArtistNameKey(name)); err == nil {
-		return nil, ErrRenamedAway
-	} else if !errors.Is(err, model.ErrNotFound) {
-		return nil, err
-	}
-	// The repository only refuses a second Correction of the same kind
-	if _, err := c.artistCorrection(ctx, model.ArtistNameKey(ar.Name)); err == nil {
-		return nil, model.ErrAlreadyExists
-	} else if !errors.Is(err, model.ErrNotFound) {
-		return nil, err
-	}
-
-	targets, err := c.refresher.ScanTargets(ctx, model.KindArtistArtwork, ar.ID)
-	if err != nil {
-		return nil, err
-	}
-	cr := model.Correction{Kind: kind, MatchKey: model.ArtistNameKey(ar.Name), From: ar.Name, To: name}
-	if err := c.ds.Correction(ctx).Add(&cr); err != nil {
-		return nil, err
-	}
-	newID := metadata.ArtistID(name)
-	log.Info(ctx, "Corrections: renaming Artist", "kind", kind, "from", ar.Name, "to", name, "folders", len(targets))
-	done := c.rescan(ctx, targets, refresh.Item{Kind: model.KindArtistArtwork, ID: newID}, nil)
-	return &Applied{Correction: cr, ArtistID: newID, Done: done}, nil
-}
-
-func (c *corrections) ChooseAlbumCover(ctx context.Context, albumID string, cover AlbumCover) (*Applied, error) {
-	if cover.Hash == "" || cover.Mime == "" || cover.Source == "" {
-		return nil, fmt.Errorf("%w: no cover image", model.ErrValidation)
-	}
-	al, err := c.ds.Album(ctx).Get(albumID)
-	if err != nil {
-		return nil, err
-	}
-	key := model.AlbumFolderKey(*al)
-	if key == "" {
-		return nil, fmt.Errorf("%w: the album has no folder", model.ErrValidation)
-	}
-	cr := model.Correction{Kind: model.CorrectionAlbumCover, MatchKey: key, From: albumLabel(*al), To: cover.Source,
-		ImageHash: cover.Hash, ImageMime: cover.Mime}
-	err = c.ds.WithTx(func(tx model.DataStore) error {
-		repo := tx.Correction(ctx)
-		if old, err := model.AlbumCorrection(repo, model.CorrectionAlbumCover, *al); err == nil {
-			if err := repo.Delete(old.ID); err != nil {
-				return err
-			}
-		} else if !errors.Is(err, model.ErrNotFound) {
-			return err
-		}
-		// Choosing an image the admin had marked wrong takes that back
-		if err := deleteAlbumCorrections(repo, model.CorrectionAlbumCoverBlock, *al, cover.Hash); err != nil {
-			return err
-		}
-		return repo.Add(&cr)
-	})
-	if err != nil {
-		return nil, err
-	}
-	log.Info(ctx, "Corrections: choosing an album cover", "album", al.Name, "source", cover.Source, "hash", cover.Hash)
-	// A cover is no tag: nothing to rescan, only the artwork of every album the choice applies to,
-	// and of their Tracks (which show it too), to resolve again
-	if err := c.refreshFolderCovers(ctx, key); err != nil {
-		log.Warn(ctx, "Corrections: could not refresh the covers", "album", al.Name, err)
-	}
-	return &Applied{Correction: cr, Done: true}, nil
 }
 
 func (c *corrections) BlockAlbumCover(ctx context.Context, albumID, imageHash string) (*Applied, error) {
@@ -266,22 +126,7 @@ func (c *corrections) BlockAlbumCover(ctx context.Context, albumID, imageHash st
 	}
 	cr := model.Correction{Kind: model.CorrectionAlbumCoverBlock, MatchKey: key, From: albumLabel(*al),
 		To: coverSourceLabel(shown), ImageHash: shown.Hash}
-	err = c.ds.WithTx(func(tx model.DataStore) error {
-		repo := tx.Correction(ctx)
-		// A wrong choice is no choice: the album falls back to the cover order, past this image
-		if choice, err := model.AlbumCorrection(repo, model.CorrectionAlbumCover, *al); err == nil {
-			if choice.ImageHash == shown.Hash {
-				cr.To = choice.To
-				if err := repo.Delete(choice.ID); err != nil {
-					return err
-				}
-			}
-		} else if !errors.Is(err, model.ErrNotFound) {
-			return err
-		}
-		return repo.Add(&cr)
-	})
-	if err != nil {
+	if err := c.ds.Correction(ctx).Add(&cr); err != nil {
 		return nil, err
 	}
 	log.Info(ctx, "Corrections: marking an album cover wrong", "album", al.Name, "image", cr.To, "hash", cr.ImageHash)
@@ -310,23 +155,6 @@ func coverSourceLabel(ia *model.ItemArtwork) string {
 	return strings.TrimPrefix(ia.Source, artwork.ExternalPrefix)
 }
 
-// deleteAlbumCorrections deletes the album's Corrections of the kind for the image.
-func deleteAlbumCorrections(repo model.CorrectionRepository, kind model.CorrectionKind, al model.Album, imageHash string) error {
-	all, err := model.AlbumCorrections(repo, kind, al)
-	if err != nil {
-		return err
-	}
-	for _, c := range all {
-		if c.ImageHash != imageHash {
-			continue
-		}
-		if err := repo.Delete(c.ID); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 // albumLabel names an album for the Corrections page: "Band – Record".
 func albumLabel(al model.Album) string {
 	if al.AlbumArtist == "" {
@@ -335,21 +163,9 @@ func albumLabel(al model.Album) string {
 	return al.AlbumArtist + " – " + al.Name
 }
 
-// undoAlbumCover deletes a cover choice or block and refreshes the albums in its folder, which go
-// back to the default cover order, and their Tracks' art.
-func (c *corrections) undoAlbumCover(ctx context.Context, cr *model.Correction) (*Applied, error) {
-	if err := c.ds.Correction(ctx).Delete(cr.ID); err != nil {
-		return nil, err
-	}
-	log.Info(ctx, "Corrections: undoing an album cover Correction", "kind", cr.Kind, "album", cr.From, "image", cr.To)
-	if err := c.refreshFolderCovers(ctx, cr.MatchKey); err != nil {
-		return nil, err
-	}
-	return &Applied{Correction: *cr, Done: true}, nil
-}
-
-// refreshFolderCovers refreshes the covers of every album an album cover Correction keyed by the
-// folder applies to (albums sharing a folder share its Corrections), and their Tracks' art.
+// refreshFolderCovers refreshes the covers of every album a Correction keyed by the folder applies
+// to (albums sharing a folder share its Corrections), and their Tracks' art. A failure for one
+// album is only logged: the Correction applies whenever it is next resolved.
 func (c *corrections) refreshFolderCovers(ctx context.Context, folderKey string) error {
 	albums, err := c.ds.Album(ctx).GetAll(model.QueryOptions{
 		Filters: squirrel.Expr("exists (select 1 from json_each(album.folder_ids) af where af.value = ?)", folderKey),
@@ -358,18 +174,11 @@ func (c *corrections) refreshFolderCovers(ctx context.Context, folderKey string)
 		return err
 	}
 	for _, al := range albums {
-		c.refreshCover(ctx, al)
+		if err := artwork.RefreshAlbumCover(ctx, c.ds, al.ID); err != nil {
+			log.Warn(ctx, "Corrections: could not refresh the album's cover", "album", al.Name, err)
+		}
 	}
 	return nil
-}
-
-// refreshCover resolves the album's cover again, and its Tracks' own art, which follow its choice
-// and blocks. A failure is only logged: the Correction is saved either way, and applies whenever
-// they are next resolved.
-func (c *corrections) refreshCover(ctx context.Context, al model.Album) {
-	if err := artwork.RefreshAlbumCover(ctx, c.ds, al.ID); err != nil {
-		log.Warn(ctx, "Corrections: could not refresh the album's cover", "album", al.Name, err)
-	}
 }
 
 // artistCorrection returns the artist rename or merge matching the name key, or ErrNotFound.
@@ -385,109 +194,22 @@ func isPlaceholder(name string) bool {
 	return name == consts.UnknownArtist || name == consts.VariousArtists
 }
 
-// checkUndoOrder returns ErrUndoLaterFirst if another artist Correction builds on cr: it renames
-// cr's new name onward, or it merges another Artist into cr's new name later. A plain rename's
-// undo moves all of the new name's stars back, and a merge's undo the star the target took from
-// it, which a later merge may rely on. An album Correction setting a rename's new name as its album
-// artist builds on it too: undone first, the rename would leave that album alone under the new name.
-func (c *corrections) checkUndoOrder(ctx context.Context, cr *model.Correction) error {
-	if !cr.Kind.IsArtistRename() {
-		return nil
-	}
-	all, err := c.ds.Correction(ctx).GetAll()
-	if err != nil {
-		return err
-	}
-	to := model.ArtistNameKey(cr.To)
-	for _, o := range all {
-		if cr.Kind == model.CorrectionArtistRename && o.Kind == model.CorrectionAlbum && !o.Undoing &&
-			o.AlbumArtist != "" && model.ArtistNameKey(o.AlbumArtist) == to {
-			return ErrUndoLaterFirst
-		}
-		if o.ID == cr.ID || o.Undoing || !o.Kind.IsArtistRename() {
-			continue
-		}
-		if o.MatchKey == to || (model.ArtistNameKey(o.To) == to && o.CreatedAt.After(cr.CreatedAt)) {
-			return ErrUndoLaterFirst
-		}
-	}
-	return nil
-}
-
 func (c *corrections) Undo(ctx context.Context, id string) (*Applied, error) {
 	repo := c.ds.Correction(ctx)
 	cr, err := repo.Get(id)
 	if err != nil {
 		return nil, err
 	}
-	if cr.Kind.IsAlbumCover() {
-		return c.undoAlbumCover(ctx, cr)
+	if migrates(*cr) {
+		return nil, ErrMigrateFirst
 	}
-	if cr.Kind.IsAlbumTags() {
-		// Neither builds on the other (they correct other tags), so either can go first
-		return c.undoAlbum(ctx, cr)
-	}
-	if err := c.checkUndoOrder(ctx, cr); err != nil {
+	if err := repo.Delete(cr.ID); err != nil {
 		return nil, err
 	}
-	folderIDs, err := repo.FolderIDs(id)
-	if err != nil {
+	log.Info(ctx, "Corrections: undoing", "kind", cr.Kind, "album", cr.From, "to", cr.To)
+	// A block, or a picked release (and its cover): only the covers change.
+	if err := c.refreshFolderCovers(ctx, cr.MatchKey); err != nil {
 		return nil, err
 	}
-	targets, err := refresh.FolderTargets(ctx, c.ds, folderIDs)
-	if err != nil {
-		return nil, err
-	}
-	// Artist renames and merges are the only kinds so far: undoing one restores, and refreshes,
-	// the old name
-	res := &Applied{Correction: *cr, ArtistID: metadata.ArtistID(cr.From), Done: true}
-	// Folders still holding the old name too: a rename whose own rescan is still running, or
-	// failed, has not reached its Tracks yet
-	notYetRenamed, err := c.refresher.ScanTargets(ctx, model.KindArtistArtwork, res.ArtistID)
-	if err != nil {
-		return nil, err
-	}
-	for _, t := range notYetRenamed {
-		if !slices.Contains(targets, t) {
-			targets = append(targets, t)
-		}
-	}
-	if len(targets) == 0 {
-		log.Info(ctx, "Corrections: deleting a Correction that applies to nothing", "kind", cr.Kind, "from", cr.From, "to", cr.To)
-		return res, repo.Delete(id)
-	}
-	if err := repo.SetUndoing(id); err != nil {
-		return nil, err
-	}
-	log.Info(ctx, "Corrections: undoing", "kind", cr.Kind, "from", cr.From, "to", cr.To, "folders", len(targets))
-	res.Done = c.rescan(ctx, targets, refresh.Item{Kind: model.KindArtistArtwork, ID: res.ArtistID}, func(ctx context.Context) error {
-		return c.ds.Correction(ctx).Delete(id)
-	})
-	return res, nil
-}
-
-// rescan rescans and refreshes the targets, then runs after (if the rescan worked), in the
-// background: a large Library can take minutes, longer than the request that asked for it. It
-// reports whether that was all done within Options.Wait.
-func (c *corrections) rescan(ctx context.Context, targets []model.ScanTarget, item refresh.Item, after func(context.Context) error) bool {
-	bg := context.WithoutCancel(ctx)
-	finished := make(chan struct{})
-	go func() {
-		defer close(finished)
-		if err := c.refresher.ScanThenRefresh(bg, targets, item); err != nil {
-			log.Error(bg, "Corrections: rescanning the affected folders failed", "folders", len(targets), err)
-			return
-		}
-		if after != nil {
-			if err := after(bg); err != nil {
-				log.Error(bg, "Corrections: finishing after the rescan failed", err)
-			}
-		}
-	}()
-	select {
-	case <-finished:
-		return true
-	case <-time.After(c.opts.Wait):
-		return false
-	}
+	return &Applied{Correction: *cr, Done: true}, nil
 }

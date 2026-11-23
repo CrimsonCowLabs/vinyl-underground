@@ -157,6 +157,20 @@ func (e *Editor) Check(ctx context.Context, trackID string) (*model.MediaFile, e
 	return f.mf, nil
 }
 
+// CheckFile is Check, and also the guard an edit meets first: a File that is gone, or changed on
+// disk since the last scan (ErrChangedOnDisk). It stats the File but reads nothing, so a plan of
+// many writes (the Correction migration, #165) can flag the Files it would skip.
+func (e *Editor) CheckFile(ctx context.Context, trackID string) (*model.MediaFile, error) {
+	f, err := e.file(ctx, trackID)
+	if err != nil {
+		return nil, err
+	}
+	if err := e.guard(f); err != nil {
+		return f.mf, err
+	}
+	return f.mf, nil
+}
+
 // Read returns the Track's editable fields, as they are in its File.
 func (e *Editor) Read(ctx context.Context, trackID string) (*TrackTags, error) {
 	f, err := e.file(ctx, trackID)
