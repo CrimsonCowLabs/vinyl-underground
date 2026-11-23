@@ -27,6 +27,8 @@ type FS interface {
 	Rename(oldname, newname string) error
 	Remove(name string) error
 	Chtimes(name string, mtime time.Time) error
+	Chmod(name string, mode fs.FileMode) error
+	Lchown(name string, uid, gid int) error
 	EvalSymlinks(name string) (string, error)
 }
 
@@ -52,6 +54,8 @@ func (OS) Link(oldname, newname string) error       { return os.Link(oldname, ne
 func (OS) Rename(oldname, newname string) error     { return os.Rename(oldname, newname) }
 func (OS) Remove(name string) error                 { return os.Remove(name) }
 func (OS) Chtimes(name string, t time.Time) error   { return os.Chtimes(name, t, t) }
+func (OS) Chmod(name string, m fs.FileMode) error   { return os.Chmod(name, m) }
+func (OS) Lchown(name string, uid, gid int) error   { return os.Lchown(name, uid, gid) }
 func (OS) EvalSymlinks(name string) (string, error) { return filepath.EvalSymlinks(name) }
 
 // Exists reports whether there is anything at name.

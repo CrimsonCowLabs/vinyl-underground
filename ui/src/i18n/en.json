@@ -69,6 +69,7 @@
         "remove": "Remove",
         "saved": "Tags saved to the File",
         "savedRescanPending": "Tags saved to the File. The app shows them after the next scan.",
+        "nothingChanged": "The File already holds these tags: nothing was written.",
         "fields": {
           "title": "Title",
           "artist": "Artist",
@@ -101,6 +102,8 @@
           "notFound": "This Track is no longer in the Library.",
           "unsupportedFormat": "Only mp3, m4a, aiff and wav Files can be edited for now.",
           "notVerified": "The edited copy didn’t check out, so the File was left as it was.",
+          "linked": "This File has other names (a symlink or hard link), so the app doesn't replace it.",
+          "oldCopyLeft": "An earlier edit left an old copy of this File beside it. Check it and remove it, then try again.",
           "unknown": "The tags could not be saved."
         }
       }

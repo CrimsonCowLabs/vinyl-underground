@@ -79,7 +79,12 @@ func Settle(fsys FS, path string, sum []byte) (written bool, err error) {
 	}
 	switch {
 	case Exists(fsys, path) && Exists(fsys, backup):
-		// The copy took the File's place; only the backup is left to remove.
+		// The copy took the File's place; only the backup is left to remove. Unless what is at
+		// path isn't the copy: then the backup may be the File's only copy.
+		if !isCopy(path) {
+			return false, fmt.Errorf("both %s and its old copy %s are there, and neither is the edit's copy: leaving both",
+				filepath.Base(path), filepath.Base(backup))
+		}
 		if err := fsys.Remove(backup); err != nil {
 			return false, fmt.Errorf("removing the old copy of the File: %w", err)
 		}

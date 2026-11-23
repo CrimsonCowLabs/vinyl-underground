@@ -65,6 +65,18 @@ func (m *MockEditJournalRepo) Pending() ([]model.EditEntry, error) {
 	return res, nil
 }
 
+func (m *MockEditJournalRepo) LastWritten(libraryID int, path string) (*model.EditEntry, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := len(m.entries) - 1; i >= 0; i-- {
+		e := m.entries[i]
+		if e.State == model.EditWritten && e.LibraryID == libraryID && e.NewPath == path {
+			return &e, nil
+		}
+	}
+	return nil, model.ErrNotFound
+}
+
 // All returns every entry, in the order they were first recorded.
 func (m *MockEditJournalRepo) All() []model.EditEntry {
 	m.mu.Lock()

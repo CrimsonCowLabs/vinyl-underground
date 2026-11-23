@@ -7,6 +7,7 @@ import (
 
 	"github.com/deluan/rest"
 	"github.com/go-chi/chi/v5"
+	"github.com/navidrome/navidrome/core/safefile"
 	"github.com/navidrome/navidrome/core/tagedit"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
@@ -73,6 +74,10 @@ func writeTagEditError(w http.ResponseWriter, r *http.Request, err error) {
 		status, code = http.StatusUnprocessableEntity, "unsupportedFormat"
 	case errors.Is(err, tagedit.ErrNotVerified):
 		status, code = http.StatusUnprocessableEntity, "notVerified"
+	case errors.Is(err, safefile.ErrLinked):
+		status, code = http.StatusUnprocessableEntity, "linked"
+	case errors.Is(err, tagedit.ErrOldCopyLeft):
+		status, code = http.StatusConflict, "oldCopyLeft"
 	}
 	if status == http.StatusInternalServerError {
 		log.Error(r.Context(), "Error editing a Track's tags", err)

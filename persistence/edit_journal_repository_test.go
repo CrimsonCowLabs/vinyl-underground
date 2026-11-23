@@ -36,6 +36,21 @@ var _ = Describe("EditJournalRepository", func() {
 		Expect(got.CreatedAt).ToNot(BeZero())
 	})
 
+	It("finds the latest write that left a File at a path", func() {
+		Expect(repo.LastWritten(1, "a.mp3")).Error().To(MatchError(model.ErrNotFound))
+		older := &model.EditEntry{Kind: model.EditTags, State: model.EditWritten, LibraryID: 1, Path: "a.mp3", NewPath: "a.mp3", CopySum: "old"}
+		Expect(repo.Put(older)).To(Succeed())
+		newer := &model.EditEntry{Kind: model.EditTags, State: model.EditWritten, LibraryID: 1, Path: "a.mp3", NewPath: "a.mp3", CopySum: "new"}
+		Expect(repo.Put(newer)).To(Succeed())
+		failed := &model.EditEntry{Kind: model.EditTags, State: model.EditFailed, LibraryID: 1, Path: "a.mp3", NewPath: "a.mp3", CopySum: "failed"}
+		Expect(repo.Put(failed)).To(Succeed())
+		Expect(repo.Put(&model.EditEntry{Kind: model.EditTags, State: model.EditWritten, LibraryID: 2, Path: "a.mp3", NewPath: "a.mp3"})).To(Succeed())
+
+		got, err := repo.LastWritten(1, "a.mp3")
+		Expect(err).ToNot(HaveOccurred())
+		Expect(got.CopySum).To(Equal("new"))
+	})
+
 	It("lists the entries still pending, oldest first", func() {
 		a := &model.EditEntry{Kind: model.EditTags, State: model.EditPending, LibraryID: 1, Path: "a.mp3"}
 		b := &model.EditEntry{Kind: model.EditTags, State: model.EditPending, LibraryID: 1, Path: "b.mp3"}

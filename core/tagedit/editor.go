@@ -36,6 +36,9 @@ var (
 	ErrUnsupportedFormat = errors.New("this kind of File can't be edited yet (only mp3, m4a, aiff and wav)")
 	// ErrNotVerified is a written copy that didn't check out; the File was left as it was.
 	ErrNotVerified = errors.New("the edited copy didn't check out, so the File was left as it was")
+	// ErrOldCopyLeft is a File with an old copy beside it that no edit can vouch for: it may be
+	// the File's only good copy, so the admin checks it first.
+	ErrOldCopyLeft = errors.New("an earlier edit left an old copy of the File beside it; check it, and remove it")
 )
 
 // editable are the formats whose audio data audiodata can find, so an edit can be checked.
@@ -196,7 +199,14 @@ func (e *Editor) Edit(ctx context.Context, trackID string, edit Values) (*Result
 			// The File is moved aside (and the copy is checked): try to put it back now, or a
 			// restart does.
 			if written, serr := safefile.Settle(e.fsys, f.abs, sumOf(entry)); serr == nil {
-				e.close(ctx, entry, written, err)
+				// Put back already: it is a plain failure (or, if the copy got there, a success).
+				if written {
+					e.close(ctx, entry, true, nil)
+					return e.done(ctx, f, entry, set)
+				}
+				log.Warn(ctx, "Replacing an edited File failed; it was put back", "path", f.abs, err)
+				err = errors.New("replacing the File failed; it was put back as it was")
+				e.close(ctx, entry, false, err)
 			} else {
 				entry.Error = err.Error()
 				_ = journal.Put(entry)
@@ -209,14 +219,18 @@ func (e *Editor) Edit(ctx context.Context, trackID string, edit Values) (*Result
 		return nil, err
 	}
 	e.close(ctx, entry, true, nil)
-	log.Info(ctx, "Edited a Track's tags", "id", trackID, "path", f.abs, "tags", slices.Sorted(maps.Keys(set)))
+	return e.done(ctx, f, entry, set)
+}
 
+// done re-keys a Track whose File an edit wrote (step 6 of Edit).
+func (e *Editor) done(ctx context.Context, f *file, entry *model.EditEntry, set map[string][]string) (*Result, error) {
+	log.Info(ctx, "Edited a Track's tags", "id", f.mf.ID, "path", f.abs, "tags", slices.Sorted(maps.Keys(set)))
 	res := &Result{Changed: true, Entry: entry.ID, Track: f.mf}
 	if err := e.rekey(ctx, f); err != nil {
 		log.Warn(ctx, "Scan after an edit failed; the Track shows its new tags after the next scan", "path", f.abs, err)
 		res.Warning = "The File was written; the app shows its new tags after the next scan."
 	}
-	if mf, err := e.ds.MediaFile(ctx).Get(trackID); err == nil {
+	if mf, err := e.ds.MediaFile(ctx).Get(f.mf.ID); err == nil {
 		res.Track = mf
 	}
 	return res, nil
@@ -242,13 +256,12 @@ func (e *Editor) guard(f *file) error {
 // (steps 3 to 5 of Edit). On failure the temp copy is gone, and the File untouched, unless the
 // error is safefile.ErrInterrupted.
 func (e *Editor) write(ctx context.Context, abs string, orig, set map[string][]string, entry *model.EditEntry) (err error) {
-	temp, backup := safefile.TempName(abs), safefile.BackupName(abs)
-	// An earlier edit's old copy it couldn't remove (safefile.ErrBackupLeft): with the File in
-	// place, it is no File's only copy.
-	if safefile.Exists(e.fsys, abs) && safefile.Exists(e.fsys, backup) {
-		if err := e.fsys.Remove(backup); err != nil {
-			return fmt.Errorf("removing an earlier edit's old copy: %w", err)
-		}
+	temp := safefile.TempName(abs)
+	if err := e.clearOldCopy(ctx, abs, entry); err != nil {
+		return err
+	}
+	if err := safefile.CheckReplaceable(e.fsys, abs); err != nil {
+		return err
 	}
 	if err := e.fsys.Remove(temp); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("removing an earlier edit's copy: %w", err)
@@ -258,13 +271,15 @@ func (e *Editor) write(ctx context.Context, abs string, orig, set map[string][]s
 			_ = e.fsys.Remove(temp)
 		}
 	}()
-	sum, size, _, err := safefile.CopyToTemp(e.fsys, abs, temp)
+	sum, size, info, err := safefile.CopyToTemp(e.fsys, abs, temp)
 	if err != nil {
 		return err
 	}
 	if err := safefile.CheckCopy(e.fsys, temp, sum, size); err != nil {
 		return err
 	}
+	// The copy becomes the File: it keeps the File's permissions and owner.
+	safefile.KeepAttrs(e.fsys, info, temp)
 	if err := e.tagger.Write(temp, set); err != nil {
 		return err
 	}
@@ -281,10 +296,33 @@ func (e *Editor) write(ctx context.Context, abs string, orig, set map[string][]s
 	}
 	err = safefile.Replace(e.fsys, abs, temp)
 	if errors.Is(err, safefile.ErrBackupLeft) {
-		log.Warn("An edited File's old copy could not be removed; it is removed at the next start", "path", abs, err)
+		log.Warn(ctx, "An edited File's old copy could not be removed; the next edit of the File removes it", "path", abs, err)
 		return nil
 	}
 	return err
+}
+
+// clearOldCopy removes the old copy (safefile.BackupName) an earlier edit of the File at abs
+// couldn't remove (safefile.ErrBackupLeft), but only when the File in its place is the copy that
+// edit wrote: otherwise the old copy may be the File's only copy, and the edit is refused.
+func (e *Editor) clearOldCopy(ctx context.Context, abs string, entry *model.EditEntry) error {
+	backup := safefile.BackupName(abs)
+	if !safefile.Exists(e.fsys, backup) {
+		return nil
+	}
+	refuse := fmt.Errorf("%w: %s", ErrOldCopyLeft, filepath.Base(backup))
+	last, err := e.ds.EditJournal(ctx).LastWritten(entry.LibraryID, entry.Path)
+	if err != nil || last.CopySum == "" || !safefile.Exists(e.fsys, abs) {
+		return refuse
+	}
+	got, _, err := safefile.Hash(e.fsys, abs)
+	if err != nil || hex.EncodeToString(got) != last.CopySum {
+		return refuse
+	}
+	if err := e.fsys.Remove(backup); err != nil {
+		return fmt.Errorf("removing an earlier edit's old copy: %w", err)
+	}
+	return nil
 }
 
 // verify checks the edited copy at temp against the File at abs (step 4 of Edit).
@@ -293,7 +331,9 @@ func (e *Editor) verify(abs, temp string, orig, set map[string][]string) error {
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrNotVerified, err)
 	}
-	for _, k := range slices.Sorted(maps.Keys(union(orig, got))) {
+	// Every tag in either File, and every tag the edit sets, which may be in neither if it wasn't
+	// written.
+	for _, k := range slices.Sorted(maps.Keys(union(union(orig, got), set))) {
 		want, changed := set[k]
 		if !changed {
 			want = orig[k]
@@ -384,11 +424,13 @@ func (e *Editor) rekey(ctx context.Context, f *file) error {
 	targets := []model.ScanTarget{{LibraryID: f.mf.LibraryID, FolderPath: dir}}
 	ctx = context.WithoutCancel(ctx)
 	var err error
-	for range max(e.scanAttempts, 1) {
+	for i := range max(e.scanAttempts, 1) {
+		if i > 0 {
+			time.Sleep(e.scanRetryDelay)
+		}
 		if _, err = e.scanner.ScanFolders(ctx, false, targets); !errors.Is(err, scanner.ErrAlreadyScanning) {
 			return err
 		}
-		time.Sleep(e.scanRetryDelay)
 	}
 	return err
 }
@@ -415,7 +457,10 @@ func (e *Editor) Settle(ctx context.Context) {
 		if entry.CopySum == "" {
 			// It stopped before the checked copy was about to replace the File.
 			if !safefile.Exists(e.fsys, abs) {
-				log.Error(ctx, "Could not settle an interrupted edit: its File isn't there", "entry", entry.ID, "path", abs)
+				// Moved or deleted outside the app since. The edit never touched it, so it is
+				// closed; a copy it made is left, in case it is all that is left of the File.
+				log.Warn(ctx, "An interrupted edit's File isn't there any more", "entry", entry.ID, "path", abs)
+				e.close(ctx, entry, false, errors.New("interrupted by a restart; the File was gone after it"))
 				continue
 			}
 			if err := e.fsys.Remove(safefile.TempName(abs)); err != nil && !errors.Is(err, fs.ErrNotExist) {

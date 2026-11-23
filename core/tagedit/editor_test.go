@@ -59,6 +59,19 @@ func (f faultyFS) Rename(oldname, newname string) error {
 	return f.FS.Rename(oldname, newname)
 }
 
+// undeletableFS fails a removal of a File whose path contains match.
+type undeletableFS struct {
+	safefile.FS
+	match string
+}
+
+func (f undeletableFS) Remove(name string) error {
+	if strings.Contains(name, f.match) {
+		return errInjected
+	}
+	return f.FS.Remove(name)
+}
+
 var _ = Describe("Editor", func() {
 	var (
 		ctx      context.Context
@@ -409,14 +422,55 @@ var _ = Describe("Editor", func() {
 			Expect(err).To(HaveOccurred())
 			failed()
 		})
+
+		It("leaves the File untouched when a tag it sets isn't written at all", func() {
+			editor.tagger = fakeTagger{Tagger: editor.tagger, afterWrite: func(p string) {
+				Expect(taglib.WriteTags(p, map[string][]string{"ORIGINALDATE": nil}, 0)).To(Succeed())
+			}}
+			_, err := editor.Edit(ctx, trackID, Values{"title": {"Song (Live)"}, "originaldate": {"1990"}})
+			Expect(err).To(MatchError(ErrNotVerified))
+			failed()
+		})
 	})
 
 	It("removes an earlier edit's old copy it couldn't remove then, and edits the File", func() {
 		track("test.mp3")
-		Expect(os.WriteFile(safefile.BackupName(path), []byte("older"), 0o644)).To(Succeed())
+		editor.fsys = undeletableFS{FS: safefile.OS{}, match: "vu-original"}
 		Expect(editor.Edit(ctx, trackID, Values{"title": {"Song (Live)"}})).Error().ToNot(HaveOccurred())
-		Expect(tagsOf(path)).To(HaveKeyWithValue("TITLE", []string{"Song (Live)"}))
+		Expect(hiddenFiles()).To(ConsistOf(filepath.Base(safefile.BackupName(path))))
+
+		rescanned()
+		editor.fsys = safefile.OS{}
+		Expect(editor.Edit(ctx, trackID, Values{"title": {"Song (Live, 1990)"}})).Error().ToNot(HaveOccurred())
+		Expect(tagsOf(path)).To(HaveKeyWithValue("TITLE", []string{"Song (Live, 1990)"}))
 		Expect(hiddenFiles()).To(BeEmpty())
+	})
+
+	It("refuses to edit a File with an old copy beside it that no edit wrote", func() {
+		track("test.mp3")
+		Expect(os.WriteFile(safefile.BackupName(path), []byte("maybe the only good copy"), 0o644)).To(Succeed())
+		_, err := editor.Edit(ctx, trackID, Values{"title": {"Song (Live)"}})
+		Expect(err).To(MatchError(ErrOldCopyLeft))
+		Expect(tagsOf(path)).To(HaveKeyWithValue("TITLE", []string{"Song"}))
+		Expect(hiddenFiles()).To(ConsistOf(filepath.Base(safefile.BackupName(path))))
+	})
+
+	It("keeps the File's permissions", func() {
+		track("test.mp3")
+		Expect(os.Chmod(path, 0o664)).To(Succeed())
+		rescanned()
+		Expect(editor.Edit(ctx, trackID, Values{"title": {"Song (Live)"}})).Error().ToNot(HaveOccurred())
+		info, err := os.Stat(path)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(info.Mode().Perm()).To(Equal(os.FileMode(0o664)))
+	})
+
+	It("refuses a File with other names (a hard link or a symlink), which a copy would split from it", func() {
+		track("test.mp3")
+		Expect(os.Link(path, filepath.Join(GinkgoT().TempDir(), "seeding.mp3"))).To(Succeed())
+		_, err := editor.Edit(ctx, trackID, Values{"title": {"x"}})
+		Expect(err).To(MatchError(safefile.ErrLinked))
+		Expect(tagsOf(path)).To(HaveKeyWithValue("TITLE", []string{"Song"}))
 	})
 
 	It("rescans the File's folder, which re-reads it into the same Track", func() {

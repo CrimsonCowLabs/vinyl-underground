@@ -104,6 +104,33 @@ describe('EditTagsDialog', () => {
     )
   })
 
+  it('lets the admin drop one of two values of a single-valued tag', async () => {
+    mockGetTrackTags.mockResolvedValue({
+      data: { ...tags, values: { ...tags.values, title: ['Song', 'Song 2'] } },
+    })
+    await open()
+    fireEvent.click(screen.getByTestId('tag-title-remove-1'))
+    save()
+    await waitFor(() =>
+      expect(mockEditTrackTags).toHaveBeenCalledWith('mf1', {
+        title: ['Song'],
+      }),
+    )
+  })
+
+  it('says so when the File already held the tags, and nothing was written', async () => {
+    mockEditTrackTags.mockResolvedValue({ data: { changed: false } })
+    await open()
+    type('title', 'Song (Live)')
+    save()
+    await waitFor(() =>
+      expect(mockNotify).toHaveBeenCalledWith(
+        'resources.song.tagEditor.nothingChanged',
+        expect.anything(),
+      ),
+    )
+  })
+
   it('does not save when nothing changed', async () => {
     await open()
     expect(screen.getByText('ra.action.save').closest('button').disabled).toBe(

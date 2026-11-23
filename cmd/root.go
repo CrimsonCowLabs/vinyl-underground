@@ -239,12 +239,13 @@ func checkLibraryEditing(ctx context.Context) {
 
 // settleEdits finishes or undoes the writes to Files the last stop interrupted, before the
 // server takes a new one. With editing off they are left as they are: the Library may just not be
-// mounted read-write this time. The scans that follow re-read any File it finished.
+// mounted read-write this time. The folder of a File it finished is rescanned, so its Track has
+// the new tags (and the next edit's guard sees the File as scanned).
 func settleEdits(ctx context.Context) {
 	if !core.CurrentLibraryEditing().Enabled {
 		return
 	}
-	tagedit.New(CreateDataStore(), nil).Settle(ctx)
+	tagedit.New(CreateDataStore(), CreateScanner(ctx)).Settle(ctx)
 }
 
 // checkInbox turns the Inbox off for this run (Inbox.Path cleared) when the Inbox library isn't

@@ -97,4 +97,7 @@ type EditJournalRepository interface {
 	Get(id string) (*EditEntry, error)
 	// Pending returns the entries still EditPending, oldest first.
 	Pending() ([]EditEntry, error)
+	// LastWritten returns the latest EditWritten entry that left a File at path (its NewPath) in
+	// the library libraryID, or ErrNotFound.
+	LastWritten(libraryID int, path string) (*EditEntry, error)
 }

@@ -43,6 +43,17 @@ func (r *editJournalRepository) Get(id string) (*model.EditEntry, error) {
 	return &res, nil
 }
 
+func (r *editJournalRepository) LastWritten(libraryID int, path string) (*model.EditEntry, error) {
+	var res model.EditEntry
+	sq := Select("*").From(r.tableName).
+		Where(Eq{"library_id": libraryID, "new_path": path, "state": model.EditWritten}).
+		OrderBy("created_at desc", "rowid desc").Limit(1)
+	if err := r.queryOne(sq, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
 func (r *editJournalRepository) Pending() ([]model.EditEntry, error) {
 	res := []model.EditEntry{}
 	err := r.queryAll(Select("*").From(r.tableName).Where(Eq{"state": model.EditPending}).

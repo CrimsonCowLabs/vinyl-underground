@@ -33,6 +33,8 @@ const knownErrors = [
   'notFound',
   'unsupportedFormat',
   'notVerified',
+  'linked',
+  'oldCopyLeft',
 ]
 
 const errorKey = (err) => {
@@ -84,7 +86,8 @@ const FieldInput = ({ field, values, onChange, disabled }) => {
               'aria-label': label,
             }}
           />
-          {field.multi && values.length > 1 && (
+          {/* A File may hold several values of a single-valued tag too: any can be removed. */}
+          {values.length > 1 && (
             <IconButton
               size="small"
               onClick={() => onChange(values.filter((_, j) => j !== i))}
@@ -163,12 +166,15 @@ export const EditTagsDialog = ({ record, onClose }) => {
       dataProvider
         .editTrackTags(id, changes)
         .then(({ data }) => {
-          notify(
-            data?.warning
-              ? 'resources.song.tagEditor.savedRescanPending'
-              : 'resources.song.tagEditor.saved',
-            { type: data?.warning ? 'warning' : 'info' },
-          )
+          const note =
+            data?.changed === false
+              ? 'nothingChanged'
+              : data?.warning
+                ? 'savedRescanPending'
+                : 'saved'
+          notify(`resources.song.tagEditor.${note}`, {
+            type: note === 'savedRescanPending' ? 'warning' : 'info',
+          })
           refresh()
           onClose()
         })

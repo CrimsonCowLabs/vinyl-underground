@@ -170,6 +170,14 @@ var _ = Describe("Settle", func() {
 		Expect(list(dir)).To(Equal(map[string]string{"01 Song.mp3": "edited"}))
 	})
 
+	It("keeps the old copy when what is in the File's place isn't the edit's copy", func() {
+		write(path, "something else")
+		write(BackupName(path), "original")
+		_, err := Settle(OS{}, path, sum("edited"))
+		Expect(err).To(HaveOccurred())
+		Expect(list(dir)).To(Equal(map[string]string{"01 Song.mp3": "something else", filepath.Base(BackupName(path)): "original"}))
+	})
+
 	It("never removes the last copy of a File it can't vouch for", func() {
 		write(TempName(path), "half-written")
 		_, err := Settle(OS{}, path, sum("edited"))
