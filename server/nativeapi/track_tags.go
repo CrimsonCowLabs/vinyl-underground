@@ -157,6 +157,11 @@ var tagEditStatus = map[string]int{
 	"notVerified":           http.StatusUnprocessableEntity,
 	"linked":                http.StatusUnprocessableEntity,
 	"oldCopyLeft":           http.StatusConflict,
+	"alreadyUndone":         http.StatusConflict,
+	"unfinished":            http.StatusConflict,
+	"tagsChanged":           http.StatusConflict,
+	"changedLater":          http.StatusConflict,
+	"notUndoable":           http.StatusUnprocessableEntity,
 	editjob.CodeInterrupted: http.StatusServiceUnavailable,
 	tagedit.CodeInternal:    http.StatusInternalServerError,
 }

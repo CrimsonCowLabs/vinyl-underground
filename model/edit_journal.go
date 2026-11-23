@@ -55,7 +55,9 @@ type EditEntry struct {
 	// CopySum is the SHA-256 (hex) of the checked copy that replaces the File, recorded before it
 	// does, so an interrupted write can tell which of the two is in place.
 	CopySum string `structs:"copy_sum" json:"-"`
-	// UndoOf is the entry an undo undoes (#161).
+	// UndoOf is the entry an undo undoes (#161). An undo has the kind of the entry it undoes, and
+	// can be undone in turn (a redo). See undoers in core/tagedit for how
+	// each kind undoes its entries.
 	UndoOf    string    `structs:"undo_of" json:"undoOf,omitempty"`
 	Error     string    `structs:"error" json:"error,omitempty"`
 	CreatedAt time.Time `structs:"created_at" json:"createdAt"`
@@ -102,4 +104,10 @@ type EditJournalRepository interface {
 	LastWritten(libraryID int, path string) (*EditEntry, error)
 	// ForJob returns the entries of the edit job jobID, oldest first.
 	ForJob(jobID string) ([]EditEntry, error)
+	// After returns the entries recorded after e that wrote, or may have written (pending), to
+	// the same File: the same Track, or the File at e's NewPath in its library. Oldest first.
+	After(e *EditEntry) ([]EditEntry, error)
+	// GetAll returns entries, newest first unless options sort them otherwise.
+	GetAll(options ...QueryOptions) ([]EditEntry, error)
+	CountAll(options ...QueryOptions) (int64, error)
 }

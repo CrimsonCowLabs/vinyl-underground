@@ -39,7 +39,7 @@ To rename and move the Library's Files into one naming scheme, `<Album Artist>/<
 _Avoid_: Rename, tidy, sort
 
 **Edit journal**:
-The app's permanent record of every write it makes to a File: its original tags and path, and what changed. Any File, or a whole job of writes, can be undone from it, and an undo is recorded too. Each write is checked before it replaces the File (made to a temporary copy, re-read, audio data unchanged), and a File changed since the last scan is skipped.
+The app's permanent record of every write it makes to a File: its original tags and path, and what changed. The admin sees it, newest first, on the Edit history page. Any File, or a whole job of writes, can be undone from it, and an undo is recorded too. Each write is checked before it replaces the File (made to a temporary copy, re-read, audio data unchanged), and a File changed since the last scan is skipped.
 _Avoid_: History (a Listener's listening history), log, backup (no byte copy is kept)
 
 **Edit job**:

@@ -334,6 +334,12 @@ const wrapperDataProvider = {
     httpClient(`${REST_URL}/correction/${id}/undo`, { method: 'POST' }).then(
       ({ json }) => ({ data: { id, ...json } }),
     ),
+  // Undoes an Edit journal entry (admin only): writes the File's earlier values back, journaled
+  // as a new entry: { changed, track, entryId, warning }. A refusal's body has an `error` code.
+  undoEdit: (id) =>
+    httpClient(`${REST_URL}/editHistory/${id}/undo`, { method: 'POST' }).then(
+      ({ json }) => ({ data: json }),
+    ),
 }
 
 export default wrapperDataProvider

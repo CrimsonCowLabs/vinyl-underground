@@ -117,6 +117,7 @@ func (api *Router) routes() http.Handler {
 			api.addCorrectionRoute(r)
 			api.addLibraryEditingRoute(r)
 			api.addTrackTagsRoute(r)
+			api.addEditHistoryRoute(r)
 			api.addAlbumCoverRoute(r)
 			api.addMusicBrainzRoute(r)
 			api.RX(r, "/library", api.libs.NewRepository, true)

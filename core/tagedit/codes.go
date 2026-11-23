@@ -28,6 +28,16 @@ func Code(err error) string {
 		return "notVerified"
 	case errors.Is(err, safefile.ErrLinked):
 		return "linked"
+	case errors.Is(err, ErrAlreadyUndone):
+		return "alreadyUndone"
+	case errors.Is(err, ErrUnfinished):
+		return "unfinished"
+	case errors.Is(err, ErrTagsChanged):
+		return "tagsChanged"
+	case errors.Is(err, ErrChangedLater):
+		return "changedLater"
+	case errors.Is(err, ErrNotUndoable):
+		return "notUndoable"
 	case errors.Is(err, ErrOldCopyLeft):
 		return "oldCopyLeft"
 	}
