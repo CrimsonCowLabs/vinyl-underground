@@ -1,5 +1,6 @@
 import {
   SET_AUDIO_EFFECTS,
+  SET_EQUALIZER,
   SET_NOTIFICATIONS_STATE,
   SET_OMITTED_FIELDS,
   SET_PLAYBACK_SPEED,
@@ -56,6 +57,13 @@ export const settingsReducer = (previousState = initialState, payload) => {
       return {
         ...previousState,
         playbackSpeed: data,
+      }
+    // The equalizer (#95). Left out of initialState: selectEqualizer gives
+    // its defaults, for settings saved before it existed too.
+    case SET_EQUALIZER:
+      return {
+        ...previousState,
+        equalizer: data,
       }
     default:
       return previousState

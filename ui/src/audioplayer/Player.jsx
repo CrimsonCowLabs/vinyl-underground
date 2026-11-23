@@ -40,6 +40,7 @@ import '../nowPlaying/tabTools'
 import { closeNowPlaying } from '../nowPlaying/nowPlayingState'
 import { nowPlayingPlayerProps } from './nowPlayingPlayerProps'
 import { sleepTimer, usePlaybackSpeed } from '../playbackTools'
+import { useEqualizer } from '../equalizer'
 import { PlayerThemeProvider } from './PlayerThemeProvider'
 import MiniPlayer from './MiniPlayer'
 
@@ -156,6 +157,7 @@ const Player = () => {
   useEffect(() => {
     if (audioInstance) audioChain.attach(audioInstance)
   }, [audioInstance])
+  useEqualizer(isRadio)
 
   useEffect(() => {
     if (audioInstance) sleepTimer.attach(audioInstance)
