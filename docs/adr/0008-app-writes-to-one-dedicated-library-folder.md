@@ -1,6 +1,6 @@
 # The app may write to one dedicated Library folder, and nowhere else in the Library
 
-_Superseded in part by [ADR-0011](0011-app-manages-the-librarys-files.md): the whole share is now mounted read-write, and the app may write anywhere in the Library through its write path._
+_Superseded by [ADR-0011](0011-app-manages-the-librarys-files.md). The whole share is now mounted read-write, and the app may write anywhere in the Library through its write path. Since #171, Promote moves reviewed Files from the Inbox straight into the organised tree at the Library's root, through Organize's plan, and the dedicated `Vinyl Underground/` folder, its second mount and bind mount, and `ND_INBOX_PROMOTEPATH` are gone. The Files already promoted there are ordinary Library Tracks, for Organize to move. What follows is kept as the record of the earlier decision._
 
 ADR-0002 made the Library read-only to the app. That was enough while the Library was a fixed collection. But the Library keeps growing: new music arrives through the Inbox (Rips, uploads and Files dropped in) and has to reach the NAS. Moving it there by hand with a script keeps the Library safe, but in practice music piles up waiting. Making the whole share writable would let a bug in the app damage ~23k existing Files, and would let it create new folders whose names differ only in letter case, which is the problem #2 is fixing on this case-insensitive SMB1 NAS.
 

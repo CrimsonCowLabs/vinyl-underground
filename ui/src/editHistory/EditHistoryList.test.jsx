@@ -96,6 +96,18 @@ describe('Edit history page', () => {
       expect(screen.getByText('Band/Record (1999)/01 A.mp3')).toBeTruthy()
     })
 
+    it('calls a move from the Inbox into the Library a Promote (#171)', () => {
+      render(
+        <EditChangesField
+          record={{ ...move, path: 'Rip Album/01.opus', newLibraryId: 1 }}
+        />,
+      )
+      expect(
+        screen.getByText('resources.editHistory.message.promoted'),
+      ).toBeTruthy()
+      expect(screen.getByText('Rip Album/01.opus')).toBeTruthy()
+    })
+
     it('names a File moved with its album, which is no Track', () => {
       render(<EditTrackField record={{ ...move, track: undefined }} />)
       expect(

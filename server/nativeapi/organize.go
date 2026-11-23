@@ -36,21 +36,6 @@ type organizeRequest struct {
 	Token string `json:"token,omitempty"`
 }
 
-// planPage is a plan as the dialog shows it: its counts, and a page of each list.
-type planPage struct {
-	Token string `json:"token"`
-	// Tracks and Files count the moves of Tracks, and of their albums' other Files.
-	Tracks   int            `json:"tracks"`
-	Files    int            `json:"files"`
-	InPlace  int            `json:"inPlace"`
-	Unplaced map[string]int `json:"unplaced"`
-	Moves    []organize.Row `json:"moves"`
-	Left     []organize.Row `json:"left"`
-	// TotalMoves and TotalLeft are the lengths of the two lists, which Moves and Left page.
-	TotalMoves int `json:"totalMoves"`
-	TotalLeft  int `json:"totalLeft"`
-}
-
 func readOrganize(w http.ResponseWriter, r *http.Request) (organizeRequest, bool) {
 	var req organizeRequest
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
@@ -77,25 +62,7 @@ func (api *Router) planOrganize(w http.ResponseWriter, r *http.Request) {
 		writeOrganizeError(w, r, err)
 		return
 	}
-	res := planPage{Token: p.Token, InPlace: p.InPlace, Unplaced: map[string]int{},
-		Moves: page(p.Moves, start, limit), Left: page(p.Unplaced, start, limit),
-		TotalMoves: len(p.Moves), TotalLeft: len(p.Unplaced)}
-	for _, m := range p.Moves {
-		if m.Status == organize.StatusFile {
-			res.Files++
-		} else {
-			res.Tracks++
-		}
-	}
-	for _, u := range p.Unplaced {
-		res.Unplaced[u.Status]++
-	}
-	_ = rest.RespondWithJSON(w, http.StatusOK, res)
-}
-
-func page(rows []organize.Row, start, limit int) []organize.Row {
-	start = min(start, len(rows))
-	return rows[start:min(start+limit, len(rows))]
+	_ = rest.RespondWithJSON(w, http.StatusOK, p.Page(start, limit))
 }
 
 // runOrganize queues the reviewed plan as one job and waits a little for it, as a bulk edit

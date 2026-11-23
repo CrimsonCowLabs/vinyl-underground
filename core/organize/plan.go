@@ -90,6 +90,10 @@ func Code(err error) string {
 type Scope struct {
 	AlbumID string `json:"albumId,omitempty"`
 	librarymanager.Selection
+	// Into is the library the Tracks move into, when it isn't their own: a Promote's (#171), from
+	// the Inbox into the Library. The Inbox's Tracks then go to their scheme path in Into, with
+	// the same rules, against Into's folders and Files. It is never read from a request.
+	Into int `json:"-"`
 }
 
 // Row is one File of a plan: where it is and where it goes, or why it stays.
@@ -98,10 +102,12 @@ type Row struct {
 	LibraryID int    `json:"libraryId"`
 	Path      string `json:"path"`
 	NewPath   string `json:"newPath,omitempty"`
-	Title     string `json:"title,omitempty"`
-	Artist    string `json:"artist,omitempty"`
-	Album     string `json:"album,omitempty"`
-	Status    string `json:"status"`
+	// NewLibraryID is the library NewPath is in, for a move into another library (Scope.Into).
+	NewLibraryID int    `json:"newLibraryId,omitempty"`
+	Title        string `json:"title,omitempty"`
+	Artist       string `json:"artist,omitempty"`
+	Album        string `json:"album,omitempty"`
+	Status       string `json:"status"`
 }
 
 // Plan is what Organize would do: Moves are the Files it moves, the scope's Tracks first (in their
@@ -138,6 +144,12 @@ func New(ds model.DataStore, queue *editjob.Queue, fsys safefile.FS) *Organizer 
 // Track's File (the album folders' other Files move with them, see FolderMove), if it is still the
 // plan the admin reviewed (token, else ErrPlanChanged).
 func (o *Organizer) Run(ctx context.Context, scope Scope, token string) (*model.EditJob, error) {
+	return o.RunAs(ctx, model.EditOrganize, scope, token)
+}
+
+// RunAs is Run, queuing the job as kind: model.EditPromote for a Promote, whose kind (JobKinds)
+// does what Organize's does, and more.
+func (o *Organizer) RunAs(ctx context.Context, kind model.EditKind, scope Scope, token string) (*model.EditJob, error) {
 	p, err := o.Plan(ctx, scope)
 	if err != nil {
 		return nil, err
@@ -153,13 +165,13 @@ func (o *Organizer) Run(ctx context.Context, scope Scope, token string) (*model.
 		if r.Status == StatusFile {
 			continue // moved with its folder, once its album's Tracks have (see FolderMove)
 		}
-		s, err := editjob.MoveStep(tagedit.Move{LibraryID: r.LibraryID, TrackID: r.TrackID, Path: r.Path, NewPath: r.NewPath})
+		s, err := editjob.MoveStep(tagedit.Move{LibraryID: r.LibraryID, NewLibraryID: r.NewLibraryID, TrackID: r.TrackID, Path: r.Path, NewPath: r.NewPath})
 		if err != nil {
 			return nil, err
 		}
 		steps = append(steps, s)
 	}
-	return o.queue.EnqueueWith(ctx, model.EditOrganize, jobArgs{Folders: p.Folders}.String(), steps)
+	return o.queue.EnqueueWith(ctx, kind, jobArgs{Folders: p.Folders}.String(), steps)
 }
 
 // Plan works out what Organize would do to the scope (see Plan), from the Tracks' tags as
@@ -176,7 +188,7 @@ func (o *Organizer) Plan(ctx context.Context, scope Scope) (*Plan, error) {
 	}
 	res := &Plan{Moves: []Row{}, Unplaced: []Row{}, Folders: []FolderMove{}}
 	for _, libID := range slices.Sorted(maps.Keys(byLib)) {
-		lp, err := o.planLibrary(ctx, libID, byLib[libID])
+		lp, err := o.planLibrary(ctx, libID, cmp.Or(scope.Into, libID), byLib[libID])
 		if err != nil {
 			return nil, err
 		}
@@ -202,19 +214,22 @@ func token(moves []Row) string {
 	h := sha256.New()
 	for _, m := range moves {
 		_, _ = fmt.Fprintf(h, "%d\x00%s\x00%s\x00%s\n", m.LibraryID, m.TrackID, m.Path, m.NewPath)
+		if m.NewLibraryID != 0 {
+			_, _ = fmt.Fprintf(h, "into %d\n", m.NewLibraryID)
+		}
 	}
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// libraryPlan is the plan of one library's Tracks.
-type libraryPlan struct {
-	o   *Organizer
+// tree is what a plan knows of one library: its folders, Tracks and images, as the database has
+// them.
+type tree struct {
 	lib *model.Library
+	// all are the library's Tracks.
+	all model.MediaFiles
 	// children are the names of each folder's subfolders (by its path, "" for the root), as the
 	// database has them.
 	children map[string][]string
-	// planned are the folders the plan makes, by the Fold of their path, with their name.
-	planned map[string]string
 	// tracksIn are the library's Tracks by folder; trackAt its Tracks by the Fold of their path.
 	tracksIn map[string][]*model.MediaFile
 	trackAt  map[string]*model.MediaFile
@@ -222,7 +237,17 @@ type libraryPlan struct {
 	// of the folders' paths.
 	images   map[string][]string
 	folderAt map[string]bool
-	// listed are the folders read from disk: the Folds of their entries' names, or nil when the
+}
+
+// libraryPlan is the plan of one library's Tracks. The embedded tree is the library they are in;
+// dst the library they go to: the same one, or another for a Promote (Scope.Into).
+type libraryPlan struct {
+	o *Organizer
+	*tree
+	dst *tree
+	// planned are the folders the plan makes in dst, by the Fold of their path, with their name.
+	planned map[string]string
+	// listed are dst's folders read from disk: the Folds of their entries' names, or nil when the
 	// folder isn't there.
 	listed map[string]map[string]bool
 
@@ -238,7 +263,8 @@ type placement struct {
 	status  string
 }
 
-func (o *Organizer) planLibrary(ctx context.Context, libID int, scope model.MediaFiles) (*libraryPlan, error) {
+// loadTree reads what a plan knows of the library libID (see tree).
+func (o *Organizer) loadTree(ctx context.Context, libID int) (*tree, error) {
 	lib, err := o.ds.Library(ctx).Get(libID)
 	if err != nil {
 		return nil, err
@@ -253,26 +279,43 @@ func (o *Organizer) planLibrary(ctx context.Context, libID int, scope model.Medi
 	if err != nil {
 		return nil, err
 	}
-	lp := &libraryPlan{o: o, lib: lib, children: map[string][]string{}, planned: map[string]string{},
-		tracksIn: map[string][]*model.MediaFile{}, trackAt: map[string]*model.MediaFile{}, listed: map[string]map[string]bool{},
+	t := &tree{lib: lib, all: all, children: map[string][]string{},
+		tracksIn: map[string][]*model.MediaFile{}, trackAt: map[string]*model.MediaFile{},
 		images: map[string][]string{}, folderAt: map[string]bool{}}
 	for _, f := range folders {
 		if f.ParentID == "" {
 			continue // the root
 		}
 		parent := cleanDir(f.Path)
-		lp.children[parent] = append(lp.children[parent], f.Name)
+		t.children[parent] = append(t.children[parent], f.Name)
 		rel := path.Join(parent, f.Name)
-		lp.images[rel] = f.ImageFiles
-		lp.folderAt[libpath.Fold(rel)] = true
+		t.images[rel] = f.ImageFiles
+		t.folderAt[libpath.Fold(rel)] = true
 	}
 	for i := range all {
 		mf := &all[i]
-		lp.tracksIn[dirOf(mf.Path)] = append(lp.tracksIn[dirOf(mf.Path)], mf)
-		lp.trackAt[libpath.Fold(mf.Path)] = mf
+		t.tracksIn[dirOf(mf.Path)] = append(t.tracksIn[dirOf(mf.Path)], mf)
+		t.trackAt[libpath.Fold(mf.Path)] = mf
 	}
+	return t, nil
+}
 
-	places := lp.place(scope, albumsOf(all))
+// planLibrary plans the scope's Tracks, all in the library libID, into the library into (libID
+// itself for Organize).
+func (o *Organizer) planLibrary(ctx context.Context, libID, into int, scope model.MediaFiles) (*libraryPlan, error) {
+	src, err := o.loadTree(ctx, libID)
+	if err != nil {
+		return nil, err
+	}
+	dst := src
+	if into != libID {
+		if dst, err = o.loadTree(ctx, into); err != nil {
+			return nil, err
+		}
+	}
+	lp := &libraryPlan{o: o, tree: src, dst: dst, planned: map[string]string{}, listed: map[string]map[string]bool{}}
+
+	places := lp.place(scope, albumsOf(src.all))
 	lp.flagCollisions(places)
 	var files []Row
 	lp.folders, files = lp.otherFiles(places)
@@ -283,7 +326,7 @@ func (o *Organizer) planLibrary(ctx context.Context, libID int, scope model.Medi
 		case "":
 			lp.inPlace++
 		case StatusMove:
-			r.NewPath, r.Status = p.newPath, StatusMove
+			r.NewPath, r.NewLibraryID, r.Status = p.newPath, lp.newLibraryID(), StatusMove
 			lp.moves = append(lp.moves, r)
 		default:
 			r.NewPath, r.Status = p.newPath, p.status
@@ -299,6 +342,18 @@ func (o *Organizer) planLibrary(ctx context.Context, libID int, scope model.Medi
 		}
 	}
 	return lp, nil
+}
+
+// cross reports whether the plan moves the Tracks into another library (Scope.Into).
+func (lp *libraryPlan) cross() bool { return lp.dst != lp.tree }
+
+// newLibraryID is the NewLibraryID of the plan's moves: the library they go to, or 0 for their
+// own.
+func (lp *libraryPlan) newLibraryID() int {
+	if lp.cross() {
+		return lp.dst.lib.ID
+	}
+	return 0
 }
 
 func row(mf *model.MediaFile) Row {
@@ -345,7 +400,7 @@ func (lp *libraryPlan) place(scope model.MediaFiles, albums map[string]album) []
 		switch {
 		case reason != "":
 			p.status = reason
-		case libpath.Fold(newPath) == libpath.Fold(mf.Path):
+		case !lp.cross() && libpath.Fold(newPath) == libpath.Fold(mf.Path):
 			// In place. A name that differs only in letter case stays: on the NAS it is the same.
 		default:
 			p.newPath, p.status = newPath, StatusMove
@@ -358,7 +413,9 @@ func (lp *libraryPlan) place(scope model.MediaFiles, albums map[string]album) []
 // newPath is the Track's path under the scheme, with its folders as the library has them (or
 // as the plan makes them), or the reason it has none.
 func (lp *libraryPlan) newPath(mf *model.MediaFile, al album) (string, string) {
-	if !tagedit.Writable(mf.LibraryID) {
+	// A Promote's Tracks are in the Inbox, which is no writable library: the Library they go to
+	// must be.
+	if !tagedit.Writable(lp.dst.lib.ID) {
 		return "", ReasonEditingOff
 	}
 	if reason := lp.unplaceable(mf, al); reason != "" {
@@ -431,7 +488,7 @@ func (lp *libraryPlan) folder(names ...string) (string, bool) {
 	parent := ""
 	for _, name := range names {
 		var got []string
-		for _, c := range lp.children[parent] {
+		for _, c := range lp.dst.children[parent] {
 			if libpath.SameName(c, name) {
 				got = append(got, c)
 			}
@@ -498,25 +555,26 @@ func (lp *libraryPlan) flagCollisions(places []placement) {
 			continue
 		}
 		p := &places[idx[0]]
-		if other, ok := lp.trackAt[key]; (ok && other.ID != p.mf.ID) || (!ok && lp.taken(p.newPath)) {
+		if other, ok := lp.dst.trackAt[key]; (ok && other.ID != p.mf.ID) || (!ok && lp.taken(p.newPath)) {
 			p.status = ReasonPathTaken
 		}
 	}
 }
 
-// taken reports whether a File is at rel already, in any letter case: a Track, an image the scan
-// found, or, in a folder the library has (the only ones read from disk), any File.
+// taken reports whether a File is at rel already in the library the plan moves into, in any
+// letter case: a Track, an image the scan found, or, in a folder the library has (the only ones
+// read from disk), any File.
 func (lp *libraryPlan) taken(rel string) bool {
-	if lp.trackAt[libpath.Fold(rel)] != nil {
+	if lp.dst.trackAt[libpath.Fold(rel)] != nil {
 		return true
 	}
 	dir := dirOf(rel)
-	for _, img := range lp.images[dir] {
+	for _, img := range lp.dst.images[dir] {
 		if libpath.SameName(img, path.Base(rel)) {
 			return true
 		}
 	}
-	return lp.folderAt[libpath.Fold(dir)] && lp.onDisk(rel)
+	return lp.dst.folderAt[libpath.Fold(dir)] && lp.onDisk(rel)
 }
 
 // onDisk reports whether something is at rel on disk, in any letter case. Each folder is read
@@ -544,7 +602,7 @@ func (lp *libraryPlan) list(dir string) map[string]bool {
 }
 
 func (lp *libraryPlan) abs(rel string) string {
-	return filepath.Join(lp.lib.Path, filepath.FromSlash(rel))
+	return filepath.Join(lp.dst.lib.Path, filepath.FromSlash(rel))
 }
 
 func cleanDir(p string) string {

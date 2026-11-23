@@ -19,6 +19,8 @@ import {
 import { makeStyles } from '@material-ui/core/styles'
 import { planOrganize, reasons, runOrganize } from './organize'
 
+const organizeApi = { plan: planOrganize, run: runOrganize }
+
 const useStyles = makeStyles((theme) => ({
   path: { wordBreak: 'break-all' },
   old: { color: theme.palette.text.secondary, wordBreak: 'break-all' },
@@ -36,6 +38,9 @@ const knownErrors = [
   'tooMany',
   'planChanged',
   'nothingToMove',
+  // Promote's (#171)
+  'notReady',
+  'nothingToPromote',
 ]
 
 const errorKey = (err) => {
@@ -166,8 +171,17 @@ Plan.propTypes = {
 
 // Organize (#167): shows the plan for the scope (every move, old → new path, and each File it
 // can't place, with why), and runs it, as one edit job, only once the admin asks. The job can be
-// undone as a whole from the Edit history.
-const OrganizeDialog = ({ open, scope, title, onClose, onDone }) => {
+// undone as a whole from the Edit history. Promote (#171) is Organize from the Inbox: it shows its
+// plan here too, with its own plan and run (api) and help text (helpKey).
+const OrganizeDialog = ({
+  open,
+  scope,
+  title,
+  onClose,
+  onDone,
+  api = organizeApi,
+  helpKey = 'resources.organize.help',
+}) => {
   const translate = useTranslate()
   const notify = useNotify()
   const [plan, setPlan] = useState(null)
@@ -177,7 +191,8 @@ const OrganizeDialog = ({ open, scope, title, onClose, onDone }) => {
   const load = useCallback(
     () => {
       setBusy(true)
-      return planOrganize(scope, 0, pageRows)
+      return api
+        .plan(scope, 0, pageRows)
         .then(setPlan)
         .catch((err) => {
           notify(errorKey(err), { type: 'warning' })
@@ -203,7 +218,8 @@ const OrganizeDialog = ({ open, scope, title, onClose, onDone }) => {
   const handleMore = () => {
     const start = Math.max(plan.moves.length, plan.left.length)
     setBusy(true)
-    planOrganize(scope, start, start + pageRows)
+    api
+      .plan(scope, start, start + pageRows)
       .then((next) => {
         if (next.token !== plan.token) {
           notify('resources.organize.errors.planChanged', { type: 'warning' })
@@ -221,7 +237,8 @@ const OrganizeDialog = ({ open, scope, title, onClose, onDone }) => {
 
   const handleRun = useCallback(() => {
     setBusy(true)
-    runOrganize(scope, plan.token)
+    api
+      .run(scope, plan.token)
       .then(({ job, background }) => {
         if (background) {
           notify('resources.organize.inBackground', { type: 'info' })
@@ -255,9 +272,7 @@ const OrganizeDialog = ({ open, scope, title, onClose, onDone }) => {
     >
       <DialogTitle id="organize-title">{title}</DialogTitle>
       <DialogContent>
-        <DialogContentText>
-          {translate('resources.organize.help')}
-        </DialogContentText>
+        <DialogContentText>{translate(helpKey)}</DialogContentText>
         {plan ? (
           <Plan plan={plan} onMore={handleMore} busy={busy} />
         ) : (
@@ -291,6 +306,9 @@ OrganizeDialog.propTypes = {
   title: PropTypes.string.isRequired,
   onClose: PropTypes.func.isRequired,
   onDone: PropTypes.func.isRequired,
+  // { plan(scope, start, end), run(scope, token) }: Organize's API unless given (Promote's).
+  api: PropTypes.shape({ plan: PropTypes.func, run: PropTypes.func }),
+  helpKey: PropTypes.string,
 }
 
 export default OrganizeDialog

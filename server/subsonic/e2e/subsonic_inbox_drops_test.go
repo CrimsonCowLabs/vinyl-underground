@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/Masterminds/squirrel"
@@ -102,6 +104,28 @@ var _ = Describe("Uploads and dropped Files", func() {
 		Expect(json.Unmarshal(w.Body.Bytes(), &rev)).To(Succeed())
 		return rev
 	}
+	// numbered gives the card's Files an album, a year and track numbers (in card order), as the
+	// scheme needs, through the review card, and waits for the Inbox scan to read them.
+	numbered := func(jobID string) {
+		GinkgoHelper()
+		rev := review(jobID)
+		var tracks []string
+		for i, t := range rev.Tracks {
+			tracks = append(tracks, fmt.Sprintf(`{"itemId":%q,"trackNumber":"%d"}`, t.ItemID, i+1))
+		}
+		body := fmt.Sprintf(`{"albumArtist":"Up Artist","album":"Up Album","year":"2020","tracks":[%s]}`, strings.Join(tracks, ","))
+		w := call(http.MethodPut, "/"+jobID+"/tags", bytes.NewBufferString(body), "application/json")
+		Expect(w.Code).To(Equal(http.StatusOK), w.Body.String())
+		for _, t := range rev.Tracks {
+			Eventually(func() int {
+				if mf := inboxTrack(t.Path)(); mf != nil {
+					return mf.TrackNumber
+				}
+				return 0
+			}, 5*time.Second).ShouldNot(BeZero())
+		}
+		Eventually(scanner.IsScanning).Should(BeFalse())
+	}
 	fixture := func(name string) []byte {
 		data, err := os.ReadFile(filepath.Join("tests", "fixtures", name))
 		Expect(err).ToNot(HaveOccurred())
@@ -118,7 +142,6 @@ var _ = Describe("Uploads and dropped Files", func() {
 		conf.Server.Ripping.Enabled = false // uploads and drops aren't Rips
 
 		nasDir = GinkgoT().TempDir()
-		Expect(os.MkdirAll(filepath.Join(nasDir, "Vinyl Underground"), 0o755)).To(Succeed())
 		nas = model.Library{Name: "NAS", Path: nasDir}
 		Expect(ds.Library(ctx).Put(&nas)).To(Succeed())
 
@@ -133,8 +156,9 @@ var _ = Describe("Uploads and dropped Files", func() {
 			playlists.NewPlaylists(ds, artwork.NewUploader(ds)), metrics.NewNoopInstance())}
 		ripper = rip.New(ds, nil, s, rip.Options{
 			DropSettle: settle, ScanRetryDelay: 10 * time.Millisecond, UploadScanDelay: time.Millisecond,
-			Matcher: match.New(ds), PromoteRoot: filepath.Join(nasDir, "Vinyl Underground"),
+			Matcher: match.New(ds),
 		})
+		startPromote(ripper, s, nas)
 		loaded, err := ds.User(ctx).FindByUsername(adminUser.UserName)
 		Expect(err).ToNot(HaveOccurred())
 		admin = *loaded
@@ -177,16 +201,15 @@ var _ = Describe("Uploads and dropped Files", func() {
 		Expect(rev.Tracks[0].Title).To(Equal("Ripped Opus"))
 		Expect(rev.Tracks[1].Title).To(Equal("Song"))
 
-		w = call(http.MethodPost, "/"+job.ID+"/promote", nil, "")
-		Expect(w.Code).To(Equal(http.StatusOK), w.Body.String())
-		var promoted rip.PromoteResult
-		Expect(json.Unmarshal(w.Body.Bytes(), &promoted)).To(Succeed())
-		Expect(promoted.Failed).To(BeEmpty())
-		Expect(promoted.Promoted).To(HaveLen(2))
+		numbered(job.ID)
+		plan, editJob := promoteJob(api, admin, job.ID)
+		Expect(plan.Tracks).To(Equal(2), "%+v", plan)
+		Expect(editJob.Skipped).To(BeZero())
 		Expect(jobs()).To(BeEmpty())
 		Expect(filepath.Join(inbox, job.Folder)).ToNot(BeADirectory())
-		for _, p := range promoted.Promoted {
-			Expect(filepath.Join(nasDir, p.Path)).To(BeAnExistingFile())
+		for _, m := range plan.Moves {
+			Expect(m.NewPath).To(HavePrefix("Up Artist/Up Album ("))
+			Expect(filepath.Join(nasDir, filepath.FromSlash(m.NewPath))).To(BeAnExistingFile())
 		}
 	})
 
@@ -245,12 +268,9 @@ var _ = Describe("Uploads and dropped Files", func() {
 		Expect(filepath.Join(inbox, "Loose Song.mp3")).ToNot(BeAnExistingFile())
 
 		Eventually(scanner.IsScanning).Should(BeFalse())
-		w = call(http.MethodPost, "/"+album.ID+"/promote", nil, "")
-		Expect(w.Code).To(Equal(http.StatusOK), w.Body.String())
-		var promoted rip.PromoteResult
-		Expect(json.Unmarshal(w.Body.Bytes(), &promoted)).To(Succeed())
-		Expect(promoted.Failed).To(BeEmpty())
-		Expect(promoted.Promoted).To(HaveLen(2))
+		numbered(album.ID)
+		plan, _ := promoteJob(api, admin, album.ID)
+		Expect(plan.Tracks).To(Equal(2), "%+v", plan)
 		Expect(filepath.Join(inbox, "Dropped Album")).ToNot(BeADirectory())
 		Expect(jobs()).To(BeEmpty())
 

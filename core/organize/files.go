@@ -21,10 +21,12 @@ import (
 // have moved (see jobKind.Done), each journaled with the job, unless one of the album's Tracks
 // didn't move. Keep are the Files the plan flagged (ReasonSamePath, ReasonPathTaken), which stay.
 type FolderMove struct {
-	LibraryID int      `json:"libraryId"`
-	Path      string   `json:"path"`
-	NewPath   string   `json:"newPath"`
-	Keep      []string `json:"keep,omitempty"`
+	LibraryID int    `json:"libraryId"`
+	Path      string `json:"path"`
+	NewPath   string `json:"newPath"`
+	// NewLibraryID is the library NewPath is in, for a Promote (Scope.Into); 0 means LibraryID.
+	NewLibraryID int      `json:"newLibraryId,omitempty"`
+	Keep         []string `json:"keep,omitempty"`
 }
 
 // otherFiles works out the album folders the plan moves whole (see FolderMove), and the images
@@ -48,7 +50,7 @@ func (lp *libraryPlan) otherFiles(places []placement) ([]FolderMove, []Row) {
 	var rows []Row
 	for _, to := range slices.Sorted(maps.Keys(sources)) {
 		for _, root := range lp.albumRoots(sources[to], to, dest) {
-			folders = append(folders, FolderMove{LibraryID: lp.lib.ID, Path: root, NewPath: to})
+			folders = append(folders, FolderMove{LibraryID: lp.lib.ID, Path: root, NewPath: to, NewLibraryID: lp.newLibraryID()})
 			rows = append(rows, lp.imagesUnder(root, to)...)
 		}
 	}
@@ -83,7 +85,8 @@ func (lp *libraryPlan) albumRoots(from []string, to string, dest map[string]stri
 // ownedBy reports whether every Track under the folder dir moves to the folder to, and the two
 // folders are apart (neither inside the other), so dir is left empty once its other Files move.
 func (lp *libraryPlan) ownedBy(dir, to string, dest map[string]string) bool {
-	if dir == "" || inside(dir, to) || inside(to, dir) || lp.hasTwin(dir) {
+	// Folders in two libraries are apart.
+	if dir == "" || (!lp.cross() && (inside(dir, to) || inside(to, dir))) || lp.hasTwin(dir) {
 		return false
 	}
 	found := false
@@ -116,7 +119,7 @@ func (lp *libraryPlan) imagesUnder(root, to string) []Row {
 	for _, dir := range lp.subtree(root) {
 		for _, name := range slices.Sorted(slices.Values(lp.images[dir])) {
 			rel := path.Join(dir, name)
-			rows = append(rows, Row{LibraryID: lp.lib.ID, Path: rel,
+			rows = append(rows, Row{LibraryID: lp.lib.ID, Path: rel, NewLibraryID: lp.newLibraryID(),
 				NewPath: path.Join(to, strings.TrimPrefix(rel, root+"/")), Status: StatusFile})
 		}
 	}

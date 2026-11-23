@@ -118,18 +118,21 @@ var _ = Describe("RipItemRepository", func() {
 		Expect(items.ForJobs(it.JobID)).To(BeEmpty())
 	})
 
-	It("finds the items a Promote was moving when the app stopped", func() {
-		j := newJob("https://example.com/a")
-		newItem(j, 1, model.RipReady)
-		moving := newItem(j, 2, model.RipReady)
-		moving.PromoteDest = "/music/Vinyl Underground/A/B/02 C.opus"
-		Expect(items.Put(moving)).To(Succeed())
+	It("finds the items of the Files at some paths, of any job", func() {
+		a := newItem(newJob("https://example.com/a"), 1, model.RipReady)
+		a.Path = "A/01.opus"
+		Expect(items.Put(a)).To(Succeed())
+		b := newItem(newJob("https://example.com/b"), 1, model.RipReady)
+		b.Path = "B/01.opus"
+		Expect(items.Put(b)).To(Succeed())
+		c := newItem(newJob("https://example.com/c"), 1, model.RipReady)
+		c.Path = "C/01.opus"
+		Expect(items.Put(c)).To(Succeed())
 
-		got, err := items.PromotesInterrupted()
+		got, err := items.ForPaths("A/01.opus", "C/01.opus", "D/01.opus")
 		Expect(err).ToNot(HaveOccurred())
-		Expect(got).To(HaveLen(1))
-		Expect(got[0].ID).To(Equal(moving.ID))
-		Expect(got[0].PromoteDest).To(Equal(moving.PromoteDest))
+		Expect(got).To(ConsistOf(HaveField("ID", a.ID), HaveField("ID", c.ID)))
+		Expect(items.ForPaths()).To(BeEmpty())
 	})
 
 	It("moves a promoted Track's \"already have\" snapshots to its new library, and no other's", func() {

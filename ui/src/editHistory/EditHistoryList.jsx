@@ -106,11 +106,13 @@ export const EditChangesField = ({ record }) => {
   }
   if (record.kind === 'move' || record.kind === 'quarantine') {
     // A move (Organize, #167), or one into or out of Quarantine (#168): where the File was, and
-    // where it went.
+    // where it went. A Promote's (#171) goes from the Inbox into the Library, or back.
     return (
       <Typography variant="body2" component="span" className={classes.change}>
         <span className={classes.tag}>
-          {translate('resources.editHistory.message.moved')}
+          {translate(
+            `resources.editHistory.message.${record.newLibraryId ? 'promoted' : 'moved'}`,
+          )}
         </span>
         <span>{record.path}</span>
         <span className={classes.arrow} aria-hidden>
@@ -298,6 +300,8 @@ const jobKindsUndoneWhole = new Set([
   'migrateCorrections',
   // Organize (#167): its undo also removes the folders it made, and rescans.
   'organize',
+  // Promote (#171): Organize from the Inbox; its undo puts the Files back in the Inbox.
+  'promote',
 ])
 
 export const EditJobField = ({ record }) => {

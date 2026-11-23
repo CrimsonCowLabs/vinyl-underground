@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"maps"
 	"path/filepath"
 
 	"github.com/Masterminds/squirrel"
@@ -21,9 +22,12 @@ import (
 // maxScanTargets bounds the folders a job rescans one by one; more, and it rescans the library.
 const maxScanTargets = 200
 
-// JobKinds are Organize's job kind, for the edit job queue (editjob.Queue.Handle).
+// JobKinds are Organize's job kind, for the edit job queue (editjob.Queue.Handle), and Promote's
+// (#171), which does the same: the Inbox's rows for the Files' Rips are settled on top of it by
+// the Ripper (rip.Ripper.PromoteJobKind), where there is an Inbox.
 func JobKinds(ds model.DataStore, editor *tagedit.Editor) map[model.EditKind]editjob.JobKind {
-	return map[model.EditKind]editjob.JobKind{model.EditOrganize: jobKind{ds: ds, editor: editor}}
+	k := jobKind{ds: ds, editor: editor}
+	return map[model.EditKind]editjob.JobKind{model.EditOrganize: k, model.EditPromote: k}
 }
 
 // jobKind is what an Organize job does beyond moving its Files: once they have moved (or moved
@@ -110,7 +114,7 @@ func (k jobKind) sweep(ctx context.Context, job *model.EditJob, f FolderMove) er
 			case !e.Type().IsRegular(), strings.Contains(e.Name(), ".vu-"), slices.Contains(f.Keep, rel), moved[rel]:
 				// A link, a write's hidden temp, a File the plan flagged, or a Track's old copy.
 			default:
-				m := tagedit.Move{LibraryID: f.LibraryID, Path: rel, NewPath: path.Join(f.NewPath, strings.TrimPrefix(rel, f.Path+"/"))}
+				m := tagedit.Move{LibraryID: f.LibraryID, NewLibraryID: f.NewLibraryID, Path: rel, NewPath: path.Join(f.NewPath, strings.TrimPrefix(rel, f.Path+"/"))}
 				// Journaled with the job running (a redo's, when this is one), so its undo puts the
 				// File back too.
 				if _, err := k.editor.MoveInJob(ctx, cmp.Or(editjob.RunningJob(ctx), job.ID), m); err != nil {
@@ -134,18 +138,22 @@ func (k jobKind) tidy(ctx context.Context, job *model.EditJob) error {
 		return err
 	}
 	dirs := map[int][]string{}
+	add := func(libID int, p string) {
+		if d := dirOf(p); !slices.Contains(dirs[libID], d) {
+			dirs[libID] = append(dirs[libID], d)
+		}
+	}
 	for _, e := range entries {
 		if e.Kind != model.EditMove || e.State != model.EditWritten {
 			continue
 		}
-		for _, p := range []string{e.Path, e.NewPath} {
-			if d := dirOf(p); !slices.Contains(dirs[e.LibraryID], d) {
-				dirs[e.LibraryID] = append(dirs[e.LibraryID], d)
-			}
-		}
+		// A Promote's old path is in the Inbox, its new one in the Library.
+		add(e.LibraryID, e.Path)
+		add(e.DestLibraryID(), e.NewPath)
 	}
 	var targets []model.ScanTarget
-	for libID, ds := range dirs {
+	for _, libID := range slices.Sorted(maps.Keys(dirs)) {
+		ds := dirs[libID]
 		lib, err := k.ds.Library(ctx).Get(libID)
 		if err != nil {
 			return err

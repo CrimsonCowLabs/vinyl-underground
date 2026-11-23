@@ -46,7 +46,7 @@ func (r *editJournalRepository) Get(id string) (*model.EditEntry, error) {
 func (r *editJournalRepository) LastWritten(libraryID int, path string) (*model.EditEntry, error) {
 	var res model.EditEntry
 	sq := Select("*").From(r.tableName).
-		Where(Eq{"library_id": libraryID, "new_path": path, "state": model.EditWritten}).
+		Where(And{destLibrary(libraryID), Eq{"new_path": path, "state": model.EditWritten}}).
 		OrderBy("created_at desc", "rowid desc").Limit(1)
 	if err := r.queryOne(sq, &res); err != nil {
 		return nil, err
@@ -71,7 +71,11 @@ func (r *editJournalRepository) ForJob(jobID string) ([]model.EditEntry, error) 
 // After orders by rowid: entries are only ever added (kept forever), so it is the order they were
 // recorded in, even within one timestamp.
 func (r *editJournalRepository) After(e *model.EditEntry) ([]model.EditEntry, error) {
-	file := Or{And{Eq{"library_id": e.LibraryID}, Or{Eq{"path": e.NewPath}, Eq{"new_path": e.NewPath}}}}
+	lib := e.DestLibraryID()
+	file := Or{
+		And{Eq{"library_id": lib}, Eq{"path": e.NewPath}},
+		And{destLibrary(lib), Eq{"new_path": e.NewPath}},
+	}
 	if e.MediaFileID != "" {
 		file = append(file, Eq{"media_file_id": e.MediaFileID})
 	}
@@ -83,6 +87,12 @@ func (r *editJournalRepository) After(e *model.EditEntry) ([]model.EditEntry, er
 	}).OrderBy("rowid")
 	err := r.queryAll(sq, &res)
 	return res, err
+}
+
+// destLibrary matches the entries that left their File in the library libraryID: their
+// new_library_id, or their library_id when it is 0 (model.EditEntry.DestLibraryID).
+func destLibrary(libraryID int) Sqlizer {
+	return Expr("(CASE WHEN new_library_id = 0 THEN library_id ELSE new_library_id END) = ?", libraryID)
 }
 
 func (r *editJournalRepository) GetAll(options ...model.QueryOptions) ([]model.EditEntry, error) {

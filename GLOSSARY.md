@@ -115,5 +115,5 @@ A File the app fetched from a web page with yt-dlp (usually YouTube), keeping th
 _Avoid_: Download (taken: offline storage on a device), import
 
 **Promote**:
-To move reviewed Files from the Inbox into the Library's dedicated writable folder on the NAS. The Track stays the same Track, so favorites, Playlist entries and play counts carry over.
+To move reviewed Files from the Inbox into the Library, at their place in the organised tree: Organize from the Inbox, through the same plan, shown first, and run as one job that can be undone (the Files go back into the Inbox). The Track stays the same Track, so favorites, Playlist entries and play counts carry over.
 _Avoid_: Import, publish, approve
