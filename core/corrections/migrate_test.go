@@ -357,6 +357,68 @@ var _ = Describe("Migrating Corrections into the Files", func() {
 			Expect(remaining()).To(BeEmpty())
 		})
 
+		It("removes an album Correction with a picked release's cover and a newer chosen cover in one run", func() {
+			setUpLibrary()
+			_, err := db.Db().Exec("update correction set mbz_album_id = 'a7f8ed5e-1111-4a1b-9c1d-123456789abc', image_hash = 'pick', image_mime = 'image/jpeg' where id = ?", album.ID)
+			Expect(err).ToNot(HaveOccurred())
+			migrate()
+			left := remaining()
+			Expect(left).To(HaveLen(1))
+			Expect(left[0].AlbumName).To(BeEmpty())
+			Expect(left[0].ImageHash).To(BeEmpty())
+		})
+
+		It("writes each File the album Correction the overlay applied to its folder", func() {
+			// Two discs of one album, each folder keying a Correction of its own.
+			cd2 := model.NewFolder(model.Library{ID: 1}, "Band/Record/CD2")
+			Expect(ds.Folder(ctx).Put(cd2)).To(Succeed())
+			_, err := db.Db().Exec("update album set folder_ids = ? where id = 'al-1'", `["`+folder.ID+`","`+cd2.ID+`"]`)
+			Expect(err).ToNot(HaveOccurred())
+			older := addCorrection(model.Correction{Kind: model.CorrectionAlbum, MatchKey: folder.ID, AlbumName: "X"})
+			newer := addCorrection(model.Correction{Kind: model.CorrectionAlbum, MatchKey: cd2.ID, AlbumName: "Y"})
+			addFile("mf-1", "01 One.mp3", map[string][]string{"ALBUM": {"Recrod"}}, model.MediaFile{Title: "One"})
+			Expect(os.MkdirAll(filepath.Join(dir, "CD2"), 0o755)).To(Succeed())
+			folder2 := folder
+			folder = cd2
+			addFile("mf-2", "CD2/02 Two.mp3", map[string][]string{"ALBUM": {"Recrod"}}, model.MediaFile{Title: "Two"})
+			folder = folder2
+
+			m, err := svc.PlanMigration(ctx, editor)
+			Expect(err).ToNot(HaveOccurred())
+			files := map[string]int{}
+			for _, it := range m.Items {
+				files[it.Correction.ID] = it.Files
+			}
+			Expect(files).To(Equal(map[string]int{older.ID: 1, newer.ID: 1}))
+			migrate()
+			Expect(tagsOf("01 One.mp3")).To(HaveKeyWithValue("ALBUM", []string{"X"}))
+			Expect(tagsOf("CD2/02 Two.mp3")).To(HaveKeyWithValue("ALBUM", []string{"Y"}))
+		})
+
+		It("writes one cover for two choices keyed by two folders of one album", func() {
+			cd1 := model.NewFolder(model.Library{ID: 1}, "Band/Record/CD1")
+			cd2 := model.NewFolder(model.Library{ID: 1}, "Band/Record/CD2")
+			Expect(ds.Folder(ctx).Put(cd1)).To(Succeed())
+			Expect(ds.Folder(ctx).Put(cd2)).To(Succeed())
+			_, err := db.Db().Exec("update album set folder_ids = ? where id = 'al-1'", `["`+cd1.ID+`","`+cd2.ID+`"]`)
+			Expect(err).ToNot(HaveOccurred())
+			for _, f := range []*model.Folder{cd1, cd2} {
+				Expect(os.MkdirAll(filepath.Join(libDir, f.Path, f.Name), 0o755)).To(Succeed())
+				folder = f
+				addFile("mf-"+f.Name, f.Name+"/01 One.mp3", map[string][]string{"ALBUM": {"Record"}}, model.MediaFile{Title: "One"})
+			}
+			stored, err := artwork.StoreChosenCover(cover)
+			Expect(err).ToNot(HaveOccurred())
+			for _, f := range []*model.Folder{cd1, cd2} {
+				addCorrection(model.Correction{Kind: model.CorrectionAlbumCover, MatchKey: f.ID, From: "Record", To: "Upload",
+					ImageHash: stored.Hash, ImageMime: stored.Mime})
+			}
+			job := migrate()
+			Expect(job.Steps).To(HaveLen(1))
+			Expect(filepath.Join(dir, "cover.jpg")).To(BeAnExistingFile())
+			Expect(remaining()).To(BeEmpty())
+		})
+
 		It("removes a Correction that applies to no File any more, with nothing to write", func() {
 			addCorrection(model.Correction{Kind: model.CorrectionArtistMerge, MatchKey: model.ArtistNameKey("Gone"),
 				From: "Gone", To: rightArtist})
@@ -424,6 +486,28 @@ var _ = Describe("Migrating Corrections into the Files", func() {
 			addOne(cr)
 			addArtist(rightArtist)
 			star(rightArtist, time.Now())
+
+			job := migrate()
+			Expect(starred(rightArtist)).To(BeTrue())
+			undo(job)
+			Expect(starred(wrongArtist)).To(BeTrue())
+			Expect(starred(rightArtist)).To(BeFalse())
+		})
+
+		It("survive a scan before the migration that purged the new name, once kept as the app started", func() {
+			cr := addCorrection(model.Correction{Kind: model.CorrectionArtistRename, MatchKey: model.ArtistNameKey(wrongArtist),
+				From: wrongArtist, To: rightArtist})
+			addOne(cr)
+			addArtist(rightArtist)
+			star(rightArtist, time.Now())
+			Expect(corrections.KeepRenamedStars(ctx, ds)).To(Succeed())
+			Expect(corrections.KeepRenamedStars(ctx, ds)).To(Succeed(), "keeping again keeps what was kept")
+
+			// A scan reads the old name: the new one is purged, its star with it.
+			_, err := db.Db().Exec("delete from annotation where item_type = 'artist'")
+			Expect(err).ToNot(HaveOccurred())
+			_, err = db.Db().Exec("delete from artist where id = ?", metadata.ArtistID(rightArtist))
+			Expect(err).ToNot(HaveOccurred())
 
 			job := migrate()
 			Expect(starred(rightArtist)).To(BeTrue())

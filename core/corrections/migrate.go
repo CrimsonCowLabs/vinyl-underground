@@ -78,6 +78,7 @@ type FileFlag struct {
 const (
 	codeMissing      = "missing"
 	codeImageMissing = "imageMissing"
+	codeChangedSince = "changedSince"
 )
 
 // migrateArgs are the Args of the migration job: one part per Correction.
@@ -193,6 +194,28 @@ func (c *corrections) migration(ctx context.Context, editor *tagedit.Editor, ste
 	if err != nil {
 		return nil, nil, err
 	}
+	// The album Correction the overlay applied to a File: the one keyed by its folder, else the
+	// newest matching it (see the overlay's MatchAlbumFolders), by folder.
+	albumFolders := map[string][]string{}
+	albumOwner := map[string]string{}
+	for _, cr := range all {
+		if cr.Kind == model.CorrectionAlbum && !cr.Undoing {
+			albumOwner[cr.MatchKey] = cmp.Or(albumOwner[cr.MatchKey], cr.ID)
+		}
+	}
+	for _, cr := range all {
+		if cr.Kind != model.CorrectionAlbum || cr.Undoing {
+			continue
+		}
+		folders, err := c.ds.Correction(ctx).AlbumFolderIDs(cr.MatchKey)
+		if err != nil {
+			return nil, nil, err
+		}
+		albumFolders[cr.ID] = folders
+		for _, f := range folders {
+			albumOwner[f] = cmp.Or(albumOwner[f], cr.ID)
+		}
+	}
 
 	m := &Migration{Items: []MigrationItem{}}
 	var args migrateArgs
@@ -213,6 +236,11 @@ func (c *corrections) migration(ctx context.Context, editor *tagedit.Editor, ste
 		return flag
 	}
 	var coverSteps []model.EditJobStep
+	// covers are the cover steps by the cover File they write, and the place of the folder
+	// keying the choice among its album's folders: two choices for one album (keyed by two of its
+	// folders) write one cover, the one the overlay showed (keyed by the earliest folder).
+	type coverAt struct{ step, at int }
+	covers := map[string]coverAt{}
 
 	for _, cr := range all {
 		if !migrates(cr) {
@@ -251,15 +279,15 @@ func (c *corrections) migration(ctx context.Context, editor *tagedit.Editor, ste
 				item.Changes = append(item.Changes, MigrationChange{Field: "year", To: strconv.Itoa(cr.Year)})
 			}
 			item.KeepsRelease = cr.MbzAlbumID != ""
-			folders, err := c.ds.Correction(ctx).AlbumFolderIDs(cr.MatchKey)
-			if err != nil {
-				return nil, nil, err
-			}
-			mfs, err := c.migrationFiles(ctx, squirrel.Eq{"media_file.folder_id": folders})
+			mfs, err := c.migrationFiles(ctx, squirrel.Eq{"media_file.folder_id": albumFolders[cr.ID]})
 			if err != nil {
 				return nil, nil, err
 			}
 			for _, mf := range mfs {
+				// Another album Correction applied to this File's folder.
+				if albumOwner[mf.FolderID] != cr.ID {
+					continue
+				}
 				add(mf, func(w *fileWrite) {
 					r := &w.rewrite
 					if r.Set == nil {
@@ -328,7 +356,7 @@ func (c *corrections) migration(ctx context.Context, editor *tagedit.Editor, ste
 			}
 
 		case cr.Kind == model.CorrectionAlbumCover:
-			step, rel, flag, err := c.migrationCover(ctx, editor, cr, steps)
+			step, rel, at, flag, err := c.migrationCover(ctx, editor, cr, steps)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -338,7 +366,13 @@ func (c *corrections) migration(ctx context.Context, editor *tagedit.Editor, ste
 				part.Flags = append(part.Flags, *flag)
 			case rel != "":
 				part.CoverPath = rel
-				coverSteps = append(coverSteps, step)
+				if prev, ok := covers[rel]; !ok {
+					covers[rel] = coverAt{step: len(coverSteps), at: at}
+					coverSteps = append(coverSteps, step)
+				} else if at < prev.at {
+					coverSteps[prev.step] = step
+					covers[rel] = coverAt{step: prev.step, at: at}
+				}
 			}
 		}
 		item.Files = len(part.Tracks)
@@ -389,35 +423,39 @@ func (c *corrections) migrationFiles(ctx context.Context, filter squirrel.Sqlize
 }
 
 // migrationCover works out the cover write of a chosen cover Correction: where the cover File goes
-// (rel; "" when no album is in its folder any more: it applies to nothing), or why it can't be
-// written, and, with steps, the step.
-func (c *corrections) migrationCover(ctx context.Context, editor *tagedit.Editor, cr model.Correction, steps bool) (model.EditJobStep, string, *FileFlag, error) {
+// (rel; "" when no album is in its folder any more: it applies to nothing), the place of its
+// folder among the album's, or why it can't be written, and, with steps, the step.
+func (c *corrections) migrationCover(ctx context.Context, editor *tagedit.Editor, cr model.Correction, steps bool) (model.EditJobStep, string, int, *FileFlag, error) {
 	albums, err := c.ds.Album(ctx).GetAll(model.QueryOptions{Sort: "id",
 		Filters: squirrel.Expr("exists (select 1 from json_each(album.folder_ids) af where af.value = ?)", cr.MatchKey)})
 	if err != nil || len(albums) == 0 {
-		return model.EditJobStep{}, "", nil, err
+		return model.EditJobStep{}, "", 0, nil, err
 	}
 	al := albums[0]
+	at := slices.Index(al.FolderIDs, cr.MatchKey)
+	flagged := func(path string, code string, err error) (model.EditJobStep, string, int, *FileFlag, error) {
+		return model.EditJobStep{}, path, at, &FileFlag{Path: path, Code: code, Error: err.Error()}, nil
+	}
 	rel, err := editor.CheckCover(ctx, al.ID)
 	if err != nil {
-		return model.EditJobStep{}, al.Name, &FileFlag{Path: al.Name, Code: tagedit.Code(err), Error: err.Error()}, nil
+		return flagged(al.Name, tagedit.Code(err), err)
 	}
 	image, err := readChosen(cr)
 	if err != nil {
-		return model.EditJobStep{}, rel, &FileFlag{Path: rel, Code: codeImageMissing, Error: err.Error()}, nil
+		return flagged(rel, codeImageMissing, err)
 	}
 	if !steps {
 		if _, err := tagedit.CoverJPEG(image); err != nil {
-			return model.EditJobStep{}, rel, &FileFlag{Path: rel, Code: tagedit.Code(err), Error: err.Error()}, nil
+			return flagged(rel, tagedit.Code(err), err)
 		}
-		return model.EditJobStep{}, rel, nil, nil
+		return model.EditJobStep{}, rel, at, nil, nil
 	}
 	step, err := editjob.CoverStep(editor, al.ID, image)
 	if err != nil {
-		return model.EditJobStep{}, rel, &FileFlag{Path: rel, Code: tagedit.Code(err), Error: err.Error()}, nil
+		return flagged(rel, tagedit.Code(err), err)
 	}
 	step.Path = rel
-	return step, rel, nil, nil
+	return step, rel, at, nil, nil
 }
 
 func readChosen(cr model.Correction) ([]byte, error) {
@@ -471,10 +509,12 @@ type migrateKind struct {
 
 // Start keeps what the job's undo needs of each renamed Artist's stars and ratings, before any
 // File is written (the scans after each File purge an Artist no File names any more, and its
-// annotations with it). The overlay had moved them already: an artist merge Correction keeps
-// what it merged (adopted, as merged), and a plain rename moved them all to the new name (kept
-// from there, so they come back should a scan purge the new name midway). An Artist whose Files
-// still name it (the job undone, and run again) keeps its own, as an artist rename job's do.
+// annotations with it). The overlay had moved them already, and the Correction kept them: an
+// artist merge what it merged (adopted, as merged), a plain rename the new name's, as the app
+// started (see KeepRenamedStars; adopted, to merge into the new name again, should a scan have
+// purged it). With none kept, a plain rename the overlay applied keeps the new name's now, once
+// per new name (a chain A→B→C would give A and B both C's on undo). An Artist whose Files still
+// name it (the job undone, and run again) keeps its own, as an artist rename job's do.
 func (k migrateKind) Start(ctx context.Context, job *model.EditJob) error {
 	a, err := migrateArgsOf(job)
 	if err != nil {
@@ -482,32 +522,40 @@ func (k migrateKind) Start(ctx context.Context, job *model.EditJob) error {
 	}
 	return k.ds.WithTx(func(tx model.DataStore) error {
 		jobs := tx.EditJob(ctx)
+		keptTo := map[string]bool{}
 		for i, p := range a.Parts {
 			if !p.artist() || p.Removed {
 				continue
 			}
 			part := strconv.Itoa(i)
-			if p.Correction.Kind == model.CorrectionArtistMerge {
-				cur, err := tx.Correction(ctx).GetByMatchKey(p.Correction.Kind, p.Correction.MatchKey)
-				if err != nil && !errors.Is(err, model.ErrNotFound) {
-					return err
-				}
-				if cur != nil {
-					n, err := jobs.AdoptCorrectionAnnotations(job.ID, part, cur.ID)
-					if err != nil {
-						return err
-					}
-					if n > 0 {
-						continue
-					}
-				}
-			} else if overlaid, err := k.renamedAway(ctx, tx, p); err != nil {
+			merge := p.Correction.Kind == model.CorrectionArtistMerge
+			cur, err := tx.Correction(ctx).GetByMatchKey(p.Correction.Kind, p.Correction.MatchKey)
+			if err != nil && !errors.Is(err, model.ErrNotFound) {
 				return err
-			} else if overlaid {
-				if err := jobs.KeepArtistAnnotationsIn(job.ID, part, p.ToID); err != nil {
+			}
+			if cur != nil {
+				n, err := jobs.AdoptCorrectionAnnotations(job.ID, part, cur.ID, merge)
+				if err != nil {
 					return err
 				}
-				continue
+				if n > 0 {
+					continue
+				}
+			}
+			if !merge {
+				overlaid, err := k.renamedAway(ctx, tx, p)
+				if err != nil {
+					return err
+				}
+				if overlaid {
+					if !keptTo[p.ToID] {
+						keptTo[p.ToID] = true
+						if err := jobs.KeepArtistAnnotationsIn(job.ID, part, p.ToID); err != nil {
+							return err
+						}
+					}
+					continue
+				}
 			}
 			if err := jobs.KeepArtistAnnotationsIn(job.ID, part, p.FromID); err != nil {
 				return err
@@ -515,6 +563,27 @@ func (k migrateKind) Start(ctx context.Context, job *model.EditJob) error {
 		}
 		return nil
 	})
+}
+
+// KeepRenamedStars keeps, with each artist rename Correction not yet migrated (#165), its new
+// name's stars and ratings (CorrectionRepository.KeepArtistAnnotations), which the overlay moved
+// there: the scanner reads the old name now, and a scan before the migration would purge the new
+// one, and them with it. It runs as the app starts, before any scan; what was kept stays kept.
+func KeepRenamedStars(ctx context.Context, ds model.DataStore) error {
+	repo := ds.Correction(ctx)
+	all, err := repo.GetAll()
+	if err != nil {
+		return err
+	}
+	for _, cr := range all {
+		if cr.Kind != model.CorrectionArtistRename || cr.Undoing {
+			continue
+		}
+		if err := repo.KeepArtistAnnotations(cr.ID, metadata.ArtistID(cr.To)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // renamedAway says whether the overlay renamed the old name away: the new name is an Artist, and
@@ -545,9 +614,19 @@ func (k migrateKind) Done(ctx context.Context, job *model.EditJob, steps model.E
 			byTrack[s.MediaFileID] = s
 		}
 	}
+	// A chosen cover's removal trims the image off its album's picked release, which the album's
+	// own Correction must still find as planned: covers go last.
+	order := make([]int, 0, len(a.Parts))
+	for _, cover := range []bool{false, true} {
+		for i, p := range a.Parts {
+			if (p.Correction.Kind == model.CorrectionAlbumCover) == cover {
+				order = append(order, i)
+			}
+		}
+	}
 	return k.ds.WithTx(func(tx model.DataStore) error {
 		repo := tx.Correction(ctx)
-		for i := range a.Parts {
+		for _, i := range order {
 			p := &a.Parts[i]
 			if p.Removed {
 				continue
@@ -583,11 +662,15 @@ func (k migrateKind) Done(ctx context.Context, job *model.EditJob, steps model.E
 				continue
 			}
 			p.Skipped = nil
-			saved, err := removeMigrated(repo, p.Correction)
+			saved, removed, err := removeMigrated(repo, p.Correction)
 			if err != nil {
 				return err
 			}
 			a.Restore = append(a.Restore, saved...)
+			if !removed {
+				p.Skipped = []FileFlag{{Code: codeChangedSince, Error: "the Correction changed after the migration was planned"}}
+				continue
+			}
 			p.Removed = true
 		}
 		log.Info(ctx, "Corrections: migrated Corrections into the Files", "job", job.ID, "corrections", len(a.Parts))
@@ -602,17 +685,18 @@ func (k migrateKind) Done(ctx context.Context, job *model.EditJob, steps model.E
 // removeMigrated removes the Correction planned (if it is still as planned): an album Correction
 // with a MusicBrainz release keeps only that. A chosen cover outranked the release's cover,
 // which would now outrank the cover File: the release keeps no cover then. It returns the
-// Corrections it changed, as they were.
-func removeMigrated(repo model.CorrectionRepository, planned savedCorrection) ([]savedCorrection, error) {
+// Corrections it changed, as they were, and whether the planned one is gone (false: it changed
+// since it was planned, and is another Correction now, which stays).
+func removeMigrated(repo model.CorrectionRepository, planned savedCorrection) ([]savedCorrection, bool, error) {
 	cur, err := repo.GetByMatchKey(planned.Kind, planned.MatchKey)
 	switch {
 	case errors.Is(err, model.ErrNotFound):
 		// A cover write removes the chosen cover itself, once written.
+		cur = nil
 	case err != nil:
-		return nil, err
+		return nil, false, err
 	case !reflect.DeepEqual(save(*cur), planned):
-		// Changed since it was planned: it is another Correction now, which stays.
-		return nil, nil
+		return nil, false, nil
 	}
 	var saved []savedCorrection
 	if cur != nil {
@@ -621,21 +705,21 @@ func removeMigrated(repo model.CorrectionRepository, planned savedCorrection) ([
 		trimmed.AlbumName, trimmed.AlbumArtist, trimmed.Year = "", "", 0
 		trimmed.To = trimmedAlbumLabel(*cur, trimmed)
 		if err := replaceCorrection(repo, *cur, trimmed, cur.Kind == model.CorrectionAlbum && cur.MbzAlbumID != ""); err != nil {
-			return nil, err
+			return nil, false, err
 		}
 	} else if planned.Kind == model.CorrectionAlbumCover {
 		saved = append(saved, planned)
 	}
 	if planned.Kind != model.CorrectionAlbumCover {
-		return saved, nil
+		return saved, true, nil
 	}
 	folders, err := repo.AlbumFolderIDs(planned.MatchKey)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	picks, err := repo.FindByMatchKeys(folders, model.CorrectionAlbum)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	for _, pick := range picks {
 		if pick.ImageHash == "" || pick.Undoing {
@@ -644,11 +728,11 @@ func removeMigrated(repo model.CorrectionRepository, planned savedCorrection) ([
 		trimmed := pick
 		trimmed.ImageHash, trimmed.ImageMime = "", ""
 		if err := replaceCorrection(repo, pick, trimmed, true); err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		saved = append(saved, save(pick))
 	}
-	return saved, nil
+	return saved, true, nil
 }
 
 // Undone puts back the Corrections the job removed, so the migration lists them again, and gives

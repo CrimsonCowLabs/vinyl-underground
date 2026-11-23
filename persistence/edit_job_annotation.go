@@ -111,21 +111,22 @@ func (r *editJobRepository) SplitArtistAnnotationsIn(jobID, part, fromID, toID s
 	return r.runAnnotationSQL(append(stmts, jobForgetArtistSQL), jobID, part, fromID, toID)
 }
 
-// jobAdoptCorrectionSQL keeps with the job's part what an artist merge Correction merged (see
-// correction_repository.go), as merged already: the Correction goes once its Files are written,
+// jobAdoptCorrectionSQL keeps with the job's part what an artist Correction kept (see
+// correction_repository.go): what a merge merged, as merged already, or the stars a plain rename
+// moved to its new name, to merge into it again. The Correction goes once its Files are written,
 // and its rows with it, but the job's undo still splits them (jobSplitArtistSQL).
 var jobAdoptCorrectionSQL = []string{
 	`delete from edit_job_annotation where job_id = {:job} and part = {:part}`,
 	`insert into edit_job_annotation (job_id, part, user_id, play_count, play_date, rating, rated_at, starred,
 		starred_at, merged, star_taken, rating_taken)
-	select {:job}, {:part}, user_id, play_count, play_date, rating, rated_at, starred, starred_at, 1, star_taken,
+	select {:job}, {:part}, user_id, play_count, play_date, rating, rated_at, starred, starred_at, {:merged}, star_taken,
 		rating_taken
 	from correction_annotation where correction_id = {:correction}`,
 }
 
-func (r *editJobRepository) AdoptCorrectionAnnotations(jobID, part, correctionID string) (int64, error) {
+func (r *editJobRepository) AdoptCorrectionAnnotations(jobID, part, correctionID string, merged bool) (int64, error) {
 	var n int64
-	params := dbx.Params{"job": jobID, "part": part, "correction": correctionID}
+	params := dbx.Params{"job": jobID, "part": part, "correction": correctionID, "merged": merged}
 	for _, stmt := range jobAdoptCorrectionSQL {
 		res, err := r.db.NewQuery(stmt).Bind(params).Execute()
 		if err != nil {

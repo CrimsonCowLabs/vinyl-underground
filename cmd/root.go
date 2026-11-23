@@ -97,6 +97,10 @@ func runNavidrome(ctx context.Context) {
 	checkInbox(ctx)
 	checkPromoteFolder(ctx)
 	checkLibraryEditing(ctx)
+	// Before any scan, which could purge a renamed Artist's new name (#165).
+	if err := corrections.KeepRenamedStars(ctx, CreateDataStore()); err != nil {
+		log.Error(ctx, "Could not keep the stars of the Artists renamed by Corrections not yet written into the Files", err)
+	}
 	settleEdits(ctx)
 
 	g, ctx := errgroup.WithContext(ctx)

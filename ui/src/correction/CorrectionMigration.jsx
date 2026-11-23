@@ -39,6 +39,7 @@ const codeKeys = [
   'sharedFolder',
   'invalidImage',
   'interrupted',
+  'changedSince',
 ]
 
 export const FileFlags = ({ flags, label }) => {

@@ -246,4 +246,9 @@ type CorrectionRepository interface {
 	// AlbumFolderKey): key itself, and every folder of the albums in it, e.g. the album's
 	// other discs.
 	AlbumFolderIDs(key string) ([]string, error)
+	// KeepArtistAnnotations keeps with the artist rename Correction correctionID every Listener's
+	// star and rating of the Artist artistID (its new name, which the overlay moved them to),
+	// unless kept already: a scan before the Correction migration (#165) reads the old name, and
+	// would purge the new one with them. The migration merges them into the new name again.
+	KeepArtistAnnotations(correctionID, artistID string) error
 }

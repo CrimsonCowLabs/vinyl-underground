@@ -579,7 +579,8 @@
           "noAlbumFolder": "the album has no folder of its own",
           "sharedFolder": "another album shares its folder",
           "invalidImage": "the image can't be read",
-          "interrupted": "interrupted by a restart"
+          "interrupted": "interrupted by a restart",
+          "changedSince": "the Correction changed since; run the migration again"
         },
         "notifications": {
           "done": "The Corrections are written into the Files",

@@ -140,4 +140,15 @@ func (r *correctionRepository) AlbumFolderIDs(key string) ([]string, error) {
 	return res, nil
 }
 
+func (r *correctionRepository) KeepArtistAnnotations(correctionID, artistID string) error {
+	_, err := r.db.NewQuery(`insert into correction_annotation (correction_id, user_id, play_count, play_date,
+		rating, rated_at, starred, starred_at, star_taken, rating_taken)
+	select {:id}, user_id, 0, play_date, coalesce(rating, 0), rated_at, coalesce(starred, 0), starred_at,
+		coalesce(starred, 0), coalesce(rating, 0) > 0
+	from annotation where item_type = 'artist' and item_id = {:artist}
+		and (coalesce(starred, 0) or coalesce(rating, 0) > 0)
+	on conflict (correction_id, user_id) do nothing`).Bind(dbx.Params{"id": correctionID, "artist": artistID}).Execute()
+	return err
+}
+
 var _ model.CorrectionRepository = (*correctionRepository)(nil)

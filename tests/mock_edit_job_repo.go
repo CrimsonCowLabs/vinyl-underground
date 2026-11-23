@@ -152,7 +152,7 @@ func (m *MockEditJobRepo) SplitArtistAnnotationsIn(jobID, part, fromID, toID str
 	return m.SplitArtistAnnotations(jobID+"/"+part, fromID, toID, all)
 }
 
-func (m *MockEditJobRepo) AdoptCorrectionAnnotations(jobID, part, correctionID string) (int64, error) {
+func (m *MockEditJobRepo) AdoptCorrectionAnnotations(jobID, part, correctionID string, _ bool) (int64, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.AnnotationMoves = append(m.AnnotationMoves, "adopt "+jobID+"/"+part+" "+correctionID)
