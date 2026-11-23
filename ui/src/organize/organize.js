@@ -39,4 +39,6 @@ export const reasons = [
   'samePath',
   'pathTaken',
   'editingOff',
+  // A Promote's (#171): the Inbox scan hasn't read the File yet.
+  'notScanned',
 ]

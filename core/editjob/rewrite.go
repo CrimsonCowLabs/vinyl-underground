@@ -16,7 +16,7 @@ import (
 // Rewrite is a tag edit worked out from each File's own fields as it is written, so one Rewrite
 // can be given to many Files that hold different values: e.g. renaming an Artist among a Track's
 // other artists, or setting an album's year in Files dated differently. It is applied in this
-// order: Rename, Set (with Drop), Year. Fields are by tagedit.Field key.
+// order: Rename, Set (with Drop), Year, Fill. Fields are by tagedit.Field key.
 type Rewrite struct {
 	// Set are fields set outright, as a tags step's (TagsStep) values.
 	Set tagedit.Values `json:"set,omitempty"`
@@ -32,6 +32,10 @@ type Rewrite struct {
 	// Renames are more renames to other names, applied after Rename, each to the fields as the one
 	// before left them (the Correction migration, #165, writes several artist renames into a File).
 	Renames []Rename `json:"renames,omitempty"`
+	// Fill are fields set only where the File holds no value (none, or an empty one), applied
+	// last: e.g. the MusicBrainz track IDs of a picked release (#170), which never replace the
+	// ones a File holds already.
+	Fill tagedit.Values `json:"fill,omitempty"`
 }
 
 // Rename replaces the names From with To in a File's artist fields: in the multi-valued ones
@@ -86,6 +90,10 @@ func (r Rewrite) Apply(cur tagedit.Values) (tagedit.Values, error) {
 		}
 		edit[k] = vs
 		for _, d := range r.Drop[k] {
+			// A field Set sets too is set, not dropped.
+			if _, set := r.Set[d]; set {
+				continue
+			}
 			if len(value(d)) > 0 {
 				edit[d] = []string{}
 			}
@@ -109,6 +117,11 @@ func (r Rewrite) Apply(cur tagedit.Values) (tagedit.Values, error) {
 		}
 		if !dated {
 			edit["date"] = []string{year}
+		}
+	}
+	for k, vs := range r.Fill {
+		if cur := value(k); len(cur) == 0 || (len(cur) == 1 && cur[0] == "") {
+			edit[k] = vs
 		}
 	}
 	return edit, nil

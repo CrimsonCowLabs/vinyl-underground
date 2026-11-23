@@ -12,6 +12,7 @@ import (
 	"github.com/navidrome/navidrome/conf/configtest"
 	"github.com/navidrome/navidrome/core/auth"
 	"github.com/navidrome/navidrome/core/corrections"
+	"github.com/navidrome/navidrome/core/musicbrainz"
 	"github.com/navidrome/navidrome/core/tagedit"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/server"
@@ -25,8 +26,10 @@ type fakeCorrections struct {
 	err    error
 	undone []string
 	blocks []string
-	albums []string
-	fixes  []corrections.AlbumFix
+	// releases are the releases planned (see PlanRelease), with what was asked; matched those
+	// paired.
+	releases []corrections.ReleaseWrite
+	matched  []string
 	// plans are the jobs planned (see PlanAlbumEdit), plan what each answers (nil for one of
 	// "mf-1"), planErr its refusal.
 	plans   []string
@@ -44,13 +47,22 @@ func (f *fakeCorrections) BlockAlbumCover(_ context.Context, albumID, imageHash 
 	return &corrections.Applied{Correction: model.Correction{ID: "c3"}, Done: true}, nil
 }
 
-func (f *fakeCorrections) CorrectAlbum(_ context.Context, albumID string, fix corrections.AlbumFix) (*corrections.Applied, error) {
+func (f *fakeCorrections) MatchRelease(_ context.Context, albumID string, rel *musicbrainz.Release) (*corrections.ReleaseMatch, error) {
 	if f.err != nil {
 		return nil, f.err
 	}
-	f.albums = append(f.albums, fmt.Sprintf("%s->%s|%s|%d", albumID, fix.AlbumArtist, fix.Name, fix.Year))
-	f.fixes = append(f.fixes, fix)
-	return &corrections.Applied{Correction: model.Correction{ID: "c3"}, AlbumID: "new-album", Done: true}, nil
+	f.matched = append(f.matched, albumID+"|"+rel.ID)
+	return &corrections.ReleaseMatch{Release: corrections.ReleaseSummary{ID: rel.ID}, Holds: true,
+		Tracks: []corrections.PairedTrack{{ID: "mf-1", Paired: &corrections.ReleaseTrack{ID: "rt-1"}}}}, nil
+}
+
+func (f *fakeCorrections) PlanRelease(_ context.Context, _ *tagedit.Editor, albumID string, rel *musicbrainz.Release, w corrections.ReleaseWrite) (*corrections.Plan, error) {
+	f.releases = append(f.releases, w)
+	plan, err := f.planned(fmt.Sprintf("release %s %s", albumID, rel.ID))
+	if plan != nil && f.plan == nil {
+		plan.Kind = corrections.JobRelease
+	}
+	return plan, err
 }
 
 func (f *fakeCorrections) Undo(_ context.Context, id string) (*corrections.Applied, error) {

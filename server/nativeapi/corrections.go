@@ -51,9 +51,9 @@ func (api *Router) listCorrections(w http.ResponseWriter, r *http.Request) {
 }
 
 // The album Edit dialog, Track order and artist rename and merge write to the Files (#163): each
-// save is an edit job, which the request waits for a little, as a Track's edit does. Only a
-// MusicBrainz release picked with Find on MusicBrainz is still saved as an album Correction, as
-// before (writing its IDs to the Files is #170).
+// save is an edit job, which the request waits for a little, as a Track's edit does. So does a
+// MusicBrainz release picked with Find on MusicBrainz (#170): its IDs are written into the
+// album's Files, with the dialog's values, as one job.
 
 func (api *Router) renameArtist(w http.ResponseWriter, r *http.Request) {
 	var body struct {
@@ -98,25 +98,46 @@ func (api *Router) mergeArtist(w http.ResponseWriter, r *http.Request) {
 }
 
 // correctAlbum writes the album Edit dialog's title, album artist and year, and its Tracks'
-// changed numbers (tracks, if any), into the album's Files, as one job. A picked MusicBrainz
-// release is saved as an album Correction first, as before.
+// changed numbers (tracks, if any), into the album's Files, as one job. With a MusicBrainz release
+// picked with Find on MusicBrainz (mbzAlbumId), the job writes the release's IDs too, and of its
+// own values those the admin accepts (canonical), replacing track IDs that differ only with
+// replaceTrackIds, and its cover as the album's cover.jpg with cover (#170).
 func (api *Router) correctAlbum(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		AlbumID string `json:"albumId"`
 		corrections.AlbumFix
-		Tracks []corrections.TrackNumber `json:"tracks"`
+		Tracks          []corrections.TrackNumber `json:"tracks"`
+		MbzAlbumID      string                    `json:"mbzAlbumId"`
+		Canonical       corrections.Canonical     `json:"canonical"`
+		ReplaceTrackIDs bool                      `json:"replaceTrackIds"`
+		Cover           bool                      `json:"cover"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeCorrectionError(w, r, fmt.Errorf("%w: %w", model.ErrValidation, err))
 		return
 	}
 	ctx := r.Context()
-	picked := strings.TrimSpace(body.MbzAlbumID) != "" || strings.TrimSpace(body.MbzReleaseGroupID) != ""
+	if id := strings.ToLower(strings.TrimSpace(body.MbzAlbumID)); id != "" {
+		if api.editQueue == nil {
+			writeTagEditError(w, r, tagedit.ErrEditingOff)
+			return
+		}
+		rel, ok := api.lookUpRelease(w, r, id)
+		if !ok {
+			return
+		}
+		plan, err := api.corrections.PlanRelease(ctx, api.tagEditor, body.AlbumID, rel, corrections.ReleaseWrite{
+			Fix: &body.AlbumFix, Tracks: body.Tracks, Accept: body.Canonical, ReplaceTrackIDs: body.ReplaceTrackIDs,
+			Cover: body.Cover})
+		if err != nil {
+			writeWriteError(w, r, err)
+			return
+		}
+		api.runWriteJob(w, r, plan, plan.PickCover)
+		return
+	}
 	plan, err := api.corrections.PlanAlbumEdit(ctx, body.AlbumID, &body.AlbumFix, body.Tracks)
 	switch {
-	case errors.Is(err, corrections.ErrNothingToWrite) && picked:
-		// Only the release changed: it is a Correction, which needs no writable Files.
-		plan = nil
 	case err != nil:
 		writeWriteError(w, r, err)
 		return
@@ -124,30 +145,7 @@ func (api *Router) correctAlbum(w http.ResponseWriter, r *http.Request) {
 		writeTagEditError(w, r, tagedit.ErrEditingOff)
 		return
 	}
-	var pickCover corrections.PickCover
-	if picked {
-		al, err := api.ds.Album(ctx).Get(body.AlbumID)
-		if err != nil {
-			writeCorrectionError(w, r, err)
-			return
-		}
-		// Only the release is the Correction's: the album's values are written to its Files.
-		fix := body.AlbumFix
-		fix.Name, fix.AlbumArtist, fix.Year = al.Name, al.AlbumArtist, 0
-		res, err := api.corrections.CorrectAlbum(ctx, body.AlbumID, fix)
-		switch {
-		case errors.Is(err, corrections.ErrNothingToWrite) && plan != nil:
-		case err != nil:
-			writeCorrectionError(w, r, err)
-			return
-		case plan == nil:
-			_ = rest.RespondWithJSON(w, http.StatusOK, writeResult{Done: res.Done, AlbumID: res.AlbumID, PickCover: res.PickCover})
-			return
-		default:
-			pickCover = res.PickCover
-		}
-	}
-	api.runWriteJob(w, r, plan, pickCover)
+	api.runWriteJob(w, r, plan, "")
 }
 
 // correctTrackNumbers writes Track order's disc and track numbers into each Track's File, as one
@@ -185,6 +183,12 @@ type writeResult struct {
 	AlbumID   string                `json:"albumId,omitempty"`
 	ArtistID  string                `json:"artistId,omitempty"`
 	PickCover corrections.PickCover `json:"pickCover,omitempty"`
+	// RolledBack says a MusicBrainz release couldn't be written into every File of the album (Job
+	// lists those skipped), so the Files written were put back, by the job RollbackJobID, and the
+	// album is as it was (see corrections.JobRelease). RollbackDone says that job is done.
+	RolledBack    bool   `json:"rolledBack,omitempty"`
+	RollbackJobID string `json:"rollbackJobId,omitempty"`
+	RollbackDone  bool   `json:"rollbackDone,omitempty"`
 }
 
 // runWriteJob queues the plan's job and waits a little for it (see runFileJob).
@@ -215,12 +219,19 @@ func (api *Router) runWriteJob(w http.ResponseWriter, r *http.Request, plan *cor
 	for _, s := range job.Steps {
 		if s.State == model.EditStepSkipped {
 			skipped = append(skipped, s)
-		} else if !written && plan.TrackID != "" {
+		} else if !written && plan.TrackID != "" && s.MediaFileID != "" {
 			albumTrack, written = s.MediaFileID, true
 		}
 	}
 	job.Steps = skipped
 	res.Job, res.Done, res.ArtistID = job, true, plan.ArtistID
+	if rollback, err := corrections.ReleaseRollback(job); plan.Kind == corrections.JobRelease && err == nil && rollback != "" {
+		// The album is back on its old ID once the rollback is done: the dialog reloads it.
+		res.RolledBack, res.RollbackJobID, albumTrack = true, rollback, ""
+		if u, err := api.editQueue.Wait(ctx, rollback, cmp.Or(api.editWait, defaultEditWait)); err == nil {
+			res.RollbackDone = u.State == model.EditJobDone
+		}
+	}
 	if albumTrack != "" {
 		if mf, err := api.ds.MediaFile(ctx).Get(albumTrack); err == nil {
 			res.AlbumID = mf.AlbumID
@@ -296,8 +307,6 @@ func writeCorrectionError(w http.ResponseWriter, r *http.Request, err error) {
 		status, code = http.StatusBadRequest, "migrateFirst"
 	case errors.Is(err, corrections.ErrCoverChanged):
 		status, code = http.StatusConflict, "coverChanged"
-	case errors.Is(err, corrections.ErrSharedFolder):
-		status, code = http.StatusBadRequest, "sharedFolder"
 	case errors.Is(err, model.ErrAlreadyExists):
 		status, code = http.StatusConflict, "alreadyCorrected"
 	case errors.Is(err, model.ErrValidation):

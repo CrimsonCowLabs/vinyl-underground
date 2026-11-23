@@ -32,6 +32,9 @@ type HistoryEntry struct {
 	MediaFileID string `json:"mediaFileId,omitempty"`
 	Path        string `json:"path"`
 	NewPath     string `json:"newPath"`
+	// NewLibraryID is the library NewPath is in, for a move into another library (a Promote from
+	// the Inbox, #171, or its undo); 0 for the entry's own.
+	NewLibraryID int `json:"newLibraryId,omitempty"`
 	// Track is the File's Track as the app has it now; nil when it is gone.
 	Track   *HistoryTrack `json:"track,omitempty"`
 	Changes []TagChange   `json:"changes"`
@@ -85,7 +88,7 @@ func (e *Editor) History(ctx context.Context, offset, limit int) ([]HistoryEntry
 	for _, en := range entries {
 		h := HistoryEntry{
 			ID: en.ID, JobID: en.JobID, Kind: en.Kind, State: en.State, UserID: en.UserID,
-			LibraryID: en.LibraryID, MediaFileID: en.MediaFileID, Path: en.Path, NewPath: en.NewPath, UndoOf: en.UndoOf,
+			LibraryID: en.LibraryID, MediaFileID: en.MediaFileID, Path: en.Path, NewPath: en.NewPath, NewLibraryID: en.NewLibraryID, UndoOf: en.UndoOf,
 			Error: en.Error, CreatedAt: en.CreatedAt, Changes: []TagChange{},
 			OriginalImage: en.OriginalImage, Image: en.Image,
 		}

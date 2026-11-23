@@ -96,7 +96,7 @@ func runNavidrome(ctx context.Context) {
 		log.Error(ctx, "Could not set up the Inbox library", err)
 	}
 	checkInbox(ctx)
-	checkPromoteFolder(ctx)
+	warnPromotePath(ctx)
 	checkLibraryEditing(ctx)
 	// Before any scan, which could purge a renamed Artist's new name (#165).
 	if err := corrections.KeepRenamedStars(ctx, CreateDataStore()); err != nil {
@@ -106,7 +106,7 @@ func runNavidrome(ctx context.Context) {
 
 	g, ctx := errgroup.WithContext(ctx)
 	ripper := startRipper(ctx, g)
-	editQueue := startEditJobs(ctx, g)
+	editQueue := startEditJobs(ctx, g, ripper)
 	g.Go(startServer(ctx, ripper, editQueue))
 	g.Go(startSignaller(ctx))
 	g.Go(startScheduler(ctx))
@@ -188,11 +188,7 @@ func startRipper(ctx context.Context, g *errgroup.Group) *rip.Ripper {
 	ripper := rip.NewFromConfig(CreateDataStore(), CreateScanner(ctx))
 	// Each scan may have found Files dropped into the Inbox.
 	scanner.AfterScan(ripper.InboxScanned)
-	resumed := make(chan struct{})
 	g.Go(func() error {
-		// Before any new Rip or Promote: finish or undo the moves the last stop interrupted.
-		ripper.ResumePromotes(ctx)
-		close(resumed)
 		ripper.RunInbox(ctx)
 		return nil
 	})
@@ -201,11 +197,6 @@ func startRipper(ctx context.Context, g *errgroup.Group) *rip.Ripper {
 		return ripper
 	}
 	g.Go(func() error {
-		select {
-		case <-resumed:
-		case <-ctx.Done():
-			return nil
-		}
 		ripper.Run(ctx)
 		return nil
 	})
@@ -216,20 +207,12 @@ func startRipper(ctx context.Context, g *errgroup.Group) *rip.Ripper {
 	return ripper
 }
 
-// checkPromoteFolder checks the promote folder (Inbox.PromotePath) once at startup. When it is
-// unusable (not mounted read-write, or not inside the Library), Promote is turned off for this
-// run, so neither its endpoint nor its button shows.
-func checkPromoteFolder(ctx context.Context) {
-	path, err := rip.CheckPromoteFolder(ctx, CreateDataStore(), conf.Server.Inbox.PromotePath)
-	switch {
-	case err != nil:
-		log.Error(ctx, "Promote is off: the promote folder is not usable", "path", conf.Server.Inbox.PromotePath, err)
-		conf.Server.Inbox.PromotePath = ""
-	case path == "":
-		log.Debug(ctx, "Promote is off (no Inbox.PromotePath set)")
-	default:
-		conf.Server.Inbox.PromotePath = path
-		log.Info(ctx, "Promote is enabled", "path", path)
+// warnPromotePath tells the owner that Inbox.PromotePath (ND_INBOX_PROMOTEPATH) is no longer
+// used: Promote moves Files into the organised tree at the Library's root (#171), whenever the
+// Library is writable, so the dedicated folder's mount can go.
+func warnPromotePath(ctx context.Context) {
+	if viper.IsSet("inbox.promotepath") {
+		log.Warn(ctx, "Inbox.PromotePath (ND_INBOX_PROMOTEPATH) is no longer used and can be removed: Promote moves Files into the organised tree of the Library, which must be mounted read-write")
 	}
 }
 
@@ -263,8 +246,11 @@ func settleEdits(ctx context.Context) {
 // background, one at a time. It runs after settleEdits, so a job the last stop interrupted
 // carries on from a settled File. With editing off it doesn't run (and there is none): queued
 // jobs wait for a start with the Library writable.
-func startEditJobs(ctx context.Context, g *errgroup.Group) *editjob.Queue {
+func startEditJobs(ctx context.Context, g *errgroup.Group, ripper *rip.Ripper) *editjob.Queue {
 	if !core.CurrentLibraryEditing().Enabled {
+		if ripper != nil {
+			log.Info(ctx, "Promote is off: the Library isn't writable")
+		}
 		return nil
 	}
 	ds := CreateDataStore()
@@ -274,9 +260,17 @@ func startEditJobs(ctx context.Context, g *errgroup.Group) *editjob.Queue {
 	for kind, k := range corrections.JobKinds(ds) {
 		queue.Handle(kind, k)
 	}
+	// Find on MusicBrainz writes a picked release into an album's Files, putting them back should
+	// one be skipped (#170).
+	queue.Handle(corrections.JobRelease, corrections.ReleaseJobKind(ds, queue))
 	// Organize removes the folders its moves left empty, and rescans (#167).
 	for kind, k := range organize.JobKinds(ds, editor) {
 		queue.Handle(kind, k)
+	}
+	// Promote is Organize from the Inbox (#171): its kind also settles the Files' Rips.
+	if ripper != nil {
+		queue.Handle(model.EditPromote, ripper.PromoteJobKind(organize.JobKinds(ds, editor)[model.EditPromote]))
+		ripper.SetEditQueue(queue)
 	}
 	g.Go(func() error {
 		queue.Run(ctx)

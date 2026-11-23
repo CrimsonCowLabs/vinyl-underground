@@ -119,12 +119,12 @@ func (m *MockRipItemRepo) Paths() ([]string, error) {
 	return res, nil
 }
 
-func (m *MockRipItemRepo) PromotesInterrupted() (model.RipItems, error) {
+func (m *MockRipItemRepo) ForPaths(paths ...string) (model.RipItems, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	res := model.RipItems{}
 	for _, it := range m.items {
-		if it.PromoteDest != "" {
+		if it.Path != "" && slices.Contains(paths, it.Path) {
 			res = append(res, it)
 		}
 	}

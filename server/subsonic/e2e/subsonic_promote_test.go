@@ -1,40 +1,50 @@
 package e2e
 
 import (
-	"bytes"
+	"crypto/sha256"
 	"errors"
+	"fmt"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/Masterminds/squirrel"
 	_ "github.com/navidrome/navidrome/adapters/gotaglib" // reads the real Files below
 	"github.com/navidrome/navidrome/conf"
-	"github.com/navidrome/navidrome/consts"
 	"github.com/navidrome/navidrome/core"
 	"github.com/navidrome/navidrome/core/artwork"
-	"github.com/navidrome/navidrome/core/auth"
+	"github.com/navidrome/navidrome/core/editjob"
 	"github.com/navidrome/navidrome/core/metrics"
 	"github.com/navidrome/navidrome/core/playlists"
 	"github.com/navidrome/navidrome/core/rip"
+	"github.com/navidrome/navidrome/core/tagedit"
 	"github.com/navidrome/navidrome/db"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/scanner"
 	"github.com/navidrome/navidrome/server"
 	"github.com/navidrome/navidrome/server/events"
+	"github.com/navidrome/navidrome/server/nativeapi"
 	"github.com/navidrome/navidrome/server/ripapi"
 	"github.com/navidrome/navidrome/server/subsonic/responses"
+	"github.com/navidrome/navidrome/tests"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"go.senan.xyz/taglib"
 )
 
-// Promote (#36) moves a reviewed Inbox File into the Library's read-write folder, and the
-// Track stays the same Track: everything a Listener attached to it in the Inbox is still
-// attached after both libraries are rescanned, and every Listener can now see it. These specs
-// run the real database, real Files and the real scanner.
+// Promote (#171) is Organize from the Inbox: a reviewed Inbox File moves to its scheme path at the
+// Library's root, and the Track stays the same Track: everything a Listener attached to it in the
+// Inbox is still attached after both libraries are rescanned, and every Listener can now see it.
+// The Promote job is undone from the Edit history, which puts the File back in the Inbox, still
+// the same Track. These specs run the real database, real Files and the real scanner.
 var _ = Describe("Promote keeps a Track's identity", func() {
-	const promotedPath = "Vinyl Underground/Rip Artist/Rip Album/Ripped Opus.opus"
+	// ripped.opus's tags (album artist "Rip Artist", album "Rip Album", title "Ripped Opus"), with a
+	// track number and a year written in, which the scheme needs.
+	const (
+		inboxPath    = "Rip Album/01.opus"
+		promotedPath = "Rip Artist/Rip Album (2024)/01 Ripped Opus.opus"
+	)
 
 	var (
 		inbox, nasDir string
@@ -42,6 +52,9 @@ var _ = Describe("Promote keeps a Track's identity", func() {
 		nas           model.Library
 		admin         model.User
 		s             inboxScanner
+		ripper        *rip.Ripper
+		editor        *tagedit.Editor
+		queue         *editjob.Queue
 		job           *model.RipJob
 		trackID       string
 		albumID       string
@@ -70,18 +83,20 @@ var _ = Describe("Promote keeps a Track's identity", func() {
 		conf.Server.Ripping.Enabled = true
 		conf.Server.EnableSharing = true
 
-		// The NAS share as the app sees it: a library on disk with the read-write folder in it.
+		// The music share as the app sees it: a library on disk, mounted read-write.
 		nasDir = GinkgoT().TempDir()
-		Expect(os.MkdirAll(filepath.Join(nasDir, "Vinyl Underground"), 0o755)).To(Succeed())
 		nas = model.Library{Name: "NAS", Path: nasDir}
 		Expect(ds.Library(ctx).Put(&nas)).To(Succeed())
 		Expect(ds.User(ctx).SetUserLibraries(regularUser.ID, []int{lib.ID, nas.ID})).To(Succeed())
 
 		inbox = GinkgoT().TempDir()
+		conf.Server.Inbox.Path = inbox
 		Expect(os.Mkdir(filepath.Join(inbox, "Rip Album"), 0o755)).To(Succeed())
 		data, err := os.ReadFile(filepath.Join("tests", "fixtures", "rips", "ripped.opus"))
 		Expect(err).ToNot(HaveOccurred())
-		Expect(os.WriteFile(filepath.Join(inbox, "Rip Album", "01.opus"), data, 0o644)).To(Succeed())
+		full := filepath.Join(inbox, filepath.FromSlash(inboxPath))
+		Expect(os.WriteFile(full, data, 0o644)).To(Succeed())
+		Expect(taglib.WriteTags(full, map[string][]string{"TRACKNUMBER": {"1"}, "DATE": {"2024"}}, 0)).To(Succeed())
 		Expect(ensureInbox(inbox)).To(BeTrue())
 		inboxLib, err := core.FindInboxLibrary(ctx, ds)
 		Expect(err).ToNot(HaveOccurred())
@@ -92,10 +107,11 @@ var _ = Describe("Promote keeps a Track's identity", func() {
 		scanAll()
 		Expect(tracks()).To(HaveLen(1))
 		trackID, albumID = tracks()[0].ID, tracks()[0].AlbumID
+		Expect(tracks()[0].LibraryID).To(Equal(inboxID))
 
 		job = &model.RipJob{UserID: adminUser.ID, URL: "https://www.youtube.com/watch?v=dQw4w9WgXcQ", Status: model.RipReady, Folder: "Rip Album"}
 		Expect(ds.RipJob(ctx).Put(job)).To(Succeed())
-		it := model.RipItem{JobID: job.ID, Position: 1, Status: model.RipReady, Path: "Rip Album/01.opus"}
+		it := model.RipItem{JobID: job.ID, Position: 1, Status: model.RipReady, Path: inboxPath}
 		Expect(ds.RipItem(ctx).Put(&it)).To(Succeed())
 		// Another Rip that warned "already have" about the Track.
 		other := &model.RipJob{UserID: adminUser.ID, URL: "https://www.youtube.com/watch?v=x", Status: model.RipFailed}
@@ -106,6 +122,9 @@ var _ = Describe("Promote keeps a Track's identity", func() {
 		loaded, err := ds.User(ctx).FindByUsername(adminUser.UserName)
 		Expect(err).ToNot(HaveOccurred())
 		admin = *loaded
+
+		ripper = rip.New(ds, nil, s, rip.Options{ScanRetryDelay: 10 * time.Millisecond, DropSettle: 10 * time.Millisecond})
+		queue, editor = startPromote(ripper, s, nas)
 
 		// The admin uses the Inbox Track straight away.
 		Expect(doReq("star", "id", trackID).Status).To(Equal(responses.StatusOK))
@@ -126,41 +145,20 @@ var _ = Describe("Promote keeps a Track's identity", func() {
 		Expect(doReqWithUser(regularUser, "getSong", "id", trackID).Status).To(Equal(responses.StatusFailed))
 	})
 
-	promote := func() *httptest.ResponseRecorder {
-		api := server.JWTVerifier(ripapi.New(ds, rip.New(ds, nil, s, rip.Options{PromoteRoot: filepath.Join(nasDir, "Vinyl Underground")})))
-		req := httptest.NewRequest(http.MethodPost, "/"+job.ID+"/promote", bytes.NewBufferString(""))
-		token, err := auth.CreateToken(&admin)
-		Expect(err).ToNot(HaveOccurred())
-		req.Header.Set(consts.UIAuthorizationHeader, "Bearer "+token)
-		w := httptest.NewRecorder()
-		api.ServeHTTP(w, req)
-		return w
-	}
+	api := func() http.Handler { return server.JWTVerifier(ripapi.New(ds, ripper)) }
 
-	It("keeps favorites, ratings, plays, bookmarks, the play queue, Playlists, shares and Stations attached", func() {
-		w := promote()
-		Expect(w.Code).To(Equal(http.StatusOK), w.Body.String())
-		Expect(filepath.Join(nasDir, filepath.FromSlash(promotedPath))).To(BeAnExistingFile())
-		Expect(filepath.Join(inbox, "Rip Album")).ToNot(BeADirectory())
-		scanAll()
-
-		// One Track, the same one, at its new place in the NAS library, with no ghost left.
+	// attached checks the one Track, the same one, is in the library libID at path, with everything
+	// attached to it in the Inbox still attached.
+	attached := func(libID int, path string) {
+		GinkgoHelper()
 		all := tracks()
-		Expect(all).To(HaveLen(1))
+		Expect(all).To(HaveLen(1), "no second Track for the moved File")
 		mf := all[0]
 		Expect(mf.ID).To(Equal(trackID))
-		Expect(mf.LibraryID).To(Equal(nas.ID))
-		Expect(mf.Path).To(Equal(promotedPath))
+		Expect(mf.LibraryID).To(Equal(libID))
+		Expect(mf.Path).To(Equal(path))
 		Expect(mf.Missing).To(BeFalse())
 		Expect(mf.Source).To(Equal("YouTube")) // the Ripped badge survives
-		n, err := ds.MediaFile(ctx).CountAll(model.QueryOptions{Filters: squirrel.Eq{"media_file.library_id": inboxID}})
-		Expect(err).ToNot(HaveOccurred())
-		Expect(n).To(BeZero())
-		// Re-read by the scanner into its new library: a NAS album, starred like the Inbox one was.
-		album, err := ds.Album(ctx).Get(mf.AlbumID)
-		Expect(err).ToNot(HaveOccurred())
-		Expect(album.LibraryID).To(Equal(nas.ID))
-		Expect(album.Starred).To(BeTrue())
 
 		song := doReq("getSong", "id", trackID)
 		Expect(song.Status).To(Equal(responses.StatusOK))
@@ -191,18 +189,70 @@ var _ = Describe("Promote keeps a Track's identity", func() {
 			trackID).Scan(&stationTracks)).To(Succeed())
 		Expect(stationTracks).To(Equal(1))
 
-		// The other Rip's "already have" now says where the Track is.
+		// Re-read by the scanner into its library, starred as the Inbox one was.
+		album, err := ds.Album(ctx).Get(mf.AlbumID)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(album.LibraryID).To(Equal(libID))
+		Expect(album.Starred).To(BeTrue())
+	}
+	alreadyHaveLibrary := func() string {
+		GinkgoHelper()
 		var have string
 		Expect(db.Db().QueryRow("select already_have from rip_item where already_have like ?", "%"+trackID+"%").Scan(&have)).To(Succeed())
-		Expect(have).To(ContainSubstring(`"libraryName":"NAS"`))
+		return have
+	}
 
-		// The job is done: its rows are gone.
+	It("shows the plan, promotes to the scheme path at the Library's root, keeps everything attached, and is undone back into the Inbox", func() {
+		plan, editJob := promoteJob(api(), admin, job.ID)
+		Expect(plan.Tracks).To(Equal(1))
+		Expect(plan.Moves).To(ContainElement(And(HaveField("TrackID", trackID), HaveField("Path", inboxPath),
+			HaveField("NewPath", promotedPath), HaveField("NewLibraryID", nas.ID))))
+		Expect(editJob.Skipped).To(BeZero())
+
+		Expect(filepath.Join(nasDir, filepath.FromSlash(promotedPath))).To(BeAnExistingFile())
+		Expect(filepath.Join(inbox, "Rip Album")).ToNot(BeADirectory(), "the emptied Inbox folder is removed")
+		attached(nas.ID, promotedPath)
+		n, err := ds.MediaFile(ctx).CountAll(model.QueryOptions{Filters: squirrel.Eq{"media_file.library_id": inboxID}})
+		Expect(err).ToNot(HaveOccurred())
+		Expect(n).To(BeZero())
+
+		// The Rip is done: its rows are gone; the other Rip's "already have" names the Library.
 		_, err = ds.RipJob(ctx).Get(job.ID)
 		Expect(errors.Is(err, model.ErrNotFound)).To(BeTrue())
+		Expect(alreadyHaveLibrary()).To(ContainSubstring(`"libraryName":"NAS"`))
+
+		// And so after a rescan of both libraries.
+		scanAll()
+		attached(nas.ID, promotedPath)
+
+		// The Promote job is undone from the Edit history: the File goes back into the Inbox, the
+		// same Track.
+		router := nativeapi.New(ds, core.NewShare(ds), playlists.NewPlaylists(ds, artwork.NewUploader(ds)), nil, tests.NewMockLibraryService(), tests.NewMockUserService(),
+			nil, nil, nil, nil, nil, nil, nil, editor)
+		router.SetEditQueue(queue)
+		w := adminCall(server.JWTVerifier(router), admin, http.MethodPost, "/editJob/"+editJob.ID+"/undo", nil)
+		Expect(w.Code).To(Equal(http.StatusOK), w.Body.String())
+		Expect(filepath.Join(inbox, filepath.FromSlash(inboxPath))).To(BeAnExistingFile())
+		Expect(filepath.Join(nasDir, "Rip Artist")).ToNot(BeADirectory(), "the Library folders it made are removed")
+		attached(inboxID, inboxPath)
+		Expect(alreadyHaveLibrary()).To(ContainSubstring(`"libraryName":"` + core.InboxLibraryName + `"`))
+		scanAll()
+		attached(inboxID, inboxPath)
+		// A Listener can't see it any more.
+		Expect(doReqWithUser(regularUser, "getSong", "id", trackID).Status).To(Equal(responses.StatusFailed))
+
+		// Back in the Inbox, the File gets a review card again.
+		Eventually(func() []string {
+			_, err := ripper.ReconcileDrops(ctx)
+			Expect(err).ToNot(HaveOccurred())
+			paths, err := ds.RipItem(ctx).Paths()
+			Expect(err).ToNot(HaveOccurred())
+			return paths
+		}, 5*time.Second, 20*time.Millisecond).Should(ContainElement(inboxPath))
 	})
 
 	It("makes the promoted Track visible to every Listener", func() {
-		Expect(promote().Code).To(Equal(http.StatusOK))
+		promoteJob(api(), admin, job.ID)
 		scanAll()
 
 		got := doReqWithUser(regularUser, "getSong", "id", trackID)
@@ -213,5 +263,49 @@ var _ = Describe("Promote keeps a Track's identity", func() {
 		Expect(found.SearchResult3.Song).To(ContainElement(HaveField("Id", trackID)))
 		// The Listener's own favorites start empty: the admin's star is the admin's.
 		Expect(got.Song.Starred).To(BeNil())
+	})
+
+	It("reuses a Library folder whose name differs only in letter case", func() {
+		Expect(os.MkdirAll(filepath.Join(nasDir, "rip artist", "Older (1999)"), 0o755)).To(Succeed())
+		data, err := os.ReadFile(filepath.Join("tests", "fixtures", "test.mp3"))
+		Expect(err).ToNot(HaveOccurred())
+		Expect(os.WriteFile(filepath.Join(nasDir, "rip artist", "Older (1999)", "01 Old.mp3"), data, 0o644)).To(Succeed())
+		scanAll()
+
+		plan, _ := promoteJob(api(), admin, job.ID)
+		Expect(plan.Moves).To(ContainElement(HaveField("NewPath", "rip artist/Rip Album (2024)/01 Ripped Opus.opus")))
+		Expect(filepath.Join(nasDir, "rip artist", "Rip Album (2024)", "01 Ripped Opus.opus")).To(BeAnExistingFile())
+		entries, err := os.ReadDir(nasDir)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(entries).To(HaveLen(1), "no second folder differing only in letter case")
+		attached(nas.ID, "rip artist/Rip Album (2024)/01 Ripped Opus.opus")
+	})
+
+	It("is off while the Library is read-only", func() {
+		core.SetLibraryEditing(core.LibraryEditing{})
+		w := adminCall(api(), admin, http.MethodPost, "/"+job.ID+"/promote/plan", nil)
+		Expect(w.Code).To(Equal(http.StatusNotFound))
+		Expect(filepath.Join(inbox, filepath.FromSlash(inboxPath))).To(BeAnExistingFile())
+	})
+
+	It("settles a Promote a stop interrupted, at the next start", func() {
+		// The copy was placed in the Library (the Inbox is another filesystem), then the app stopped
+		// before the Track followed.
+		data, err := os.ReadFile(filepath.Join(inbox, filepath.FromSlash(inboxPath)))
+		Expect(err).ToNot(HaveOccurred())
+		Expect(os.MkdirAll(filepath.Join(nasDir, "Rip Artist", "Rip Album (2024)"), 0o755)).To(Succeed())
+		Expect(os.WriteFile(filepath.Join(nasDir, filepath.FromSlash(promotedPath)), data, 0o644)).To(Succeed())
+		entry := &model.EditEntry{JobID: "interrupted", Kind: model.EditMove, State: model.EditPending,
+			LibraryID: inboxID, NewLibraryID: nas.ID, MediaFileID: trackID, Path: inboxPath, NewPath: promotedPath,
+			CopySum: fmt.Sprintf("%x", sha256.Sum256(data))}
+		Expect(ds.EditJournal(ctx).Put(entry)).To(Succeed())
+
+		editor.Settle(ctx)
+		Expect(filepath.Join(inbox, filepath.FromSlash(inboxPath))).ToNot(BeAnExistingFile())
+		scanAll()
+		attached(nas.ID, promotedPath)
+		got, err := ds.EditJournal(ctx).Get(entry.ID)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(got.State).To(Equal(model.EditWritten))
 	})
 })

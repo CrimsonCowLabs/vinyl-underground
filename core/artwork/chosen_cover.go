@@ -58,28 +58,28 @@ func StoreChosenCover(data []byte) (StoredCover, error) {
 	return stored, store.Write(hash, stored.Mime, bytes.NewReader(data))
 }
 
-// PickSource is the model.ItemArtwork.Source of the Cover Art Archive cover of an album's picked
-// MusicBrainz release (Find on MusicBrainz, see model.AlbumCovers.Pick). It is kept in the
-// ChosenCoverStore, and outranks every source in CoverArtPriority.
+// PickSource was the model.ItemArtwork.Source of the Cover Art Archive cover of an album's picked
+// MusicBrainz release (Find on MusicBrainz). A picked release is written into the Files now
+// (#170), its cover as the album's cover.jpg when the admin asks, and the picks kept before are
+// written by the Correction migration, so nothing resolves to it any more; an album's state row
+// may still name it until the album is resolved again.
 const PickSource = "musicbrainzPick"
 
-// albumCovers is what admins decided about an album's cover that stays app data: the cover of the
-// MusicBrainz release they picked, if any, and the images they marked wrong. The album's cover,
-// its disc art and its Tracks' own art all follow it: the pick is tried before their priority
-// order, and the blocks are skipped. (An image chosen or uploaded is the album's cover.jpg.)
+// albumCovers is what admins decided about an album's cover that stays app data: the images they
+// marked wrong. The album's cover, its disc art and its Tracks' own art all skip them. (An image
+// chosen or uploaded is the album's cover.jpg.)
 type albumCovers struct {
-	pick   *model.Correction // nil when the album has none
 	blocks coverBlocks
 }
 
 // loadAlbumCovers loads them with one indexed query on the album's folders (see
-// model.AlbumCoverCorrections), so it costs a Track's own art no more than the blocks alone did.
+// model.AlbumCoverCorrections).
 func loadAlbumCovers(ctx context.Context, ds model.DataStore, al model.Album) (albumCovers, error) {
 	found, err := model.AlbumCoverCorrections(ds.Correction(ctx), al)
 	if err != nil {
 		return albumCovers{}, err
 	}
-	covers := albumCovers{pick: found.Pick}
+	var covers albumCovers
 	if len(found.Blocks) > 0 {
 		covers.blocks = make(coverBlocks, len(found.Blocks))
 		for _, b := range found.Blocks {
@@ -89,46 +89,14 @@ func loadAlbumCovers(ctx context.Context, ds model.DataStore, al model.Album) (a
 	return covers, nil
 }
 
-// openStored opens the image a pick keeps in the ChosenCoverStore. One whose image is
-// gone is a miss, so the item falls back to its default order; none at all has no source.
-func openStored(cr *model.Correction, source string) (resolution, bool) {
-	if cr == nil || !validHash(cr.ImageHash) {
-		return resolution{}, false
-	}
-	return resolveLocalFile(ChosenCoverStore().path(cr.ImageHash, cr.ImageMime), source)
-}
-
-// key names the pick and the blocks, for a cache key of an image resolved under them.
+// key names the blocks, for a cache key of an image resolved under them.
 func (a albumCovers) key() string {
-	var pick string
-	if a.pick != nil {
-		pick = a.pick.ImageHash
-	}
-	return pick + ";" + a.blocks.key()
+	return ";" + a.blocks.key()
 }
 
 // tryCovers starts a priority walk under the album's covers: the walk skips its blocks from here
-// on, and its pick is tried first. decided means the walk is over: it
-// won, or its image could not be read, as falling through would show (and persist) a
-// lower-priority image as if it were gone. A blocked pick is gone.
+// on. Nothing outranks the priority order any more, so the walk is never decided here.
 func (c *chainState) tryCovers(covers albumCovers) (_ resolution, decided bool) {
 	c.blocks = covers.blocks
-	for _, stored := range []struct {
-		cr     *model.Correction
-		source string
-	}{{covers.pick, PickSource}} {
-		res, opened := openStored(stored.cr, stored.source)
-		switch {
-		case opened || res.localError:
-			if res, ok := c.try(stored.source, res, opened); ok {
-				return res, true
-			}
-			if c.localErr {
-				return c.exhausted(), true
-			}
-		case res.source != "":
-			c.record(stored.source, OutcomeMiss, "")
-		}
-	}
 	return resolution{}, false
 }

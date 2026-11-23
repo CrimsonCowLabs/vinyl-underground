@@ -70,8 +70,8 @@ const releaseDetail = (r) =>
   [r.year, r.country, r.format, r.status].filter(Boolean).join(' · ')
 
 // Find on MusicBrainz, in the album Edit dialog: searches MusicBrainz's releases by the album
-// artist and title as they are in the dialog, and lets the admin pick one. The pick is saved with
-// the rest of the dialog, as part of the album's Correction. A failed search shows why, and
+// artist and title as they are in the dialog, and lets the admin pick one. The pick is written
+// into the album's Files with the rest of the dialog (#170). A failed search shows why, and
 // leaves the rest of the dialog as it is.
 export const FindOnMusicBrainz = ({
   artist,

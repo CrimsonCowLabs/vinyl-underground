@@ -160,6 +160,14 @@ var _ = Describe("Corrections", func() {
 			Expect(ds.Correction(ctx).Get(cr.ID)).ToNot(BeNil())
 		})
 
+		It("refuses a picked MusicBrainz release, which the migration writes into the Files too (#170)", func() {
+			cr := model.Correction{Kind: model.CorrectionAlbum, MatchKey: "folder", From: "Record", To: "MusicBrainz: Record",
+				MbzAlbumID: "a7f8ed5e-1111-4a1b-9c1d-123456789abc", MbzReleaseGroupID: "b7f8ed5e-1111-4a1b-9c1d-123456789abc"}
+			Expect(ds.Correction(ctx).Add(&cr)).To(Succeed())
+			_, err := svc.Undo(ctx, cr.ID)
+			Expect(err).To(MatchError(corrections.ErrMigrateFirst))
+		})
+
 		It("returns not found for an unknown Correction", func() {
 			_, err := svc.Undo(ctx, "nope")
 			Expect(err).To(MatchError(model.ErrNotFound))

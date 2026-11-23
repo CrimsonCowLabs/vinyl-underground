@@ -2,9 +2,9 @@
 // album Edit dialog, Track order and artist renames and merges are edit jobs (write.go), and the
 // Corrections the app kept before, which it applied whenever it read a File's tags, are written
 // into the Files by the Correction migration (migrate.go, #165). Nothing applies a Correction on
-// read any more. What stays app data is kept here too: an image marked wrong for an album (a
-// cover block), which artwork skips, and a MusicBrainz release picked with Find on MusicBrainz,
-// whose Cover Art Archive cover the album shows, until its IDs are written into the Files (#170).
+// read any more. A MusicBrainz release picked with Find on MusicBrainz is written into the Files
+// too (release.go, #170). What stays app data is kept here: an image marked wrong for an album (a
+// cover block), which artwork skips.
 package corrections
 
 import (
@@ -17,6 +17,7 @@ import (
 	"github.com/Masterminds/squirrel"
 	"github.com/navidrome/navidrome/consts"
 	"github.com/navidrome/navidrome/core/artwork"
+	"github.com/navidrome/navidrome/core/musicbrainz"
 	"github.com/navidrome/navidrome/core/tagedit"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
@@ -40,13 +41,8 @@ var (
 // Applied is the outcome of saving or undoing a Correction.
 type Applied struct {
 	Correction model.Correction `json:"correction"`
-	// AlbumID is the album a Correction of it was saved for.
-	AlbumID string `json:"albumId,omitempty"`
 	// Done is always true: saving or undoing one rescans nothing.
 	Done bool `json:"done"`
-	// PickCover is what the Cover Art Archive answered for a release picked with Find on
-	// MusicBrainz, when saving asked it; empty otherwise.
-	PickCover PickCover `json:"pickCover,omitempty"`
 }
 
 type Corrections interface {
@@ -57,15 +53,8 @@ type Corrections interface {
 	// its tracks' own art skip it from then on, falling back to the next source in the cover
 	// order.
 	BlockAlbumCover(ctx context.Context, albumID, imageHash string) (*Applied, error)
-	// CorrectAlbum saves the MusicBrainz release picked for the album with Find on MusicBrainz
-	// (fix's MbzAlbumID and MbzReleaseGroupID) as an album Correction keyed by its folder (see
-	// model.AlbumFolderKey), replacing an earlier pick. Its Cover Art Archive cover is kept with
-	// it (Options.PickedCover) and outranks CoverArtPriority, for the album, its disc art and its
-	// Tracks' own art. The release's IDs are not applied to the Tracks' tags: writing them into
-	// the Files is #170. The album's title, album artist and year go to the Files (PlanAlbumEdit).
-	CorrectAlbum(ctx context.Context, albumID string, fix AlbumFix) (*Applied, error)
-	// Undo deletes a cover block or a picked release, and resolves the covers of the albums it
-	// applied to again. The Corrections the migration writes can't be undone (ErrMigrateFirst).
+	// Undo deletes a cover block, and resolves the covers of the albums it applied to again. The
+	// Corrections the migration writes can't be undone (ErrMigrateFirst).
 	Undo(ctx context.Context, id string) (*Applied, error)
 
 	// The album Edit dialog, Track order and artist rename and merge write to the Files (#163):
@@ -73,6 +62,12 @@ type Corrections interface {
 	PlanAlbumEdit(ctx context.Context, albumID string, fix *AlbumFix, numbers []TrackNumber) (*Plan, error)
 	PlanArtistRename(ctx context.Context, artistID, name string) (*Plan, error)
 	PlanArtistMerge(ctx context.Context, artistID, intoID string) (*Plan, error)
+
+	// Find on MusicBrainz writes the picked release into the album's Files (#170, release.go):
+	// MatchRelease pairs the album's Tracks with the release, as the dialog shows it before
+	// saving, and PlanRelease works out the job (JobRelease) writing it.
+	MatchRelease(ctx context.Context, albumID string, rel *musicbrainz.Release) (*ReleaseMatch, error)
+	PlanRelease(ctx context.Context, editor *tagedit.Editor, albumID string, rel *musicbrainz.Release, w ReleaseWrite) (*Plan, error)
 
 	// PlanMigration lists every Correction the Correction migration writes into the Files (#165),
 	// with what writing it changes and the Files it can't write; it writes nothing.
@@ -140,9 +135,6 @@ func (c *corrections) BlockAlbumCover(ctx context.Context, albumID, imageHash st
 // coverSourceLabel names the image an album shows, for the Corrections page: its file name, or
 // where it came from.
 func coverSourceLabel(ia *model.ItemArtwork) string {
-	if ia.Source == artwork.PickSource {
-		return "Cover Art Archive (MusicBrainz release)"
-	}
 	if ia.SourcePath != "" {
 		switch ia.Source {
 		case "folder":
@@ -207,7 +199,7 @@ func (c *corrections) Undo(ctx context.Context, id string) (*Applied, error) {
 		return nil, err
 	}
 	log.Info(ctx, "Corrections: undoing", "kind", cr.Kind, "album", cr.From, "to", cr.To)
-	// A block, or a picked release (and its cover): only the covers change.
+	// A block: only the covers change.
 	if err := c.refreshFolderCovers(ctx, cr.MatchKey); err != nil {
 		return nil, err
 	}

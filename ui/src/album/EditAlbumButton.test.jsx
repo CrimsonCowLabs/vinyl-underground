@@ -12,8 +12,10 @@ const {
   mockRedirect,
   mockRefresh,
   mockFindReleases,
+  mockMatch,
   mockEditing,
 } = vi.hoisted(() => ({
+  mockMatch: vi.fn(),
   mockEditing: { writable: true },
   mockPermissions: { value: 'admin' },
   mockCorrectAlbum: vi.fn(),
@@ -30,6 +32,7 @@ const mockDataProvider = {
   correctTrackNumbers: mockCorrectTrackNumbers,
   getList: mockGetList,
   findMusicBrainzReleases: mockFindReleases,
+  matchMusicBrainzRelease: mockMatch,
 }
 
 vi.mock('react-admin', async (importOriginal) => {
@@ -383,23 +386,88 @@ describe('EditAlbumButton', () => {
       ).toBeTruthy()
     })
 
-    it('saves the picked release with the album Correction, even with nothing else changed', async () => {
+    // How the album's two Tracks pair with rel-2: One by title, though its File names another
+    // recording; Bonus with no track of the release.
+    const match = {
+      release: { id: 'rel-2', albumArtist: 'Band' },
+      holds: false,
+      tracks: [
+        {
+          id: 'mf-1',
+          title: 'One',
+          disc: 1,
+          track: 1,
+          paired: { id: 'rt-1', title: 'One', disc: 1, position: 1 },
+          mismatch: true,
+        },
+        { id: 'mf-2', title: 'Bonus', disc: 1, track: 9 },
+      ],
+      unpaired: [{ id: 'rt-2', title: 'Two' }],
+      albumArtistMatches: true,
+      canonical: {
+        album: { from: 'Recrod', to: 'Record' },
+        albumArtist: {},
+        date: { from: '1998', to: '2009-04-01' },
+        titles: 0,
+      },
+    }
+    const pickRelease = async () => {
+      find()
+      fireEvent.click(await screen.findByTestId('mbz-release-rel-2'))
+      await screen.findByTestId('mbz-pairing')
+    }
+
+    it('shows how the Tracks pair with the picked release before saving, with those left unpaired and the IDs that differ', async () => {
       mockFindReleases.mockResolvedValue({ data: releases })
+      let answer
+      mockMatch.mockReturnValue(
+        new Promise((resolve) => {
+          answer = resolve
+        }),
+      )
+      render(<EditAlbumButton record={record} />)
+      open()
+      const button = screen.getByText('ra.action.save').closest('button')
+      find()
+      fireEvent.click(await screen.findByTestId('mbz-release-rel-2'))
+      expect(mockMatch).toHaveBeenCalledWith('rel-2', 'al1')
+      // Not saved before the pairing is shown
+      expect(screen.getByTestId('mbz-pairing-loading')).toBeTruthy()
+      expect(button.disabled).toBe(true)
+      answer({ data: match })
+
+      await screen.findByTestId('mbz-pairing')
+      expect(button.disabled).toBe(false)
+      expect(screen.getByTestId('mbz-pair-mf-1').textContent).toContain(
+        'resources.album.musicbrainz.pairing.mismatch',
+      )
+      expect(screen.getByTestId('mbz-pair-mf-2').textContent).toContain(
+        'resources.album.musicbrainz.pairing.unpaired',
+      )
+      expect(screen.getByTestId('mbz-unpaired').textContent).toContain(
+        '"smart_count":1',
+      )
+      expect(
+        screen.getByText(/resources.album.musicbrainz.pairing.doesntHold/),
+      ).toBeTruthy()
+      // Only what differs is offered: no album artist, no track titles
+      expect(screen.getByTestId('mbz-option-album')).toBeTruthy()
+      expect(screen.getByTestId('mbz-option-date')).toBeTruthy()
+      expect(screen.queryByTestId('mbz-option-albumArtist')).toBeNull()
+      expect(screen.queryByTestId('mbz-option-titles')).toBeNull()
+      expect(screen.getByTestId('mbz-option-replaceTrackIds')).toBeTruthy()
+    })
+
+    it("writes the picked release's IDs only, unless the admin ticks its values, its track IDs or its cover", async () => {
+      mockFindReleases.mockResolvedValue({ data: releases })
+      mockMatch.mockResolvedValue({ data: match })
       mockCorrectAlbum.mockResolvedValue({
         data: { albumId: 'al3', done: true },
       })
       render(<EditAlbumButton record={record} />)
       open()
-      const button = screen.getByText('ra.action.save').closest('button')
-      expect(button.disabled).toBe(true)
-      find()
-      fireEvent.click(await screen.findByTestId('mbz-release-rel-2'))
-      expect(screen.getByTestId('mbz-picked').textContent).toContain(
-        'Record (US, 12\\" Vinyl, 2009)',
-      )
-      expect(button.disabled).toBe(false)
+      await pickRelease()
       save()
-
       await waitFor(() =>
         expect(mockRedirect).toHaveBeenCalledWith('/album/al3/show'),
       )
@@ -408,20 +476,96 @@ describe('EditAlbumButton', () => {
         albumArtist: 'Band',
         year: 1998,
         mbzAlbumId: 'rel-2',
-        mbzReleaseGroupId: 'rg-1',
-        mbzRelease: 'Record (US, 12" Vinyl, 2009)',
+        canonical: {
+          album: false,
+          albumArtist: false,
+          date: false,
+          titles: false,
+        },
+        replaceTrackIds: false,
+        cover: false,
       })
+    })
+
+    it('sends what the admin ticks, and locks the fields the release fills', async () => {
+      mockFindReleases.mockResolvedValue({ data: releases })
+      mockMatch.mockResolvedValue({ data: match })
+      mockCorrectAlbum.mockResolvedValue({
+        data: { albumId: 'al3', done: true },
+      })
+      render(<EditAlbumButton record={record} />)
+      open()
+      await pickRelease()
+      fireEvent.click(screen.getByTestId('mbz-option-album'))
+      fireEvent.click(screen.getByTestId('mbz-option-replaceTrackIds'))
+      fireEvent.click(screen.getByTestId('mbz-option-cover'))
+      expect(field('album-name').disabled).toBe(true)
+      expect(field('album-year').disabled).toBe(false)
+      save()
+      await waitFor(() => expect(mockCorrectAlbum).toHaveBeenCalled())
+      expect(mockCorrectAlbum.mock.calls[0][1]).toMatchObject({
+        mbzAlbumId: 'rel-2',
+        canonical: { album: true, date: false },
+        replaceTrackIds: true,
+        cover: true,
+      })
+    })
+
+    it('says nothing was saved when a File could not be written and the others were put back', async () => {
+      mockFindReleases.mockResolvedValue({ data: releases })
+      mockMatch.mockResolvedValue({ data: match })
+      mockCorrectAlbum.mockResolvedValue({
+        data: { done: true, rolledBack: true, job: { skipped: 1 } },
+      })
+      render(<EditAlbumButton record={record} />)
+      open()
+      await pickRelease()
+      save()
+      await waitFor(() =>
+        expect(mockNotify).toHaveBeenCalledWith(
+          'resources.album.musicbrainz.rolledBack',
+          { type: 'warning', messageArgs: { smart_count: 1 } },
+        ),
+      )
+      expect(mockRefresh).toHaveBeenCalled()
+    })
+
+    it('shows why the pairing could not be had, and saves the rest without the release', async () => {
+      mockFindReleases.mockResolvedValue({ data: releases })
+      mockMatch.mockRejectedValue({ body: { error: 'busy' } })
+      mockCorrectAlbum.mockResolvedValue({
+        data: { albumId: 'al1', done: true },
+      })
+      render(<EditAlbumButton record={record} />)
+      open()
+      find()
+      fireEvent.click(await screen.findByTestId('mbz-release-rel-2'))
+      expect(
+        await screen.findByText('resources.album.musicbrainz.errors.busy'),
+      ).toBeTruthy()
+      const button = screen.getByText('ra.action.save').closest('button')
+      expect(button.disabled).toBe(true)
+      type('album-year', '1999')
+      expect(button.disabled).toBe(false)
+      save()
+      await waitFor(() =>
+        expect(mockCorrectAlbum).toHaveBeenCalledWith('al1', {
+          name: 'Recrod',
+          albumArtist: 'Band',
+          year: 1999,
+        }),
+      )
     })
 
     it('says so when the picked release brought no cover', async () => {
       mockFindReleases.mockResolvedValue({ data: releases })
+      mockMatch.mockResolvedValue({ data: match })
       mockCorrectAlbum.mockResolvedValue({
         data: { albumId: 'al3', done: true, pickCover: 'failed' },
       })
       render(<EditAlbumButton record={record} />)
       open()
-      find()
-      fireEvent.click(await screen.findByTestId('mbz-release-rel-1'))
+      await pickRelease()
       save()
 
       await waitFor(() =>

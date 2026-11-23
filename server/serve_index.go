@@ -14,6 +14,7 @@ import (
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/conf/mime"
 	"github.com/navidrome/navidrome/consts"
+	"github.com/navidrome/navidrome/core"
 	"github.com/navidrome/navidrome/core/llm"
 	"github.com/navidrome/navidrome/core/quickconnect"
 	"github.com/navidrome/navidrome/log"
@@ -84,7 +85,7 @@ func serveIndex(ds model.DataStore, fs fs.FS, shareInfo *model.Share) http.Handl
 			"enableInspect":             conf.Server.Inspect.Enabled,
 			"enableRipping":             conf.Server.Ripping.Enabled,
 			"enableInbox":               conf.Server.Inbox.Path != "",
-			"enablePromote":             conf.Server.Inbox.Path != "" && conf.Server.Inbox.PromotePath != "",
+			"enablePromote":             conf.Server.Inbox.Path != "" && core.CurrentLibraryEditing().Enabled,
 			"enableGeneratedPlaylists":  llm.Configured(llm.FromConfig()),
 			"enableStationThemes":       llm.Configured(llm.FromConfig()),
 			"enableStationBlurbs":       llm.Configured(llm.FromConfig()),

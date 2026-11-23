@@ -10,16 +10,20 @@ import (
 	"path"
 	"path/filepath"
 
+	"github.com/navidrome/navidrome/core"
 	"github.com/navidrome/navidrome/core/safefile"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/model/request"
 )
 
-// Move is one File to move within its library (see MoveInJob). Paths are relative to the
-// library, slash-separated.
+// Move is one File to move within its library, or from the Inbox into another library (a
+// Promote, #171) and back (see MoveInJob). Paths are relative to their library, slash-separated.
 type Move struct {
 	LibraryID int `json:"libraryId"`
+	// NewLibraryID is the library NewPath is in, when it isn't LibraryID: one side of the move is
+	// then the Inbox, and the other a writable library (see CheckMove). 0 means LibraryID.
+	NewLibraryID int `json:"newLibraryId,omitempty"`
 	// TrackID is the File's Track, or empty for a File that is no Track's (a cover.jpg).
 	TrackID string `json:"trackId,omitempty"`
 	Path    string `json:"path"`
@@ -48,10 +52,17 @@ func RegisterMoveKind(kind model.EditKind, relocate bool) {
 
 func init() { undoers[model.EditMove] = (*Editor).undoMove }
 
+// destLibraryID is the library the File moves into.
+func (m Move) destLibraryID() int { return cmp.Or(m.NewLibraryID, m.LibraryID) }
+
+// crossLibrary reports whether the move takes the File into another library.
+func (m Move) crossLibrary() bool { return m.destLibraryID() != m.LibraryID }
+
 // CheckMove is the refusal a move meets before anything is read, if any: its library isn't
-// writable (ErrEditingOff), or its Track is gone (model.ErrNotFound).
+// writable (ErrEditingOff), or its Track is gone (model.ErrNotFound). A move into another library
+// needs each side to be the Inbox (which the app always writes) or a writable library.
 func (e *Editor) CheckMove(ctx context.Context, m Move) error {
-	if !writable(m.LibraryID) {
+	if !e.movable(ctx, m) {
 		return ErrEditingOff
 	}
 	if m.TrackID != "" {
@@ -100,15 +111,21 @@ func (e *Editor) move(ctx context.Context, jobID string, m Move, undoOf string, 
 	if !ok {
 		return nil, fmt.Errorf("%q is no kind of move", kind)
 	}
-	if !writable(m.LibraryID) {
+	if !e.movable(ctx, m) {
 		return nil, ErrEditingOff
 	}
-	if m.Path == m.NewPath {
+	if m.Path == m.NewPath && !m.crossLibrary() {
 		return &Result{Changed: false}, nil
 	}
 	lib, err := e.ds.Library(ctx).Get(m.LibraryID)
 	if err != nil {
 		return nil, err
+	}
+	dlib := lib
+	if m.crossLibrary() {
+		if dlib, err = e.ds.Library(ctx).Get(m.destLibraryID()); err != nil {
+			return nil, err
+		}
 	}
 	src := absPath(lib, m.Path)
 	var mf *model.MediaFile
@@ -129,7 +146,7 @@ func (e *Editor) move(ctx context.Context, jobID string, m Move, undoOf string, 
 	if mf != nil {
 		switch {
 		case mf.LibraryID == m.LibraryID && mf.Path == m.Path:
-		case (undoOf != "" || !relocate) && mf.LibraryID == m.LibraryID && mf.Path == m.NewPath:
+		case (undoOf != "" || !relocate) && mf.LibraryID == dlib.ID && mf.Path == m.NewPath:
 			relocate, rowAtNew = false, true
 		default:
 			return nil, fmt.Errorf("%w: the Track isn't at %s", ErrChangedOnDisk, m.Path)
@@ -148,7 +165,7 @@ func (e *Editor) move(ctx context.Context, jobID string, m Move, undoOf string, 
 		return nil, fmt.Errorf("%w: the File isn't there", ErrChangedOnDisk)
 	}
 
-	newDir, err := safefile.EnsureDir(e.fsys, lib.Path, path.Dir(m.NewPath))
+	newDir, err := safefile.EnsureDir(e.fsys, dlib.Path, path.Dir(m.NewPath))
 	if err != nil {
 		return nil, err
 	}
@@ -156,6 +173,9 @@ func (e *Editor) move(ctx context.Context, jobID string, m Move, undoOf string, 
 	entry := &model.EditEntry{
 		JobID: jobID, Kind: kind, State: model.EditPending, LibraryID: m.LibraryID,
 		MediaFileID: m.TrackID, Path: m.Path, NewPath: newPath, UndoOf: undoOf,
+	}
+	if m.crossLibrary() {
+		entry.NewLibraryID = dlib.ID
 	}
 	if u, ok := request.UserFrom(ctx); ok {
 		entry.UserID = u.ID
@@ -170,7 +190,7 @@ func (e *Editor) move(ctx context.Context, jobID string, m Move, undoOf string, 
 			return nil, err
 		}
 	}
-	err = safefile.Move(e.fsys, src, absPath(lib, newPath), safefile.MoveHooks{
+	err = safefile.Move(e.fsys, src, absPath(dlib, newPath), safefile.MoveHooks{
 		// A rename (on one share) is told by the File's size and time, a copy (across
 		// filesystems) by its checksum; either is kept as the entry's CopySum.
 		Renaming: func(info fs.FileInfo) error {
@@ -191,7 +211,7 @@ func (e *Editor) move(ctx context.Context, jobID string, m Move, undoOf string, 
 			if mf == nil || !relocate {
 				return nil
 			}
-			return e.relocate(ctx, mf.ID, lib, newPath)
+			return e.relocate(ctx, mf.ID, dlib, newPath)
 		},
 	})
 	res := &Result{Changed: true, Entry: entry.ID, Track: mf}
@@ -229,6 +249,40 @@ func (e *Editor) move(ctx context.Context, jobID string, m Move, undoOf string, 
 		}
 	}
 	return res, nil
+}
+
+// movable reports whether the app may make the move m: within one library, when it is writable;
+// into another library, when each side is writable or the Inbox (which the app always writes,
+// but only while editing is on: a Promote's other side is the Library).
+func (e *Editor) movable(ctx context.Context, m Move) bool {
+	if !m.crossLibrary() {
+		return writable(m.LibraryID)
+	}
+	if !core.CurrentLibraryEditing().Enabled {
+		return false
+	}
+	inbox, err := core.FindInboxLibrary(ctx, e.ds)
+	if err != nil {
+		log.Warn(ctx, "Could not look up the Inbox for a move between libraries", err)
+		return false
+	}
+	ok := func(id int) bool { return writable(id) || (inbox != nil && inbox.ID == id) }
+	return ok(m.LibraryID) && ok(m.destLibraryID())
+}
+
+// MovesLibraries reports whether the entry is a move into another library (a Promote, or its
+// undo): its undo is then checked with EntryWritable, not by its Track's library.
+func MovesLibraries(entry *model.EditEntry) bool {
+	return entry.DestLibraryID() != entry.LibraryID
+}
+
+// EntryWritable reports whether the app may undo the entry: its library is writable, or, for a
+// move into another library, each side is writable or the Inbox (see movable).
+func (e *Editor) EntryWritable(ctx context.Context, entry *model.EditEntry) bool {
+	if !MovesLibraries(entry) {
+		return writable(entry.LibraryID)
+	}
+	return e.movable(ctx, Move{LibraryID: entry.LibraryID, NewLibraryID: entry.NewLibraryID})
 }
 
 // relocate points the Track id at the File now at rel in lib, keeping its ID, in one transaction.
@@ -283,7 +337,10 @@ func (e *Editor) undoMoveWith(ctx context.Context, jobID string, entry *model.Ed
 		}
 		return nil
 	}
-	m := Move{LibraryID: entry.LibraryID, TrackID: entry.MediaFileID, Path: entry.NewPath, NewPath: entry.Path, Kind: entry.Kind, Before: before}
+	m := Move{LibraryID: entry.DestLibraryID(), TrackID: entry.MediaFileID, Path: entry.NewPath, NewPath: entry.Path, Kind: entry.Kind, Before: before}
+	if entry.DestLibraryID() != entry.LibraryID {
+		m.NewLibraryID = entry.LibraryID // back into the library it came from (the Inbox)
+	}
 	return e.move(ctx, jobID, m, entry.ID, check)
 }
 
@@ -291,7 +348,15 @@ func (e *Editor) undoMoveWith(ctx context.Context, jobID string, entry *model.Ed
 // (safefile.SettleRename for a rename, safefile.SettleMove for a copy across filesystems), and
 // points its Track at where the File is.
 func (e *Editor) settleMove(ctx context.Context, lib *model.Library, entry *model.EditEntry) {
-	src, dest := absPath(lib, entry.Path), absPath(lib, entry.NewPath)
+	dlib := lib
+	if entry.DestLibraryID() != lib.ID {
+		var err error
+		if dlib, err = e.ds.Library(ctx).Get(entry.DestLibraryID()); err != nil {
+			log.Error(ctx, "Could not settle an interrupted move: the library it moved into is gone", "entry", entry.ID, err)
+			return
+		}
+	}
+	src, dest := absPath(lib, entry.Path), absPath(dlib, entry.NewPath)
 	var moved bool
 	var err error
 	if safefile.IsRenameMark(entry.CopySum) {
@@ -307,7 +372,7 @@ func (e *Editor) settleMove(ctx context.Context, lib *model.Library, entry *mode
 	if moved && moveKinds[entry.Kind] && entry.MediaFileID != "" {
 		mf, gerr := e.ds.MediaFile(ctx).Get(entry.MediaFileID)
 		if gerr == nil && mf.LibraryID == entry.LibraryID && mf.Path == entry.Path {
-			if rerr := e.relocate(ctx, mf.ID, lib, entry.NewPath); rerr != nil {
+			if rerr := e.relocate(ctx, mf.ID, dlib, entry.NewPath); rerr != nil {
 				log.Error(ctx, "Could not move the Track of an interrupted move; it is tried again at the next start", "entry", entry.ID, rerr)
 				return
 			}
