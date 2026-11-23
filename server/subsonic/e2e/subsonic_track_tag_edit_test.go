@@ -98,18 +98,30 @@ var _ = Describe("Editing a Track's tags keeps its identity", func() {
 		playlistID = resp.Playlist.Id
 	})
 
-	edit := func(values tagedit.Values) *httptest.ResponseRecorder {
+	call := func(method, url string, body []byte) *httptest.ResponseRecorder {
 		api := server.JWTVerifier(nativeapi.New(ds, core.NewShare(ds), playlists.NewPlaylists(ds, artwork.NewUploader(ds)), nil, tests.NewMockLibraryService(), tests.NewMockUserService(),
 			nil, nil, nil, nil, nil, nil, nil, tagedit.New(ds, s)))
-		body, err := json.Marshal(map[string]any{"values": values})
-		Expect(err).ToNot(HaveOccurred())
-		req := httptest.NewRequest(http.MethodPut, "/trackTags/"+trackID, bytes.NewBuffer(body))
+		req := httptest.NewRequest(method, url, bytes.NewBuffer(body))
 		token, err := auth.CreateToken(&admin)
 		Expect(err).ToNot(HaveOccurred())
 		req.Header.Set(consts.UIAuthorizationHeader, "Bearer "+token)
 		w := httptest.NewRecorder()
 		api.ServeHTTP(w, req)
 		return w
+	}
+	edit := func(values tagedit.Values) *httptest.ResponseRecorder {
+		body, err := json.Marshal(map[string]any{"values": values})
+		Expect(err).ToNot(HaveOccurred())
+		return call(http.MethodPut, "/trackTags/"+trackID, body)
+	}
+	// undo undoes the entry entryID through the Edit history, and returns the undo's entry.
+	undo := func(entryID string) string {
+		GinkgoHelper()
+		w := call(http.MethodPost, "/editHistory/"+entryID+"/undo", nil)
+		Expect(w.Code).To(Equal(http.StatusOK), w.Body.String())
+		var res tagedit.Result
+		Expect(json.Unmarshal(w.Body.Bytes(), &res)).To(Succeed())
+		return res.Entry
 	}
 
 	It("keeps its ID, favorite, rating, plays, bookmark and Playlist entry after an edit of its title, disc and track numbers, and a rescan", func() {
@@ -167,5 +179,40 @@ var _ = Describe("Editing a Track's tags keeps its identity", func() {
 		Expect(db.Db().QueryRow("select original_tags from edit_journal where media_file_id = ? and state = 'written'", trackID).Scan(&original)).To(Succeed())
 		Expect(original).To(ContainSubstring(`"TITLE":["Song"]`))
 		Expect(original).To(ContainSubstring(`"TRACKNUMBER":["2/10"]`))
+	})
+
+	// Undo (#161) takes the same write path, so it keeps the Track too.
+	It("is undone, and redone, through the Edit history, and the Track keeps its ID and everything attached to it", func() {
+		file := filepath.Join(nasDir, filepath.FromSlash(relPath))
+		original, err := taglib.ReadTags(file)
+		Expect(err).ToNot(HaveOccurred())
+		w := edit(tagedit.Values{"title": {"Song (Live)"}, "tracknumber": {"5"}})
+		Expect(w.Code).To(Equal(http.StatusOK), w.Body.String())
+		var res tagedit.Result
+		Expect(json.Unmarshal(w.Body.Bytes(), &res)).To(Succeed())
+		edited, err := taglib.ReadTags(file)
+		Expect(err).ToNot(HaveOccurred())
+
+		undone := undo(res.Entry)
+
+		Expect(taglib.ReadTags(file)).To(Equal(original))
+		all := tracks()
+		Expect(all).To(HaveLen(1))
+		Expect(all[0].ID).To(Equal(trackID))
+		Expect(all[0].Title).To(Equal("Song"))
+		Expect(all[0].TrackNumber).To(Equal(2))
+		song := doReq("getSong", "id", trackID)
+		Expect(song.Song.Starred).ToNot(BeNil())
+		Expect(song.Song.UserRating).To(Equal(int32(4)))
+		pl := doReq("getPlaylist", "id", playlistID)
+		Expect(pl.Playlist.Entry).To(HaveLen(1))
+		Expect(pl.Playlist.Entry[0].Id).To(Equal(trackID))
+
+		// The entry was undone, so undoing it again is refused; undoing the undo redoes it.
+		Expect(call(http.MethodPost, "/editHistory/"+res.Entry+"/undo", nil).Code).To(Equal(http.StatusConflict))
+		undo(undone)
+		Expect(taglib.ReadTags(file)).To(Equal(edited))
+		Expect(tracks()[0].ID).To(Equal(trackID))
+		Expect(tracks()[0].Title).To(Equal("Song (Live)"))
 	})
 })

@@ -76,6 +76,10 @@ func writeTagEditError(w http.ResponseWriter, r *http.Request, err error) {
 		status, code = http.StatusUnprocessableEntity, "notVerified"
 	case errors.Is(err, safefile.ErrLinked):
 		status, code = http.StatusUnprocessableEntity, "linked"
+	case errors.Is(err, tagedit.ErrChangedLater):
+		status, code = http.StatusConflict, "changedLater"
+	case errors.Is(err, tagedit.ErrNotUndoable):
+		status, code = http.StatusUnprocessableEntity, "notUndoable"
 	case errors.Is(err, tagedit.ErrOldCopyLeft):
 		status, code = http.StatusConflict, "oldCopyLeft"
 	}
