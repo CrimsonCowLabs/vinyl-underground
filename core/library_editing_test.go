@@ -2,6 +2,8 @@ package core
 
 import (
 	"os"
+	"path/filepath"
+	"time"
 
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/tests"
@@ -30,6 +32,27 @@ var _ = Describe("DetectLibraryEditing", func() {
 		Expect(err).ToNot(HaveOccurred())
 		Expect(got.Enabled).To(BeTrue())
 		Expect(got.Libraries).To(ConsistOf(LibraryWritable{ID: 1, Name: "Music", Writable: true}))
+		entries, _ := os.ReadDir(music)
+		Expect(entries).To(BeEmpty())
+	})
+
+	It("leaves the folder's modification time as it was, so the next scan doesn't see it changed", func() {
+		old := time.Date(2020, 1, 2, 3, 4, 5, 0, time.UTC)
+		Expect(os.Chtimes(music, old, old)).To(Succeed())
+
+		_, err := DetectLibraryEditing(GinkgoT().Context(), ds)
+		Expect(err).ToNot(HaveOccurred())
+		info, err := os.Stat(music)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(info.ModTime()).To(BeTemporally("==", old))
+	})
+
+	It("replaces a check File a crash left behind, rather than adding another", func() {
+		Expect(os.WriteFile(filepath.Join(music, ".vu-library-check"), nil, 0o644)).To(Succeed())
+
+		got, err := DetectLibraryEditing(GinkgoT().Context(), ds)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(got.Enabled).To(BeTrue())
 		entries, _ := os.ReadDir(music)
 		Expect(entries).To(BeEmpty())
 	})

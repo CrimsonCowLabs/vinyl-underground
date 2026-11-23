@@ -29,9 +29,14 @@ export const useLibraryEditing = () => {
     }
   }, [admin])
 
+  // true or false for a library checked at startup; undefined while loading, after a failed
+  // request, and for a library that wasn't checked (the Inbox, or one added since).
   const isWritable = useCallback(
-    (id) =>
-      admin && state.libraries.some((l) => l.id === id && l.writable === true),
+    (id) => {
+      if (!admin) return false
+      const lib = state.libraries.find((l) => l.id === id)
+      return lib ? lib.writable === true : undefined
+    },
     [admin, state.libraries],
   )
 

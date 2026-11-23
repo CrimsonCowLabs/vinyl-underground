@@ -224,13 +224,13 @@ func checkPromoteFolder(ctx context.Context) {
 // trying a write in each library's folder (ADR-0011). With no writable folder, editing is off.
 func checkLibraryEditing(ctx context.Context) {
 	editing, err := core.DetectLibraryEditing(ctx, CreateDataStore())
-	if err != nil {
-		log.Error(ctx, "Editing the Library is off: could not check its folders", err)
-	}
 	core.SetLibraryEditing(editing)
-	if editing.Enabled {
+	switch {
+	case err != nil:
+		log.Error(ctx, "Editing the Library is off: could not check its folders", err)
+	case editing.Enabled:
 		log.Info(ctx, "Editing the Library is on", "libraries", editing.Libraries)
-	} else {
+	default:
 		log.Info(ctx, "Editing the Library is off: no Library folder is writable")
 	}
 }

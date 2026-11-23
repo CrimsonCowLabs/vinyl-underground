@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
@@ -69,17 +71,30 @@ func DetectLibraryEditing(ctx context.Context, ds model.DataStore) (LibraryEditi
 	return res, nil
 }
 
-// checkFolderWritable makes and removes a hidden File in path. A library that isn't a local
-// folder (scheme://...) can't be edited.
+// libraryCheckFile is the File checkFolderWritable makes and removes. Its name is fixed, so a
+// check File a crash left behind is replaced rather than joined by another.
+const libraryCheckFile = ".vu-library-check"
+
+// checkFolderWritable makes and removes a hidden File in path, then puts the folder's
+// modification time back, so the next scan doesn't see the folder as changed. A library that
+// isn't a local folder (scheme://...) can't be edited.
 func checkFolderWritable(path string) error {
 	if strings.Contains(path, "://") {
 		return errors.New("not a local folder")
 	}
-	f, err := os.CreateTemp(path, ".vu-write-check-*")
+	info, err := os.Stat(path)
 	if err != nil {
 		return err
 	}
-	name := f.Name()
+	probe := filepath.Join(path, libraryCheckFile)
+	f, err := os.OpenFile(probe, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	if err != nil {
+		return err
+	}
 	_ = f.Close()
-	return os.Remove(name)
+	if err := os.Remove(probe); err != nil {
+		return fmt.Errorf("could make a File but not remove it: %w", err)
+	}
+	_ = os.Chtimes(path, time.Time{}, info.ModTime())
+	return nil
 }

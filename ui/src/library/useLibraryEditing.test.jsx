@@ -27,13 +27,15 @@ describe('useLibraryEditing', () => {
     })
     const { result, waitForNextUpdate } = renderHook(() => useLibraryEditing())
     expect(result.current.enabled).toBe(false)
+    expect(result.current.isWritable(1)).toBeUndefined()
     await waitForNextUpdate()
     expect(httpClient).toHaveBeenCalledWith('/api/libraryEditing')
     expect(result.current.loaded).toBe(true)
     expect(result.current.enabled).toBe(true)
     expect(result.current.isWritable(1)).toBe(true)
     expect(result.current.isWritable(3)).toBe(false)
-    expect(result.current.isWritable(9)).toBe(false)
+    // Not checked at startup (the Inbox, or a library added since): unknown
+    expect(result.current.isWritable(9)).toBeUndefined()
   })
 
   it('reports editing off for the admin with a read-only Library', async () => {
@@ -57,6 +59,7 @@ describe('useLibraryEditing', () => {
     await waitForNextUpdate()
     expect(result.current.loaded).toBe(true)
     expect(result.current.enabled).toBe(false)
+    expect(result.current.isWritable(1)).toBeUndefined()
   })
 
   it('never reports editing on to a Listener, and never asks the server', () => {

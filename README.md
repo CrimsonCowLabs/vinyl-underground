@@ -189,7 +189,7 @@ touch /mnt/music/.vu-check                                 # must fail: "Read-on
 
 #### Or mount it read-write
 
-Editing the Library's Files needs the whole share mounted read-write, on the host and in the container. The app checks at startup by making and removing a File in each library's folder (it doesn't read the mount options), and logs `Editing the Library is on` or `off`. With a read-only Library, editing is off: the editing controls stay hidden, and nothing falls back to keeping edits in the app. The Libraries page shows whether each library can be edited. A Listener never sees editing.
+Editing the Library's Files needs the whole share mounted read-write, on the host and in the container. The app checks at startup by making and removing a File in each library's folder (it doesn't read the mount options), and logs `Editing the Library is on` or `off`. With a read-only Library, editing is off: the editing controls stay hidden, and nothing falls back to keeping edits in the app. The Libraries page shows whether each library can be edited, as found at startup: restart the app after adding a library or changing its mount. A Listener never sees editing.
 
 Use `rw` instead of `ro` in the `/etc/fstab` line, and give new Files and folders sensible permissions:
 
