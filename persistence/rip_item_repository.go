@@ -88,9 +88,12 @@ func (r *ripItemRepository) Paths() ([]string, error) {
 	return res, err
 }
 
-func (r *ripItemRepository) PromotesInterrupted() (model.RipItems, error) {
+func (r *ripItemRepository) ForPaths(paths ...string) (model.RipItems, error) {
 	res := model.RipItems{}
-	err := r.queryAll(Select("*").From(r.tableName).Where(NotEq{"promote_dest": ""}).
+	if len(paths) == 0 {
+		return res, nil
+	}
+	err := r.queryAll(Select("*").From(r.tableName).Where(Eq{"path": paths}).
 		OrderBy("job_id", "position", "rowid"), &res)
 	return res, err
 }

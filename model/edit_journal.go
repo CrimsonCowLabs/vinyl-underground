@@ -69,6 +69,10 @@ type EditEntry struct {
 	// (the same, for a tag edit).
 	Path    string `structs:"path" json:"path"`
 	NewPath string `structs:"new_path" json:"newPath"`
+	// NewLibraryID is the library NewPath is in, for a move into another library (a Promote from
+	// the Inbox into the Library, #171, or its undo); 0 means LibraryID (every other write). See
+	// DestLibraryID.
+	NewLibraryID int `structs:"new_library_id" json:"newLibraryId,omitempty"`
 	// OriginalTags are all the File's tags before the write, by TagLib property name (TITLE,
 	// TRACKNUMBER, ...). Changes are the tags written: their new values, where no values means
 	// the tag was removed. Every other tag was left as it was.
@@ -88,6 +92,15 @@ type EditEntry struct {
 	Error         string    `structs:"error" json:"error,omitempty"`
 	CreatedAt     time.Time `structs:"created_at" json:"createdAt"`
 	UpdatedAt     time.Time `structs:"updated_at" json:"updatedAt"`
+}
+
+// DestLibraryID is the library the File is in after the write: NewLibraryID for a move into
+// another library, else LibraryID.
+func (e *EditEntry) DestLibraryID() int {
+	if e.NewLibraryID != 0 {
+		return e.NewLibraryID
+	}
+	return e.LibraryID
 }
 
 // EditImage is an image a cover write or an embed replaced or wrote. Its bytes are kept apart from
@@ -160,12 +173,12 @@ type EditJournalRepository interface {
 	// Pending returns the entries still EditPending, oldest first.
 	Pending() ([]EditEntry, error)
 	// LastWritten returns the latest EditWritten entry that left a File at path (its NewPath) in
-	// the library libraryID, or ErrNotFound.
+	// the library libraryID (its DestLibraryID), or ErrNotFound.
 	LastWritten(libraryID int, path string) (*EditEntry, error)
 	// ForJob returns the entries of the edit job jobID, oldest first.
 	ForJob(jobID string) ([]EditEntry, error)
 	// After returns the entries recorded after e that wrote, or may have written (pending), to
-	// the same File: the same Track, or the File at e's NewPath in its library. Oldest first.
+	// the same File: the same Track, or the File at e's NewPath in its DestLibraryID. Oldest first.
 	After(e *EditEntry) ([]EditEntry, error)
 	// GetAll returns entries, newest first unless options sort them otherwise.
 	GetAll(options ...QueryOptions) ([]EditEntry, error)

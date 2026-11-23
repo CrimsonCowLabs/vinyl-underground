@@ -15,6 +15,7 @@ import (
 	"github.com/navidrome/navidrome/conf/configtest"
 	"github.com/navidrome/navidrome/conf/mime"
 	"github.com/navidrome/navidrome/consts"
+	"github.com/navidrome/navidrome/core"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/tests"
 	. "github.com/onsi/ginkgo/v2"
@@ -107,14 +108,14 @@ var _ = Describe("serveIndex", func() {
 		Entry("enableRipping", func() { conf.Server.Ripping.Enabled = true }, "enableRipping", true),
 		Entry("enableInbox", func() { conf.Server.Inbox.Path = "/inbox" }, "enableInbox", true),
 		Entry("enableInbox with no Inbox", func() { conf.Server.Ripping.Enabled = true }, "enableInbox", false),
-		Entry("enablePromote", func() { conf.Server.Inbox.Path = "/inbox"; conf.Server.Inbox.PromotePath = "/music/Vinyl Underground" }, "enablePromote", true),
+		Entry("enablePromote", func() { conf.Server.Inbox.Path = "/inbox"; editingOn() }, "enablePromote", true),
 		Entry("enablePromote with ripping off too (#35)", func() {
 			conf.Server.Ripping.Enabled = false
 			conf.Server.Inbox.Path = "/inbox"
-			conf.Server.Inbox.PromotePath = "/music/Vinyl Underground"
+			editingOn()
 		}, "enablePromote", true),
-		Entry("enablePromote with no Inbox", func() { conf.Server.Ripping.Enabled = true; conf.Server.Inbox.PromotePath = "/music/Vinyl Underground" }, "enablePromote", false),
-		Entry("enablePromote with no promote folder", func() { conf.Server.Inbox.Path = "/inbox" }, "enablePromote", false),
+		Entry("enablePromote with no Inbox", func() { conf.Server.Ripping.Enabled = true; editingOn() }, "enablePromote", false),
+		Entry("enablePromote with the Library read-only (#171)", func() { conf.Server.Inbox.Path = "/inbox" }, "enablePromote", false),
 		Entry("enableGeneratedPlaylists", func() { conf.Server.LLM.BaseURL = "http://llm-host:11434"; conf.Server.LLM.Model = "qwen3.5:4b-q4_K_M" }, "enableGeneratedPlaylists", true),
 		Entry("enableGeneratedPlaylists without a model", func() { conf.Server.LLM.BaseURL = "http://llm-host:11434"; conf.Server.LLM.Model = "" }, "enableGeneratedPlaylists", false),
 		Entry("enableStationThemes", func() { conf.Server.LLM.BaseURL = "http://llm-host:11434"; conf.Server.LLM.Model = "qwen3.5:4b-q4_K_M" }, "enableStationThemes", true),
@@ -364,4 +365,10 @@ func (u *mockedUserRepo) CountAll(...model.QueryOptions) (int64, error) {
 		return 0, nil
 	}
 	return 1, nil
+}
+
+// editingOn turns editing the Library on (a writable Library, ADR-0011) for the running spec.
+func editingOn() {
+	core.SetLibraryEditing(core.LibraryEditing{Enabled: true})
+	DeferCleanup(func() { core.SetLibraryEditing(core.LibraryEditing{}) })
 }

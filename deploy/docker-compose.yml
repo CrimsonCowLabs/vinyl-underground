@@ -70,9 +70,8 @@ services:
       - *inbox-volume
       # The Library, read-only unless VU_LIBRARY_MODE=rw. Editing the Library's
       # Files needs it read-write, on the host too (ADR-0011); the app checks at
-      # startup by trying a write, and editing is off without one.
-      # docker-compose.promote.yml binds /music/Vinyl Underground read-write for
-      # Promote (ADR-0008).
+      # startup by trying a write, and editing is off without one. Promote, from
+      # the Inbox into the Library's organised tree, needs it read-write as well.
       - "${VU_LIBRARY_DIR:-/mnt/music}:/music:${VU_LIBRARY_MODE:-ro}"
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:4533/ping"]
