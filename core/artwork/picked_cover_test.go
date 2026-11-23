@@ -3,11 +3,9 @@ package artwork
 import (
 	"context"
 	"image/color"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"time"
 
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/conf/configtest"
@@ -15,7 +13,6 @@ import (
 	"github.com/navidrome/navidrome/core/musicbrainz"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/tests"
-	"github.com/navidrome/navidrome/utils/cache"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -88,7 +85,7 @@ var _ = Describe("FetchPickedCover", func() {
 	})
 })
 
-var _ = Describe("A picked MusicBrainz release's cover", func() {
+var _ = Describe("A MusicBrainz release picked before #170", func() {
 	const embedPath = "tests/fixtures/artist/an-album/test.mp3"
 	var (
 		ctx         context.Context
@@ -148,84 +145,12 @@ var _ = Describe("A picked MusicBrainz release's cover", func() {
 		return res
 	}
 
-	It("is the album's cover, its disc art and a Track's own art, over the folder image and embedded art", func() {
+	It("is no longer shown: the album, its disc art and its Tracks keep the usual order (#170)", func() {
+		// A release picked before #170 is written into the Files by the Correction migration, its
+		// cover as the album's cover.jpg; until then nothing applies it.
+		pick(picked)
 		Expect(resolve("al", "al1").source).To(Equal("folder"))
 		Expect(resolveDisc().source).To(Equal("folder"))
 		Expect(resolve("mf", "mf1").source).To(Equal("embedded"))
-		pick(picked)
-
-		trace = &ChainTrace{}
-		ctx = withTrace(context.Background(), trace)
-		res := resolve("al", "al1")
-		Expect(res.source).To(Equal(PickSource))
-		Expect(readAll(res.reader)).To(Equal(string(picked)))
-		Expect(trace.Steps()[0]).To(Equal(TraceStep{Candidate: PickSource, Outcome: OutcomeHit, Detail: res.sourcePath}))
-
-		res = resolveDisc()
-		Expect(res.source).To(Equal(PickSource))
-		Expect(readAll(res.reader)).To(Equal(string(picked)))
-		res = resolve("mf", "mf1")
-		Expect(res.source).To(Equal(PickSource))
-		Expect(readAll(res.reader)).To(Equal(string(picked)))
-	})
-
-	It("isn't outranked by a chosen cover Correction kept before #164 (the migration writes it as cover.jpg)", func() {
-		pick(picked)
-		red := pngOf(color.RGBA{R: 255, A: 255})
-		chosen, err := StoreChosenCover(red)
-		Expect(err).ToNot(HaveOccurred())
-		Expect(corrections.Add(&model.Correction{Kind: model.CorrectionAlbumCover, MatchKey: "cd1",
-			ImageHash: chosen.Hash, ImageMime: chosen.Mime})).To(Succeed())
-
-		Expect(resolve("al", "al1").source).To(Equal(PickSource))
-		Expect(resolveDisc().source).To(Equal(PickSource))
-		Expect(resolve("mf", "mf1").source).To(Equal(PickSource))
-	})
-
-	It("is passed over once blocked, falling back to the usual order", func() {
-		stored := pick(picked)
-		Expect(corrections.Add(&model.Correction{Kind: model.CorrectionAlbumCoverBlock, MatchKey: "cd1",
-			ImageHash: stored.Hash})).To(Succeed())
-
-		Expect(resolve("al", "al1").source).To(Equal("folder"))
-		Expect(resolveDisc().source).To(Equal("folder"))
-		Expect(resolve("mf", "mf1").source).To(Equal("embedded"))
-	})
-
-	It("falls back to the usual order when the pick brought no cover, or is undone", func() {
-		Expect(corrections.Add(&model.Correction{Kind: model.CorrectionAlbum, MatchKey: "cd1",
-			MbzAlbumID: "rel-1", MbzReleaseGroupID: "rg-1"})).To(Succeed())
-		Expect(resolve("al", "al1").source).To(Equal("folder"))
-
-		corrections.All = nil
-		pick(picked)
-		corrections.All[0].Undoing = true
-		Expect(resolve("al", "al1").source).To(Equal("folder"))
-		Expect(resolveDisc().source).To(Equal("folder"))
-	})
-
-	It("reaches a Track without art of its own through its disc art, past a warm cache, until undone", func() {
-		conf.Server.CacheFolder = conf.NewDir(GinkgoT().TempDir())
-		imgCache := cache.NewFileCache("PickServingTest", "100MB", "images", 0,
-			func(ctx context.Context, arg cache.Item) (io.Reader, error) {
-				return arg.(artworkReader).Reader(ctx)
-			})
-		Eventually(func() bool { return imgCache.Available(ctx) }, 10*time.Second).Should(BeTrue())
-		svc := NewArtwork(ds, imgCache, NewImageStore(GinkgoT().TempDir()), tests.NewMockFFmpeg(""))
-		get := func() []byte {
-			GinkgoHelper()
-			img, err := svc.Get(ctx, model.MustParseArtworkID("mf-mf2"), 0, false)
-			Expect(err).ToNot(HaveOccurred())
-			defer img.Close()
-			data, err := io.ReadAll(img)
-			Expect(err).ToNot(HaveOccurred())
-			return data
-		}
-
-		Expect(get()).ToNot(Equal(picked))
-		pick(picked)
-		Expect(get()).To(Equal(picked))
-		corrections.All = nil
-		Expect(get()).ToNot(Equal(picked))
 	})
 })

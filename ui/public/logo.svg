@@ -1,14 +1,35 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-<title>Vinyl Underground</title>
-<path fill="#121212" fill-rule="evenodd" d="M16,256a240,240 0 1,0 480,0a240,240 0 1,0 -480,0zM164,256a92,92 0 1,0 184,0a92,92 0 1,0 -184,0z"/>
-<circle cx="256" cy="256" r="216" fill="none" stroke="#2c2c2c" stroke-width="4"/>
-<circle cx="256" cy="256" r="192" fill="none" stroke="#2c2c2c" stroke-width="4"/>
-<circle cx="256" cy="256" r="168" fill="none" stroke="#2c2c2c" stroke-width="4"/>
-<circle cx="256" cy="256" r="144" fill="none" stroke="#2c2c2c" stroke-width="4"/>
-<circle cx="256" cy="256" r="120" fill="none" stroke="#2c2c2c" stroke-width="4"/>
-<path d="M100.12,166.00A180,180 0 0,1 209.41,82.13" fill="none" stroke="#ffffff" stroke-opacity="0.28" stroke-width="14" stroke-linecap="round"/>
-<path d="M411.88,346.00A180,180 0 0,1 302.59,429.87" fill="none" stroke="#ffffff" stroke-opacity="0.28" stroke-width="14" stroke-linecap="round"/>
-<path fill="#c8102e" fill-rule="evenodd" d="M164,256a92,92 0 1,0 184,0a92,92 0 1,0 -184,0zM244,256a12,12 0 1,0 24,0a12,12 0 1,0 -24,0z"/>
-<circle cx="256" cy="256" r="72" fill="none" stroke="#f5e6c8" stroke-width="6"/>
+<!-- Browser-tab favicon: resources/album-placeholder.svg without its "VINYL UNDERGROUND" text, which is
+     an unreadable smudge at tab size. favicon-16x16.png, favicon-32x32.png and favicon.ico (16/32/48)
+     are rendered from this file with rsvg-convert, and the .ico is assembled with ImageMagick. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <title>Vinyl Underground</title>
+  <defs>
+    <linearGradient id="vinyl-grad-3" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ff0044" />
+      <stop offset="22%" stop-color="#ffaa00" />
+      <stop offset="45%" stop-color="#00ff88" />
+      <stop offset="70%" stop-color="#00bbff" />
+      <stop offset="100%" stop-color="#aa00ff" />
+    </linearGradient>
+    <linearGradient id="gloss-3" x1="15%" y1="85%" x2="85%" y2="15%">
+      <stop offset="35%" stop-color="#ffffff" stop-opacity="0" />
+      <stop offset="50%" stop-color="#ffffff" stop-opacity="0.35" />
+      <stop offset="65%" stop-color="#ffffff" stop-opacity="0" />
+    </linearGradient>
+  </defs>
+
+  <!-- Vinyl Disc -->
+  <circle cx="256" cy="256" r="220" fill="url(#vinyl-grad-3)" />
+  <!-- Grooves -->
+  <circle cx="256" cy="256" r="204" fill="none" stroke="#000000" stroke-opacity="0.15" stroke-width="2" />
+  <circle cx="256" cy="256" r="182" fill="none" stroke="#ffffff" stroke-opacity="0.2" stroke-width="1.5" />
+  <circle cx="256" cy="256" r="158" fill="none" stroke="#000000" stroke-opacity="0.15" stroke-width="2" />
+  <circle cx="256" cy="256" r="132" fill="none" stroke="#ffffff" stroke-opacity="0.2" stroke-width="1.5" />
+  <circle cx="256" cy="256" r="108" fill="none" stroke="#000000" stroke-opacity="0.15" stroke-width="2" />
+  <!-- Gloss -->
+  <circle cx="256" cy="256" r="220" fill="url(#gloss-3)" />
+
+  <!-- Center Label -->
+  <circle cx="256" cy="256" r="82" fill="#0f0f12" stroke="#ffffff" stroke-opacity="0.2" stroke-width="1.5" />
+  <circle cx="256" cy="256" r="12" fill="#040406" stroke="#444444" stroke-width="2" />
 </svg>

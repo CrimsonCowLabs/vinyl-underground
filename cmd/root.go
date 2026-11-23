@@ -260,6 +260,9 @@ func startEditJobs(ctx context.Context, g *errgroup.Group, ripper *rip.Ripper) *
 	for kind, k := range corrections.JobKinds(ds) {
 		queue.Handle(kind, k)
 	}
+	// Find on MusicBrainz writes a picked release into an album's Files, putting them back should
+	// one be skipped (#170).
+	queue.Handle(corrections.JobRelease, corrections.ReleaseJobKind(ds, queue))
 	// Organize removes the folders its moves left empty, and rescans (#167).
 	for kind, k := range organize.JobKinds(ds, editor) {
 		queue.Handle(kind, k)

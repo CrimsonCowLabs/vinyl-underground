@@ -23,18 +23,10 @@ const useStyles = makeStyles((theme) => ({
 }))
 
 // What stays app data once the Corrections kept before ADR-0011 are written into the Files
-// (#165): an image marked wrong for an album, and a MusicBrainz release picked for one (an album
-// Correction holding only the release, until #170 writes it). Only these can be undone; the
-// others are written into the Files by the migration.
-// (As the server's migrates: a cover block is app data even half undone, any other Correction
-// half undone is removed by the migration.)
-const isAppData = (record) =>
-  record.kind === 'albumCoverBlock' ||
-  (!record.undoing &&
-    record.kind === 'album' &&
-    !record.albumName &&
-    !record.albumArtist &&
-    !record.year)
+// (#165): an image marked wrong for an album. Only these can be undone; the others, a MusicBrainz
+// release picked for an album among them (#170), are written into the Files by the migration.
+// (As the server's migrates: a cover block is app data even half undone.)
+const isAppData = (record) => record.kind === 'albumCoverBlock'
 
 // "Greatful Dead → Grateful Dead"
 export const CorrectionChangeField = ({ record }) => {
@@ -90,7 +82,6 @@ CorrectionStatusField.propTypes = { record: PropTypes.object }
 // What undoing says, by kind
 const undoContent = {
   albumCoverBlock: 'resources.correction.message.undoContentAlbumCoverBlock',
-  album: 'resources.correction.message.undoContentRelease',
 }
 
 // Undo deletes a cover block or a picked release; the album's cover is resolved again.

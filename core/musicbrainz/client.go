@@ -47,6 +47,10 @@ var shared = NewLimiter(Interval, nil)
 // ErrBusy is returned when MusicBrainz still answers 503 after every retry.
 var ErrBusy = errors.New("MusicBrainz is busy; try again later")
 
+// ErrNotFound is returned when MusicBrainz has nothing at the request's URL (404), e.g. a release
+// merged away.
+var ErrNotFound = errors.New("MusicBrainz has no such entity")
+
 // UserAgent names the app, its version and its repo, as MusicBrainz asks, with no personal
 // contact details.
 func UserAgent() string {
@@ -203,6 +207,8 @@ func (c *Client) fetch(ctx context.Context, u string) ([]byte, error) {
 			wait := retryAfter(resp.Header.Get("Retry-After"), backoffBase<<attempt)
 			log.Debug(ctx, "MusicBrainz is busy; backing off", "wait", wait, "attempt", attempt+1)
 			c.limiter.Backoff(wait)
+		case resp.StatusCode == http.StatusNotFound:
+			return nil, ErrNotFound
 		case resp.StatusCode != http.StatusOK:
 			return nil, fmt.Errorf("MusicBrainz answered %d %s", resp.StatusCode, http.StatusText(resp.StatusCode))
 		case err != nil:

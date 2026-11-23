@@ -175,15 +175,18 @@
           "editingOff": "The album's Files can't be written to (its library is read-only).",
           "unsupportedFormat": "Some of the album's Files are of a kind that can't be edited yet (only mp3, m4a, aiff and wav), so nothing was changed.",
           "changedOnDisk": "A File of the album changed on disk since the last scan. Rescan the album first.",
-          "unknown": "Could not save the album. Try again later."
+          "unknown": "Could not save the album. Try again later.",
+          "busy": "MusicBrainz is busy, so the release couldn't be written. Try again in a minute.",
+          "unavailable": "Couldn't reach MusicBrainz, so the release couldn't be written. Try again later.",
+          "disabled": "External services are turned off, so the picked release can't be written."
         }
       },
       "musicbrainz": {
         "find": "Find on MusicBrainz",
-        "picked": "MusicBrainz release: %{release}. Saving makes its Cover Art Archive cover the album's cover, over the album's own images (a cover chosen with Choose Cover still wins), and brings in its info.",
-        "noCover": "Album corrected. The Cover Art Archive has no cover for this release, so the album keeps its cover.",
-        "coverDisabled": "Album corrected. External services are turned off, so the release's Cover Art Archive cover wasn't fetched.",
-        "coverFailed": "Album corrected, but the Cover Art Archive couldn't be reached. Pick the release again later to bring in its cover.",
+        "picked": "MusicBrainz release: %{release}. Saving writes its MusicBrainz IDs into the album's Files, as one job you can undo from the Edit history.",
+        "noCover": "Saved. The Cover Art Archive has no cover for this release, so the album keeps its cover.",
+        "coverDisabled": "Saved. External services are turned off, so the release's cover wasn't fetched.",
+        "coverFailed": "Saved, but the Cover Art Archive couldn't be reached, so the album keeps its cover. Save the release again later to write its cover.",
         "clear": "Remove",
         "noResults": "MusicBrainz has no release with this album artist and title.",
         "errors": {
@@ -191,7 +194,25 @@
           "unavailable": "Couldn't reach MusicBrainz. The rest of the dialog can still be saved.",
           "disabled": "External services are turned off, so MusicBrainz can't be searched.",
           "invalid": "Enter a title to search for.",
-          "unknown": "Couldn't search MusicBrainz. The rest of the dialog can still be saved."
+          "unknown": "Couldn't search MusicBrainz. The rest of the dialog can still be saved.",
+          "notFound": "MusicBrainz has no such release any more."
+        },
+        "rolledBack": "Nothing was saved: 1 File of the album couldn't be written (Activity says why), so the others were put back, keeping the album whole. |||| Nothing was saved: %{smart_count} Files of the album couldn't be written (Activity says why), so the others were put back, keeping the album whole.",
+        "pairing": {
+          "title": "How the album's Tracks pair with the release",
+          "doesntHold": "Few of the album's Tracks pair with this release by title. Check it is the right one before saving.",
+          "pairedWith": "Release track %{track}",
+          "mismatch": "(its File names another MusicBrainz track; kept unless replaced below)",
+          "unpaired": "Pairs with no track of the release: left without track IDs",
+          "unpairedTracks": "1 Track pairs with no track of the release. It gets the album's IDs only. |||| %{smart_count} Tracks pair with no track of the release. They get the album's IDs only.",
+          "unusedTracks": "1 track of the release pairs with none of the album's Tracks. |||| %{smart_count} tracks of the release pair with none of the album's Tracks.",
+          "otherAlbumArtist": "The release is credited to %{artist}, so its album artist's MusicBrainz ID isn't written.",
+          "useTitle": "Use the release's title: %{value}",
+          "useAlbumArtist": "Use the release's album artist: %{value}",
+          "useDate": "Use the release's date: %{value}",
+          "useTitles": "Use the release's track titles (1 differs) |||| Use the release's track titles (%{smart_count} differ)",
+          "replaceTrackIds": "Replace the MusicBrainz track IDs of the 1 File that names another track |||| Replace the MusicBrainz track IDs of the %{smart_count} Files that name other tracks",
+          "writeCover": "Write the release's Cover Art Archive cover as the album's cover.jpg"
         }
       },
       "lists": {
@@ -542,8 +563,7 @@
       },
       "message": {
         "undoTitle": "Undo Correction",
-        "undoContentAlbumCoverBlock": "Stop blocking \"%{to}\" for \"%{from}\"? The album may show that image again.",
-        "undoContentRelease": "Forget the MusicBrainz release picked for \"%{from}\"? The album goes back to its usual cover."
+        "undoContentAlbumCoverBlock": "Stop blocking \"%{to}\" for \"%{from}\"? The album may show that image again."
       },
       "notifications": {
         "undone": "Correction undone"
@@ -556,7 +576,6 @@
         "confirmContent": "Write the Corrections into 1 File? It is checked before it replaces the one on the drive, and the whole job can be undone from the Edit history. |||| Write the Corrections into %{smart_count} Files? Each File is checked before it replaces the one on the drive, and the whole job can be undone from the Edit history.",
         "files": "Writes 1 File |||| Writes %{smart_count} Files",
         "noFiles": "Applies to no File any more: it is removed",
-        "keepsRelease": "The MusicBrainz release picked for the album stays in the app for now",
         "flagged": "1 File can't be written |||| %{smart_count} Files can't be written",
         "lastRun": "Last time, 1 File wasn't written |||| Last time, %{smart_count} Files weren't written",
         "fields": {
@@ -567,7 +586,9 @@
           "discnumber": "Disc number",
           "artist": "Artist",
           "cover": "Cover",
-          "undoing": "Being undone: removed"
+          "undoing": "Being undone: removed",
+          "musicbrainz_albumid": "MusicBrainz release",
+          "musicbrainz_releasegroupid": "MusicBrainz release group"
         },
         "codes": {
           "missing": "missing",
@@ -1478,6 +1499,7 @@
         "quarantine": "Send to Quarantine",
         "restore": "Restore from Quarantine",
         "emptyQuarantine": "Empty Quarantine",
+        "musicbrainzRelease": "MusicBrainz release",
         "caseRename": "Case twins: temporary names",
         "caseMerge": "Case twins: merge"
       },
