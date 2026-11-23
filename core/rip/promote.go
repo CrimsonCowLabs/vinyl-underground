@@ -3,16 +3,15 @@ package rip
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"path"
 	"path/filepath"
 
 	"github.com/Masterminds/squirrel"
 	"github.com/navidrome/navidrome/core"
+	"github.com/navidrome/navidrome/core/safefile"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
 )
@@ -409,27 +408,13 @@ func (r *Ripper) ResumePromotes(ctx context.Context) {
 	}
 }
 
-func exists(fsys promoteFS, name string) bool {
-	_, err := fsys.Lstat(name)
-	return err == nil
-}
+func exists(fsys promoteFS, name string) bool { return safefile.Exists(fsys, name) }
 
 // sameFile reports whether the Files at a and b have the same bytes.
 func sameFile(fsys promoteFS, a, b string) bool {
-	ha, na, errA := hashFile(fsys, a)
-	hb, nb, errB := hashFile(fsys, b)
+	ha, na, errA := safefile.Hash(fsys, a)
+	hb, nb, errB := safefile.Hash(fsys, b)
 	return errA == nil && errB == nil && na == nb && bytes.Equal(ha, hb)
-}
-
-func hashFile(fsys promoteFS, name string) ([]byte, int64, error) {
-	f, err := fsys.Open(name)
-	if err != nil {
-		return nil, 0, err
-	}
-	defer f.Close()
-	h := sha256.New()
-	n, err := io.Copy(h, f)
-	return h.Sum(nil), n, err
 }
 
 // fs is the filesystem Promote works on: the real one, unless a test set another.
