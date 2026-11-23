@@ -97,18 +97,28 @@ func (e *Editor) file(ctx context.Context, trackID string) (*file, error) {
 	if err != nil {
 		return nil, err
 	}
-	if !writable(mf.LibraryID) {
-		return nil, ErrEditingOff
+	if err := Editable(mf); err != nil {
+		return nil, err
 	}
 	lib, err := e.ds.Library(ctx).Get(mf.LibraryID)
 	if err != nil {
 		return nil, err
 	}
+	return &file{mf: mf, lib: lib, abs: filepath.Join(lib.Path, filepath.FromSlash(mf.Path))}, nil
+}
+
+// Editable is the refusal an edit of the Track mf meets before anything is read, if any: its
+// library isn't writable (ErrEditingOff), or its File is of a kind that can't be checked
+// (ErrUnsupportedFormat). It reads nothing, so it suits checking many Tracks at once.
+func Editable(mf *model.MediaFile) error {
+	if !writable(mf.LibraryID) {
+		return ErrEditingOff
+	}
 	ext := strings.TrimPrefix(strings.ToLower(path.Ext(mf.Path)), ".")
 	if !slices.Contains(editable, ext) {
-		return nil, ErrUnsupportedFormat
+		return ErrUnsupportedFormat
 	}
-	return &file{mf: mf, lib: lib, abs: filepath.Join(lib.Path, filepath.FromSlash(mf.Path))}, nil
+	return nil
 }
 
 // writable reports whether editing is on for the library libID (checked at startup).

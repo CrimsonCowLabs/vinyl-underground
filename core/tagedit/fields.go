@@ -128,6 +128,16 @@ const (
 	maxLyricsLen = 256 * 1024
 )
 
+// Clean returns an edit's values for the field key as they would be written: trimmed, with
+// empty values dropped, and checked (ErrInvalidTags), as Edit checks them.
+func Clean(key string, vs []string) ([]string, error) {
+	f, ok := field(key)
+	if !ok {
+		return nil, fmt.Errorf("%w: no field %q", ErrInvalidTags, key)
+	}
+	return clean(f, vs)
+}
+
 // clean trims an edit's values, drops empty ones, and checks them.
 func clean(f Field, vs []string) ([]string, error) {
 	var res []string
