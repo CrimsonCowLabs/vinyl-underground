@@ -2,6 +2,7 @@ import React from 'react'
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import ReviewCard, { PROPOSALS_POLL_MS } from './ReviewCard.jsx'
+import { clearAllDrafts } from './reviewDrafts'
 
 const notify = vi.fn()
 const refresh = vi.fn()
@@ -89,6 +90,7 @@ const offer = (value) =>
 describe('ReviewCard proposals (#34)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    clearAllDrafts()
   })
 
   it("offers the proposals beside the Files' own tags, and writes nothing", async () => {
@@ -197,6 +199,28 @@ describe('ReviewCard proposals (#34)', () => {
       expect(
         screen.queryByText('resources.rip.review.proposalsPending'),
       ).toBeNull()
+    })
+
+    it('keeps the edits when proposals arrive after the list refreshed', async () => {
+      http.mockReturnValueOnce(reply(pending))
+      const { rerender } = render(<ReviewCard key={0} record={job} />)
+      await screen.findByDisplayValue('Rip Album')
+      fireEvent.change(field('resources.song.fields.year'), {
+        target: { value: '2001' },
+      })
+
+      rerender(<ReviewCard key={1} record={job} />)
+      expect(await screen.findByDisplayValue('2001')).toBeInTheDocument()
+      http.mockReturnValueOnce(reply(proposed))
+      await act(() => vi.advanceTimersByTimeAsync(PROPOSALS_POLL_MS))
+
+      expect(
+        await screen.findByRole('button', {
+          name: 'resources.rip.review.proposed {"value":"Real Album"}',
+        }),
+      ).toBeInTheDocument()
+      expect(field('resources.song.fields.year')).toHaveValue('2001')
+      expect(http).toHaveBeenCalledTimes(2) // the first GET, then the look for proposals
     })
 
     it('works them out again on "Refresh proposals"', async () => {
