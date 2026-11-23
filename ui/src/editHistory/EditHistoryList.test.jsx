@@ -102,6 +102,17 @@ describe('Edit history page', () => {
         screen.getByText('resources.editHistory.message.albumFile'),
       ).toBeTruthy()
     })
+
+    it('says a moved Track is gone, not that it was an album File', () => {
+      render(
+        <EditTrackField
+          record={{ ...move, mediaFileId: 'mf-1', track: undefined }}
+        />,
+      )
+      expect(
+        screen.getByText('resources.editHistory.message.trackGone'),
+      ).toBeTruthy()
+    })
   })
 
   describe('album covers', () => {
@@ -280,7 +291,13 @@ describe('Edit history page', () => {
     it('offers the job undo for an Organize of one File, whose undo also removes the folders it made', () => {
       render(
         <EditJobField
-          record={{ ...entry, kind: 'move', jobId: 'j', jobSize: 1, jobKind: 'organize' }}
+          record={{
+            ...entry,
+            kind: 'move',
+            jobId: 'j',
+            jobSize: 1,
+            jobKind: 'organize',
+          }}
         />,
       )
       expect(

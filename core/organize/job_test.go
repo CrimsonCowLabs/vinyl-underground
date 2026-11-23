@@ -152,6 +152,30 @@ var _ = Describe("Run", func() {
 		}
 	})
 
+	It("journals what a redo's sweep moves with the redo, so undoing the redo puts it back", func() {
+		job := organize()
+		runQueue(job)
+		undoJob := func(id string) *model.EditJob {
+			GinkgoHelper()
+			steps, err := editjob.UndoJobSteps(l.ctx, l.ds, id)
+			Expect(err).ToNot(HaveOccurred())
+			u, err := q.EnqueueWith(l.ctx, model.EditUndo, editjob.UndoJobArgs(id), steps)
+			Expect(err).ToNot(HaveOccurred())
+			return runQueue(u)
+		}
+		undo := undoJob(job.ID)
+		l.file("iTunes_Library/Band/Record/added.txt", "added since")
+		redo := undoJob(undo.ID)
+
+		entries, err := l.ds.EditJournal(l.ctx).ForJob(redo.ID)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(entries).To(ContainElement(And(
+			HaveField("Path", "iTunes_Library/Band/Record/added.txt"),
+			HaveField("NewPath", "Band/Record (1999)/added.txt"))))
+		undoJob(redo.ID)
+		Expect(l.files()).To(HaveKeyWithValue("iTunes_Library/Band/Record/added.txt", "added since"))
+	})
+
 	It("refuses a plan that changed since it was reviewed, and queues nothing", func() {
 		p, err := o.Plan(l.ctx, everything)
 		Expect(err).ToNot(HaveOccurred())

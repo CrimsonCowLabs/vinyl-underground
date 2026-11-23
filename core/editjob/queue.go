@@ -353,6 +353,7 @@ func (q *Queue) giveUp(ctx context.Context, job *model.EditJob, err error) bool 
 // ended (starting false). A job undoing another runs that one's kind: its Undone once its steps have ended, or,
 // when it undoes an undo (a redo), the kind's Start and Done, as the job it redoes did.
 func (q *Queue) hook(ctx context.Context, job *model.EditJob, steps model.EditJobSteps, starting bool) error {
+	ctx = context.WithValue(ctx, runningJobKey{}, job.ID)
 	target, undone, err := q.undoes(ctx, job, 0)
 	if err != nil || target == nil {
 		return err
@@ -376,6 +377,17 @@ func (q *Queue) hook(ctx context.Context, job *model.EditJob, steps model.EditJo
 	}
 	// The kind may have noted something in the job it undoes or redoes (its Args).
 	return q.ds.EditJob(ctx).Put(target)
+}
+
+type runningJobKey struct{}
+
+// RunningJob is the ID of the job the queue runs a JobKind for (see Handle): the job itself, or,
+// when the kind runs for a job an undo undoes or redoes, that undo's or redo's. A kind that writes
+// Files of its own journals them with it, so they are undone with the job that wrote them. ""
+// outside a JobKind.
+func RunningJob(ctx context.Context) string {
+	id, _ := ctx.Value(runningJobKey{}).(string)
+	return id
 }
 
 // undoes returns the job whose kind runs for job: job itself, or, for an undo job, the job it

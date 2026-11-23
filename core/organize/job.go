@@ -1,6 +1,7 @@
 package organize
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"path/filepath"
@@ -110,7 +111,9 @@ func (k jobKind) sweep(ctx context.Context, job *model.EditJob, f FolderMove) er
 				// A link, a write's hidden temp, a File the plan flagged, or a Track's old copy.
 			default:
 				m := tagedit.Move{LibraryID: f.LibraryID, Path: rel, NewPath: path.Join(f.NewPath, strings.TrimPrefix(rel, f.Path+"/"))}
-				if _, err := k.editor.MoveInJob(ctx, job.ID, m); err != nil {
+				// Journaled with the job running (a redo's, when this is one), so its undo puts the
+				// File back too.
+				if _, err := k.editor.MoveInJob(ctx, cmp.Or(editjob.RunningJob(ctx), job.ID), m); err != nil {
 					log.Warn(ctx, "Organize could not move one of an album's other Files; it stays", "job", job.ID, "path", rel, "newPath", m.NewPath, err)
 				}
 			}

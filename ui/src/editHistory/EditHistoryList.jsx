@@ -153,7 +153,7 @@ export const EditTrackField = ({ record }) => {
       </Typography>
     )
   }
-  if (!record.track && record.kind === 'move') {
+  if (!record.track && record.kind === 'move' && !record.mediaFileId) {
     // A File moved with its album (its cover.jpg, ...) is no Track's.
     return (
       <Typography variant="body2" component="span" className={classes.none}>
