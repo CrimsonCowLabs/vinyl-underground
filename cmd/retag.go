@@ -19,6 +19,7 @@ import (
 	"github.com/navidrome/navidrome/core/musicbrainz"
 	"github.com/navidrome/navidrome/core/retag"
 	"github.com/navidrome/navidrome/core/tagedit"
+	"github.com/navidrome/navidrome/db"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/model/id"
@@ -72,6 +73,8 @@ nothing it already fixed.`,
 
 func runRetag(ctx context.Context) error {
 	requireExistingDB()
+	// The Edit journal's tables come from migrations, which only the server ran until now.
+	defer db.Init(ctx)()
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	if retagApply && serverRunning() {
