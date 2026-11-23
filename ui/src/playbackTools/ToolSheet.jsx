@@ -30,8 +30,17 @@ const useStyles = makeStyles(
 
 // ToolSheet is the sheet a Now Playing tool opens from the bottom: a title
 // over a list of choices, the current one checked. Picking one calls
-// onChoose with its value and closes the sheet.
-const ToolSheet = ({ open, onClose, title, choices, selected, onChoose }) => {
+// onChoose with its value and closes the sheet. children, if any, show
+// between the title and the choices (a note about them).
+const ToolSheet = ({
+  open,
+  onClose,
+  title,
+  choices,
+  selected,
+  onChoose,
+  children,
+}) => {
   const classes = useStyles()
   return (
     <Drawer
@@ -43,6 +52,7 @@ const ToolSheet = ({ open, onClose, title, choices, selected, onChoose }) => {
       <Typography component="h2" className={classes.title}>
         {title}
       </Typography>
+      {children}
       <MenuList autoFocusItem={open}>
         {choices.map(({ value, label, disabled }) => (
           <MenuItem
