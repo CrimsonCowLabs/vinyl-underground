@@ -19,9 +19,9 @@ import (
 	"github.com/navidrome/navidrome/model"
 )
 
-// QuarantineFolder is the top folder of a library that holds Quarantine; its Files are never
-// retagged.
-const QuarantineFolder = "Quarantine"
+// QuarantineFolder is the top folder of a library that holds Quarantine, named as the
+// library-cleanup recipes name it; its Files are never retagged.
+const QuarantineFolder = "_Quarantine"
 
 const (
 	// minReleaseScore is how well a release must match the search for its album to be looked up.
