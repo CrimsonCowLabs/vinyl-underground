@@ -411,6 +411,14 @@ var _ = Describe("Editor", func() {
 		})
 	})
 
+	It("removes an earlier edit's old copy it couldn't remove then, and edits the File", func() {
+		track("test.mp3")
+		Expect(os.WriteFile(safefile.BackupName(path), []byte("older"), 0o644)).To(Succeed())
+		Expect(editor.Edit(ctx, trackID, Values{"title": {"Song (Live)"}})).Error().ToNot(HaveOccurred())
+		Expect(tagsOf(path)).To(HaveKeyWithValue("TITLE", []string{"Song (Live)"}))
+		Expect(hiddenFiles()).To(BeEmpty())
+	})
+
 	It("rescans the File's folder, which re-reads it into the same Track", func() {
 		track("test.mp3")
 		Expect(editor.Edit(ctx, trackID, Values{"title": {"Song (Live)"}})).Error().ToNot(HaveOccurred())

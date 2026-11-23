@@ -155,6 +155,9 @@ func (e *Editor) Read(ctx context.Context, trackID string) (*TrackTags, error) {
 func (e *Editor) Edit(ctx context.Context, trackID string, edit Values) (*Result, error) {
 	writeMu.Lock()
 	defer writeMu.Unlock()
+	// Once started, an edit runs to the end, and its journal entry is closed, even if the admin
+	// goes away.
+	ctx = context.WithoutCancel(ctx)
 
 	f, err := e.file(ctx, trackID)
 	if err != nil {
@@ -188,7 +191,7 @@ func (e *Editor) Edit(ctx context.Context, trackID string, edit Values) (*Result
 		return nil, fmt.Errorf("recording the edit in the Edit journal: %w", err)
 	}
 
-	if err := e.write(f.abs, orig, set, entry); err != nil {
+	if err := e.write(ctx, f.abs, orig, set, entry); err != nil {
 		if errors.Is(err, safefile.ErrInterrupted) {
 			// The File is moved aside (and the copy is checked): try to put it back now, or a
 			// restart does.
@@ -238,8 +241,15 @@ func (e *Editor) guard(f *file) error {
 // write makes the checked, edited copy of the File at abs and puts it in the File's place
 // (steps 3 to 5 of Edit). On failure the temp copy is gone, and the File untouched, unless the
 // error is safefile.ErrInterrupted.
-func (e *Editor) write(abs string, orig, set map[string][]string, entry *model.EditEntry) (err error) {
-	temp := safefile.TempName(abs)
+func (e *Editor) write(ctx context.Context, abs string, orig, set map[string][]string, entry *model.EditEntry) (err error) {
+	temp, backup := safefile.TempName(abs), safefile.BackupName(abs)
+	// An earlier edit's old copy it couldn't remove (safefile.ErrBackupLeft): with the File in
+	// place, it is no File's only copy.
+	if safefile.Exists(e.fsys, abs) && safefile.Exists(e.fsys, backup) {
+		if err := e.fsys.Remove(backup); err != nil {
+			return fmt.Errorf("removing an earlier edit's old copy: %w", err)
+		}
+	}
 	if err := e.fsys.Remove(temp); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("removing an earlier edit's copy: %w", err)
 	}
@@ -266,7 +276,7 @@ func (e *Editor) write(abs string, orig, set map[string][]string, entry *model.E
 		return err
 	}
 	entry.CopySum = hex.EncodeToString(copySum)
-	if err := e.ds.EditJournal(context.Background()).Put(entry); err != nil {
+	if err := e.ds.EditJournal(ctx).Put(entry); err != nil {
 		return fmt.Errorf("recording the edit in the Edit journal: %w", err)
 	}
 	err = safefile.Replace(e.fsys, abs, temp)
