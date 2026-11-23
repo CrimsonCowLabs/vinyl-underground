@@ -311,6 +311,22 @@ var _ = Describe("Tag edit jobs", func() {
 				Error().To(MatchError(model.ErrNotFound))
 		})
 
+		It("refuses to undo a job that hasn't finished, as it would undo only part of it", func() {
+			job := enqueue()
+			Expect(UndoJobSteps(ctx, ds, job.ID)).Error().To(MatchError(ErrJobUnfinished))
+			job.State = model.EditJobRunning
+			Expect(ds.EditJob(ctx).Put(job)).To(Succeed())
+			Expect(UndoJobSteps(ctx, ds, job.ID)).Error().To(MatchError(ErrJobUnfinished))
+		})
+
+		It("refuses to queue an undo in a library that is read-only now", func() {
+			job := edited()
+			steps, err := UndoJobSteps(ctx, ds, job.ID)
+			Expect(err).ToNot(HaveOccurred())
+			core.SetLibraryEditing(core.LibraryEditing{Enabled: true, Libraries: []core.LibraryWritable{{ID: 1, Name: "NAS", Writable: false}}})
+			Expect(q.Enqueue(ctx, model.EditUndo, steps)).Error().To(MatchError(tagedit.ErrEditingOff))
+		})
+
 		It("refuses to undo a job with nothing written", func() {
 			Expect(journal.Put(&model.EditEntry{JobID: "j", Kind: model.EditTags, State: model.EditFailed, LibraryID: 1,
 				MediaFileID: "track-1", Path: "a.mp3", NewPath: "a.mp3"})).To(Succeed())

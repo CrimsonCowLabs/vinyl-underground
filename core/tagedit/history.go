@@ -7,6 +7,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/Masterminds/squirrel"
 	"github.com/navidrome/navidrome/model"
 )
 
@@ -81,11 +82,11 @@ func (e *Editor) History(ctx context.Context, offset, limit int) ([]HistoryEntry
 		if en.JobID != "" {
 			size, ok := jobSizes[en.JobID]
 			if !ok {
-				job, err := journal.ForJob(en.JobID)
+				n, err := journal.CountAll(model.QueryOptions{Filters: squirrel.Eq{"job_id": en.JobID}})
 				if err != nil {
 					return nil, 0, err
 				}
-				size = len(job)
+				size = int(n)
 				jobSizes[en.JobID] = size
 			}
 			h.JobSize = size

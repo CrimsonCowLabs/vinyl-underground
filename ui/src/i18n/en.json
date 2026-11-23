@@ -569,9 +569,9 @@
         "trackMissing": "Its File is missing",
         "undoTitle": "Undo this write",
         "undoContent": "Write the earlier values back into the File? The undo is listed here too, and can be undone in turn.",
-        "job": "One of %{smart_count} Files in a job",
+        "job": "One of %{smart_count} writes in a job",
         "undoJobTitle": "Undo this job",
-        "undoJobContent": "Write the earlier values back into all %{smart_count} Files of this job? It runs as a job of its own, and any File a later write changed is skipped."
+        "undoJobContent": "Write the earlier values back into every File this job wrote? It runs as a job of its own, and any File a later write changed is skipped."
       },
       "notifications": {
         "undone": "The earlier values were written back to the File",
@@ -594,6 +594,8 @@
         "linked": "This File has other names (a symlink or hard link), so the app doesn't replace it.",
         "oldCopyLeft": "An earlier edit left an old copy of this File beside it. Check it and remove it, then try again.",
         "interrupted": "A restart interrupted the undo. Check the File's tags, and undo it again if they weren't put back.",
+        "jobUnfinished": "This job hasn't finished yet. Undo it once it has.",
+        "sameFileTwice": "This job wrote the same File twice, so it can't be undone as a whole. Undo its writes one at a time.",
         "unknown": "The write could not be undone."
       }
     },

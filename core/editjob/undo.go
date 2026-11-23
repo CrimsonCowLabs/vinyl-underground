@@ -3,12 +3,17 @@ package editjob
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 
 	"github.com/navidrome/navidrome/core/tagedit"
 	"github.com/navidrome/navidrome/model"
 )
+
+// ErrJobUnfinished is an undo of an edit job that is still queued or running: undoing the Files
+// it has written so far would leave the rest edited.
+var ErrJobUnfinished = errors.New("the job hasn't finished; undo it once it has")
 
 // undoArgs are an undo step's Args: the Edit journal entry it undoes.
 type undoArgs struct {
@@ -29,8 +34,17 @@ func UndoStep(entryID string) (model.EditJobStep, error) {
 // first, so each File is put back in the reverse order it was written. Entries that weren't
 // written are left out; a job with none written can't be undone (tagedit.ErrNotUndoable), and a
 // job with no entries at all is model.ErrNotFound. Queued as a job of their own, the undo is
-// journaled with that job's ID, so undoing it in turn redoes the job.
+// journaled with that job's ID, so undoing it in turn redoes the job. A job still queued or
+// running is refused (ErrJobUnfinished). A job with no edit_job row (a write made before the
+// queue, a job of its own) is undone from its entries alone.
 func UndoJobSteps(ctx context.Context, ds model.DataStore, jobID string) ([]model.EditJobStep, error) {
+	job, err := ds.EditJob(ctx).Get(jobID)
+	switch {
+	case err == nil && job.State != model.EditJobDone:
+		return nil, ErrJobUnfinished
+	case err != nil && !errors.Is(err, model.ErrNotFound):
+		return nil, err
+	}
 	entries, err := ds.EditJournal(ctx).ForJob(jobID)
 	if err != nil {
 		return nil, err
@@ -70,8 +84,10 @@ func (k undoKind) args(step *model.EditJobStep) (undoArgs, error) {
 	return a, nil
 }
 
-// Check refuses an entry that is gone or wasn't written, and fills in the step's File from the
-// entry: where the write left it.
+// Check refuses an entry that is gone or wasn't written, or whose library is read-only now, and
+// fills in the step's File from the entry: where the write left it. Other refusals (the Track is
+// gone, a later write changed the File, ...) skip the File when the step runs, so a whole job's
+// undo still puts back the Files it can.
 func (k undoKind) Check(ctx context.Context, step *model.EditJobStep) error {
 	a, err := k.args(step)
 	if err != nil {
@@ -83,6 +99,9 @@ func (k undoKind) Check(ctx context.Context, step *model.EditJobStep) error {
 	}
 	if entry.State != model.EditWritten {
 		return fmt.Errorf("%w: it was never written (%s)", tagedit.ErrNotUndoable, entry.State)
+	}
+	if _, err := k.editor.Check(ctx, entry.MediaFileID); errors.Is(err, tagedit.ErrEditingOff) {
+		return err
 	}
 	step.MediaFileID, step.Path = entry.MediaFileID, entry.NewPath
 	return nil

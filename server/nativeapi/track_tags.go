@@ -210,12 +210,14 @@ var tagEditStatus = map[string]int{
 	"notUndoable":           http.StatusUnprocessableEntity,
 	editjob.CodeInterrupted: http.StatusServiceUnavailable,
 	tagedit.CodeInternal:    http.StatusInternalServerError,
+	"sameFileTwice":         http.StatusUnprocessableEntity,
+	"jobUnfinished":         http.StatusConflict,
 }
 
 // writeTagEditError answers a failed read or edit with a code the dialog translates, and the
 // error's own words for the admin.
 func writeTagEditError(w http.ResponseWriter, r *http.Request, err error) {
-	code := tagedit.Code(err)
+	code := editjob.Code(err)
 	if code == tagedit.CodeInternal {
 		log.Error(r.Context(), "Error editing a Track's tags", err)
 	} else {

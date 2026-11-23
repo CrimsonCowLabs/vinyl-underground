@@ -41,6 +41,8 @@ const knownErrors = [
   'linked',
   'oldCopyLeft',
   'interrupted',
+  'jobUnfinished',
+  'sameFileTwice',
 ]
 
 // errorKey is the message of a refused undo.
@@ -280,7 +282,6 @@ export const EditJobField = ({ record }) => {
         isOpen={open}
         title="resources.editHistory.message.undoJobTitle"
         content="resources.editHistory.message.undoJobContent"
-        translateOptions={{ smart_count: record.jobSize }}
         onConfirm={handleConfirm}
         onClose={() => setOpen(false)}
       />

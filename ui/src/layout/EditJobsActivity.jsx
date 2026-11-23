@@ -40,21 +40,13 @@ const reasons = [
   'notUndoable',
 ]
 
-// The undo's own refusals are explained by the Edit history's messages.
-const undoCodes = [
-  'alreadyUndone',
-  'changedLater',
-  'tagsChanged',
-  'unfinished',
-  'notUndoable',
-]
-
-const Reason = ({ step }) => {
+// A File an undo job skipped is explained with the Edit history's messages, a tag edit's with
+// the Edit dialog's.
+const Reason = ({ step, kind }) => {
   const translate = useTranslate()
+  const messages = kind === 'undo' ? 'editHistory' : 'song.tagEditor'
   return reasons.includes(step.code)
-    ? translate(
-        `resources.${undoCodes.includes(step.code) ? 'editHistory' : 'song.tagEditor'}.errors.${step.code}`,
-      )
+    ? translate(`resources.${messages}.errors.${step.code}`)
     : step.error || step.code
 }
 
@@ -124,7 +116,7 @@ const EditJob = ({ job }) => {
                 display="block"
                 color="textSecondary"
               >
-                <Reason step={s} />
+                <Reason step={s} kind={job.kind} />
               </Typography>
             </Box>
           ))}

@@ -88,6 +88,22 @@ describe('<EditJobsActivity />', () => {
     ).toBeTruthy()
   })
 
+  it("explains a File an undo job skipped with the Edit history's message", async () => {
+    mockHttpClient.mockResolvedValue({
+      json: [
+        {
+          ...finished,
+          kind: 'undo',
+          steps: [{ ...finished.steps[0], code: 'interrupted' }],
+        },
+      ],
+    })
+    show()
+    await waitFor(() =>
+      screen.getByText('resources.editHistory.errors.interrupted'),
+    )
+  })
+
   it('shows nothing when there are no edit jobs', async () => {
     mockHttpClient.mockResolvedValue({ json: [] })
     const { container } = show()

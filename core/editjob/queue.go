@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/navidrome/navidrome/core/tagedit"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/model/request"
@@ -24,6 +25,18 @@ import (
 // CodeInterrupted is the code of a File a restart interrupted, and that was rolled back (or is,
 // at the next start): it wasn't written.
 const CodeInterrupted = "interrupted"
+
+// Code is the code an error of the queue's, or of a step kind's, is shown with (see
+// tagedit.Code): the queue's own refusals first.
+func Code(err error) string {
+	switch {
+	case errors.Is(err, ErrSameFileTwice):
+		return "sameFileTwice"
+	case errors.Is(err, ErrJobUnfinished):
+		return "jobUnfinished"
+	}
+	return tagedit.Code(err)
+}
 
 // ErrSameFileTwice is a job with two steps for one File.
 var ErrSameFileTwice = errors.New("the same File is in the job twice")

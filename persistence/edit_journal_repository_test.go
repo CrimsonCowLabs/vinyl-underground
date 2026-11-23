@@ -3,6 +3,7 @@ package persistence
 import (
 	"context"
 
+	"github.com/Masterminds/squirrel"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
 	. "github.com/onsi/ginkgo/v2"
@@ -61,6 +62,8 @@ var _ = Describe("EditJournalRepository", func() {
 		got, err := repo.ForJob("job-1")
 		Expect(err).ToNot(HaveOccurred())
 		Expect(got).To(HaveLen(2))
+		// The Edit history counts a job's entries this way.
+		Expect(repo.CountAll(model.QueryOptions{Filters: squirrel.Eq{"job_id": "job-1"}})).To(BeEquivalentTo(2))
 		Expect(got[0].Path).To(Equal("a.mp3"))
 		Expect(got[1].Path).To(Equal("c.mp3"))
 	})

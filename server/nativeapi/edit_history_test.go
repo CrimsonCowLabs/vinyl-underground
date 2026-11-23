@@ -30,7 +30,9 @@ var _ = Describe("/api/editHistory", func() {
 		api    *Router
 		queue  *editjob.Queue
 		// runQueue starts the edit job queue, until the test ends.
-		runQueue        func()
+		runQueue func()
+		// queueStopped leaves the queue stopped, for a test of a job that waits.
+		queueStopped    bool
 		admin, listener model.User
 		path            string
 		mfs             *tests.MockMediaFileRepo
@@ -75,7 +77,7 @@ var _ = Describe("/api/editHistory", func() {
 			go func() { queue.Run(qctx); close(done) }()
 			DeferCleanup(func() { stop(); Eventually(done).Should(BeClosed()) })
 		}
-		runQueue()
+		queueStopped = false
 		router = server.JWTVerifier(api)
 		admin = model.User{ID: "admin-1", UserName: "admin", IsAdmin: true, NewPassword: "pass"}
 		listener = model.User{ID: "user-1", UserName: "listener", NewPassword: "pass"}
@@ -84,6 +86,12 @@ var _ = Describe("/api/editHistory", func() {
 
 		core.SetLibraryEditing(core.LibraryEditing{Enabled: true, Libraries: []core.LibraryWritable{{ID: 1, Name: "Music", Writable: true}}})
 		DeferCleanup(core.SetLibraryEditing, core.LibraryEditing{})
+	})
+
+	JustBeforeEach(func() {
+		if !queueStopped {
+			runQueue()
+		}
 	})
 
 	do := func(user model.User, method, url string, body any) *httptest.ResponseRecorder {
@@ -284,6 +292,20 @@ var _ = Describe("/api/editHistory", func() {
 			Expect(job.Skipped).To(Equal(1))
 			Expect(job.Steps).To(HaveLen(1))
 			Expect(job.Steps[0].Code).To(Equal("changedLater"))
+		})
+
+		Context("while the job waits in the queue", func() {
+			BeforeEach(func() { queueStopped = true })
+
+			It("refuses to undo it, as it would undo only part of it", func() {
+				s, err := editjob.TagsStep("t1", tagedit.Values{"title": {"x"}})
+				Expect(err).ToNot(HaveOccurred())
+				job, err := queue.Enqueue(context.Background(), model.EditTags, []model.EditJobStep{s})
+				Expect(err).ToNot(HaveOccurred())
+				w := do(admin, http.MethodPost, "/editJob/"+job.ID+"/undo", nil)
+				Expect(w.Code).To(Equal(http.StatusConflict))
+				Expect(errorCode(w)).To(Equal("jobUnfinished"))
+			})
 		})
 
 		It("answers 202 while the undo job runs in the background", func() {
