@@ -1,13 +1,12 @@
 package rip
 
 import (
-	"bytes"
-	"crypto/sha256"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"path/filepath"
+
+	"github.com/navidrome/navidrome/core/safefile"
 )
 
 // ErrDestTaken is returned when a File appeared at a promoted File's destination after it was
@@ -70,51 +69,11 @@ func placeCopy(fsys promoteFS, src, dest string) (err error) {
 
 // copyToTemp copies src into a new File at temp, flushed to disk, and returns the source's
 // SHA-256, size and info.
-func copyToTemp(fsys promoteFS, src, temp string) (sum []byte, size int64, info fs.FileInfo, err error) {
-	in, err := fsys.Open(src)
-	if err != nil {
-		return nil, 0, nil, err
-	}
-	defer in.Close()
-	info, err = in.Stat()
-	if err != nil {
-		return nil, 0, nil, err
-	}
-	out, err := fsys.Create(temp)
-	if err != nil {
-		return nil, 0, nil, fmt.Errorf("making the copy: %w", err)
-	}
-	h := sha256.New()
-	n, err := io.Copy(out, io.TeeReader(in, h))
-	if err == nil {
-		err = out.Sync()
-	}
-	if cerr := out.Close(); err == nil {
-		err = cerr
-	}
-	if err != nil {
-		return nil, 0, nil, fmt.Errorf("copying the File: %w", err)
-	}
-	if n != info.Size() {
-		return nil, 0, nil, fmt.Errorf("copying the File: read %d of %d bytes", n, info.Size())
-	}
-	return h.Sum(nil), n, info, nil
+func copyToTemp(fsys promoteFS, src, temp string) ([]byte, int64, fs.FileInfo, error) {
+	return safefile.CopyToTemp(fsys, src, temp)
 }
 
 // checkCopy reads the copy back and checks it is the source's size and SHA-256.
 func checkCopy(fsys promoteFS, temp string, sum []byte, size int64) error {
-	f, err := fsys.Open(temp)
-	if err != nil {
-		return fmt.Errorf("reading the copy back: %w", err)
-	}
-	defer f.Close()
-	h := sha256.New()
-	n, err := io.Copy(h, f)
-	if err != nil {
-		return fmt.Errorf("reading the copy back: %w", err)
-	}
-	if n != size || !bytes.Equal(h.Sum(nil), sum) {
-		return fmt.Errorf("the copy doesn't match the File (%d of %d bytes)", n, size)
-	}
-	return nil
+	return safefile.CheckCopy(fsys, temp, sum, size)
 }

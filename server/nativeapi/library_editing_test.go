@@ -26,7 +26,7 @@ var _ = Describe("GET /api/libraryEditing", func() {
 		conf.Server.EnableSharing = false
 		ds := &tests.MockDataStore{}
 		auth.Init(ds)
-		router = server.JWTVerifier(New(ds, nil, nil, nil, tests.NewMockLibraryService(), tests.NewMockUserService(), nil, nil, nil, nil, nil, nil, nil))
+		router = server.JWTVerifier(New(ds, nil, nil, nil, tests.NewMockLibraryService(), tests.NewMockUserService(), nil, nil, nil, nil, nil, nil, nil, nil))
 		admin = model.User{ID: "admin-1", UserName: "admin", IsAdmin: true, NewPassword: "pass"}
 		listener = model.User{ID: "user-1", UserName: "listener", NewPassword: "pass"}
 		Expect(ds.User(context.TODO()).Put(&admin)).To(Succeed())

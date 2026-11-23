@@ -308,6 +308,20 @@ const wrapperDataProvider = {
       method: 'POST',
       body: JSON.stringify({ albumId, tracks }),
     }).then(({ json }) => ({ data: { id: json.correction.id, ...json } })),
+  // A Track's tags as its File holds them (admin only, while editing is on): { id, path,
+  // fields: [{ key, type, multi }], values: { key: [values] } }. A failure's body has an `error`
+  // code to translate.
+  getTrackTags: (id) =>
+    httpClient(`${REST_URL}/trackTags/${id}`).then(({ json }) => ({
+      data: json,
+    })),
+  // Writes the changed fields (by key; no values removes a tag) into the Track's File:
+  // { changed, track, warning }.
+  editTrackTags: (id, values) =>
+    httpClient(`${REST_URL}/trackTags/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ values }),
+    }).then(({ json }) => ({ data: json })),
   // Find on MusicBrainz (admin only): the MusicBrainz releases matching an album artist and
   // title, [{ id, releaseGroupId, title, artist, year, country, format, status, score,
   // description, thumbnailUrl }]. A failure's body has an `error` code to translate.

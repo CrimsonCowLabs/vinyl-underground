@@ -1,9 +1,10 @@
 import React from 'react'
 import { render, fireEvent, screen, waitFor } from '@testing-library/react'
 import { TestContext } from 'ra-test'
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { SongContextMenu } from './SongContextMenu'
 import subsonic from '../subsonic'
+import { httpClient } from '../dataProvider'
 
 vi.mock('../dataProvider', () => ({
   httpClient: vi.fn(),
@@ -26,6 +27,14 @@ const mockDispatch = vi.fn()
 vi.mock('react-redux', () => ({ useDispatch: () => mockDispatch }))
 
 const getPlaylistsMock = vi.fn()
+const getTrackTagsMock = vi.fn()
+const mockDataProvider = {
+  getPlaylists: getPlaylistsMock,
+  getTrackTags: getTrackTagsMock,
+  inspect: vi.fn().mockResolvedValue({
+    data: { rawTags: {} },
+  }),
+}
 const mockNotify = vi.fn()
 
 vi.mock('react-admin', async (importOriginal) => {
@@ -36,12 +45,8 @@ vi.mock('react-admin', async (importOriginal) => {
     useRedirect: () => (url) => {
       window.location.hash = `#${url}`
     },
-    useDataProvider: () => ({
-      getPlaylists: getPlaylistsMock,
-      inspect: vi.fn().mockResolvedValue({
-        data: { rawTags: {} },
-      }),
-    }),
+    // The same object across renders, as react-admin's is
+    useDataProvider: () => mockDataProvider,
   }
 })
 
@@ -222,6 +227,79 @@ describe('SongContextMenu', () => {
       expect(id).toBe('actualSongId')
       // Verify seed song data is included
       expect(data['actualSongId']).toBeDefined()
+    })
+  })
+
+  describe('Edit tags', () => {
+    const editing = (enabled, writable) =>
+      httpClient.mockResolvedValue({
+        json: { enabled, libraries: [{ id: 1, name: 'NAS', writable }] },
+      })
+    const openMenu = async (
+      record = { id: 'song1', size: 1, libraryId: 1 },
+    ) => {
+      render(
+        <TestContext>
+          <SongContextMenu record={record} resource="song" />
+        </TestContext>,
+      )
+      fireEvent.click(screen.getAllByRole('button')[1])
+      await waitFor(() => screen.getByText(/resources\.song\.actions\.info/))
+    }
+    const item = () => screen.queryByText('resources.song.actions.editTags')
+
+    beforeEach(() => {
+      localStorage.setItem('role', 'admin')
+      getTrackTagsMock.mockResolvedValue({
+        data: { id: 'song1', path: 'a.mp3', fields: [], values: {} },
+      })
+    })
+    afterEach(() => localStorage.clear())
+
+    it("opens the Track's Edit dialog for the admin, while its library is writable", async () => {
+      editing(true, true)
+      await openMenu()
+      await waitFor(() => expect(item()).toBeTruthy())
+      fireEvent.click(item())
+      await waitFor(() =>
+        expect(getTrackTagsMock).toHaveBeenCalledWith('song1'),
+      )
+      expect(screen.getByText('resources.song.tagEditor.title')).toBeTruthy()
+    })
+
+    it('is hidden while editing is off', async () => {
+      editing(false, false)
+      await openMenu()
+      await waitFor(() => expect(httpClient).toHaveBeenCalled())
+      expect(item()).toBeNull()
+    })
+
+    it('is hidden for a Track whose library is read-only', async () => {
+      editing(true, true)
+      await openMenu({ id: 'song1', size: 1, libraryId: 2 })
+      await waitFor(() => expect(httpClient).toHaveBeenCalled())
+      expect(item()).toBeNull()
+    })
+
+    it('is never offered to a Listener', async () => {
+      localStorage.setItem('role', 'regular')
+      editing(true, true)
+      await openMenu()
+      expect(item()).toBeNull()
+      expect(httpClient).not.toHaveBeenCalled()
+    })
+
+    it('is hidden for a missing Track', async () => {
+      editing(true, true)
+      render(
+        <TestContext>
+          <SongContextMenu
+            record={{ id: 'song1', size: 1, libraryId: 1, missing: true }}
+            resource="song"
+          />
+        </TestContext>,
+      )
+      expect(item()).toBeNull()
     })
   })
 })

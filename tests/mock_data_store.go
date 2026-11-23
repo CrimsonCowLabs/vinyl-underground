@@ -36,6 +36,7 @@ type MockDataStore struct {
 	MockedStationSkip    model.StationSkipRepository
 	MockedDJ             *MockDJRepo
 	MockedCorrection     model.CorrectionRepository
+	MockedEditJournal    model.EditJournalRepository
 	scrobbleBufferMu     sync.Mutex
 	repoMu               sync.Mutex
 
@@ -390,6 +391,19 @@ func (db *MockDataStore) Correction(ctx context.Context) model.CorrectionReposit
 	}
 	db.MockedCorrection = &MockCorrectionRepo{}
 	return db.MockedCorrection
+}
+
+func (db *MockDataStore) EditJournal(ctx context.Context) model.EditJournalRepository {
+	db.repoMu.Lock()
+	defer db.repoMu.Unlock()
+	if db.MockedEditJournal != nil {
+		return db.MockedEditJournal
+	}
+	if db.RealDS != nil {
+		return db.RealDS.EditJournal(ctx)
+	}
+	db.MockedEditJournal = &MockEditJournalRepo{}
+	return db.MockedEditJournal
 }
 
 func (db *MockDataStore) WithTx(block func(tx model.DataStore) error, label ...string) error {
