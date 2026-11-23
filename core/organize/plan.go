@@ -94,6 +94,9 @@ type Scope struct {
 	// the Inbox into the Library. The Inbox's Tracks then go to their scheme path in Into, with
 	// the same rules, against Into's folders and Files. It is never read from a request.
 	Into int `json:"-"`
+	// Keep are paths (in the Tracks' library) that no album folder's sweep takes along (see
+	// FolderMove.Keep): a Promote's Files the Inbox scan hasn't read yet. Never read from a request.
+	Keep []string `json:"-"`
 }
 
 // Row is one File of a plan: where it is and where it goes, or why it stays.
@@ -188,7 +191,7 @@ func (o *Organizer) Plan(ctx context.Context, scope Scope) (*Plan, error) {
 	}
 	res := &Plan{Moves: []Row{}, Unplaced: []Row{}, Folders: []FolderMove{}}
 	for _, libID := range slices.Sorted(maps.Keys(byLib)) {
-		lp, err := o.planLibrary(ctx, libID, cmp.Or(scope.Into, libID), byLib[libID])
+		lp, err := o.planLibrary(ctx, libID, cmp.Or(scope.Into, libID), byLib[libID], scope.Keep)
 		if err != nil {
 			return nil, err
 		}
@@ -205,6 +208,11 @@ func (o *Organizer) scopeTracks(ctx context.Context, scope Scope) (model.MediaFi
 	if scope.AlbumID != "" {
 		return o.ds.MediaFile(ctx).GetAll(model.QueryOptions{Sort: "path",
 			Filters: squirrel.And{squirrel.Eq{"media_file.album_id": scope.AlbumID}, squirrel.Eq{"media_file.missing": false}}})
+	}
+	if scope.Into != 0 && len(scope.IDs) > 0 {
+		// A Promote's: a card's Files, as many as it has (no selection cap).
+		return o.ds.MediaFile(ctx).GetAll(model.QueryOptions{Sort: "path",
+			Filters: squirrel.And{squirrel.Eq{"media_file.id": scope.IDs}, squirrel.Eq{"media_file.missing": false}}})
 	}
 	return o.manager.Tracks(ctx, scope.Selection)
 }
@@ -302,7 +310,7 @@ func (o *Organizer) loadTree(ctx context.Context, libID int) (*tree, error) {
 
 // planLibrary plans the scope's Tracks, all in the library libID, into the library into (libID
 // itself for Organize).
-func (o *Organizer) planLibrary(ctx context.Context, libID, into int, scope model.MediaFiles) (*libraryPlan, error) {
+func (o *Organizer) planLibrary(ctx context.Context, libID, into int, scope model.MediaFiles, keep []string) (*libraryPlan, error) {
 	src, err := o.loadTree(ctx, libID)
 	if err != nil {
 		return nil, err
@@ -318,7 +326,7 @@ func (o *Organizer) planLibrary(ctx context.Context, libID, into int, scope mode
 	places := lp.place(scope, albumsOf(src.all))
 	lp.flagCollisions(places)
 	var files []Row
-	lp.folders, files = lp.otherFiles(places)
+	lp.folders, files = lp.otherFiles(places, keep)
 
 	for _, p := range places {
 		r := row(p.mf)

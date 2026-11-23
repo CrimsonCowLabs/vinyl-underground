@@ -109,6 +109,9 @@ func (k jobKind) sweep(ctx context.Context, job *model.EditJob, f FolderMove) er
 		for _, e := range entries {
 			rel := path.Join(dirs[i], e.Name())
 			switch {
+			case f.NewLibraryID != 0 && strings.HasPrefix(e.Name(), "."):
+				// From the Inbox, a hidden File or folder may be a copy still under way (rsync's,
+				// the app's own temps): it stays.
 			case e.IsDir():
 				dirs = append(dirs, rel)
 			case !e.Type().IsRegular(), strings.Contains(e.Name(), ".vu-"), slices.Contains(f.Keep, rel), moved[rel]:

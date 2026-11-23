@@ -31,7 +31,7 @@ type FolderMove struct {
 
 // otherFiles works out the album folders the plan moves whole (see FolderMove), and the images
 // in them, as rows of their own.
-func (lp *libraryPlan) otherFiles(places []placement) ([]FolderMove, []Row) {
+func (lp *libraryPlan) otherFiles(places []placement, keep []string) ([]FolderMove, []Row) {
 	// The folders the Tracks leave, by the folder they go to.
 	sources := map[string][]string{}
 	dest := map[string]string{} // a moving Track's new folder, by its ID
@@ -55,11 +55,22 @@ func (lp *libraryPlan) otherFiles(places []placement) ([]FolderMove, []Row) {
 		}
 	}
 	rows = lp.flagFileCollisions(rows, places)
+	moving := map[string]bool{}
+	for _, p := range places {
+		if p.status == StatusMove {
+			moving[p.mf.Path] = true
+		}
+	}
 	for i := range folders {
 		f := &folders[i]
 		for _, r := range rows {
 			if r.Status != StatusFile && strings.HasPrefix(r.Path, f.Path+"/") {
 				f.Keep = append(f.Keep, r.Path)
+			}
+		}
+		for _, k := range keep {
+			if strings.HasPrefix(k, f.Path+"/") && !moving[k] {
+				f.Keep = append(f.Keep, k)
 			}
 		}
 	}

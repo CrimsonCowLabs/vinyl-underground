@@ -16,6 +16,7 @@ import (
 	"github.com/navidrome/navidrome/core/auth"
 	"github.com/navidrome/navidrome/core/editjob"
 	"github.com/navidrome/navidrome/core/rip"
+	"github.com/navidrome/navidrome/core/tagedit"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/server"
 	"github.com/navidrome/navidrome/tests"
@@ -134,6 +135,41 @@ var _ = Describe("Promote API", func() {
 		w := send(queue, &admin, "/no-such-job/promote/plan", "")
 		Expect(w.Code).To(Equal(http.StatusNotFound))
 		Expect(code(w)).To(Equal("notFound"))
+	})
+
+	It("refuses a tag save, a Discard or another Promote of a card while its Promote job is queued or running", func() {
+		ctx := GinkgoT().Context()
+		inboxLib, err := core.FindInboxLibrary(ctx, ds)
+		Expect(err).ToNot(HaveOccurred())
+		running := &model.EditJob{Kind: model.EditPromote, State: model.EditJobRunning}
+		Expect(ds.EditJob(ctx).Put(running)).To(Succeed())
+		step, err := editjob.MoveStep(tagedit.Move{LibraryID: inboxLib.ID, NewLibraryID: 1, TrackID: "t1",
+			Path: "Album/a.opus", NewPath: "A/B (2020)/01 A.opus"})
+		Expect(err).ToNot(HaveOccurred())
+		step.JobID = running.ID
+		Expect(ds.EditJob(ctx).PutStep(&step)).To(Succeed())
+
+		send := func(method, path, body string) *httptest.ResponseRecorder {
+			ripper := rip.New(ds, &fakeFetcher{}, nil, rip.Options{})
+			ripper.SetEditQueue(queue)
+			req := httptest.NewRequest(method, path, bytes.NewBufferString(body))
+			token, err := auth.CreateToken(&admin)
+			Expect(err).ToNot(HaveOccurred())
+			req.Header.Set(consts.UIAuthorizationHeader, "Bearer "+token)
+			w := httptest.NewRecorder()
+			server.JWTVerifier(New(ds, ripper)).ServeHTTP(w, req)
+			return w
+		}
+		Expect(send(http.MethodPut, "/"+job.ID+"/tags", `{"album":"X"}`).Code).To(Equal(http.StatusConflict))
+		Expect(send(http.MethodDelete, "/"+job.ID, "").Code).To(Equal(http.StatusConflict))
+		w := send(http.MethodPost, "/"+job.ID+"/promote", `{"token":"x"}`)
+		Expect(w.Code).To(Equal(http.StatusConflict))
+		Expect(code(w)).To(Equal("promoting"))
+		Expect(filepath.Join(inbox, "Album", "a.opus")).To(BeAnExistingFile())
+
+		running.State = model.EditJobDone
+		Expect(ds.EditJob(ctx).Put(running)).To(Succeed())
+		Expect(send(http.MethodDelete, "/"+job.ID, "").Code).To(Equal(http.StatusNoContent))
 	})
 
 	It("needs the plan's token to run it", func() {

@@ -647,6 +647,7 @@
         "embedRemoved": "Embedded cover removed",
         "moved": "Moved",
         "promoted": "Promoted",
+        "unpromoted": "Back to the Inbox",
         "albumFile": "A File moved with its album",
         "deleted": "Deleted for good, by Empty Quarantine"
       },
@@ -723,6 +724,7 @@
         "nothingToMove": "Every File is in place already, or can't be placed.",
         "notReady": "This card's Rip hasn't finished yet.",
         "nothingToPromote": "None of this card's Files has been scanned in the Inbox yet. Try again in a moment.",
+        "promoting": "This card's Files are being promoted. The Activity panel shows how it goes.",
         "unknown": "Could not organize the Files. Try again later."
       }
     },

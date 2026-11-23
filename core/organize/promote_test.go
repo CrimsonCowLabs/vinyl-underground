@@ -217,5 +217,27 @@ var _ = Describe("Promote", func() {
 			Expect(mf.LibraryID).To(Equal(inbox.lib.ID))
 			Expect(mf.Path).To(Equal("Rip Album/01.opus"))
 		})
+
+		It("leaves in the Inbox the card's Files it doesn't place (not scanned yet) and hidden ones", func() {
+			a := inbox.track("Rip Album/01.opus", rip("Song", 1))
+			inbox.file("Rip Album/cover.jpg", "image")
+			inbox.file("Rip Album/02.opus", "landed after the last scan")
+			inbox.file("Rip Album/.03.opus.part", "still copying")
+			scope := Scope{Selection: librarymanager.Selection{IDs: []string{a.ID}}, Into: 1,
+				Keep: []string{"Rip Album/01.opus", "Rip Album/02.opus"}}
+			p, err := o.Plan(l.ctx, scope)
+			Expect(err).ToNot(HaveOccurred())
+			job, err := o.RunAs(l.ctx, model.EditPromote, scope, p.Token)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(runQueue(job).Skipped).To(BeZero())
+			Expect(l.files()).To(Equal(map[string]string{
+				"Rip Artist/Rip Album (2024)/01 Song.opus": "audio of Rip Album/01.opus",
+				"Rip Artist/Rip Album (2024)/cover.jpg":    "image",
+			}))
+			Expect(inbox.files()).To(Equal(map[string]string{
+				"Rip Album/02.opus":       "landed after the last scan",
+				"Rip Album/.03.opus.part": "still copying",
+			}))
+		})
 	})
 })

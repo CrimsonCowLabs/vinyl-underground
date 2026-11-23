@@ -61,6 +61,13 @@ const imageChange = (record) => {
   return wrote ? (had ? 'embedReplaced' : 'embedAdded') : 'embedRemoved'
 }
 
+// What a move did: a Promote (#171) takes a File from the Inbox into the Library (and a redo
+// again), its undo back into the Inbox; any other move stays in its library.
+const moveLabel = (record) => {
+  if (!record.newLibraryId) return 'moved'
+  return record.undoOf && !record.redo ? 'unpromoted' : 'promoted'
+}
+
 // errorKey is the message of a refused undo.
 const errorKey = (err) => {
   const code = err?.body?.error
@@ -110,9 +117,7 @@ export const EditChangesField = ({ record }) => {
     return (
       <Typography variant="body2" component="span" className={classes.change}>
         <span className={classes.tag}>
-          {translate(
-            `resources.editHistory.message.${record.newLibraryId ? 'promoted' : 'moved'}`,
-          )}
+          {translate(`resources.editHistory.message.${moveLabel(record)}`)}
         </span>
         <span>{record.path}</span>
         <span className={classes.arrow} aria-hidden>

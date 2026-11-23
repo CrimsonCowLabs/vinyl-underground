@@ -108,6 +108,19 @@ describe('Edit history page', () => {
       expect(screen.getByText('Rip Album/01.opus')).toBeTruthy()
     })
 
+    it("says a Promote's undo took the File back into the Inbox, and its redo promoted it again", () => {
+      const undo = { ...move, newLibraryId: 2, undoOf: 'e1' }
+      const { unmount } = render(<EditChangesField record={undo} />)
+      expect(
+        screen.getByText('resources.editHistory.message.unpromoted'),
+      ).toBeTruthy()
+      unmount()
+      render(<EditChangesField record={{ ...undo, redo: true }} />)
+      expect(
+        screen.getByText('resources.editHistory.message.promoted'),
+      ).toBeTruthy()
+    })
+
     it('names a File moved with its album, which is no Track', () => {
       render(<EditTrackField record={{ ...move, track: undefined }} />)
       expect(

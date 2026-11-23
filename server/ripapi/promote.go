@@ -12,7 +12,8 @@ package ripapi
 //	                                                Files it skipped), or 202 while it runs on
 //
 // Refusals are {error: code, message}: 404 notFound, 409 notReady (queued or downloading),
-// nothingToPromote (no File scanned in the Inbox) and planChanged (the Library changed since the
+// nothingToPromote (no File scanned in the Inbox), promoting (a Promote of the card is still
+// queued or running) and planChanged (the Library changed since the
 // plan: review it again), 422 nothingToMove. With Promote off it answers 404.
 
 import (
@@ -117,6 +118,8 @@ func writePromoteError(w http.ResponseWriter, r *http.Request, err error) {
 		code, status = "editingOff", http.StatusNotFound
 	case errors.Is(err, rip.ErrNotReady), errors.Is(err, rip.ErrNoInbox):
 		code, status = "notReady", http.StatusConflict
+	case errors.Is(err, rip.ErrPromoting):
+		code, status = "promoting", http.StatusConflict
 	case errors.Is(err, rip.ErrNothingToPromote):
 		code, status = "nothingToPromote", http.StatusConflict
 	case errors.Is(err, organize.ErrPlanChanged):

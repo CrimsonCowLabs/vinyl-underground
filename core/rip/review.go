@@ -221,7 +221,7 @@ func (r *Ripper) tracksByPath(ctx context.Context, libID int, items model.RipIte
 func (r *Ripper) SaveTags(ctx context.Context, jobID string, edits ReviewEdits) (*Review, error) {
 	r.reviewMu.Lock()
 	defer r.reviewMu.Unlock()
-	job, inbox, err := r.reviewable(ctx, jobID)
+	job, inbox, err := r.editable(ctx, jobID)
 	if err != nil {
 		return nil, err
 	}

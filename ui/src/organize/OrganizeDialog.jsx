@@ -41,6 +41,7 @@ const knownErrors = [
   // Promote's (#171)
   'notReady',
   'nothingToPromote',
+  'promoting',
 ]
 
 const errorKey = (err) => {
