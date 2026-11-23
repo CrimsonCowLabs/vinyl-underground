@@ -26,9 +26,10 @@ import { LoveButton } from './LoveButton'
 import config from '../config'
 import { playSimilar } from './playbackActions.js'
 import { formatBytes } from '../utils'
-import { useRedirect } from 'react-admin'
+import { useRedirect, useRefresh } from 'react-admin'
 import { useLibraryEditing } from '../library/useLibraryEditing'
 import { EditTagsDialog } from '../song/EditTagsDialog'
+import { SendToQuarantineDialog } from '../quarantine/SendToQuarantineDialog'
 
 const useStyles = makeStyles({
   noWrap: {
@@ -68,6 +69,19 @@ const EditTagsMenuItem = ({ record, onClick }) => {
   )
 }
 
+// QuarantineMenuItem sends the Track's File to Quarantine (#168), under the same terms as Edit
+// tags: the admin only, while the Track's library is writable.
+const QuarantineMenuItem = ({ record, onClick }) => {
+  const translate = useTranslate()
+  const { enabled, isWritable } = useLibraryEditing()
+  if (!enabled || isWritable(record.libraryId) !== true) return null
+  return (
+    <MenuItem onClick={onClick}>
+      {translate('resources.quarantine.actions.send')}
+    </MenuItem>
+  )
+}
+
 export const SongContextMenu = ({
   resource,
   record,
@@ -86,7 +100,9 @@ export const SongContextMenu = ({
   const [playlistsLoaded, setPlaylistsLoaded] = useState(false)
   const { permissions } = usePermissions()
   const redirect = useRedirect()
+  const refresh = useRefresh()
   const [editTagsOpen, setEditTagsOpen] = useState(false)
+  const [quarantineOpen, setQuarantineOpen] = useState(false)
 
   const options = {
     playNow: {
@@ -302,11 +318,33 @@ export const SongContextMenu = ({
             }}
           />
         )}
+        {present && (
+          <QuarantineMenuItem
+            record={record}
+            onClick={(e) => {
+              e.stopPropagation()
+              setAnchorEl(null)
+              setQuarantineOpen(true)
+            }}
+          />
+        )}
       </Menu>
       {editTagsOpen && (
         <EditTagsDialog
           record={record}
           onClose={() => setEditTagsOpen(false)}
+        />
+      )}
+      {quarantineOpen && (
+        <SendToQuarantineDialog
+          open
+          selection={{ ids: [record.mediaFileId || record.id] }}
+          count={1}
+          onClose={() => setQuarantineOpen(false)}
+          onDone={() => {
+            setQuarantineOpen(false)
+            refresh()
+          }}
         />
       )}
       <Menu

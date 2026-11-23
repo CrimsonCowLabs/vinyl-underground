@@ -59,6 +59,11 @@ describe('<LibraryManagerList />', () => {
         .getByText('resources.libraryTrack.actions.editHistory')
         .closest('a'),
     ).toHaveAttribute('href', '/editHistory')
+    expect(
+      screen
+        .getByText('resources.libraryTrack.actions.quarantine')
+        .closest('a'),
+    ).toHaveAttribute('href', '/quarantine')
   })
 
   it("can't edit all matching when nothing matches", () => {

@@ -44,6 +44,8 @@ const knownErrors = [
   'jobUnfinished',
   'sameFileTwice',
   'coverChanged',
+  'taken',
+  'deletedForGood',
 ]
 
 // What a cover write (the folder's cover.jpg) or an embed (Embed in Files) did, by whether it
@@ -85,6 +87,19 @@ export const EditChangesField = ({ record }) => {
   const classes = useStyles()
   const translate = useTranslate()
   if (!record) return null
+  if (record.kind === 'quarantine' || record.kind === 'delete') {
+    // A move into or out of Quarantine, or a File Empty Quarantine deleted (#168).
+    return (
+      <Typography variant="body2" component="span" className={classes.change}>
+        {record.kind === 'delete'
+          ? translate('resources.editHistory.message.deleted')
+          : translate('resources.editHistory.message.moved', {
+              path: record.path,
+              newPath: record.newPath,
+            })}
+      </Typography>
+    )
+  }
   if (record.kind === 'cover' || record.kind === 'embed') {
     return (
       <Typography variant="body2" component="span" className={classes.change}>
@@ -230,7 +245,9 @@ export const UndoEditButton = ({ record }) => {
           e.stopPropagation()
           setOpen(true)
         }}
-        disabled={running || record.state !== 'written'}
+        disabled={
+          running || record.state !== 'written' || record.kind === 'delete'
+        }
       >
         <UndoIcon />
       </Button>

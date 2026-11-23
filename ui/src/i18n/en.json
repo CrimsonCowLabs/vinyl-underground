@@ -604,7 +604,9 @@
         "coverRemoved": "Album folder cover removed",
         "embedAdded": "Cover embedded in the File",
         "embedReplaced": "Embedded cover replaced",
-        "embedRemoved": "Embedded cover removed"
+        "embedRemoved": "Embedded cover removed",
+        "moved": "Moved from %{path} to %{newPath}",
+        "deleted": "Deleted for good, by Empty Quarantine"
       },
       "notifications": {
         "undone": "The earlier values were written back to the File",
@@ -631,7 +633,9 @@
         "jobUnfinished": "This job hasn't finished yet. Undo it once it has.",
         "sameFileTwice": "This job wrote the same File twice, so it can't be undone as a whole. Undo its writes one at a time.",
         "coverChanged": "The cover was changed outside the app since this write, so undoing it would overwrite that.",
-        "unknown": "The write could not be undone."
+        "unknown": "The write could not be undone.",
+        "taken": "A File is at its old place now, in some letter case, so this one wasn't moved back.",
+        "deletedForGood": "This File was deleted for good, by Empty Quarantine, so it can't come back."
       }
     },
     "libraryTrack": {
@@ -666,7 +670,8 @@
       "actions": {
         "editSelected": "Edit tags",
         "editMatching": "Edit all %{smart_count} matching",
-        "editHistory": "Edit history"
+        "editHistory": "Edit history",
+        "quarantine": "Quarantine"
       },
       "message": {
         "editingOff": "Editing is off: the Library is read-only, so the Library manager can't change its Files."
@@ -694,6 +699,66 @@
           "nothingToChange": "None of these Tracks can be edited.",
           "unknown": "The bulk edit could not be made."
         }
+      }
+    },
+    "quarantine": {
+      "name": "Quarantine |||| Quarantine",
+      "fields": {
+        "path": "File in Quarantine",
+        "original": "Came from",
+        "track": "Track",
+        "size": "Size"
+      },
+      "actions": {
+        "send": "Send to Quarantine",
+        "sendAlbum": "Quarantine",
+        "sendSelected": "Send %{smart_count} to Quarantine |||| Send %{smart_count} to Quarantine",
+        "restore": "Restore",
+        "empty": "Empty Quarantine"
+      },
+      "send": {
+        "title": "Send %{smart_count} Track to Quarantine? |||| Send %{smart_count} Tracks to Quarantine?",
+        "content": "Its File moves into the Quarantine folder, at the same path, and the Track leaves the Library. Nothing is deleted: undo it from the Edit history, or restore the File from the Quarantine page. |||| Their %{smart_count} Files move into the Quarantine folder, at the same paths, and the Tracks leave the Library. Nothing is deleted: undo it from the Edit history, or restore the Files from the Quarantine page.",
+        "confirm": "Send to Quarantine"
+      },
+      "empty": {
+        "title": "Empty Quarantine?",
+        "content": "This deletes %{smart_count} File (%{size}) for good, and its Track with it. |||| This deletes %{smart_count} Files (%{size}) for good, and their Tracks with them.",
+        "cannotUndo": "A permanent delete can't be undone, not even from the Edit history.",
+        "confirm": "Delete %{smart_count} File for good |||| Delete %{smart_count} Files for good",
+        "none": "Quarantine is empty."
+      },
+      "message": {
+        "summary": "%{smart_count} File in Quarantine, %{size} |||| %{smart_count} Files in Quarantine, %{size}",
+        "noTrack": "No Track (moved by hand)"
+      },
+      "notifications": {
+        "sent": "Sent to Quarantine. Undo it from the Edit history. |||| %{smart_count} Tracks sent to Quarantine. Undo it from the Edit history.",
+        "sentSkipped": "Sent to Quarantine, but %{smart_count} File was skipped. The Activity panel says why. |||| Sent to Quarantine, but %{smart_count} Files were skipped. The Activity panel says why.",
+        "sentInBackground": "Sending to Quarantine runs in the background. The Activity panel shows how it goes.",
+        "restored": "The File is back at %{path}",
+        "restoreInBackground": "The restore runs in the background. The Activity panel shows how it goes.",
+        "emptied": "Quarantine was emptied",
+        "skipped": "Quarantine was emptied, but %{smart_count} File was left: %{warning} |||| Quarantine was emptied, but %{smart_count} Files were left: %{warning}",
+        "emptyInBackground": "Emptying Quarantine runs in the background. The Activity panel shows how it goes."
+      },
+      "errors": {
+        "editingOff": "This library is read-only, so its Files can't be moved.",
+        "inQuarantine": "This File is in Quarantine already.",
+        "noSelection": "Select the Tracks to send to Quarantine.",
+        "tooMany": "Too many Tracks selected one by one.",
+        "notFound": "This Track, or File, is no longer there.",
+        "changedOnDisk": "The File isn't where the app last saw it. Rescan the library first.",
+        "taken": "A File is already there, in some letter case, so nothing was moved.",
+        "changedLater": "A later write changed this File. Undo that one first.",
+        "alreadyUndone": "This File was restored already.",
+        "unfinished": "A later write to this File didn't finish. Restart the app to settle it, then try again.",
+        "deletedForGood": "This File was deleted for good.",
+        "notInQuarantine": "This File isn't in Quarantine.",
+        "nothingInQuarantine": "Quarantine is empty.",
+        "quarantineChanged": "Quarantine changed since you looked. Check it again before emptying it.",
+        "unsettled": "The move couldn't be checked. Restart the app to settle it.",
+        "unknown": "Something went wrong; the Files were left as they were."
       }
     },
     "library": {
@@ -1275,7 +1340,10 @@
         "artistRename": "Artist rename",
         "artistMerge": "Artist merge",
         "cover": "Album cover",
-        "embed": "Embed in Files"
+        "embed": "Embed in Files",
+        "quarantine": "Send to Quarantine",
+        "restore": "Restore from Quarantine",
+        "emptyQuarantine": "Empty Quarantine"
       },
       "files": "%{smart_count} File |||| %{smart_count} Files",
       "queued": "Waiting for the edit before it",

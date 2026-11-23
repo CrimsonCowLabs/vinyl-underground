@@ -31,7 +31,7 @@ An admin's fix to a wrong tag value (e.g. renaming the Artist "Greatful Dead" to
 _Avoid_: Edit, override
 
 **Quarantine**:
-The folder on the drive holding Files removed from the Library (Duplicates, and the weaker copy of each album held twice), kept until they are permanently deleted. The app moves Files there, through the Edit journal, so a move can be undone; only Empty Quarantine, after a confirmation, deletes them.
+The folder on the drive holding Files removed from the Library (Duplicates, and the weaker copy of each album held twice), kept until they are permanently deleted. The app moves Files there, through the Edit journal, so a move can be undone; only Empty Quarantine, after a confirmation, deletes them. It is `_Quarantine/` at each library's root unless the `QuarantineFolder` setting says otherwise, and a File keeps its relative path beneath it. A Track whose File is in Quarantine is out of the Library, but kept, so restoring the File brings back the same Track.
 _Avoid_: Trash, recycle bin
 
 **Organize**:
