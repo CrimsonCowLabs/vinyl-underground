@@ -158,15 +158,22 @@ describe('wrapperDataProvider', () => {
       )
     })
 
-    it('sends the picked release with the album Correction', async () => {
-      mockHttpClient.mockResolvedValue({ json: { correction: { id: 'c1' } } })
+    it('sends the picked release, with what the admin ticked, to write into the Files', async () => {
+      mockHttpClient.mockResolvedValue({ json: { jobId: 'job-1', done: true } })
+      const canonical = {
+        album: true,
+        albumArtist: false,
+        date: false,
+        titles: true,
+      }
       await wrapperDataProvider.correctAlbum('al-1', {
         name: 'Record',
         albumArtist: 'Band',
         year: 1999,
         mbzAlbumId: 'rel-1',
-        mbzReleaseGroupId: 'rg-1',
-        mbzRelease: 'Record (GB, CD, 1999)',
+        canonical,
+        replaceTrackIds: true,
+        cover: false,
       })
       expect(mockHttpClient).toHaveBeenCalledWith('/api/correction/album', {
         method: 'POST',
@@ -176,10 +183,21 @@ describe('wrapperDataProvider', () => {
           albumArtist: 'Band',
           year: 1999,
           mbzAlbumId: 'rel-1',
-          mbzReleaseGroupId: 'rg-1',
-          mbzRelease: 'Record (GB, CD, 1999)',
+          canonical,
+          replaceTrackIds: true,
+          cover: false,
         }),
       })
+    })
+
+    it("asks how the album's Tracks pair with a release", async () => {
+      mockHttpClient.mockResolvedValue({ json: { holds: true, tracks: [] } })
+      await expect(
+        wrapperDataProvider.matchMusicBrainzRelease('rel/1', 'al 1'),
+      ).resolves.toEqual({ data: { holds: true, tracks: [] } })
+      expect(mockHttpClient).toHaveBeenCalledWith(
+        '/api/musicbrainz/release/rel%2F1/match?albumId=al%201',
+      )
     })
   })
 

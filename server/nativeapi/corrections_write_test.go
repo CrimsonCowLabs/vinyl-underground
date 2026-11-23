@@ -72,9 +72,13 @@ func (f *fakeCorrections) PlanArtistMerge(_ context.Context, artistID, intoID st
 	return f.planned("merge " + artistID + "->" + intoID)
 }
 
-// runEditQueue gives the router an edit job queue writing fake steps, run until the spec ends.
-func runEditQueue(api *Router, ds model.DataStore, k fakeWriteKind) {
+// runEditQueue gives the router an edit job queue writing fake steps, run until the spec ends,
+// with the job kinds handle registers.
+func runEditQueue(api *Router, ds model.DataStore, k fakeWriteKind, handle ...func(q *editjob.Queue)) {
 	q := editjob.New(ds, nil, map[model.EditKind]editjob.StepKind{fakeWrite: k})
+	for _, h := range handle {
+		h(q)
+	}
 	api.SetEditQueue(q)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})

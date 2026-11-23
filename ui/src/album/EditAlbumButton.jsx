@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import PropTypes from 'prop-types'
 import {
   Button,
@@ -30,6 +30,7 @@ import {
   useTrackNumberRows,
 } from './trackNumbers'
 import { FindOnMusicBrainz } from './FindOnMusicBrainz'
+import { ReleasePairing } from './ReleasePairing'
 import { useLibraryEditing } from '../library/useLibraryEditing'
 
 // The server answers a refused save with a code; anything else is a generic error.
@@ -42,9 +43,25 @@ const knownErrors = [
   'editingOff',
   'unsupportedFormat',
   'changedOnDisk',
+  // MusicBrainz couldn't be asked for the picked release
+  'busy',
+  'unavailable',
+  'disabled',
 ]
 
-// What the Cover Art Archive answered for a picked release, when it gave no cover.
+// The pairing's own failures are MusicBrainz's codes, or the album's.
+const knownMatchErrors = ['busy', 'unavailable', 'disabled', 'notFound']
+
+// The options a save with a picked release starts with: the release's IDs only, keeping what the
+// Files hold otherwise (#170).
+const noReleaseOptions = {
+  canonical: { album: false, albumArtist: false, date: false, titles: false },
+  replaceTrackIds: false,
+  cover: false,
+}
+
+// What the Cover Art Archive answered for a picked release's cover, when it was asked for and gave
+// none.
 const pickCoverNotes = {
   none: 'resources.album.musicbrainz.noCover',
   failed: 'resources.album.musicbrainz.coverFailed',
@@ -57,8 +74,9 @@ const albumYear = (record) => record.maxOriginalYear || record.maxYear || ''
 
 // The album Edit dialog: writes the album's title, album artist (offered from the existing
 // Artists as you type) and year into its Files, and its Tracks' changed disc and track numbers
-// into theirs, as one edit job (#163). A release picked with Find on MusicBrainz is still saved
-// as an album Correction (#170).
+// into theirs, as one edit job (#163). A release picked with Find on MusicBrainz is written into
+// the Files in the same job (#170): its IDs, and, if ticked, its own values and cover. The dialog
+// shows how the album's Tracks pair with it before saving.
 const EditAlbumDialog = ({ record, onClose }) => {
   const translate = useTranslate()
   const dataProvider = useDataProvider()
@@ -70,9 +88,34 @@ const EditAlbumDialog = ({ record, onClose }) => {
   const [albumArtist, setAlbumArtist] = useState(record.albumArtist || '')
   const [year, setYear] = useState(String(albumYear(record)))
   const [release, setRelease] = useState(null)
+  // The pairing of the picked release (null while it loads), why it couldn't be had (an error
+  // code), and what the admin ticks
+  const [match, setMatch] = useState(null)
+  const [matchError, setMatchError] = useState(null)
+  const [releaseOptions, setReleaseOptions] = useState(noReleaseOptions)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
   const suggestions = useArtistSuggestions(albumArtist)
+
+  useEffect(() => {
+    setMatch(null)
+    setMatchError(null)
+    setReleaseOptions(noReleaseOptions)
+    if (!release) return
+    let current = true
+    dataProvider
+      .matchMusicBrainzRelease(release.id, record.id)
+      .then(({ data }) => current && setMatch(data))
+      .catch((err) => {
+        if (!current) return
+        const code = err?.body?.error
+        setMatchError(knownMatchErrors.includes(code) ? code : 'unknown')
+      })
+    return () => {
+      current = false
+    }
+  }, [dataProvider, release, record.id])
+  const accepted = releaseOptions.canonical
 
   const yearValue = year.trim() === '' ? 0 : Number(year)
   const yearValid =
@@ -84,10 +127,13 @@ const EditAlbumDialog = ({ record, onClose }) => {
     name.trim() === (record.name || '') &&
     artist === (record.albumArtist || '') &&
     (yearValue === 0 || yearValue === Number(albumYear(record) || 0)) &&
-    !release
+    !(release && match)
   const trackChanges = trackNumberChanges(trackRows || [])
   const canSave =
     !saving &&
+    // A picked release is saved once the admin has seen how it pairs; one whose pairing
+    // couldn't be had is left out, and the rest saved
+    (!release || match || matchError) &&
     name.trim() &&
     artist &&
     yearValid &&
@@ -107,11 +153,11 @@ const EditAlbumDialog = ({ record, onClose }) => {
             albumArtist: artist,
             year: yearValue,
             ...(trackChanges.length && { tracks: trackChanges }),
-            ...(release && {
-              mbzAlbumId: release.id,
-              mbzReleaseGroupId: release.releaseGroupId,
-              mbzRelease: release.description,
-            }),
+            ...(release &&
+              match && {
+                mbzAlbumId: release.id,
+                ...releaseOptions,
+              }),
           })
       save
         .then(({ data }) => {
@@ -119,10 +165,14 @@ const EditAlbumDialog = ({ record, onClose }) => {
           onClose()
           const skipped = data.job?.skipped || 0
           // Files the job couldn't write (the Activity panel lists them, and why), or a picked
-          // release whose cover couldn't be had, are worth a word over the usual one
-          const note = skipped
-            ? 'resources.album.editor.skipped'
-            : pickCoverNotes[data.pickCover]
+          // release whose cover couldn't be had, are worth a word over the usual one. A release
+          // that couldn't reach every File was taken out of those it reached, so the album
+          // isn't split: nothing changed
+          const note = data.rolledBack
+            ? 'resources.album.musicbrainz.rolledBack'
+            : skipped
+              ? 'resources.album.editor.skipped'
+              : pickCoverNotes[data.pickCover]
           const level = note ? 'warning' : 'info'
           const opts = skipped
             ? { type: level, messageArgs: { smart_count: skipped } }
@@ -162,6 +212,8 @@ const EditAlbumDialog = ({ record, onClose }) => {
       trackChanges,
       setTrackRows,
       release,
+      match,
+      releaseOptions,
       onClose,
       notify,
       redirect,
@@ -193,7 +245,7 @@ const EditAlbumDialog = ({ record, onClose }) => {
             label={translate('resources.album.fields.name')}
             value={name}
             onChange={(e) => setName(e.target.value)}
-            disabled={saving}
+            disabled={saving || (!!release && accepted.album)}
             inputProps={{ 'data-testid': 'album-name' }}
           />
           <Autocomplete
@@ -210,7 +262,7 @@ const EditAlbumDialog = ({ record, onClose }) => {
             }
             inputValue={albumArtist}
             onInputChange={(_, value) => setAlbumArtist(value)}
-            disabled={saving}
+            disabled={saving || (!!release && accepted.albumArtist)}
             renderInput={(params) => (
               <TextField
                 {...params}
@@ -230,7 +282,7 @@ const EditAlbumDialog = ({ record, onClose }) => {
             label={translate('resources.album.fields.year')}
             value={year}
             onChange={(e) => setYear(e.target.value)}
-            disabled={saving}
+            disabled={saving || (!!release && accepted.date)}
             error={!yearValid}
             inputProps={{ inputMode: 'numeric', 'data-testid': 'album-year' }}
           />
@@ -241,6 +293,22 @@ const EditAlbumDialog = ({ record, onClose }) => {
             onPick={setRelease}
             disabled={saving}
           />
+          {release && !match && !matchError && (
+            <CircularProgress size={16} data-testid="mbz-pairing-loading" />
+          )}
+          {matchError && (
+            <Alert severity="warning" style={{ marginTop: 8 }}>
+              {translate(`resources.album.musicbrainz.errors.${matchError}`)}
+            </Alert>
+          )}
+          {release && match && (
+            <ReleasePairing
+              match={match}
+              options={releaseOptions}
+              onChange={setReleaseOptions}
+              disabled={saving}
+            />
+          )}
           <TrackNumbersEditor
             rows={trackRows}
             onChange={setTrackRows}

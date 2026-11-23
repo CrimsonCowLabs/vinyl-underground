@@ -12,11 +12,14 @@ import (
 	"github.com/navidrome/navidrome/conf/configtest"
 	"github.com/navidrome/navidrome/core/auth"
 	"github.com/navidrome/navidrome/core/corrections"
+	"github.com/navidrome/navidrome/core/editjob"
+	"github.com/navidrome/navidrome/core/musicbrainz"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/server"
 	"github.com/navidrome/navidrome/tests"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	. "github.com/onsi/gomega/gstruct"
 )
 
 var _ = Describe("Album Edit API", func() {
@@ -81,8 +84,6 @@ var _ = Describe("Album Edit API", func() {
 			"tracks": []map[string]any{{"id": "mf-2", "discNumber": 1, "trackNumber": 2}}})
 		Expect(w.Code).To(Equal(http.StatusOK), w.Body.String())
 		Expect(svc.plans).To(Equal([]string{"album al-1 Band|Record mf-2"}))
-		// No Correction is saved.
-		Expect(svc.albums).To(BeEmpty())
 		got := answerOf(w)
 		Expect(got.Done).To(BeTrue())
 		Expect(got.AlbumID).To(Equal("new-album"))
@@ -102,30 +103,120 @@ var _ = Describe("Album Edit API", func() {
 		Expect(got.Done).To(BeFalse())
 	})
 
-	It("still saves a picked MusicBrainz release as a Correction (#170), with only the release", func() {
-		runEditQueue(nativeRouter, ds, fakeWriteKind{})
+	Describe("with a MusicBrainz release picked (#170)", func() {
+		var search *fakeReleaseSearch
 		picked := map[string]any{"albumId": "al-1", "name": "Record", "albumArtist": "Band", "year": 1999,
-			"mbzAlbumId": "rel-1", "mbzReleaseGroupId": "rg-1", "mbzRelease": "Record (GB, CD, 1999)"}
-		w := post(adminToken, picked)
-		Expect(w.Code).To(Equal(http.StatusOK), w.Body.String())
-		// The album's values as they are: the new ones go to its Files.
-		Expect(svc.fixes).To(Equal([]corrections.AlbumFix{{Name: "Recrod", AlbumArtist: "Band",
-			MbzAlbumID: "rel-1", MbzReleaseGroupID: "rg-1", MbzRelease: "Record (GB, CD, 1999)"}}))
-		Expect(svc.plans).To(HaveLen(1))
-		Expect(answerOf(w).Job).ToNot(BeNil())
-	})
+			"tracks":     []map[string]any{{"id": "mf-2", "discNumber": 1, "trackNumber": 2}},
+			"mbzAlbumId": "8A7F5C4E-0d5b-4f1e-9d3c-3b2a1f0e9d8c", "canonical": map[string]any{"album": true, "titles": true},
+			"replaceTrackIds": true, "cover": true}
 
-	It("saves only the release when that is all that changed", func() {
-		runEditQueue(nativeRouter, ds, fakeWriteKind{})
-		svc.planErr = corrections.ErrNothingToWrite
-		w := post(adminToken, map[string]any{"albumId": "al-1", "name": "Recrod", "albumArtist": "Band",
-			"mbzAlbumId": "rel-1", "mbzReleaseGroupId": "rg-1"})
-		Expect(w.Code).To(Equal(http.StatusOK), w.Body.String())
-		got := answerOf(w)
-		Expect(got.Done).To(BeTrue())
-		Expect(got.AlbumID).To(Equal("new-album"))
-		Expect(got.Job).To(BeNil())
-		Expect(svc.albums).To(HaveLen(1))
+		BeforeEach(func() {
+			conf.Server.EnableExternalServices = true
+			search = &fakeReleaseSearch{releases: []musicbrainz.Release{{ID: "8a7f5c4e-0d5b-4f1e-9d3c-3b2a1f0e9d8c", Title: "Record"}}}
+			nativeRouter.releaseSearch = search
+		})
+
+		It("looks the release up, and writes it with the dialog's values into the Files as one job", func() {
+			runEditQueue(nativeRouter, ds, fakeWriteKind{})
+			w := post(adminToken, picked)
+			Expect(w.Code).To(Equal(http.StatusOK), w.Body.String())
+			Expect(search.looked).To(Equal([]string{"8a7f5c4e-0d5b-4f1e-9d3c-3b2a1f0e9d8c"}))
+			Expect(svc.plans).To(Equal([]string{"release al-1 8a7f5c4e-0d5b-4f1e-9d3c-3b2a1f0e9d8c"}))
+			Expect(svc.releases).To(HaveLen(1))
+			rw := svc.releases[0]
+			Expect(rw.Fix).To(PointTo(Equal(corrections.AlbumFix{Name: "Record", AlbumArtist: "Band", Year: 1999})))
+			Expect(rw.Tracks).To(Equal([]corrections.TrackNumber{{ID: "mf-2", DiscNumber: 1, TrackNumber: 2}}))
+			Expect(rw.Accept).To(Equal(corrections.Canonical{Album: true, Titles: true}))
+			Expect(rw.ReplaceTrackIDs).To(BeTrue())
+			Expect(rw.Cover).To(BeTrue())
+			got := answerOf(w)
+			Expect(got.Done).To(BeTrue())
+			Expect(got.Job.Kind).To(Equal(corrections.JobRelease))
+			Expect(got.AlbumID).To(Equal("new-album"))
+		})
+
+		It("answers the album's new ID from a written Track, not from the cover written first", func() {
+			runEditQueue(nativeRouter, ds, fakeWriteKind{})
+			plan := fakePlan(corrections.JobRelease, "mf-1")
+			plan.Steps = append([]model.EditJobStep{{Kind: fakeWrite, Path: "Band/Record/cover.jpg"}}, plan.Steps...)
+			svc.plan = plan
+			w := post(adminToken, picked)
+			Expect(w.Code).To(Equal(http.StatusOK), w.Body.String())
+			Expect(answerOf(w).AlbumID).To(Equal("new-album"))
+		})
+
+		It("says when the job put the Files back, as one of them couldn't be written", func() {
+			// The job's kind queued its rollback (see corrections.ReleaseJobKind).
+			runEditQueue(nativeRouter, ds, fakeWriteKind{}, func(q *editjob.Queue) {
+				q.Handle(corrections.JobRelease, rollbackKind{q: q})
+			})
+			svc.plan = fakePlan(corrections.JobRelease, "mf-1", "skip-2")
+			w := post(adminToken, picked)
+			Expect(w.Code).To(Equal(http.StatusOK), w.Body.String())
+			var got struct {
+				Done          bool           `json:"done"`
+				RolledBack    bool           `json:"rolledBack"`
+				RollbackJobID string         `json:"rollbackJobId"`
+				RollbackDone  bool           `json:"rollbackDone"`
+				AlbumID       string         `json:"albumId"`
+				Job           *model.EditJob `json:"job"`
+			}
+			Expect(json.Unmarshal(w.Body.Bytes(), &got)).To(Succeed())
+			Expect(got.RolledBack).To(BeTrue())
+			Expect(got.RollbackJobID).ToNot(BeEmpty())
+			Expect(got.RollbackDone).To(BeTrue())
+			Expect(got.AlbumID).To(BeEmpty(), "the album keeps its ID")
+			Expect(got.Job.Steps).To(ConsistOf(HaveField("MediaFileID", "skip-2")))
+		})
+
+		It("pairs the album's Tracks with the release before saving, writing nothing", func() {
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, createAuthenticatedRequest("GET",
+				"/musicbrainz/release/8a7f5c4e-0d5b-4f1e-9d3c-3b2a1f0e9d8c/match?albumId=al-1", nil, adminToken))
+			Expect(w.Code).To(Equal(http.StatusOK), w.Body.String())
+			Expect(svc.matched).To(Equal([]string{"al-1|8a7f5c4e-0d5b-4f1e-9d3c-3b2a1f0e9d8c"}))
+			var got corrections.ReleaseMatch
+			Expect(json.Unmarshal(w.Body.Bytes(), &got)).To(Succeed())
+			Expect(got.Holds).To(BeTrue())
+			Expect(got.Tracks).To(ConsistOf(HaveField("Paired", PointTo(HaveField("ID", "rt-1")))))
+			Expect(svc.plans).To(BeEmpty())
+
+			// An ID that is no MusicBrainz ID isn't asked for; one MusicBrainz doesn't have is notFound.
+			w = httptest.NewRecorder()
+			router.ServeHTTP(w, createAuthenticatedRequest("GET", "/musicbrainz/release/nope/match?albumId=al-1", nil, adminToken))
+			Expect(w.Code).To(Equal(http.StatusBadRequest))
+			Expect(search.looked).To(HaveLen(1))
+			search.err = musicbrainz.ErrNotFound
+			w = httptest.NewRecorder()
+			router.ServeHTTP(w, createAuthenticatedRequest("GET",
+				"/musicbrainz/release/00000000-0000-4000-8000-000000000001/match?albumId=al-1", nil, adminToken))
+			Expect(w.Code).To(Equal(http.StatusNotFound))
+			search.err = nil
+			w = httptest.NewRecorder()
+			router.ServeHTTP(w, createAuthenticatedRequest("GET",
+				"/musicbrainz/release/8a7f5c4e-0d5b-4f1e-9d3c-3b2a1f0e9d8c/match?albumId=al-1", nil, userToken))
+			Expect(w.Code).To(Equal(http.StatusForbidden))
+		})
+
+		It("answers why MusicBrainz couldn't be asked, writing nothing", func() {
+			runEditQueue(nativeRouter, ds, fakeWriteKind{})
+			search.err = musicbrainz.ErrBusy
+			w := post(adminToken, picked)
+			Expect(w.Code).To(Equal(http.StatusServiceUnavailable))
+			Expect(w.Body.String()).To(ContainSubstring(`"busy"`))
+
+			conf.Server.EnableExternalServices = false
+			w = post(adminToken, picked)
+			Expect(w.Body.String()).To(ContainSubstring(`"disabled"`))
+			Expect(svc.plans).To(BeEmpty())
+		})
+
+		It("answers editingOff with no edit job queue, asking nothing", func() {
+			w := post(adminToken, picked)
+			Expect(w.Code).To(Equal(http.StatusForbidden))
+			Expect(search.looked).To(BeEmpty())
+			Expect(svc.plans).To(BeEmpty())
+		})
 	})
 
 	It("refuses a save that changes nothing", func() {
@@ -146,16 +237,34 @@ var _ = Describe("Album Edit API", func() {
 		Expect(res.Error).To(Equal("editingOff"))
 	})
 
-	It("answers editingOff, saving nothing, for new values with a picked release and no edit job queue", func() {
-		w := post(adminToken, map[string]any{"albumId": "al-1", "name": "New Title", "albumArtist": "Band",
-			"mbzAlbumId": "rel-1", "mbzReleaseGroupId": "rg-1"})
-		Expect(w.Code).To(Equal(http.StatusForbidden))
-		Expect(svc.albums).To(BeEmpty())
-	})
-
 	It("denies access to regular users", func() {
 		Expect(post(userToken, body).Code).To(Equal(http.StatusForbidden))
 		Expect(svc.plans).To(BeEmpty())
-		Expect(svc.albums).To(BeEmpty())
 	})
 })
+
+// rollbackKind stands in for corrections.ReleaseJobKind: a job with a File skipped queues the
+// undo of those written, and names it in its Args.
+type rollbackKind struct{ q *editjob.Queue }
+
+func (rollbackKind) Start(context.Context, *model.EditJob) error { return nil }
+
+func (k rollbackKind) Done(ctx context.Context, job *model.EditJob, steps model.EditJobSteps) error {
+	var written []model.EditJobStep
+	for _, s := range steps {
+		if s.State == model.EditStepWritten {
+			written = append(written, model.EditJobStep{Kind: fakeWrite, MediaFileID: s.MediaFileID, Path: s.Path})
+		}
+	}
+	if len(written) == len(steps) {
+		return nil
+	}
+	u, err := k.q.EnqueueWith(ctx, model.EditUndo, editjob.UndoJobArgs(job.ID), written)
+	if err != nil {
+		return err
+	}
+	job.Args = `{"rollback":"` + u.ID + `"}`
+	return nil
+}
+
+func (rollbackKind) Undone(context.Context, *model.EditJob, model.EditJobSteps) error { return nil }

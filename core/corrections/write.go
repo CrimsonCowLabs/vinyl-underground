@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
@@ -51,6 +52,9 @@ type Plan struct {
 	TrackID string
 	// ArtistID is the ID of the Artist an artist job renames, once it is done.
 	ArtistID string
+	// PickCover is what the Cover Art Archive answered for a picked release's cover, when the
+	// job was asked to write it (JobRelease).
+	PickCover PickCover
 }
 
 // writeArgs are the Args of a job of the kinds above.
@@ -63,6 +67,11 @@ type writeArgs struct {
 	Year        bool `json:"year,omitempty"`
 	// Numbered are the Files the job wrote disc and track numbers into.
 	Numbered []fileRef `json:"numbered,omitempty"`
+	// Release says the job wrote a picked MusicBrainz release's IDs into the album's Files
+	// (JobRelease), and Rollback is the job it queued to put them back when it couldn't write
+	// them all.
+	Release  bool   `json:"release,omitempty"`
+	Rollback string `json:"rollback,omitempty"`
 
 	// FromID is the Artist an artist job renames, Names the names it goes by in the Files, To its
 	// new name and ToID the new name's Artist.
@@ -132,6 +141,45 @@ func (a writeArgs) String() string {
 // album artist takes the place of the File's album artists, as an album Correction's does. The
 // MusicBrainz release fix picked is not written here (see CorrectAlbum).
 func (c *corrections) PlanAlbumEdit(ctx context.Context, albumID string, fix *AlbumFix, numbers []TrackNumber) (*Plan, error) {
+	e, err := c.albumEdit(ctx, albumID, fix, numbers)
+	if err != nil {
+		return nil, err
+	}
+	plan := &Plan{Kind: JobTrackNumbers, TrackID: e.tracks[0].ID}
+	if e.args.Name || e.args.AlbumArtist || e.args.Year {
+		plan.Kind = JobAlbumEdit
+	}
+	for _, mf := range e.tracks {
+		r := e.rewrites[mf.ID]
+		if len(r.Set) == 0 && r.Year == 0 {
+			continue
+		}
+		step, err := editjob.RewriteStep(mf.ID, r)
+		if err != nil {
+			return nil, err
+		}
+		plan.Steps = append(plan.Steps, step)
+	}
+	if len(plan.Steps) == 0 {
+		return nil, ErrNothingToWrite
+	}
+	plan.Args = e.args.String()
+	return plan, nil
+}
+
+// albumEditing is what the album Edit dialog's values write into an album's Files: the album,
+// its Tracks (in album order), the Rewrite of each (by Track ID; with nothing to write where the
+// File keeps all it holds), and the job's Args.
+type albumEditing struct {
+	al       *model.Album
+	tracks   model.MediaFiles
+	rewrites map[string]editjob.Rewrite
+	args     writeArgs
+}
+
+// albumEdit works out what the album Edit dialog's values write into the album's Files (see
+// PlanAlbumEdit), refusing what can't be written, but not a save that writes nothing.
+func (c *corrections) albumEdit(ctx context.Context, albumID string, fix *AlbumFix, numbers []TrackNumber) (*albumEditing, error) {
 	al, err := c.ds.Album(ctx).Get(albumID)
 	if err != nil {
 		return nil, err
@@ -208,35 +256,16 @@ func (c *corrections) PlanAlbumEdit(ctx context.Context, albumID string, fix *Al
 		a.Numbered = append(a.Numbered, fileRef{TrackID: mf.ID, LibraryID: mf.LibraryID, Path: mf.Path})
 	}
 
-	plan := &Plan{Kind: JobTrackNumbers, TrackID: tracks[0].ID}
-	if a.Name || a.AlbumArtist || a.Year {
-		plan.Kind = JobAlbumEdit
-	}
+	e := &albumEditing{al: al, tracks: tracks, rewrites: map[string]editjob.Rewrite{}}
 	for _, mf := range tracks {
 		r := albumFix
-		if len(numbered[mf.ID]) > 0 {
-			r.Set = tagedit.Values{}
-			for k, v := range albumFix.Set {
-				r.Set[k] = v
-			}
-			for k, v := range numbered[mf.ID] {
-				r.Set[k] = v
-			}
-		}
-		if len(r.Set) == 0 && r.Year == 0 {
-			continue
-		}
-		step, err := editjob.RewriteStep(mf.ID, r)
-		if err != nil {
-			return nil, err
-		}
-		plan.Steps = append(plan.Steps, step)
+		r.Set = tagedit.Values{}
+		maps.Copy(r.Set, albumFix.Set)
+		maps.Copy(r.Set, numbered[mf.ID])
+		e.rewrites[mf.ID] = r
 	}
-	if len(plan.Steps) == 0 {
-		return nil, ErrNothingToWrite
-	}
-	plan.Args = a.String()
-	return plan, nil
+	e.args = a
+	return e, nil
 }
 
 // newAlbumArtistDrops are the fields a new album artist takes the place of, as an album
@@ -477,7 +506,7 @@ func (k albumKind) Done(ctx context.Context, job *model.EditJob, steps model.Edi
 		var saved []savedCorrection
 		// The album Correction applies to all the album's Files: a File the job skipped still
 		// needs it, so it stays whole.
-		if (a.Name || a.AlbumArtist || a.Year) && !anySkipped(steps) {
+		if (a.Name || a.AlbumArtist || a.Year || a.Release) && !anySkipped(steps) {
 			albums, err := repo.FindByMatchKeys(a.Folders, model.CorrectionAlbum)
 			if err != nil {
 				return false, err
@@ -493,7 +522,12 @@ func (k albumKind) Done(ctx context.Context, job *model.EditJob, steps model.Edi
 				if a.Year {
 					trimmed.Year = 0
 				}
-				if cr.Undoing || (trimmed.AlbumName == cr.AlbumName && trimmed.AlbumArtist == cr.AlbumArtist && trimmed.Year == cr.Year) {
+				// The release written into the Files takes the place of the one picked before.
+				if a.Release {
+					trimmed.MbzAlbumID, trimmed.MbzReleaseGroupID, trimmed.ImageHash, trimmed.ImageMime = "", "", "", ""
+				}
+				if cr.Undoing || (trimmed.AlbumName == cr.AlbumName && trimmed.AlbumArtist == cr.AlbumArtist && trimmed.Year == cr.Year &&
+					trimmed.MbzAlbumID == cr.MbzAlbumID && trimmed.ImageHash == cr.ImageHash) {
 					continue
 				}
 				trimmed.To = trimmedAlbumLabel(cr, trimmed)

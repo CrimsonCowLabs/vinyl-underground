@@ -304,26 +304,46 @@ var _ = Describe("Migrating Corrections into the Files", func() {
 			Expect(m.Items).To(BeEmpty())
 		})
 
-		It("keeps a picked MusicBrainz release, and only it, as a Correction (#170)", func() {
+		It("writes a picked MusicBrainz release's IDs and its cover into the Files, and removes the Correction (#170)", func() {
 			setUpLibrary()
-			Expect(ds.Correction(ctx).Delete(album.ID)).To(Succeed())
+			// No chosen cover: the release's cover is the one the album showed.
+			for _, cr := range remaining() {
+				if cr.Kind == model.CorrectionAlbumCover || cr.Kind == model.CorrectionAlbum {
+					Expect(ds.Correction(ctx).Delete(cr.ID)).To(Succeed())
+				}
+			}
+			stored, err := artwork.StoreChosenCover(cover)
+			Expect(err).ToNot(HaveOccurred())
 			album = addCorrection(model.Correction{Kind: model.CorrectionAlbum, MatchKey: folder.ID, From: "Recrod",
-				To: "Record · MusicBrainz: Record (GB, CD, 1999)", AlbumName: "Record",
+				To:         "MusicBrainz: Record (GB, CD, 1999)",
 				MbzAlbumID: "a7f8ed5e-1111-4a1b-9c1d-123456789abc", MbzReleaseGroupID: "b7f8ed5e-1111-4a1b-9c1d-123456789abc",
-				ImageHash: "pickhash", ImageMime: "image/jpeg"})
+				ImageHash: stored.Hash, ImageMime: stored.Mime})
 			m, err := svc.PlanMigration(ctx, editor)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(itemOf(m, model.CorrectionAlbum).KeepsRelease).To(BeTrue())
+			it := itemOf(m, model.CorrectionAlbum)
+			Expect(it.Files).To(Equal(3), "two Tracks and the cover")
+			Expect(it.Changes).To(ConsistOf(
+				corrections.MigrationChange{Field: "musicbrainz_albumid", To: "a7f8ed5e-1111-4a1b-9c1d-123456789abc"},
+				corrections.MigrationChange{Field: "musicbrainz_releasegroupid", To: "b7f8ed5e-1111-4a1b-9c1d-123456789abc"},
+				corrections.MigrationChange{Field: "cover", From: "Cover Art Archive (MusicBrainz release)", To: "Band/Record/cover.jpg"},
+			))
 
-			migrate()
-			left := remaining()
-			Expect(left).To(HaveLen(1))
-			Expect(left[0].Kind).To(Equal(model.CorrectionAlbum))
-			Expect(left[0].AlbumName).To(BeEmpty())
-			Expect(left[0].MbzAlbumID).To(Equal("a7f8ed5e-1111-4a1b-9c1d-123456789abc"))
-			Expect(left[0].To).To(Equal("MusicBrainz: Record (GB, CD, 1999)"))
-			// The chosen cover outranked the release's, which would outrank the cover File now.
-			Expect(left[0].ImageHash).To(BeEmpty())
+			job := migrate()
+			Expect(job.Skipped).To(BeZero())
+			for _, name := range []string{"01 One.mp3", "02 Two.mp3"} {
+				Expect(tagsOf(name)).To(HaveKeyWithValue("MUSICBRAINZ_ALBUMID", []string{"a7f8ed5e-1111-4a1b-9c1d-123456789abc"}))
+				Expect(tagsOf(name)).To(HaveKeyWithValue("MUSICBRAINZ_RELEASEGROUPID", []string{"b7f8ed5e-1111-4a1b-9c1d-123456789abc"}))
+			}
+			written, err := os.ReadFile(filepath.Join(dir, "cover.jpg"))
+			Expect(err).ToNot(HaveOccurred())
+			Expect(written).To(Equal(cover))
+			Expect(remaining()).To(BeEmpty())
+
+			// Its undo puts the Correction back, for the migration to list again.
+			undo(job)
+			Expect(ds.Correction(ctx).GetByMatchKey(model.CorrectionAlbum, folder.ID)).To(HaveField("ImageHash", stored.Hash))
+			Expect(tagsOf("01 One.mp3")).ToNot(HaveKey("MUSICBRAINZ_ALBUMID"))
+			Expect(filepath.Join(dir, "cover.jpg")).ToNot(BeAnExistingFile())
 		})
 
 		It("leaves a Correction whose Files couldn't all be written, with the reason, and writes the rest", func() {
@@ -357,15 +377,28 @@ var _ = Describe("Migrating Corrections into the Files", func() {
 			Expect(remaining()).To(BeEmpty())
 		})
 
-		It("removes an album Correction with a picked release's cover and a newer chosen cover in one run", func() {
+		It("writes a picked release into none of the album's Files when one of them can't be written, so it isn't split", func() {
+			setUpLibrary()
+			_, err := db.Db().Exec("update correction set mbz_album_id = 'a7f8ed5e-1111-4a1b-9c1d-123456789abc' where id = ?", album.ID)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(os.Chtimes(filepath.Join(dir, "01 One.mp3"), time.Now(), time.Now().Add(time.Hour))).To(Succeed())
+			migrate()
+			Expect(tagsOf("02 Two.mp3")).ToNot(HaveKey("MUSICBRAINZ_ALBUMID"))
+			Expect(tagsOf("02 Two.mp3")).To(HaveKeyWithValue("ALBUM", []string{"Record"}))
+			Expect(ds.Correction(ctx).GetByMatchKey(model.CorrectionAlbum, folder.ID)).To(
+				HaveField("MbzAlbumID", "a7f8ed5e-1111-4a1b-9c1d-123456789abc"), "it stays, to be written once One can be")
+		})
+
+		It("writes the chosen cover, not the picked release's, when the album has both", func() {
 			setUpLibrary()
 			_, err := db.Db().Exec("update correction set mbz_album_id = 'a7f8ed5e-1111-4a1b-9c1d-123456789abc', image_hash = 'pick', image_mime = 'image/jpeg' where id = ?", album.ID)
 			Expect(err).ToNot(HaveOccurred())
 			migrate()
-			left := remaining()
-			Expect(left).To(HaveLen(1))
-			Expect(left[0].AlbumName).To(BeEmpty())
-			Expect(left[0].ImageHash).To(BeEmpty())
+			Expect(remaining()).To(BeEmpty())
+			written, err := os.ReadFile(filepath.Join(dir, "cover.jpg"))
+			Expect(err).ToNot(HaveOccurred())
+			Expect(written).To(Equal(cover), "the chosen cover outranked the release's")
+			Expect(tagsOf("01 One.mp3")).To(HaveKeyWithValue("MUSICBRAINZ_ALBUMID", []string{"a7f8ed5e-1111-4a1b-9c1d-123456789abc"}))
 		})
 
 		It("writes each File the album Correction the overlay applied to its folder", func() {

@@ -439,15 +439,10 @@ func (e *Editor) coverDone(ctx context.Context, lib *model.Library, dir string) 
 }
 
 // outranking names what the album still shows over its cover File, if anything, as a warning for
-// the admin: the cover of the MusicBrainz release picked for it (Find on MusicBrainz), or a source
-// CoverArtPriority tries first. The default order ("cover.*, folder.*, front.*, embedded, ...")
+// the admin: a source CoverArtPriority tries first. The default order ("cover.*, folder.*, front.*, embedded, ...")
 // puts cover.* first, so only another cover.<ext> sorting before it (cover.bmp, cover.gif) would,
 // or a cover.* in a folder above it.
 func (e *Editor) outranking(ctx context.Context, a *albumFolder) string {
-	if covers, err := model.AlbumCoverCorrections(e.ds.Correction(ctx), *a.album); err == nil &&
-		covers.Pick != nil && covers.Pick.ImageHash != "" {
-		return "The album still shows the cover of the MusicBrainz release picked for it."
-	}
 	// The folders as the rescan left them.
 	ids := make([]string, len(a.folders))
 	for i, f := range a.folders {

@@ -120,14 +120,13 @@ describe('Corrections page', () => {
     )
   })
 
-  it('says undoing a picked release brings back the usual cover', () => {
-    render(<UndoCorrectionButton record={release} />)
-    fireEvent.click(screen.getByText('resources.correction.actions.undo'))
+  it('has no Undo for a picked MusicBrainz release, which the migration writes into the Files (#170)', () => {
+    render(<CorrectionStatusField record={release} />)
     expect(
-      screen.getByText(
-        /resources.correction.message.undoContentRelease .*Band – Record/,
-      ),
+      screen.getByText('resources.correction.status.toMigrate'),
     ).toBeTruthy()
+    render(<UndoCorrectionButton record={release} />)
+    expect(screen.queryByText('resources.correction.actions.undo')).toBeNull()
   })
 
   it('reports a failed undo', async () => {

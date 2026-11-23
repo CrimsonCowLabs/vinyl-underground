@@ -309,9 +309,11 @@ const wrapperDataProvider = {
       body: JSON.stringify({ artistId, intoId }),
     }).then(writeResult),
   // Writes the album's title, album artist and year, and its Tracks' changed numbers (tracks, if
-  // any), into its Files, as one edit job (see writeResult). The MusicBrainz release picked with
-  // Find on MusicBrainz (mbzAlbumId, mbzReleaseGroupId, mbzRelease), if any, is still saved as
-  // an album Correction: { albumId, done, pickCover } alone when that is all that changed.
+  // any), into its Files, as one edit job (see writeResult). With a MusicBrainz release picked
+  // with Find on MusicBrainz (mbzAlbumId), the job writes its IDs too, and the release's values
+  // the admin accepts (canonical: { album, albumArtist, date, titles }), replacing track IDs that
+  // differ only with replaceTrackIds, and its cover as cover.jpg with cover. The answer then has
+  // pickCover, and rolledBack when a File couldn't be written, so the others were put back.
   correctAlbum: (albumId, { name, albumArtist, year, tracks, ...mbz }) =>
     httpClient(`${REST_URL}/correction/album`, {
       method: 'POST',
@@ -353,8 +355,16 @@ const wrapperDataProvider = {
     httpClient(
       `${REST_URL}/musicbrainz/release?artist=${encodeURIComponent(artist)}&title=${encodeURIComponent(title)}`,
     ).then(({ json }) => ({ data: json })),
+  // How the album's Tracks pair with a MusicBrainz release, before saving it (#170): { release,
+  // holds, tracks: [{ id, title, disc, track, paired: { id, recordingId, title, disc, position },
+  // mismatch }], unpaired, albumArtistMatches, canonical: { album, albumArtist, date: { from,
+  // to }, titles } }. A failure's body has an `error` code to translate.
+  matchMusicBrainzRelease: (releaseId, albumId) =>
+    httpClient(
+      `${REST_URL}/musicbrainz/release/${encodeURIComponent(releaseId)}/match?albumId=${encodeURIComponent(albumId)}`,
+    ).then(({ json }) => ({ data: json })),
   // The Correction migration (#165, admin only): the plan, { items: [{ correction, changes:
-  // [{ field, from, to }], files, flags: [{ path, code, error }], keepsRelease, lastRun }],
+  // [{ field, from, to }], files, flags: [{ path, code, error }], lastRun }],
   // files }, which writes nothing; and approving it, which writes them all into the Files as one
   // edit job (see writeResult), or answers { done: true } alone with nothing to write.
   getCorrectionMigration: () =>
@@ -365,8 +375,7 @@ const wrapperDataProvider = {
     httpClient(`${REST_URL}/correction/migration`, { method: 'POST' }).then(
       writeResult,
     ),
-  // Undoes a cover block or a picked MusicBrainz release; the Corrections the migration writes
-  // can't be undone (migrateFirst).
+  // Undoes a cover block; the Corrections the migration writes can't be undone (migrateFirst).
   undoCorrection: (id) =>
     httpClient(`${REST_URL}/correction/${id}/undo`, { method: 'POST' }).then(
       ({ json }) => ({ data: { id, ...json } }),

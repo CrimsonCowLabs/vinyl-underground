@@ -171,11 +171,13 @@ var _ = Describe("Migrating Corrections into the Files", func() {
 		folder := model.AlbumFolderKey(*liveAlbum)
 
 		// The Corrections the overlay applied: "Greatful Dead" merged into "Grateful Dead" (which
-		// took its star), the album retitled and dated, Two numbered 2, and an uploaded cover.
+		// took its star), the album retitled and dated and given a MusicBrainz release (#170), Two
+		// numbered 2, and an uploaded cover.
 		merge := addCorrection(model.Correction{Kind: model.CorrectionArtistMerge, MatchKey: model.ArtistNameKey("Greatful Dead"),
 			From: "Greatful Dead", To: "Grateful Dead"})
 		addCorrection(model.Correction{Kind: model.CorrectionAlbum, MatchKey: folder, From: "Greatful Dead – Live (1977)",
-			To: "Greatful Dead – Live! (1978)", AlbumName: "Live!", Year: 1978})
+			To: "Greatful Dead – Live! (1978) · MusicBrainz: Live!", AlbumName: "Live!", Year: 1978,
+			MbzAlbumID: "8a7f5c4e-0d5b-4f1e-9d3c-3b2a1f0e9d8c", MbzReleaseGroupID: "1b2c3d4e-5f60-4718-9a0b-c1d2e3f40516"})
 		addCorrection(model.Correction{Kind: model.CorrectionTrackNumbers, MatchKey: folder, From: "Live", To: "2 Two",
 			TrackNumbers: model.TrackNumberFixes{{LibraryID: nas.ID, Path: live2, Title: "Two", FromTrack: 3, Track: 2}}})
 		stored, err := artwork.StoreChosenCover(cover)
@@ -223,7 +225,10 @@ var _ = Describe("Migrating Corrections into the Files", func() {
 				Expect(mf.AlbumArtist).To(Equal("Grateful Dead"))
 				Expect(mf.Album).To(Equal("Live!"))
 				Expect(mf.Year).To(Equal(1978))
+				Expect(mf.MbzAlbumID).To(Equal("8a7f5c4e-0d5b-4f1e-9d3c-3b2a1f0e9d8c"))
+				Expect(mf.MbzReleaseGroupID).To(Equal("1b2c3d4e-5f60-4718-9a0b-c1d2e3f40516"))
 			}
+			Expect(track(live2).AlbumID).To(Equal(track(live1).AlbumID), "the release reached both Files")
 			Expect(track(live1).TrackNumber).To(Equal(1))
 			Expect(track(live2).TrackNumber).To(Equal(2))
 			Expect(track(live1).ID).To(Equal(one.ID))
@@ -258,6 +263,7 @@ var _ = Describe("Migrating Corrections into the Files", func() {
 		Expect(undone.Skipped).To(BeZero())
 		Expect(tagsOf(live1)).To(HaveKeyWithValue("ARTIST", []string{"Greatful Dead"}))
 		Expect(tagsOf(live1)).To(HaveKeyWithValue("ALBUM", []string{"Live"}))
+		Expect(tagsOf(live1)).ToNot(HaveKey("MUSICBRAINZ_ALBUMID"))
 		Expect(tagsOf(live2)).To(HaveKeyWithValue("TRACKNUMBER", []string{"3"}))
 		Expect(filepath.Join(nasDir, "Greatful Dead", "Live", "cover.jpg")).ToNot(BeAnExistingFile())
 		Expect(ds.Correction(ctx).GetAll()).To(HaveLen(4))

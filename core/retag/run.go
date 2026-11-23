@@ -168,6 +168,16 @@ func localOf(mf model.MediaFile) Local {
 	}
 }
 
+// FileOf is the Track's File as MatchRelease pairs it: its values after the local fixes, and its
+// length (Find on MusicBrainz pairs an album's Files with the release picked for it, #170).
+func FileOf(mf model.MediaFile) File {
+	return fileOf(mf, Clean(localOf(mf)))
+}
+
+func fileOf(mf model.MediaFile, c Cleaned) File {
+	return File{ID: mf.ID, Path: mf.Path, Cleaned: c, Duration: float64(mf.Duration), MbzAlbumID: mf.MbzAlbumID, MbzRecordingID: mf.MbzRecordingID}
+}
+
 // work is one File as a run handles it.
 type work struct {
 	mf     model.MediaFile
@@ -186,7 +196,7 @@ func (r *runner) folder(ctx context.Context, mfs []model.MediaFile) int {
 		orig := localOf(mf)
 		c := Clean(orig)
 		w := &work{mf: mf, orig: orig,
-			file: File{ID: mf.ID, Path: mf.Path, Cleaned: c, Duration: float64(mf.Duration), MbzAlbumID: mf.MbzAlbumID, MbzRecordingID: mf.MbzRecordingID},
+			file: fileOf(mf, c),
 			want: Want{Local: c.Local}, source: "local"}
 		key := strings.ToLower(c.Album)
 		albums[key] = append(albums[key], w)
