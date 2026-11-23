@@ -275,7 +275,19 @@ UndoEditButton.propTypes = { record: PropTypes.object }
 
 // An entry that is part of a job of several Files (#162) is marked, and the whole job can be
 // undone from it: every File it wrote, newest first, as a job of its own. A File the undo can't
-// put back (a later write changed it, ...) is skipped; the Activity panel lists why.
+// put back (a later write changed it, ...) is skipped; the Activity panel lists why. A job of a
+// kind that does more than write its Files (it moves stars, or removes Corrections) is undone
+// whole even when it wrote one File, so that is undone too.
+const jobKindsUndoneWhole = new Set([
+  'albumEdit',
+  'trackNumbers',
+  'artistRename',
+  'artistMerge',
+  'migrateCorrections',
+  // Organize (#167): its undo also removes the folders it made, and rescans.
+  'organize',
+])
+
 export const EditJobField = ({ record }) => {
   const translate = useTranslate()
   const dataProvider = useDataProvider()
@@ -313,7 +325,11 @@ export const EditJobField = ({ record }) => {
       })
   }, [dataProvider, record, notify, refresh])
 
-  if (!record || !(record.jobSize > 1)) return null
+  if (
+    !record ||
+    !(record.jobSize > 1 || jobKindsUndoneWhole.has(record.jobKind))
+  )
+    return null
   return (
     <>
       <Chip

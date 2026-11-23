@@ -456,20 +456,36 @@ func (q *Queue) recover(ctx context.Context, job *model.EditJob, s *model.EditJo
 	return q.ds.EditJob(ctx).PutStep(s)
 }
 
-// fileKey is the File a step writes: its Track, or, for a File that is no Track's (an album's
-// cover.jpg, written or moved), its kind, path and Args, which name it (with its library, or the
-// entry an undo undoes): its path alone may be another library's File's too.
+// fileKey is the File a step writes, so a job writes each File once: its Track's, or, for a File
+// that is no Track's (an album's cover.jpg, written by a cover step, moved by a move step, or put
+// back by an undo), the path its kind's Check filled in, in the library its Args name (a move's,
+// an undo's once checked; a cover's names none, and is told by its path alone). So a job may write
+// several albums' covers (the Correction migration, #165), or move the same path in two
+// libraries (Organize, #167).
 func fileKey(s *model.EditJobStep) string {
 	if s.MediaFileID != "" {
 		return "track:" + s.MediaFileID
 	}
-	return "file:" + string(s.Kind) + "\x00" + s.Path + "\x00" + s.Args
+	return fmt.Sprintf("path:%d:%s", readStepArgs(s).LibraryID, s.Path)
 }
 
-// sameFile reports whether the journal entry e wrote the step's File (see fileKey): its Track's,
-// or, for a File that is no Track's, the entry an undo step undoes, or else the File at the step's
-// Path (the File's before the write, as the entry's Path is) in the library its Args name, if they
-// name one (a move step's do).
+// stepArgs are what the queue reads of a step's Args, whatever its kind: the library of a File
+// that is no Track's (a move step's; an undo step's once checked), and the entry an undo undoes.
+type stepArgs struct {
+	LibraryID int    `json:"libraryId"`
+	EntryID   string `json:"entryId"`
+}
+
+func readStepArgs(s *model.EditJobStep) stepArgs {
+	var a stepArgs
+	_ = json.Unmarshal([]byte(s.Args), &a)
+	return a
+}
+
+// sameFile reports whether the journal entry e wrote the step's File (see fileKey), for a restart
+// to tell the step's write: its Track's; or, for a File that is no Track's, the entry that undoes
+// the one an undo step undoes, or else the File at the step's Path (the File's before the write,
+// as the entry's Path is) in the library its Args name, if they name one.
 func sameFile(s *model.EditJobStep, e *model.EditEntry) bool {
 	if s.MediaFileID != "" {
 		return e.MediaFileID == s.MediaFileID
@@ -477,11 +493,7 @@ func sameFile(s *model.EditJobStep, e *model.EditEntry) bool {
 	if e.MediaFileID != "" {
 		return false
 	}
-	var a struct {
-		LibraryID int    `json:"libraryId"`
-		EntryID   string `json:"entryId"`
-	}
-	_ = json.Unmarshal([]byte(s.Args), &a)
+	a := readStepArgs(s)
 	switch {
 	case a.EntryID != "":
 		return e.UndoOf == a.EntryID

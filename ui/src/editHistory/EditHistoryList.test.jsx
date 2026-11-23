@@ -261,6 +261,33 @@ describe('Edit history page', () => {
       expect(container.textContent).toBe('')
     })
 
+    it('offers the job undo for a Correction migration of one File, which does more than write it', () => {
+      render(
+        <EditJobField
+          record={{
+            ...entry,
+            jobId: 'j',
+            jobSize: 1,
+            jobKind: 'migrateCorrections',
+          }}
+        />,
+      )
+      expect(
+        screen.getByText('resources.editHistory.actions.undoJob'),
+      ).toBeTruthy()
+    })
+
+    it('offers the job undo for an Organize of one File, whose undo also removes the folders it made', () => {
+      render(
+        <EditJobField
+          record={{ ...entry, kind: 'move', jobId: 'j', jobSize: 1, jobKind: 'organize' }}
+        />,
+      )
+      expect(
+        screen.getByText('resources.editHistory.actions.undoJob'),
+      ).toBeTruthy()
+    })
+
     it('undoes the whole job after a confirmation', async () => {
       mockUndoJob.mockResolvedValue({
         data: { id: 'job-2', state: 'done', total: 3, skipped: 0 },

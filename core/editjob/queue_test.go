@@ -199,6 +199,18 @@ var _ = Describe("Queue", func() {
 			Expect(q.Enqueue(ctx, fakeKind, twice)).Error().To(MatchError(ErrSameFileTwice))
 		})
 
+		It("tells a File that is no Track's by its path in its library: a checked undo step's too", func() {
+			undo := func(entry string, lib int) *model.EditJobStep {
+				return &model.EditJobStep{Kind: model.EditUndo, Path: "Band/Record (1999)/cover.jpg",
+					Args: fmt.Sprintf(`{"entryId":%q,"libraryId":%d}`, entry, lib)}
+			}
+			Expect(fileKey(undo("a", 1))).ToNot(Equal(fileKey(undo("b", 2))), "the same path in two libraries")
+			Expect(fileKey(undo("a", 1))).To(Equal(fileKey(undo("b", 1))), "one File, twice")
+			cover := &model.EditJobStep{Kind: model.EditCover, Path: "Band/Record/cover.jpg", Args: `{"albumId":"al-1","sum":"x"}`}
+			other := &model.EditJobStep{Kind: model.EditCover, Path: "Band/Record/cover.jpg", Args: `{"albumId":"al-2","sum":"y"}`}
+			Expect(fileKey(cover)).To(Equal(fileKey(other)), "a cover is told by its path")
+		})
+
 		It("refuses a job with no steps", func() {
 			Expect(q.Enqueue(ctx, fakeKind, nil)).Error().To(HaveOccurred())
 		})

@@ -21,16 +21,12 @@ import (
 )
 
 type fakeCorrections struct {
-	all     model.Corrections
-	err     error
-	renamed []string
-	merged  []string
-	undone  []string
-	covers  []string
-	blocks  []string
-	albums  []string
-	numbers []string
-	fixes   []corrections.AlbumFix
+	all    model.Corrections
+	err    error
+	undone []string
+	blocks []string
+	albums []string
+	fixes  []corrections.AlbumFix
 	// plans are the jobs planned (see PlanAlbumEdit), plan what each answers (nil for one of
 	// "mf-1"), planErr its refusal.
 	plans   []string
@@ -40,36 +36,12 @@ type fakeCorrections struct {
 
 func (f *fakeCorrections) GetAll(context.Context) (model.Corrections, error) { return f.all, f.err }
 
-func (f *fakeCorrections) RenameArtist(_ context.Context, artistID, name string) (*corrections.Applied, error) {
-	if f.err != nil {
-		return nil, f.err
-	}
-	f.renamed = append(f.renamed, artistID+"->"+name)
-	return &corrections.Applied{Correction: model.Correction{ID: "c1", To: name}, ArtistID: "new-id", Done: true}, nil
-}
-
-func (f *fakeCorrections) ChooseAlbumCover(_ context.Context, albumID string, cover corrections.AlbumCover) (*corrections.Applied, error) {
-	if f.err != nil {
-		return nil, f.err
-	}
-	f.covers = append(f.covers, albumID+"->"+cover.Hash+" "+cover.Source)
-	return &corrections.Applied{Correction: model.Correction{ID: "c2", To: cover.Source}, Done: true}, nil
-}
-
 func (f *fakeCorrections) BlockAlbumCover(_ context.Context, albumID, imageHash string) (*corrections.Applied, error) {
 	if f.err != nil {
 		return nil, f.err
 	}
 	f.blocks = append(f.blocks, albumID+"-x"+imageHash)
 	return &corrections.Applied{Correction: model.Correction{ID: "c3"}, Done: true}, nil
-}
-
-func (f *fakeCorrections) MergeArtist(_ context.Context, artistID, intoID string) (*corrections.Applied, error) {
-	if f.err != nil {
-		return nil, f.err
-	}
-	f.merged = append(f.merged, artistID+"->"+intoID)
-	return &corrections.Applied{Correction: model.Correction{ID: "c2"}, ArtistID: intoID, Done: true}, nil
 }
 
 func (f *fakeCorrections) CorrectAlbum(_ context.Context, albumID string, fix corrections.AlbumFix) (*corrections.Applied, error) {
@@ -86,7 +58,21 @@ func (f *fakeCorrections) Undo(_ context.Context, id string) (*corrections.Appli
 		return nil, f.err
 	}
 	f.undone = append(f.undone, id)
-	return &corrections.Applied{Correction: model.Correction{ID: id}, ArtistID: "old-id", Done: false}, nil
+	return &corrections.Applied{Correction: model.Correction{ID: id}, Done: true}, nil
+}
+
+func (f *fakeCorrections) PlanMigration(context.Context, *tagedit.Editor) (*corrections.Migration, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	f.plans = append(f.plans, "migration")
+	return &corrections.Migration{Items: []corrections.MigrationItem{{Correction: model.Correction{ID: "c1",
+		Kind: model.CorrectionArtistRename}, Files: 2, Changes: []corrections.MigrationChange{{Field: "artist", From: "A", To: "B"}}}},
+		Files: 2}, nil
+}
+
+func (f *fakeCorrections) MigrationJob(context.Context, *tagedit.Editor) (*corrections.Plan, error) {
+	return f.planned("migrate")
 }
 
 var _ = Describe("Corrections API", func() {
@@ -149,7 +135,6 @@ var _ = Describe("Corrections API", func() {
 		w := do("POST", "/correction/artistRename", adminToken, map[string]string{"artistId": "ar-1", "name": "Grateful Dead"})
 		Expect(w.Code).To(Equal(http.StatusOK), w.Body.String())
 		Expect(svc.plans).To(Equal([]string{"rename ar-1->Grateful Dead"}))
-		Expect(svc.renamed).To(BeEmpty())
 		var got struct {
 			JobID    string         `json:"jobId"`
 			Done     bool           `json:"done"`
@@ -169,7 +154,6 @@ var _ = Describe("Corrections API", func() {
 		w := do("POST", "/correction/artistMerge", adminToken, map[string]string{"artistId": "ar-1", "intoId": "ar-2"})
 		Expect(w.Code).To(Equal(http.StatusOK), w.Body.String())
 		Expect(svc.plans).To(Equal([]string{"merge ar-1->ar-2"}))
-		Expect(svc.merged).To(BeEmpty())
 		var got struct {
 			Job *model.EditJob `json:"job"`
 		}
@@ -179,11 +163,60 @@ var _ = Describe("Corrections API", func() {
 		Expect(got.Job.Steps[0].Code).To(Equal("changedOnDisk"))
 	})
 
-	It("refuses an undo a later Correction builds on", func() {
-		svc.err = corrections.ErrUndoLaterFirst
+	It("refuses to undo a Correction the migration writes into the Files", func() {
+		svc.err = corrections.ErrMigrateFirst
 		w := do("POST", "/correction/c1/undo", adminToken, nil)
 		Expect(w.Code).To(Equal(http.StatusBadRequest))
-		Expect(errorCode(w)).To(Equal("undoLaterFirst"))
+		Expect(errorCode(w)).To(Equal("migrateFirst"))
+	})
+
+	Describe("the Correction migration", func() {
+		BeforeEach(func() {
+			nativeRouter.tagEditor = tagedit.New(&tests.MockDataStore{}, nil)
+		})
+
+		It("lists the Corrections it writes, writing nothing", func() {
+			w := do("GET", "/correction/migration", adminToken, nil)
+			Expect(w.Code).To(Equal(http.StatusOK), w.Body.String())
+			var got corrections.Migration
+			Expect(json.Unmarshal(w.Body.Bytes(), &got)).To(Succeed())
+			Expect(got.Files).To(Equal(2))
+			Expect(got.Items).To(HaveLen(1))
+			Expect(got.Items[0].Changes).To(Equal([]corrections.MigrationChange{{Field: "artist", From: "A", To: "B"}}))
+		})
+
+		It("runs it as one job when approved, answering the Files it skipped", func() {
+			svc.plan = fakePlan(corrections.JobMigrate, "mf-1", "skip-2")
+			w := do("POST", "/correction/migration", adminToken, nil)
+			Expect(w.Code).To(Equal(http.StatusOK), w.Body.String())
+			Expect(svc.plans).To(Equal([]string{"migrate"}))
+			var got struct {
+				Job *model.EditJob `json:"job"`
+			}
+			Expect(json.Unmarshal(w.Body.Bytes(), &got)).To(Succeed())
+			Expect(got.Job.Kind).To(Equal(corrections.JobMigrate))
+			Expect(got.Job.Skipped).To(Equal(1))
+		})
+
+		It("answers done when there is nothing to write", func() {
+			svc.planErr = corrections.ErrNothingToWrite
+			w := do("POST", "/correction/migration", adminToken, nil)
+			Expect(w.Code).To(Equal(http.StatusOK), w.Body.String())
+			Expect(w.Body.String()).To(ContainSubstring(`"done":true`))
+		})
+
+		It("answers editingOff with no edit job queue", func() {
+			nativeRouter.SetEditQueue(nil)
+			w := do("POST", "/correction/migration", adminToken, nil)
+			Expect(w.Code).To(Equal(http.StatusForbidden))
+			Expect(errorCode(w)).To(Equal("editingOff"))
+		})
+
+		It("denies access to regular users", func() {
+			Expect(do("GET", "/correction/migration", userToken, nil).Code).To(Equal(http.StatusForbidden))
+			Expect(do("POST", "/correction/migration", userToken, nil).Code).To(Equal(http.StatusForbidden))
+			Expect(svc.plans).To(BeEmpty())
+		})
 	})
 
 	It("undoes a Correction", func() {

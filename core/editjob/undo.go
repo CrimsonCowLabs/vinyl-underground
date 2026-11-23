@@ -18,6 +18,9 @@ var ErrJobUnfinished = errors.New("the job hasn't finished; undo it once it has"
 // undoArgs are an undo step's Args: the Edit journal entry it undoes.
 type undoArgs struct {
 	EntryID string `json:"entryId"`
+	// LibraryID is the entry's library, filled in when the step is checked: a File that is no
+	// Track's is told apart from the same path in another library by it (see fileKey).
+	LibraryID int `json:"libraryId,omitempty"`
 }
 
 // UndoStep is the step that undoes the written Edit journal entry entryID (tagedit.Editor.Undo).
@@ -130,6 +133,12 @@ func (k undoKind) Check(ctx context.Context, step *model.EditJobStep) error {
 		return err
 	}
 	step.MediaFileID, step.Path = entry.MediaFileID, entry.NewPath
+	a.LibraryID = entry.LibraryID
+	b, err := json.Marshal(a)
+	if err != nil {
+		return err
+	}
+	step.Args = string(b)
 	return nil
 }
 

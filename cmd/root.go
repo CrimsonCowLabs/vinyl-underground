@@ -98,6 +98,10 @@ func runNavidrome(ctx context.Context) {
 	checkInbox(ctx)
 	checkPromoteFolder(ctx)
 	checkLibraryEditing(ctx)
+	// Before any scan, which could purge a renamed Artist's new name (#165).
+	if err := corrections.KeepRenamedStars(ctx, CreateDataStore()); err != nil {
+		log.Error(ctx, "Could not keep the stars of the Artists renamed by Corrections not yet written into the Files", err)
+	}
 	settleEdits(ctx)
 
 	g, ctx := errgroup.WithContext(ctx)
@@ -267,7 +271,7 @@ func startEditJobs(ctx context.Context, g *errgroup.Group) *editjob.Queue {
 	editor := tagedit.New(ds, CreateScanner(ctx))
 	queue := editjob.New(ds, events.GetBroker(), editjob.Kinds(ds, editor))
 	// The album Edit dialog, Track order and artist rename and merge write to the Files (#163).
-	for kind, k := range corrections.JobKinds(ds, CreateScanner(ctx)) {
+	for kind, k := range corrections.JobKinds(ds) {
 		queue.Handle(kind, k)
 	}
 	// Organize removes the folders its moves left empty, and rescans (#167).

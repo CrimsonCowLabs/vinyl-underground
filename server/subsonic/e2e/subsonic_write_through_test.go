@@ -125,7 +125,7 @@ var _ = Describe("Corrections written to the Files", func() {
 		router := nativeapi.New(ds, core.NewShare(ds), playlists.NewPlaylists(ds, artwork.NewUploader(ds)), nil, tests.NewMockLibraryService(), tests.NewMockUserService(),
 			nil, nil, nil, nil, nil, nil, nil, editor)
 		queue := editjob.New(ds, nil, editjob.Kinds(ds, editor))
-		for kind, k := range corrections.JobKinds(ds, s) {
+		for kind, k := range corrections.JobKinds(ds) {
 			queue.Handle(kind, k)
 		}
 		router.SetEditQueue(queue)
@@ -180,13 +180,13 @@ var _ = Describe("Corrections written to the Files", func() {
 	It("writes the album Edit dialog into every File of the album, keeps its Tracks and its star, and replaces the Correction it makes stale", func() {
 		one, two := track(live1), track(live2)
 		Expect(doReq("star", "albumId", one.AlbumID).Status).To(Equal(responses.StatusOK))
-		// An earlier Correction renames the album.
+		// An earlier Correction (not yet migrated, #165) renames the album.
 		al, err := ds.Album(ctx).Get(one.AlbumID)
 		Expect(err).ToNot(HaveOccurred())
 		old := model.Correction{Kind: model.CorrectionAlbum, MatchKey: model.AlbumFolderKey(*al), From: "Greatful Dead – Live", To: "Greatful Dead – Live!", AlbumName: "Live!"}
 		Expect(ds.Correction(ctx).Add(&old)).To(Succeed())
 		scan(true)
-		Expect(track(live1).Album).To(Equal("Live!"))
+		Expect(track(live1).Album).To(Equal("Live"), "nothing applies a Correction on read (#165)")
 
 		res := save("/correction/album", map[string]any{"albumId": track(live1).AlbumID, "name": "Live at Winterland",
 			"albumArtist": "Greatful Dead", "year": 1978, "tracks": []map[string]any{{"id": two.ID, "discNumber": 0, "trackNumber": 3}}})
@@ -221,7 +221,7 @@ var _ = Describe("Corrections written to the Files", func() {
 		Expect(err).ToNot(HaveOccurred())
 		Expect(all).To(HaveLen(1))
 		Expect(all[0].AlbumName).To(Equal("Live!"))
-		Expect(track(live1).Album).To(Equal("Live!"))
+		Expect(track(live1).Album).To(Equal("Live"), "nothing applies a Correction on read (#165)")
 		Expect(track(live1).ID).To(Equal(one.ID))
 		back, err := ds.Album(ctx).Get(track(live1).AlbumID)
 		Expect(err).ToNot(HaveOccurred())

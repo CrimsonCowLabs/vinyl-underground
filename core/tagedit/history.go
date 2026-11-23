@@ -18,7 +18,11 @@ type HistoryEntry struct {
 	JobID string `json:"jobId"`
 	// JobSize is how many entries the entry's job has (#162): the history groups them, and a job
 	// of several can be undone as a whole.
-	JobSize   int             `json:"jobSize"`
+	JobSize int `json:"jobSize"`
+	// JobKind is the kind of the entry's job, when it has a row in the queue: a job of a kind
+	// that does more than write its Files (e.g. the Correction migration) is undone as a whole,
+	// whatever its size.
+	JobKind   model.EditKind  `json:"jobKind,omitempty"`
 	Kind      model.EditKind  `json:"kind"`
 	State     model.EditState `json:"state"`
 	UserID    string          `json:"userId,omitempty"`
@@ -71,6 +75,7 @@ func (e *Editor) History(ctx context.Context, offset, limit int) ([]HistoryEntry
 	}
 	tracks := map[string]*HistoryTrack{}
 	jobSizes := map[string]int{}
+	jobKinds := map[string]model.EditKind{}
 	// undos tells, by entry ID, whether an entry an undo undid was an undo itself.
 	undos := map[string]bool{}
 	res := make([]HistoryEntry, 0, len(entries))
@@ -95,6 +100,18 @@ func (e *Editor) History(ctx context.Context, offset, limit int) ([]HistoryEntry
 				jobSizes[en.JobID] = size
 			}
 			h.JobSize = size
+			kind, ok := jobKinds[en.JobID]
+			if !ok {
+				job, err := e.ds.EditJob(ctx).Get(en.JobID)
+				if err != nil && !errors.Is(err, model.ErrNotFound) {
+					return nil, 0, err
+				}
+				if job != nil {
+					kind = job.Kind
+				}
+				jobKinds[en.JobID] = kind
+			}
+			h.JobKind = kind
 		}
 		if en.MediaFileID != "" {
 			t, ok := tracks[en.MediaFileID]
