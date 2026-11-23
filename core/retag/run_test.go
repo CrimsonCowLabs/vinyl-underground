@@ -132,7 +132,7 @@ var _ = Describe("Run", func() {
 
 	It("leaves out Quarantine, Duplicates, other formats and Files outside the path", func() {
 		lib.mfs = model.MediaFiles{
-			track("q", "Quarantine/A/01 - X.mp3", "01 - X", 0, 200),
+			track("q", "_Quarantine/A/01 - X.mp3", "01 - X", 0, 200),
 			track("d", "A/B/Song 1.mp3", "01 - Song", 0, 200),
 			track("o", "A/B/Song.mp3", "Song", 1, 200),
 			track("f", "A/B/02 - Y.flac", "02 - Y", 0, 200),
@@ -143,6 +143,17 @@ var _ = Describe("Run", func() {
 		Expect(lib.edits).To(BeEmpty())
 		Expect(sum.Skipped).To(Equal(1))
 		Expect(report.String()).To(ContainSubstring("skipped\tA/B/Song 1.mp3"))
+	})
+
+	It("never retags a File in Quarantine", func() {
+		lib.mfs = model.MediaFiles{
+			track("q", "_Quarantine/A/01 - X.mp3", "01 - X", 0, 200),
+			track("k", "A/01 - Y.mp3", "01 - Y", 0, 200),
+		}
+		sum := run()
+		Expect(lib.edits).NotTo(HaveKey("q"))
+		Expect(lib.edits).To(HaveKey("k"))
+		Expect(sum.Files).To(Equal(1))
 	})
 
 	It("takes a path as a folder, not a prefix of a name", func() {
