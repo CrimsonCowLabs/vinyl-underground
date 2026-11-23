@@ -27,8 +27,11 @@ type HistoryEntry struct {
 	State     model.EditState `json:"state"`
 	UserID    string          `json:"userId,omitempty"`
 	LibraryID int             `json:"libraryId"`
-	Path      string          `json:"path"`
-	NewPath   string          `json:"newPath"`
+	// MediaFileID is the entry's Track, empty for a File that is no Track's (a folder cover, a File
+	// moved with its album); Track is nil both then and when the Track is gone.
+	MediaFileID string `json:"mediaFileId,omitempty"`
+	Path        string `json:"path"`
+	NewPath     string `json:"newPath"`
 	// Track is the File's Track as the app has it now; nil when it is gone.
 	Track   *HistoryTrack `json:"track,omitempty"`
 	Changes []TagChange   `json:"changes"`
@@ -82,7 +85,7 @@ func (e *Editor) History(ctx context.Context, offset, limit int) ([]HistoryEntry
 	for _, en := range entries {
 		h := HistoryEntry{
 			ID: en.ID, JobID: en.JobID, Kind: en.Kind, State: en.State, UserID: en.UserID,
-			LibraryID: en.LibraryID, Path: en.Path, NewPath: en.NewPath, UndoOf: en.UndoOf,
+			LibraryID: en.LibraryID, MediaFileID: en.MediaFileID, Path: en.Path, NewPath: en.NewPath, UndoOf: en.UndoOf,
 			Error: en.Error, CreatedAt: en.CreatedAt, Changes: []TagChange{},
 			OriginalImage: en.OriginalImage, Image: en.Image,
 		}

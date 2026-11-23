@@ -537,7 +537,14 @@ func (e *Editor) rekey(ctx context.Context, f *file) error {
 	if dir == "." {
 		dir = ""
 	}
-	targets := []model.ScanTarget{{LibraryID: f.mf.LibraryID, FolderPath: dir}}
+	return e.scan(ctx, []model.ScanTarget{{LibraryID: f.mf.LibraryID, FolderPath: dir}})
+}
+
+// scan rescans the targets, waiting a little for a busy scanner.
+func (e *Editor) scan(ctx context.Context, targets []model.ScanTarget) error {
+	if e.scanner == nil {
+		return nil
+	}
 	ctx = context.WithoutCancel(ctx)
 	var err error
 	for i := range max(e.scanAttempts, 1) {
@@ -570,6 +577,10 @@ func (e *Editor) Settle(ctx context.Context) {
 		}
 		if entry.Kind == model.EditCover {
 			e.settleCover(ctx, lib, entry)
+			continue
+		}
+		if _, ok := moveKinds[entry.Kind]; ok {
+			e.settleMove(ctx, lib, entry)
 			continue
 		}
 		abs := filepath.Join(lib.Path, filepath.FromSlash(entry.Path))

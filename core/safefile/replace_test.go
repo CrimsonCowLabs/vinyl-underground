@@ -35,6 +35,13 @@ func (f faultyFS) Rename(oldname, newname string) error {
 	return f.FS.Rename(oldname, newname)
 }
 
+func (f faultyFS) Create(name string) (File, error) {
+	if f.fail("create", name) {
+		return nil, errInjected
+	}
+	return f.FS.Create(name)
+}
+
 func (f faultyFS) Remove(name string) error {
 	if f.fail("remove", name) {
 		return errInjected

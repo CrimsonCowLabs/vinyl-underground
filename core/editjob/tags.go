@@ -57,5 +57,7 @@ func Kinds(ds model.DataStore, editor *tagedit.Editor) map[model.EditKind]StepKi
 		// #164: the album's folder cover, and Embed in Files.
 		model.EditCover: coverKind{editor: editor},
 		model.EditEmbed: embedKind{editor: editor},
+		// #167: a File moved within its library (Organize).
+		model.EditMove: moveKind{editor: editor},
 	}
 }

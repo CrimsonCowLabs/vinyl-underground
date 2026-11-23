@@ -13,6 +13,7 @@ package editjob
 import (
 	"cmp"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
@@ -136,10 +137,10 @@ func (q *Queue) EnqueueWith(ctx context.Context, kind model.EditKind, args strin
 		if err := k.Check(ctx, s); err != nil {
 			return nil, err
 		}
-		if files[stepFile(s)] {
+		if files[fileKey(s)] {
 			return nil, fmt.Errorf("%w: an edit job writes each File once", ErrSameFileTwice)
 		}
-		files[stepFile(s)] = true
+		files[fileKey(s)] = true
 	}
 	job := &model.EditJob{Kind: kind, Args: args, State: model.EditJobQueued, Total: len(steps)}
 	if u, ok := request.UserFrom(ctx); ok {
@@ -352,6 +353,7 @@ func (q *Queue) giveUp(ctx context.Context, job *model.EditJob, err error) bool 
 // ended (starting false). A job undoing another runs that one's kind: its Undone once its steps have ended, or,
 // when it undoes an undo (a redo), the kind's Start and Done, as the job it redoes did.
 func (q *Queue) hook(ctx context.Context, job *model.EditJob, steps model.EditJobSteps, starting bool) error {
+	ctx = context.WithValue(ctx, runningJobKey{}, job.ID)
 	target, undone, err := q.undoes(ctx, job, 0)
 	if err != nil || target == nil {
 		return err
@@ -377,6 +379,17 @@ func (q *Queue) hook(ctx context.Context, job *model.EditJob, steps model.EditJo
 	return q.ds.EditJob(ctx).Put(target)
 }
 
+type runningJobKey struct{}
+
+// RunningJob is the ID of the job the queue runs a JobKind for (see Handle): the job itself, or,
+// when the kind runs for a job an undo undoes or redoes, that undo's or redo's. A kind that writes
+// Files of its own journals them with it, so they are undone with the job that wrote them. ""
+// outside a JobKind.
+func RunningJob(ctx context.Context) string {
+	id, _ := ctx.Value(runningJobKey{}).(string)
+	return id
+}
+
 // undoes returns the job whose kind runs for job: job itself, or, for an undo job, the job it
 // undoes (and that job's, for an undo of an undo), and whether that job is being undone. It is
 // nil for an undo with no job (of single Files, from the Edit history).
@@ -397,16 +410,6 @@ func (q *Queue) undoes(ctx context.Context, job *model.EditJob, depth int) (*mod
 	}
 	target, wasUndone, err := q.undoes(ctx, undone, depth+1)
 	return target, !wasUndone, err
-}
-
-// stepFile names the File a step writes: its Track's, or for a step of no Track (an album's
-// folder cover, which its Check fills the Path of) its path. So a job may write several albums'
-// covers (the Correction migration, #165), and a restart tells their writes apart by path.
-func stepFile(s *model.EditJobStep) string {
-	if s.MediaFileID == "" {
-		return "path:" + s.Path
-	}
-	return s.MediaFileID
 }
 
 // runStep writes the step's File, and records its outcome in the step.
@@ -441,7 +444,7 @@ func (q *Queue) recover(ctx context.Context, job *model.EditJob, s *model.EditJo
 	var entry *model.EditEntry
 	for i := range entries {
 		// A job has one step per File: its latest entry for the File is the step's.
-		if entries[i].MediaFileID == s.MediaFileID && (s.MediaFileID != "" || entries[i].Path == s.Path) {
+		if sameFile(s, &entries[i]) {
 			entry = &entries[i]
 		}
 	}
@@ -463,6 +466,53 @@ func (q *Queue) recover(ctx context.Context, job *model.EditJob, s *model.EditJo
 		return nil
 	}
 	return q.ds.EditJob(ctx).PutStep(s)
+}
+
+// fileKey is the File a step writes, so a job writes each File once: its Track's, or, for a File
+// that is no Track's (an album's cover.jpg, written by a cover step, moved by a move step, or put
+// back by an undo), the path its kind's Check filled in, in the library its Args name (a move's,
+// an undo's once checked; a cover's names none, and is told by its path alone). So a job may write
+// several albums' covers (the Correction migration, #165), or move the same path in two
+// libraries (Organize, #167).
+func fileKey(s *model.EditJobStep) string {
+	if s.MediaFileID != "" {
+		return "track:" + s.MediaFileID
+	}
+	return fmt.Sprintf("path:%d:%s", readStepArgs(s).LibraryID, s.Path)
+}
+
+// stepArgs are what the queue reads of a step's Args, whatever its kind: the library of a File
+// that is no Track's (a move step's; an undo step's once checked), and the entry an undo undoes.
+type stepArgs struct {
+	LibraryID int    `json:"libraryId"`
+	EntryID   string `json:"entryId"`
+}
+
+func readStepArgs(s *model.EditJobStep) stepArgs {
+	var a stepArgs
+	_ = json.Unmarshal([]byte(s.Args), &a)
+	return a
+}
+
+// sameFile reports whether the journal entry e wrote the step's File (see fileKey), for a restart
+// to tell the step's write: its Track's; or, for a File that is no Track's, the entry that undoes
+// the one an undo step undoes, or else the File at the step's Path (the File's before the write,
+// as the entry's Path is) in the library its Args name, if they name one.
+func sameFile(s *model.EditJobStep, e *model.EditEntry) bool {
+	if s.MediaFileID != "" {
+		return e.MediaFileID == s.MediaFileID
+	}
+	if e.MediaFileID != "" {
+		return false
+	}
+	a := readStepArgs(s)
+	switch {
+	case a.EntryID != "":
+		return e.UndoOf == a.EntryID
+	case a.LibraryID != 0 && e.LibraryID != a.LibraryID:
+		return false
+	}
+	return e.Path == s.Path
 }
 
 // save records the job's progress, counted from its steps, and tells the UI.

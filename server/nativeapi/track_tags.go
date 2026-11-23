@@ -218,6 +218,10 @@ var tagEditStatus = map[string]int{
 	"sharedFolder":  http.StatusUnprocessableEntity,
 	"coverChanged":  http.StatusConflict,
 	"noFolderCover": http.StatusUnprocessableEntity,
+	// Moves (#167).
+	"pathTaken": http.StatusConflict,
+	"caseTwin":  http.StatusConflict,
+	"outside":   http.StatusUnprocessableEntity,
 }
 
 // writeTagEditError answers a failed read or edit with a code the dialog translates, and the

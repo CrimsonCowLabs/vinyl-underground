@@ -144,6 +144,7 @@
       },
       "actions": {
         "edit": "Edit",
+        "organize": "Organize",
         "playAll": "Play",
         "playNext": "Play Next",
         "addToQueue": "Play Later",
@@ -643,7 +644,9 @@
         "coverRemoved": "Album folder cover removed",
         "embedAdded": "Cover embedded in the File",
         "embedReplaced": "Embedded cover replaced",
-        "embedRemoved": "Embedded cover removed"
+        "embedRemoved": "Embedded cover removed",
+        "moved": "Moved",
+        "albumFile": "A File moved with its album"
       },
       "notifications": {
         "undone": "The earlier values were written back to the File",
@@ -670,7 +673,51 @@
         "jobUnfinished": "This job hasn't finished yet. Undo it once it has.",
         "sameFileTwice": "This job wrote the same File twice, so it can't be undone as a whole. Undo its writes one at a time.",
         "coverChanged": "The cover was changed outside the app since this write, so undoing it would overwrite that.",
+        "pathTaken": "Another File is at this File's old path now, so it isn't moved back over it.",
+        "caseTwin": "A folder on the way has a twin whose name differs only in letter case. Merge the two first.",
+        "outside": "A folder on the way leads out of the library (a link), so nothing is moved through it.",
         "unknown": "The write could not be undone."
+      }
+    },
+    "organize": {
+      "help": "Organize moves Files to match their tags: <Album Artist>/<Album> (<Year>)/<NN> <Title>, or <D>-<NN> <Title> on a multi-disc album. Nothing moves until you run the plan. Each Track keeps its favorites, ratings, plays and Playlist entries, and the whole job can be undone from the Edit history.",
+      "summary": {
+        "tracks": "%{smart_count} Track moves |||| %{smart_count} Tracks move",
+        "files": "%{smart_count} other File (covers and the like) moves with its album, and so does anything else in the album's folder |||| %{smart_count} other Files (covers and the like) move with their albums, and so does anything else in their albums' folders",
+        "inPlace": "%{smart_count} Track is in place already |||| %{smart_count} Tracks are in place already",
+        "left": "%{smart_count} File can't be placed, and stays where it is |||| %{smart_count} Files can't be placed, and stay where they are"
+      },
+      "leftTitle": "Left where they are",
+      "movesTitle": "Moves",
+      "fields": {
+        "path": "File",
+        "reason": "Why"
+      },
+      "reasons": {
+        "noAlbumArtist": "No album artist. Set one first (its album's other Tracks may have other artists)",
+        "noAlbum": "No album",
+        "noTitle": "No real title (empty, only a number, or \"Track NN\")",
+        "titleNumber": "The title starts with a number. Run retag, or fix the title first",
+        "noTrackNumber": "No track number",
+        "noDiscNumber": "No disc number, on a multi-disc album",
+        "caseTwin": "A folder on the way has a twin whose name differs only in letter case. Merge the two first",
+        "samePath": "Another File is planned for the same path",
+        "pathTaken": "A File is at the new path already",
+        "editingOff": "Its library is read-only",
+        "unknown": "Can't be placed"
+      },
+      "more": "Show more",
+      "run": "Move %{smart_count} Track |||| Move %{smart_count} Tracks",
+      "done": "The Files were moved",
+      "doneSkipped": "The Files were moved, but %{smart_count} was skipped. The Activity panel says why. |||| The Files were moved, but %{smart_count} were skipped. The Activity panel says why.",
+      "inBackground": "The Files are being moved in the background. The Activity panel shows how it goes.",
+      "errors": {
+        "editingOff": "Editing is off: the Library is read-only.",
+        "noSelection": "Select the Tracks to organize first.",
+        "tooMany": "Too many Tracks are selected one by one. Organize all matching the filter instead.",
+        "planChanged": "The Library changed since the plan was made. Here is the plan as it is now.",
+        "nothingToMove": "Every File is in place already, or can't be placed.",
+        "unknown": "Could not organize the Files. Try again later."
       }
     },
     "libraryTrack": {
@@ -705,6 +752,8 @@
       "actions": {
         "editSelected": "Edit tags",
         "editMatching": "Edit all %{smart_count} matching",
+        "organizeSelected": "Organize",
+        "organizeMatching": "Organize all %{smart_count} matching",
         "editHistory": "Edit history"
       },
       "message": {
@@ -1315,7 +1364,8 @@
         "artistMerge": "Artist merge",
         "migrateCorrections": "Corrections written into the Files",
         "cover": "Album cover",
-        "embed": "Embed in Files"
+        "embed": "Embed in Files",
+        "organize": "Organize"
       },
       "files": "%{smart_count} File |||| %{smart_count} Files",
       "queued": "Waiting for the edit before it",

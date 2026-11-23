@@ -18,6 +18,9 @@ var ErrJobUnfinished = errors.New("the job hasn't finished; undo it once it has"
 // undoArgs are an undo step's Args: the Edit journal entry it undoes.
 type undoArgs struct {
 	EntryID string `json:"entryId"`
+	// LibraryID is the entry's library, filled in when the step is checked: a File that is no
+	// Track's is told apart from the same path in another library by it (see fileKey).
+	LibraryID int `json:"libraryId,omitempty"`
 }
 
 // UndoStep is the step that undoes the written Edit journal entry entryID (tagedit.Editor.Undo).
@@ -121,14 +124,21 @@ func (k undoKind) Check(ctx context.Context, step *model.EditJobStep) error {
 	if entry.State != model.EditWritten {
 		return fmt.Errorf("%w: it was never written (%s)", tagedit.ErrNotUndoable, entry.State)
 	}
-	// A folder cover (#164) is no Track's: its library is checked directly.
-	if entry.Kind == model.EditCover && !tagedit.Writable(entry.LibraryID) {
+	// The entry's library is checked directly: a folder cover (#164), or a File moved with its
+	// album (#167), is no Track's, and a moved Track may be gone (its File goes back alone).
+	if !tagedit.Writable(entry.LibraryID) {
 		return tagedit.ErrEditingOff
 	}
 	if _, err := k.editor.Check(ctx, entry.MediaFileID); errors.Is(err, tagedit.ErrEditingOff) {
 		return err
 	}
 	step.MediaFileID, step.Path = entry.MediaFileID, entry.NewPath
+	a.LibraryID = entry.LibraryID
+	b, err := json.Marshal(a)
+	if err != nil {
+		return err
+	}
+	step.Args = string(b)
 	return nil
 }
 

@@ -50,6 +50,12 @@ func Code(err error) string {
 		return "coverChanged"
 	case errors.Is(err, ErrNoFolderCover):
 		return "noFolderCover"
+	case errors.Is(err, safefile.ErrDestTaken):
+		return "pathTaken"
+	case errors.Is(err, safefile.ErrCaseTwin):
+		return "caseTwin"
+	case errors.Is(err, safefile.ErrOutside):
+		return "outside"
 	}
 	return CodeInternal
 }

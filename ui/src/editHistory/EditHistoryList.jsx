@@ -44,6 +44,9 @@ const knownErrors = [
   'jobUnfinished',
   'sameFileTwice',
   'coverChanged',
+  'pathTaken',
+  'caseTwin',
+  'outside',
 ]
 
 // What a cover write (the folder's cover.jpg) or an embed (Embed in Files) did, by whether it
@@ -92,6 +95,21 @@ export const EditChangesField = ({ record }) => {
       </Typography>
     )
   }
+  if (record.kind === 'move') {
+    // A move (Organize, #167): where the File was, and where it went.
+    return (
+      <Typography variant="body2" component="span" className={classes.change}>
+        <span className={classes.tag}>
+          {translate('resources.editHistory.message.moved')}
+        </span>
+        <span>{record.path}</span>
+        <span className={classes.arrow} aria-hidden>
+          →
+        </span>
+        <span>{record.newPath}</span>
+      </Typography>
+    )
+  }
   return (
     <>
       {(record.changes || []).map((c) => (
@@ -132,6 +150,14 @@ export const EditTrackField = ({ record }) => {
     return (
       <Typography variant="body2" component="span" className={classes.none}>
         {translate('resources.editHistory.message.albumCover')}
+      </Typography>
+    )
+  }
+  if (!record.track && record.kind === 'move' && !record.mediaFileId) {
+    // A File moved with its album (its cover.jpg, ...) is no Track's.
+    return (
+      <Typography variant="body2" component="span" className={classes.none}>
+        {translate('resources.editHistory.message.albumFile')}
       </Typography>
     )
   }
@@ -258,6 +284,8 @@ const jobKindsUndoneWhole = new Set([
   'artistRename',
   'artistMerge',
   'migrateCorrections',
+  // Organize (#167): its undo also removes the folders it made, and rescans.
+  'organize',
 ])
 
 export const EditJobField = ({ record }) => {

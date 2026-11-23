@@ -17,6 +17,7 @@ import (
 	"github.com/navidrome/navidrome/core/artwork"
 	"github.com/navidrome/navidrome/core/corrections"
 	"github.com/navidrome/navidrome/core/editjob"
+	"github.com/navidrome/navidrome/core/organize"
 	"github.com/navidrome/navidrome/core/rip"
 	"github.com/navidrome/navidrome/core/tagedit"
 	"github.com/navidrome/navidrome/db"
@@ -267,9 +268,14 @@ func startEditJobs(ctx context.Context, g *errgroup.Group) *editjob.Queue {
 		return nil
 	}
 	ds := CreateDataStore()
-	queue := editjob.New(ds, events.GetBroker(), editjob.Kinds(ds, tagedit.New(ds, CreateScanner(ctx))))
+	editor := tagedit.New(ds, CreateScanner(ctx))
+	queue := editjob.New(ds, events.GetBroker(), editjob.Kinds(ds, editor))
 	// The album Edit dialog, Track order and artist rename and merge write to the Files (#163).
 	for kind, k := range corrections.JobKinds(ds) {
+		queue.Handle(kind, k)
+	}
+	// Organize removes the folders its moves left empty, and rescans (#167).
+	for kind, k := range organize.JobKinds(ds, editor) {
 		queue.Handle(kind, k)
 	}
 	g.Go(func() error {

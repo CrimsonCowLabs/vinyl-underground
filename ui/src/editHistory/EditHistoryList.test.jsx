@@ -78,6 +78,43 @@ describe('Edit history page', () => {
     ).toHaveLength(3)
   })
 
+  describe('moves (Organize)', () => {
+    const move = {
+      ...entry,
+      kind: 'move',
+      path: 'iTunes/x/a.mp3',
+      newPath: 'Band/Record (1999)/01 A.mp3',
+      changes: [],
+    }
+
+    it('shows where the File was and where it went', () => {
+      render(<EditChangesField record={move} />)
+      expect(
+        screen.getByText('resources.editHistory.message.moved'),
+      ).toBeTruthy()
+      expect(screen.getByText('iTunes/x/a.mp3')).toBeTruthy()
+      expect(screen.getByText('Band/Record (1999)/01 A.mp3')).toBeTruthy()
+    })
+
+    it('names a File moved with its album, which is no Track', () => {
+      render(<EditTrackField record={{ ...move, track: undefined }} />)
+      expect(
+        screen.getByText('resources.editHistory.message.albumFile'),
+      ).toBeTruthy()
+    })
+
+    it('says a moved Track is gone, not that it was an album File', () => {
+      render(
+        <EditTrackField
+          record={{ ...move, mediaFileId: 'mf-1', track: undefined }}
+        />,
+      )
+      expect(
+        screen.getByText('resources.editHistory.message.trackGone'),
+      ).toBeTruthy()
+    })
+  })
+
   describe('album covers', () => {
     const cover = {
       ...entry,
@@ -243,6 +280,23 @@ describe('Edit history page', () => {
             jobId: 'j',
             jobSize: 1,
             jobKind: 'migrateCorrections',
+          }}
+        />,
+      )
+      expect(
+        screen.getByText('resources.editHistory.actions.undoJob'),
+      ).toBeTruthy()
+    })
+
+    it('offers the job undo for an Organize of one File, whose undo also removes the folders it made', () => {
+      render(
+        <EditJobField
+          record={{
+            ...entry,
+            kind: 'move',
+            jobId: 'j',
+            jobSize: 1,
+            jobKind: 'organize',
           }}
         />,
       )
