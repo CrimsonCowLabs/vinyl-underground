@@ -135,6 +135,16 @@ var _ = Describe("Album Edit API", func() {
 			Expect(got.AlbumID).To(Equal("new-album"))
 		})
 
+		It("answers the album's new ID from a written Track, not from the cover written first", func() {
+			runEditQueue(nativeRouter, ds, fakeWriteKind{})
+			plan := fakePlan(corrections.JobRelease, "mf-1")
+			plan.Steps = append([]model.EditJobStep{{Kind: fakeWrite, Path: "Band/Record/cover.jpg"}}, plan.Steps...)
+			svc.plan = plan
+			w := post(adminToken, picked)
+			Expect(w.Code).To(Equal(http.StatusOK), w.Body.String())
+			Expect(answerOf(w).AlbumID).To(Equal("new-album"))
+		})
+
 		It("says when the job put the Files back, as one of them couldn't be written", func() {
 			// The job's kind queued its rollback (see corrections.ReleaseJobKind).
 			runEditQueue(nativeRouter, ds, fakeWriteKind{}, func(q *editjob.Queue) {
@@ -171,9 +181,17 @@ var _ = Describe("Album Edit API", func() {
 			Expect(got.Tracks).To(ConsistOf(HaveField("Paired", PointTo(HaveField("ID", "rt-1")))))
 			Expect(svc.plans).To(BeEmpty())
 
+			// An ID that is no MusicBrainz ID isn't asked for; one MusicBrainz doesn't have is notFound.
 			w = httptest.NewRecorder()
 			router.ServeHTTP(w, createAuthenticatedRequest("GET", "/musicbrainz/release/nope/match?albumId=al-1", nil, adminToken))
+			Expect(w.Code).To(Equal(http.StatusBadRequest))
+			Expect(search.looked).To(HaveLen(1))
+			search.err = musicbrainz.ErrNotFound
+			w = httptest.NewRecorder()
+			router.ServeHTTP(w, createAuthenticatedRequest("GET",
+				"/musicbrainz/release/00000000-0000-4000-8000-000000000001/match?albumId=al-1", nil, adminToken))
 			Expect(w.Code).To(Equal(http.StatusNotFound))
+			search.err = nil
 			w = httptest.NewRecorder()
 			router.ServeHTTP(w, createAuthenticatedRequest("GET",
 				"/musicbrainz/release/8a7f5c4e-0d5b-4f1e-9d3c-3b2a1f0e9d8c/match?albumId=al-1", nil, userToken))

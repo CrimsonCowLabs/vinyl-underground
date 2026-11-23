@@ -127,12 +127,13 @@ const EditAlbumDialog = ({ record, onClose }) => {
     name.trim() === (record.name || '') &&
     artist === (record.albumArtist || '') &&
     (yearValue === 0 || yearValue === Number(albumYear(record) || 0)) &&
-    !release
+    !(release && match)
   const trackChanges = trackNumberChanges(trackRows || [])
   const canSave =
     !saving &&
-    // A picked release is saved once the admin has seen how it pairs
-    (!release || match) &&
+    // A picked release is saved once the admin has seen how it pairs; one whose pairing
+    // couldn't be had is left out, and the rest saved
+    (!release || match || matchError) &&
     name.trim() &&
     artist &&
     yearValid &&
@@ -152,10 +153,11 @@ const EditAlbumDialog = ({ record, onClose }) => {
             albumArtist: artist,
             year: yearValue,
             ...(trackChanges.length && { tracks: trackChanges }),
-            ...(release && {
-              mbzAlbumId: release.id,
-              ...releaseOptions,
-            }),
+            ...(release &&
+              match && {
+                mbzAlbumId: release.id,
+                ...releaseOptions,
+              }),
           })
       save
         .then(({ data }) => {
@@ -210,6 +212,7 @@ const EditAlbumDialog = ({ record, onClose }) => {
       trackChanges,
       setTrackRows,
       release,
+      match,
       releaseOptions,
       onClose,
       notify,

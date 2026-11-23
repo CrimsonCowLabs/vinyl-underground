@@ -219,7 +219,7 @@ func (api *Router) runWriteJob(w http.ResponseWriter, r *http.Request, plan *cor
 	for _, s := range job.Steps {
 		if s.State == model.EditStepSkipped {
 			skipped = append(skipped, s)
-		} else if !written && plan.TrackID != "" {
+		} else if !written && plan.TrackID != "" && s.MediaFileID != "" {
 			albumTrack, written = s.MediaFileID, true
 		}
 	}

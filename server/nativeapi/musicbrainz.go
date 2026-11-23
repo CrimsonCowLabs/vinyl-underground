@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"regexp"
 	"strings"
 
 	"github.com/deluan/rest"
@@ -77,7 +78,7 @@ func (api *Router) lookUpRelease(w http.ResponseWriter, r *http.Request, id stri
 		writeMusicBrainzError(w, http.StatusServiceUnavailable, "disabled")
 		return nil, false
 	}
-	if id == "" {
+	if !mbzIDPattern.MatchString(id) {
 		writeMusicBrainzError(w, http.StatusBadRequest, "invalid")
 		return nil, false
 	}
@@ -86,6 +87,9 @@ func (api *Router) lookUpRelease(w http.ResponseWriter, r *http.Request, id stri
 	case errors.Is(err, musicbrainz.ErrBusy):
 		log.Warn(r.Context(), "Find on MusicBrainz: MusicBrainz is busy", err)
 		writeMusicBrainzError(w, http.StatusServiceUnavailable, "busy")
+		return nil, false
+	case errors.Is(err, musicbrainz.ErrNotFound):
+		writeMusicBrainzError(w, http.StatusNotFound, "notFound")
 		return nil, false
 	case err != nil:
 		log.Warn(r.Context(), "Find on MusicBrainz: could not look up a release", "release", id, err)
@@ -128,6 +132,9 @@ func (api *Router) searchReleases(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = rest.RespondWithJSON(w, http.StatusOK, res)
 }
+
+// mbzIDPattern is a MusicBrainz ID (a UUID, lower case).
+var mbzIDPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
 func writeMusicBrainzError(w http.ResponseWriter, status int, code string) {
 	_ = rest.RespondWithJSON(w, status, map[string]string{"error": code})

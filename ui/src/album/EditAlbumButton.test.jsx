@@ -530,9 +530,12 @@ describe('EditAlbumButton', () => {
       expect(mockRefresh).toHaveBeenCalled()
     })
 
-    it('shows why the pairing could not be had, and saves nothing with the release', async () => {
+    it('shows why the pairing could not be had, and saves the rest without the release', async () => {
       mockFindReleases.mockResolvedValue({ data: releases })
       mockMatch.mockRejectedValue({ body: { error: 'busy' } })
+      mockCorrectAlbum.mockResolvedValue({
+        data: { albumId: 'al1', done: true },
+      })
       render(<EditAlbumButton record={record} />)
       open()
       find()
@@ -540,9 +543,18 @@ describe('EditAlbumButton', () => {
       expect(
         await screen.findByText('resources.album.musicbrainz.errors.busy'),
       ).toBeTruthy()
-      expect(
-        screen.getByText('ra.action.save').closest('button').disabled,
-      ).toBe(true)
+      const button = screen.getByText('ra.action.save').closest('button')
+      expect(button.disabled).toBe(true)
+      type('album-year', '1999')
+      expect(button.disabled).toBe(false)
+      save()
+      await waitFor(() =>
+        expect(mockCorrectAlbum).toHaveBeenCalledWith('al1', {
+          name: 'Recrod',
+          albumArtist: 'Band',
+          year: 1999,
+        }),
+      )
     })
 
     it('says so when the picked release brought no cover', async () => {

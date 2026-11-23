@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/navidrome/navidrome/conf"
@@ -221,8 +222,9 @@ var _ = Describe("Writing a MusicBrainz release into the Files", func() {
 		It("writes the album's IDs into every File and the track IDs into the paired ones, where they hold none", func() {
 			p := plan(corrections.ReleaseWrite{})
 			rw := rewrites(p)
+			// The album artist's ID goes with the credit's names, by position.
 			album := tagedit.Values{"musicbrainz_albumid": {relID}, "musicbrainz_releasegroupid": {groupID},
-				"musicbrainz_albumartistid": {bandID}}
+				"musicbrainz_albumartistid": {bandID}, "albumartists": {"Band"}}
 			Expect(rw).To(HaveLen(3))
 			Expect(rw["mf-1"].Set).To(Equal(album))
 			Expect(rw["mf-1"].Fill).To(Equal(tagedit.Values{"musicbrainz_trackid": {rec1}, "musicbrainz_releasetrackid": {rt1}}))
@@ -275,6 +277,7 @@ var _ = Describe("Writing a MusicBrainz release into the Files", func() {
 			Expect(m.AlbumArtistMatches).To(BeFalse())
 			rw := rewrites(plan(corrections.ReleaseWrite{}))
 			Expect(rw["mf-1"].Set).ToNot(HaveKey("musicbrainz_albumartistid"))
+			Expect(rw["mf-1"].Set).ToNot(HaveKey("albumartists"))
 		})
 
 		It("writes the release's cover as the album's cover.jpg first, if the admin asks for it", func() {
@@ -294,6 +297,14 @@ var _ = Describe("Writing a MusicBrainz release into the Files", func() {
 			written, err := os.ReadFile(filepath.Join(dir, "cover.jpg"))
 			Expect(err).ToNot(HaveOccurred())
 			Expect(written).To(Equal(cover))
+
+			// An image that can't be made a cover: the IDs are written all the same.
+			bad := artwork.StoredCover{Hash: "0123456789abcdef", Mime: "image/jpeg"}
+			Expect(artwork.ChosenCoverStore().Write(bad.Hash, bad.Mime, strings.NewReader("not an image"))).To(Succeed())
+			covers.covers = map[string]artwork.StoredCover{relID: bad}
+			p = plan(corrections.ReleaseWrite{Cover: true})
+			Expect(p.PickCover).To(Equal(corrections.PickCoverFailed))
+			Expect(p.Steps).To(HaveLen(3))
 
 			// No cover in the archive: the IDs are written all the same.
 			covers.covers = nil
@@ -341,6 +352,12 @@ var _ = Describe("Writing a MusicBrainz release into the Files", func() {
 			rollback, err := corrections.ReleaseRollback(job)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(rollback).ToNot(BeEmpty(), "the job queued its rollback")
+			// Run again (the job's row wasn't saved after it), Done finds that rollback rather than
+			// queueing another.
+			again := *job
+			again.Args = `{"release":true}`
+			Expect(corrections.ReleaseJobKind(ds, q).Done(ctx, &again, job.Steps)).To(Succeed())
+			Expect(corrections.ReleaseRollback(&again)).To(Equal(rollback))
 			run(&model.EditJob{ID: rollback})
 			for _, name := range []string{"01 One.mp3", "02 Two.mp3", "09 Bonus Jam.mp3"} {
 				tags := tagsOf(name)

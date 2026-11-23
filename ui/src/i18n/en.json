@@ -1456,7 +1456,8 @@
         "organize": "Organize",
         "quarantine": "Send to Quarantine",
         "restore": "Restore from Quarantine",
-        "emptyQuarantine": "Empty Quarantine"
+        "emptyQuarantine": "Empty Quarantine",
+        "musicbrainzRelease": "MusicBrainz release"
       },
       "files": "%{smart_count} File |||| %{smart_count} Files",
       "queued": "Waiting for the edit before it",

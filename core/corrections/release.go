@@ -1,6 +1,7 @@
 package corrections
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"slices"
@@ -254,6 +255,10 @@ func (c *corrections) PlanRelease(ctx context.Context, editor *tagedit.Editor, a
 	artistIDs := m.Release.AlbumArtistIDs
 	writeArtistIDs := len(artistIDs) > 0 && model.ArtistNameKey(albumArtist) == model.ArtistNameKey(credit)
 	acceptDate := w.Accept.Date && rel.Date != ""
+	creditNames := make([]string, len(rel.ArtistCredit))
+	for i, a := range rel.ArtistCredit {
+		creditNames[i] = a.Name
+	}
 
 	paired := map[string]*ReleaseTrack{}
 	for _, t := range m.Tracks {
@@ -275,14 +280,10 @@ func (c *corrections) PlanRelease(ctx context.Context, editor *tagedit.Editor, a
 		r.Set["musicbrainz_albumid"] = []string{rel.ID}
 		r.Set["musicbrainz_releasegroupid"] = []string{rel.ReleaseGroup.ID}
 		if writeArtistIDs {
+			// The IDs go with the album artists by position: the credit's names go with them, as
+			// the album artist is the credit already (or is made it).
 			r.Set["musicbrainz_albumartistid"] = artistIDs
-			if w.Accept.AlbumArtist {
-				names := make([]string, len(rel.ArtistCredit))
-				for i, a := range rel.ArtistCredit {
-					names[i] = a.Name
-				}
-				r.Set["albumartists"] = names
-			}
+			r.Set["albumartists"] = creditNames
 		}
 		if acceptDate {
 			r.Year = 0
@@ -340,9 +341,25 @@ func (c *corrections) releaseCover(ctx context.Context, editor *tagedit.Editor, 
 	}
 	step, err := editjob.CoverStep(editor, albumID, image)
 	if err != nil {
-		return nil, "", err
+		log.Warn(ctx, "Corrections: could not keep the picked release's cover to write", "release", rel.ID, err)
+		return nil, PickCoverFailed, nil
 	}
 	return &step, found, nil
+}
+
+// queuedRollback returns the undo of the job writer already queued (or run), if any: the latest
+// jobs are looked through.
+func (k releaseKind) queuedRollback(ctx context.Context, writer string) (string, error) {
+	jobs, err := k.ds.EditJob(ctx).GetAll(50)
+	if err != nil {
+		return "", err
+	}
+	for _, j := range jobs {
+		if j.Kind == model.EditUndo && j.Args == editjob.UndoJobArgs(writer) {
+			return j.ID, nil
+		}
+	}
+	return "", nil
 }
 
 // ReleaseRollback is the job a JobRelease job queued to put back the Files it wrote, because it
@@ -375,7 +392,19 @@ func (k releaseKind) Done(ctx context.Context, job *model.EditJob, steps model.E
 	if !anySkipped(tracks) || !wrote {
 		return k.albumKind.Done(ctx, job, tracks)
 	}
-	entries, err := k.ds.EditJournal(ctx).ForJob(job.ID)
+	// The Files were written by the job, or by its redo (the job undone, and undone again), whose
+	// writes are journaled with the redo's ID.
+	writer := cmp.Or(editjob.RunningJob(ctx), job.ID)
+	// Done runs again should the job's row not be saved after it: the rollback it queued then is
+	// the one.
+	if queued, err := k.queuedRollback(ctx, writer); err != nil || queued != "" {
+		if queued != "" {
+			a.Rollback = queued
+			job.Args = a.String()
+		}
+		return err
+	}
+	entries, err := k.ds.EditJournal(ctx).ForJob(writer)
 	if err != nil {
 		return err
 	}
@@ -393,7 +422,7 @@ func (k releaseKind) Done(ctx context.Context, job *model.EditJob, steps model.E
 	if len(undo) == 0 {
 		return nil
 	}
-	u, err := k.q.EnqueueWith(ctx, model.EditUndo, editjob.UndoJobArgs(job.ID), undo)
+	u, err := k.q.EnqueueWith(ctx, model.EditUndo, editjob.UndoJobArgs(writer), undo)
 	if err != nil {
 		return err
 	}

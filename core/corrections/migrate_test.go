@@ -377,6 +377,18 @@ var _ = Describe("Migrating Corrections into the Files", func() {
 			Expect(remaining()).To(BeEmpty())
 		})
 
+		It("writes a picked release into none of the album's Files when one of them can't be written, so it isn't split", func() {
+			setUpLibrary()
+			_, err := db.Db().Exec("update correction set mbz_album_id = 'a7f8ed5e-1111-4a1b-9c1d-123456789abc' where id = ?", album.ID)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(os.Chtimes(filepath.Join(dir, "01 One.mp3"), time.Now(), time.Now().Add(time.Hour))).To(Succeed())
+			migrate()
+			Expect(tagsOf("02 Two.mp3")).ToNot(HaveKey("MUSICBRAINZ_ALBUMID"))
+			Expect(tagsOf("02 Two.mp3")).To(HaveKeyWithValue("ALBUM", []string{"Record"}))
+			Expect(ds.Correction(ctx).GetByMatchKey(model.CorrectionAlbum, folder.ID)).To(
+				HaveField("MbzAlbumID", "a7f8ed5e-1111-4a1b-9c1d-123456789abc"), "it stays, to be written once One can be")
+		})
+
 		It("writes the chosen cover, not the picked release's, when the album has both", func() {
 			setUpLibrary()
 			_, err := db.Db().Exec("update correction set mbz_album_id = 'a7f8ed5e-1111-4a1b-9c1d-123456789abc', image_hash = 'pick', image_mime = 'image/jpeg' where id = ?", album.ID)

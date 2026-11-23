@@ -307,6 +307,16 @@ func (c *corrections) migration(ctx context.Context, editor *tagedit.Editor, ste
 			if err != nil {
 				return nil, nil, err
 			}
+			// The album's ID comes from its musicbrainz_albumid: a release written into only some
+			// of its Files would split it, so it is written only if all of them can be.
+			if len(release) > 0 {
+				for _, mf := range mfs {
+					if albumOwner[mf.FolderID] == cr.ID && check(mf) != nil {
+						release = nil
+						break
+					}
+				}
+			}
 			for _, mf := range mfs {
 				// Another album Correction applied to this File's folder.
 				if albumOwner[mf.FolderID] != cr.ID {
