@@ -12,6 +12,10 @@ import { visualMode } from './visualModes'
 import { useVisualAnalyser } from './useVisualAnalyser'
 import { useVisualTheme } from './useVisualTheme'
 
+// In Full screen, the glow's cover takes this much of the window's shorter
+// side, and the glow the whole window
+const FULL_COVER_SHARE = 0.56
+
 // How far the glow's canvas reaches past each edge of the cover
 const GLOW_INSET = `${(-(GLOW_SPREAD - 1) / 2) * 100}%`
 
@@ -43,6 +47,8 @@ const useStyles = makeStyles(
     },
     // Under spectrum and waveform: the cover, dimmed so the visual reads
     dimmed: { filter: 'brightness(0.32) saturate(1.2)' },
+    // In the glow: lit by it rather than shadowed
+    glowing: { boxShadow: 'none' },
     over: {
       position: 'absolute',
       inset: 0,
@@ -94,7 +100,7 @@ const useStyles = makeStyles(
     },
     fullArea: {
       position: 'relative',
-      width: 'min(56vmin, 560px)',
+      width: `${FULL_COVER_SHARE * 100}vmin`,
       aspectRatio: '1 / 1',
     },
     exit: {
@@ -128,6 +134,12 @@ const useBrowserFullScreen = (element, onLeave) => {
       if (!fullscreenElement()) onLeaveRef.current()
     }
     FULLSCREEN_EVENTS.forEach((e) => document.addEventListener(e, onChange))
+    // Chrome can leave focus on the page's body in full screen, out of the
+    // Dialog's reach, so Esc is caught here too when the browser passes it on
+    const onKeyDown = (e) => {
+      if (e.key === 'Escape') onLeaveRef.current()
+    }
+    document.addEventListener('keydown', onKeyDown)
     try {
       // Refused (no user gesture, or not allowed): the window is filled all
       // the same
@@ -139,6 +151,7 @@ const useBrowserFullScreen = (element, onLeave) => {
       FULLSCREEN_EVENTS.forEach((e) =>
         document.removeEventListener(e, onChange),
       )
+      document.removeEventListener('keydown', onKeyDown)
       if (fullscreenElement() === element) {
         const exit = document.exitFullscreen || document.webkitExitFullscreen
         Promise.resolve()
@@ -196,16 +209,19 @@ const FullScreenVisual = ({
           />
         </>
       ) : (
-        <div className={classes.fullArea}>
+        <>
           <VisualCanvas
             mode={mode}
             analyser={analyser}
             theme={theme}
             playing={playing}
-            className={classes.around}
+            className={classes.fullCanvas}
+            coverShare={FULL_COVER_SHARE}
           />
-          <Cover classes={classes} cover={cover} alt={alt} />
-        </div>
+          <div className={classes.fullArea}>
+            <Cover classes={classes} cover={cover} alt={alt} glowing />
+          </div>
+        </>
       )}
       <IconButton
         className={classes.exit}
@@ -218,10 +234,14 @@ const FullScreenVisual = ({
   )
 }
 
-const Cover = ({ classes, cover, alt, dimmed = false }) => {
-  const className = dimmed
-    ? `${classes.cover} ${classes.dimmed}`
-    : classes.cover
+const Cover = ({ classes, cover, alt, dimmed = false, glowing = false }) => {
+  const className = [
+    classes.cover,
+    dimmed && classes.dimmed,
+    glowing && classes.glowing,
+  ]
+    .filter(Boolean)
+    .join(' ')
   const label = dimmed ? { alt: '', 'aria-hidden': true } : { alt }
   return cover ? (
     <img className={className} src={cover} {...label} />
@@ -280,7 +300,7 @@ const VisualArea = ({ mode, cover, alt, playing, audioInstance }) => {
       ) : (
         <>
           {canvas}
-          <Cover classes={classes} cover={cover} alt={alt} />
+          <Cover classes={classes} cover={cover} alt={alt} glowing />
         </>
       )}
       <IconButton

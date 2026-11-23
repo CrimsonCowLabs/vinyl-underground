@@ -396,6 +396,11 @@ describe('visuals in Now Playing', () => {
         expect(HTMLElement.prototype.requestFullscreen).toHaveBeenCalled()
         expect(shown).not.toBeNull()
 
+        // Focus can be left on the page's body in browser full screen
+        fireEvent.keyDown(document.body, { key: 'Escape' })
+        expect(fullScreen()).toBeNull()
+
+        fireEvent.click(fullScreenButton())
         // Esc in browser full screen: the browser leaves it, then tells us
         await act(async () => {
           shown = null

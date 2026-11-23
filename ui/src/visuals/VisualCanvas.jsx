@@ -10,8 +10,17 @@ const frameRate = () =>
 
 // VisualCanvas plays the visual `mode` on a canvas, reading `analyser`, for
 // as long as it is mounted. Unmounting it (another tab, Now Playing closed)
-// stops the drawing; runVisual also stops it in the background.
-const VisualCanvas = ({ mode, analyser, theme, playing, className }) => {
+// stops the drawing; runVisual also stops it in the background. coverShare
+// tells a visual drawn around the cover (glow) how much of the canvas's
+// shorter side the cover takes.
+const VisualCanvas = ({
+  mode,
+  analyser,
+  theme,
+  playing,
+  className,
+  coverShare,
+}) => {
   const translate = useTranslate()
   const canvasRef = useRef(null)
   const runRef = useRef(null)
@@ -44,6 +53,7 @@ const VisualCanvas = ({ mode, analyser, theme, playing, className }) => {
     <canvas
       ref={canvasRef}
       className={className}
+      data-cover-share={coverShare}
       role="img"
       aria-label={translate('nowPlaying.visuals.canvas', {
         name: translate(`nowPlaying.visuals.modes.${mode}`),

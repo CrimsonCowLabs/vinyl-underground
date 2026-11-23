@@ -3,7 +3,7 @@
 // { create(canvas, { analyser, theme }) }, returning a renderer.
 //
 // theme is a visualTheme (see visualTheme.js): { accent, glow, cover, mode }.
-import { fade } from '@material-ui/core/styles'
+import { alpha } from '@material-ui/core/styles'
 import { bandLevels, logBands, smooth, wavePoints } from './visualMath'
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value))
@@ -43,7 +43,9 @@ const spectrum = {
         analyser.getByteFrequencyData(data)
         smooth(levels, bandLevels(data, bands), { rise: 0.55, fall: 0.1 })
         context.clearRect(0, 0, width, height)
-        const slot = width / levels.length
+        // A margin each side, so the outer bars don't touch the edges
+        const margin = width * 0.05
+        const slot = (width - 2 * margin) / levels.length
         const bar = slot * 0.62
         const floor = height * 0.92
         const minimum = 2 * pixelRatio()
@@ -58,7 +60,7 @@ const spectrum = {
         context.fillStyle = fill
         for (let i = 0; i < levels.length; i++) {
           const h = Math.max(minimum, levels[i] ** 1.4 * height * 0.84)
-          const x = i * slot + (slot - bar) / 2
+          const x = margin + i * slot + (slot - bar) / 2
           context.fillRect(x, floor - h, bar, h)
         }
       },
@@ -114,17 +116,22 @@ const waveform = {
   },
 }
 
-// How much bigger the glow's canvas is than the cover it surrounds
-export const GLOW_SPREAD = 1.5
+// How much bigger the glow's canvas is than the cover it surrounds, in Now
+// Playing's art area: as much as fits across a phone's view
+export const GLOW_SPREAD = 1.3
 
-// Glow: light in the cover's colour around the album art, swelling with the
-// bass. It changes gently (slow to rise and slower to fall), never flashing.
+// Glow: light in the cover's colour spilling out around the album art and
+// swelling with the bass, drawn as the blurred shadow of a square under the
+// cover. It changes gently (slow to rise, slower to fall), never flashing.
+// The cover sits in the middle of the canvas; the canvas's data-cover-share
+// says how much of its shorter side the cover takes.
 const glow = {
   create(canvas, { analyser, theme }) {
     const context = canvas.getContext('2d')
     const data = new Uint8Array(analyser.frequencyBinCount)
     const level = [0]
     let bass = []
+    let share = 1 / GLOW_SPREAD
     let width = canvas.width
     let height = canvas.height
     let colours = theme
@@ -132,6 +139,7 @@ const glow = {
     const resize = (w, h) => {
       width = w
       height = h
+      share = Number(canvas.dataset?.coverShare) || 1 / GLOW_SPREAD
       bass = logBands(4, {
         sampleRate: sampleRate(analyser),
         binCount: analyser.frequencyBinCount,
@@ -148,33 +156,35 @@ const glow = {
         analyser.getByteFrequencyData(data)
         const levels = bandLevels(data, bass)
         const energy = levels.reduce((sum, l) => sum + l, 0) / levels.length
-        smooth(level, [energy ** 2], { rise: 0.25, fall: 0.05 })
+        smooth(level, [energy ** 2], { rise: 0.2, fall: 0.04 })
         const swell = level[0]
-        const x = width / 2
-        const y = height / 2
-        const cover = Math.min(width, height) / GLOW_SPREAD / 2
-        const outer = cover * (1.05 + 0.45 * swell)
+        const shorter = Math.min(width, height)
+        const side = shorter * share
+        // The room around the cover, which the glow fills more of as the
+        // bass swells
+        const room = (shorter - side) / 2
+        const strength = colours.mode === 'light' ? 0.75 : 0.95
+        const inset = side * 0.02
+        const square = () =>
+          context.fillRect(
+            (width - side) / 2 + inset,
+            (height - side) / 2 + inset,
+            side - 2 * inset,
+            side - 2 * inset,
+          )
         context.clearRect(0, 0, width, height)
-        const light = context.createRadialGradient(
-          x,
-          y,
-          cover * 0.6,
-          x,
-          y,
-          outer,
+        context.fillStyle = colours.cover
+        // A wide, soft halo that reaches out with the bass...
+        context.shadowColor = alpha(
+          colours.cover,
+          strength * (0.6 + 0.4 * swell),
         )
-        const strength = colours.mode === 'light' ? 0.55 : 0.7
-        light.addColorStop(
-          0,
-          fade(colours.cover, strength * (0.45 + 0.55 * swell)),
-        )
-        light.addColorStop(
-          0.55,
-          fade(colours.cover, strength * 0.35 * (0.3 + swell)),
-        )
-        light.addColorStop(1, fade(colours.cover, 0))
-        context.fillStyle = light
-        context.fillRect(0, 0, width, height)
+        context.shadowBlur = room * (0.9 + 0.7 * swell)
+        square()
+        // ...over a brighter rim close to the cover
+        context.shadowColor = alpha(colours.cover, strength)
+        context.shadowBlur = room * 0.35
+        square()
       },
     }
   },

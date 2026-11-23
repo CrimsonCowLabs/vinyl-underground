@@ -52,6 +52,9 @@ const useStyles = makeStyles(
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
+      // A visual's glow spills out of the art area, but never wider than
+      // the view, which would scroll sideways
+      overflowX: 'clip',
     },
     track: {
       display: 'grid',
