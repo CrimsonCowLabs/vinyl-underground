@@ -11,10 +11,12 @@ import {
 import { httpClient } from '../../dataProvider'
 import { errorText, jobUrl } from './reviewApi'
 import { clearDraft } from './reviewDrafts'
+import { useDiscardStyles } from './discardStyles'
 
 // DiscardDialog asks before deleting Files for good: they don't go to Quarantine.
 export const DiscardDialog = ({ open, message, busy, onConfirm, onCancel }) => {
   const translate = useTranslate()
+  const classes = useDiscardStyles()
   return (
     <Dialog open={open} onClose={onCancel}>
       <DialogTitle>
@@ -28,7 +30,7 @@ export const DiscardDialog = ({ open, message, busy, onConfirm, onCancel }) => {
         <Button
           onClick={onConfirm}
           variant="contained"
-          color="secondary"
+          className={classes.contained}
           disabled={busy}
         >
           {translate('resources.rip.review.discard')}
@@ -44,6 +46,7 @@ export const DiscardJobButton = ({ jobId, fileCount }) => {
   const translate = useTranslate()
   const notify = useNotify()
   const refresh = useRefresh()
+  const classes = useDiscardStyles()
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
 
@@ -62,7 +65,12 @@ export const DiscardJobButton = ({ jobId, fileCount }) => {
 
   return (
     <>
-      <Button color="secondary" onClick={() => setOpen(true)}>
+      <Button
+        variant="outlined"
+        size="small"
+        className={classes.outlined}
+        onClick={() => setOpen(true)}
+      >
         {translate('resources.rip.review.discard')}
       </Button>
       <DiscardDialog

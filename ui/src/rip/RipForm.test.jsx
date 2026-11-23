@@ -39,6 +39,13 @@ describe('RipForm', () => {
     return utils
   }
 
+  it("offers Rip as the main action, at the page's button size", () => {
+    const { getByRole } = render(<RipForm />)
+    const rip = getByRole('button', { name: 'resources.rip.actions.rip' })
+    expect(rip).toHaveClass('MuiButton-containedPrimary')
+    expect(rip).toHaveClass('MuiButton-sizeSmall')
+  })
+
   it('queues a Rip of the pasted URL and refreshes the job list', async () => {
     create.mockResolvedValue({ data: { id: 'j1', status: 'queued' } })
     const { getByLabelText } = submit('  https://www.youtube.com/watch?v=abc ')

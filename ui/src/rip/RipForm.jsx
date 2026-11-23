@@ -167,11 +167,13 @@ const RipForm = () => {
           type="url"
           fullWidth
         />
-        <Box ml={1}>
+        {/* Level with the URL field's box, above its help text */}
+        <Box ml={1} mt="5px" flexShrink={0}>
           <Button
             type="submit"
             variant="contained"
             color="primary"
+            size="small"
             disabled={sending || !url.trim()}
           >
             {translate('resources.rip.actions.rip')}

@@ -38,11 +38,16 @@ const ProposalsBar = ({ review, proposed, onUse, onRefresh }) => {
           </Typography>
         </Box>
       )}
-      <Button size="small" onClick={onUse} disabled={!canUse}>
+      <Button
+        size="small"
+        variant="outlined"
+        onClick={onUse}
+        disabled={!canUse}
+      >
         {translate('resources.rip.review.useProposals')}
       </Button>
       {/* Not disabled while pending: a proposal stuck pending can always be asked for again. */}
-      <Button size="small" onClick={onRefresh}>
+      <Button size="small" variant="outlined" onClick={onRefresh}>
         {translate('resources.rip.review.refreshProposals')}
       </Button>
       {notes.map((note) => (
