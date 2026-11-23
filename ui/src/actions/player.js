@@ -9,6 +9,9 @@ export const PLAYER_SET_VOLUME = 'PLAYER_SET_VOLUME'
 export const PLAYER_SET_MODE = 'PLAYER_SET_MODE'
 export const TRANSCODING_SET_PROFILE = 'TRANSCODING_SET_PROFILE'
 export const PLAYER_REFRESH_QUEUE = 'PLAYER_REFRESH_QUEUE'
+export const PLAYER_PLAY_FROM_QUEUE = 'PLAYER_PLAY_FROM_QUEUE'
+export const PLAYER_MOVE_IN_QUEUE = 'PLAYER_MOVE_IN_QUEUE'
+export const PLAYER_REMOVE_FROM_QUEUE = 'PLAYER_REMOVE_FROM_QUEUE'
 
 export const setTrack = (data) => ({
   type: PLAYER_SET_TRACK,
@@ -113,4 +116,22 @@ export const setTranscodingProfile = (profile) => ({
 export const refreshQueue = (resolvedUrls) => ({
   type: PLAYER_REFRESH_QUEUE,
   data: resolvedUrls,
+})
+
+// playFromQueue switches playback to the queued Track at index.
+export const playFromQueue = (index) => ({
+  type: PLAYER_PLAY_FROM_QUEUE,
+  data: { index },
+})
+
+// moveInQueue moves the queued Track at from to the position to.
+export const moveInQueue = (from, to) => ({
+  type: PLAYER_MOVE_IN_QUEUE,
+  data: { from, to },
+})
+
+// removeFromQueue takes the queued Track at index out of the queue.
+export const removeFromQueue = (index) => ({
+  type: PLAYER_REMOVE_FROM_QUEUE,
+  data: { index },
 })

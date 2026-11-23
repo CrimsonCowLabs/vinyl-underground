@@ -5,6 +5,9 @@ export const SWIPE_CLOSE_PX = 120
 
 // Controls a touch on them may be dragging sideways or along, not swiping
 const IGNORE = '.MuiSlider-root, .MuiRating-root, [data-no-swipe]'
+// A list scrolling inside the sheet (lyrics, the queue): a swipe on it closes
+// only while it is at its top, like the sheet itself
+const INNER_SCROLLER = '[data-swipe-scroller]'
 
 const point = (e) => {
   const t = e.touches?.[0] || e.changedTouches?.[0]
@@ -15,7 +18,7 @@ const point = (e) => {
 // handlers to spread on the sheet's scroller, and a ref for the sheet, which
 // follows the finger (moved directly, so a drag doesn't re-render the view).
 // A drag that starts on a slider, or while the sheet is scrolled down, is
-// left alone.
+// left alone, as is one on a list inside it that is scrolled down.
 export const useSwipeDown = (onClose) => {
   const start = useRef(null)
   const sheetRef = useRef(null)
@@ -29,7 +32,9 @@ export const useSwipeDown = (onClose) => {
   const onTouchStart = (e) => {
     const scroller = e.currentTarget
     const ignored = e.target.closest?.(IGNORE)
-    start.current = !ignored && scroller.scrollTop <= 0 ? point(e) : null
+    const inner = e.target.closest?.(INNER_SCROLLER)
+    const atTop = scroller.scrollTop <= 0 && !(inner?.scrollTop > 0)
+    start.current = !ignored && atTop ? point(e) : null
   }
 
   const delta = (e) => {

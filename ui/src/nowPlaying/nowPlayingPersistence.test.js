@@ -5,6 +5,7 @@ import {
   closeNowPlaying,
   nowPlayingReducer,
   openNowPlaying,
+  showNowPlayingTab,
 } from './nowPlayingState'
 import { playerReducer } from '../reducers'
 import { stationReducer } from '../station/stationState'
@@ -70,5 +71,34 @@ describe('whether Now Playing is open, across a reload', () => {
 
     screenWidth(390)
     expect(isOpen(load())).toBe(false)
+  })
+})
+
+describe('the tab Now Playing shows, across a reload', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    localStorage.removeItem('state')
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+    delete window.matchMedia
+  })
+
+  it('is remembered, on a phone too', () => {
+    screenWidth(390)
+    const store = load()
+    store.dispatch(showNowPlayingTab('lyrics'))
+    vi.advanceTimersByTime(1000)
+
+    expect(load().getState().nowPlaying.tab).toBe('lyrics')
+  })
+
+  it('goes back to Art if what was saved is no tab', () => {
+    screenWidth(390)
+    localStorage.setItem(
+      'state',
+      JSON.stringify({ nowPlaying: { open: false, tab: 'karaoke' } }),
+    )
+    expect(load().getState().nowPlaying.tab).toBe('art')
   })
 })
