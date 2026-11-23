@@ -55,6 +55,7 @@ import { DndProvider } from 'react-dnd'
 import missing from './missing/index.js'
 import correction from './correction/index.js'
 import editHistory from './editHistory/index.js'
+import quarantine from './quarantine/index.js'
 import libraryManager from './libraryManager/index.js'
 import { useEffect } from 'react'
 
@@ -201,6 +202,13 @@ const Admin = (props) => {
           <Resource
             name="libraryTrack"
             {...libraryManager}
+            options={{ subMenu: 'settings', editing: true }}
+          />
+        ) : null,
+        permissions === 'admin' ? (
+          <Resource
+            name="quarantine"
+            {...quarantine}
             options={{ subMenu: 'settings', editing: true }}
           />
         ) : null,

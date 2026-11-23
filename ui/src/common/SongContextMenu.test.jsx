@@ -302,4 +302,54 @@ describe('SongContextMenu', () => {
       expect(item()).toBeNull()
     })
   })
+
+  describe('Send to Quarantine', () => {
+    const editing = (enabled, writable) =>
+      httpClient.mockResolvedValue({
+        json: { enabled, libraries: [{ id: 1, name: 'NAS', writable }] },
+      })
+    const openMenu = async (record) => {
+      render(
+        <TestContext>
+          <SongContextMenu record={record} resource="song" />
+        </TestContext>,
+      )
+      fireEvent.click(screen.getAllByRole('button')[1])
+      await waitFor(() => screen.getByText(/resources\.song\.actions\.info/))
+    }
+    const item = () => screen.queryByText('resources.quarantine.actions.send')
+
+    beforeEach(() => localStorage.setItem('role', 'admin'))
+    afterEach(() => localStorage.clear())
+
+    it("sends the Track's File to Quarantine after a confirmation, for the admin while its library is writable", async () => {
+      editing(true, true)
+      // A playlist entry names its Track by mediaFileId.
+      await openMenu({
+        id: 'entry1',
+        mediaFileId: 'song1',
+        size: 1,
+        libraryId: 1,
+      })
+      await waitFor(() => expect(item()).toBeTruthy())
+      fireEvent.click(item())
+      fireEvent.click(screen.getByText('resources.quarantine.send.confirm'))
+      await waitFor(() =>
+        expect(httpClient).toHaveBeenCalledWith(
+          expect.stringContaining('/quarantine/send'),
+          expect.objectContaining({
+            method: 'POST',
+            body: JSON.stringify({ ids: ['song1'] }),
+          }),
+        ),
+      )
+    })
+
+    it('is hidden for a Track whose library is read-only', async () => {
+      editing(true, false)
+      await openMenu({ id: 'song1', size: 1, libraryId: 1 })
+      await waitFor(() => expect(httpClient).toHaveBeenCalled())
+      expect(item()).toBeNull()
+    })
+  })
 })

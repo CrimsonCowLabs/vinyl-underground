@@ -358,7 +358,7 @@ func EnsureDir(fsys FS, root, rel string) (string, error) {
 			return "", err
 		}
 		if !info.IsDir() {
-			return "", fmt.Errorf("%q is in the way: it is not a folder", dir)
+			return "", fmt.Errorf("%w: %q is in the way: it is not a folder", ErrDestTaken, dir)
 		}
 		real, err := fsys.EvalSymlinks(dir)
 		if err != nil {

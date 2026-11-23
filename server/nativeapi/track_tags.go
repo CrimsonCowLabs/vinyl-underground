@@ -222,6 +222,12 @@ var tagEditStatus = map[string]int{
 	"pathTaken": http.StatusConflict,
 	"caseTwin":  http.StatusConflict,
 	"outside":   http.StatusUnprocessableEntity,
+	// Quarantine (#168).
+	"inQuarantine":        http.StatusConflict,
+	"notInQuarantine":     http.StatusBadRequest,
+	"deletedForGood":      http.StatusConflict,
+	"nothingInQuarantine": http.StatusConflict,
+	"quarantineChanged":   http.StatusConflict,
 }
 
 // writeTagEditError answers a failed read or edit with a code the dialog translates, and the

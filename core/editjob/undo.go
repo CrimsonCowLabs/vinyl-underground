@@ -124,6 +124,10 @@ func (k undoKind) Check(ctx context.Context, step *model.EditJobStep) error {
 	if entry.State != model.EditWritten {
 		return fmt.Errorf("%w: it was never written (%s)", tagedit.ErrNotUndoable, entry.State)
 	}
+	// Empty Quarantine's deletes (#168) are for good.
+	if entry.Kind == model.EditDelete {
+		return fmt.Errorf("%w: a File deleted for good can't be brought back", tagedit.ErrNotUndoable)
+	}
 	// The entry's library is checked directly: a folder cover (#164), or a File moved with its
 	// album (#167), is no Track's, and a moved Track may be gone (its File goes back alone).
 	if !tagedit.Writable(entry.LibraryID) {

@@ -59,6 +59,11 @@ describe('<LibraryManagerList />', () => {
         .getByText('resources.libraryTrack.actions.editHistory')
         .closest('a'),
     ).toHaveAttribute('href', '/editHistory')
+    expect(
+      screen
+        .getByText('resources.libraryTrack.actions.quarantine')
+        .closest('a'),
+    ).toHaveAttribute('href', '/quarantine')
   })
 
   it('offers to organize all matching (with no filter, the whole Library), as one of its tools', () => {

@@ -24,10 +24,11 @@ import {
 } from 'react-admin'
 import { Card, CardContent, Typography } from '@material-ui/core'
 import EditIcon from '@material-ui/icons/Edit'
-import { MdHistory } from 'react-icons/md'
+import { MdDeleteSweep, MdHistory } from 'react-icons/md'
 import { RippedBadge } from '../common/RippedBadge'
 import { useLibraryEditing } from '../library/useLibraryEditing'
 import BulkEditDialog from './BulkEditDialog'
+import { SendToQuarantineDialog } from '../quarantine/SendToQuarantineDialog'
 import { matchingFilter } from './bulkEdit'
 import OrganizeButton from '../organize/OrganizeButton'
 
@@ -117,6 +118,41 @@ BulkEditButton.propTypes = {
   disabled: PropTypes.bool,
 }
 
+// Sends the selected Tracks to Quarantine, as one job (#168).
+const SendSelectedToQuarantine = ({ selectedIds }) => {
+  const translate = useTranslate()
+  const refresh = useRefresh()
+  const unselectAll = useUnselectAll()
+  const [open, setOpen] = useState(false)
+  return (
+    <>
+      <Button
+        label={translate('resources.quarantine.actions.sendSelected', {
+          smart_count: selectedIds.length,
+        })}
+        onClick={() => setOpen(true)}
+      >
+        <MdDeleteSweep />
+      </Button>
+      {open && (
+        <SendToQuarantineDialog
+          open
+          selection={{ ids: selectedIds }}
+          count={selectedIds.length}
+          onClose={() => setOpen(false)}
+          onDone={() => {
+            setOpen(false)
+            unselectAll(resource)
+            refresh()
+          }}
+        />
+      )}
+    </>
+  )
+}
+
+SendSelectedToQuarantine.propTypes = { selectedIds: PropTypes.array }
+
 const SelectedBulkEdit = ({ selectedIds }) => {
   const refresh = useRefresh()
   const unselectAll = useUnselectAll()
@@ -136,6 +172,7 @@ const SelectedBulkEdit = ({ selectedIds }) => {
           refresh()
         }}
       />
+      <SendSelectedToQuarantine selectedIds={selectedIds} />
     </>
   )
 }
@@ -162,8 +199,7 @@ OrganizeMatching.propTypes = {
 }
 
 // The Library manager's tools: a link ({ to, label, icon }), or a component given the list's
-// filterValues and total. Organize and Quarantine add their entry points here as they land
-// (#166); the Edit history is the first.
+// filterValues and total: Organize (#167), the Edit history and Quarantine (#168).
 const tools = [
   { key: 'organize', component: OrganizeMatching },
   {
@@ -171,6 +207,12 @@ const tools = [
     to: '/editHistory',
     label: 'resources.libraryTrack.actions.editHistory',
     icon: MdHistory,
+  },
+  {
+    key: 'quarantine',
+    to: '/quarantine',
+    label: 'resources.libraryTrack.actions.quarantine',
+    icon: MdDeleteSweep,
   },
 ]
 

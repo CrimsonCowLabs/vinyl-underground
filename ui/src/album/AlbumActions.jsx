@@ -32,6 +32,7 @@ import { DownloadButton } from '../download/DownloadButton'
 import { ChooseCoverButton } from './ChooseCoverButton'
 import { EditAlbumButton } from './EditAlbumButton'
 import { OrganizeAlbumButton } from './OrganizeAlbumButton'
+import { SendAlbumToQuarantineButton } from '../quarantine/SendAlbumToQuarantineButton'
 
 const useStyles = makeStyles({
   toolbar: { display: 'flex', justifyContent: 'space-between', width: '100%' },
@@ -153,6 +154,7 @@ const AlbumActions = ({
           <ChooseCoverButton record={record} size="small" />
           <EditAlbumButton record={record} size="small" />
           <OrganizeAlbumButton record={record} size="small" />
+          <SendAlbumToQuarantineButton record={record} size="small" />
         </div>
         <div>{isNotSmall && <ToggleFieldsMenu resource="albumSong" />}</div>
       </div>

@@ -47,6 +47,7 @@ const knownErrors = [
   'pathTaken',
   'caseTwin',
   'outside',
+  'deletedForGood',
 ]
 
 // What a cover write (the folder's cover.jpg) or an embed (Embed in Files) did, by whether it
@@ -88,6 +89,14 @@ export const EditChangesField = ({ record }) => {
   const classes = useStyles()
   const translate = useTranslate()
   if (!record) return null
+  if (record.kind === 'delete') {
+    // A File Empty Quarantine deleted (#168).
+    return (
+      <Typography variant="body2" component="span" className={classes.change}>
+        {translate('resources.editHistory.message.deleted')}
+      </Typography>
+    )
+  }
   if (record.kind === 'cover' || record.kind === 'embed') {
     return (
       <Typography variant="body2" component="span" className={classes.change}>
@@ -95,8 +104,9 @@ export const EditChangesField = ({ record }) => {
       </Typography>
     )
   }
-  if (record.kind === 'move') {
-    // A move (Organize, #167): where the File was, and where it went.
+  if (record.kind === 'move' || record.kind === 'quarantine') {
+    // A move (Organize, #167), or one into or out of Quarantine (#168): where the File was, and
+    // where it went.
     return (
       <Typography variant="body2" component="span" className={classes.change}>
         <span className={classes.tag}>
@@ -256,7 +266,9 @@ export const UndoEditButton = ({ record }) => {
           e.stopPropagation()
           setOpen(true)
         }}
-        disabled={running || record.state !== 'written'}
+        disabled={
+          running || record.state !== 'written' || record.kind === 'delete'
+        }
       >
         <UndoIcon />
       </Button>

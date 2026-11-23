@@ -140,6 +140,8 @@ var mediaFileFilter = sync.OnceValue(func() map[string]filterFunc {
 		"path":       startsWithFilter("media_file.path"),
 	}
 	maps.Copy(filters, libraryManagerFilters())
+	// #168: the Missing files page leaves out the Tracks in Quarantine.
+	filters["quarantined"] = booleanFilter
 	// Add all album tags as filters
 	for tag := range model.TagMappings() {
 		if _, exists := filters[string(tag)]; !exists {
@@ -494,7 +496,9 @@ func (r *mediaFileRepository) DeleteAllMissing() (int64, error) {
 	if !user.IsAdmin {
 		return 0, rest.ErrPermissionDenied
 	}
-	del := Delete(r.tableName).Where(Eq{"missing": true})
+	// A Track in Quarantine (#168) is kept, so a restore brings it back: only Empty Quarantine
+	// deletes it, once its File is gone.
+	del := Delete(r.tableName).Where(Eq{"missing": true, "quarantined": false})
 	return r.executeSQL(del)
 }
 
@@ -506,9 +510,20 @@ func (r *mediaFileRepository) DeleteMissing(ids []string) error {
 	return r.delete(
 		And{
 			Eq{"missing": true},
+			Eq{"quarantined": false},
 			Eq{"id": ids},
 		},
 	)
+}
+
+func (r *mediaFileRepository) MarkQuarantined(quarantined bool, ids ...string) error {
+	for chunk := range slices.Chunk(ids, 200) {
+		upd := Update(r.tableName).Set("quarantined", quarantined).Where(Eq{"id": chunk})
+		if _, err := r.executeSQL(upd); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (r *mediaFileRepository) MarkMissing(missing bool, mfs ...*model.MediaFile) error {

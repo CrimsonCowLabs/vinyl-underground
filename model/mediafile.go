@@ -114,6 +114,11 @@ type MediaFile struct {
 	BirthTime time.Time `structs:"birth_time" json:"birthTime" hash:"ignore"` // Time of file creation (ctime)
 	CreatedAt time.Time `structs:"created_at" json:"createdAt" hash:"ignore"` // Time this entry was created in the DB
 	UpdatedAt time.Time `structs:"updated_at" json:"updatedAt" hash:"ignore"` // Time of file last update (mtime)
+
+	// Quarantined is a missing Track whose File the app moved into Quarantine (#168). Its row is
+	// kept, out of the Missing files page and never purged, so a restore brings the same Track
+	// back; the next scan of its File where it was clears it.
+	Quarantined bool `structs:"quarantined" json:"quarantined,omitempty" hash:"ignore"`
 }
 
 func (mf MediaFile) FullTitle() string {
@@ -584,6 +589,10 @@ type MediaFileRepository interface {
 	// keeping its ID, so everything that refers to it stays attached (Promote, #36). The next
 	// scan of that folder re-reads the File's tags into it.
 	Relocate(id string, libraryID int, path, folderID string) error
+	// MarkQuarantined marks the Tracks ids as having their Files in Quarantine (#168), or, with
+	// quarantined false, out of it again. A quarantined Track, once missing, is kept out of the
+	// Missing files page and its deletes, and is never purged.
+	MarkQuarantined(quarantined bool, ids ...string) error
 
 	// The following methods are used exclusively by the scanner:
 	MarkMissing(bool, ...*MediaFile) error

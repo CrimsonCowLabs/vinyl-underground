@@ -56,6 +56,12 @@ func Code(err error) string {
 		return "caseTwin"
 	case errors.Is(err, safefile.ErrOutside):
 		return "outside"
+	case errors.Is(err, ErrInQuarantine):
+		return "inQuarantine"
+	case errors.Is(err, ErrNotInQuarantine):
+		return "notInQuarantine"
+	case errors.Is(err, ErrDeletedForGood):
+		return "deletedForGood"
 	}
 	return CodeInternal
 }

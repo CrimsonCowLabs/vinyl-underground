@@ -41,6 +41,8 @@ func (r *missingRepository) parseOptions(options []rest.QueryOptions) rest.Query
 		opt.Filters = maps.Clone(opt.Filters)
 	}
 	opt.Filters["missing"] = "true"
+	// A Track in Quarantine (#168) isn't missing: the Quarantine page lists its File.
+	opt.Filters["quarantined"] = "false"
 	return opt
 }
 
@@ -49,7 +51,7 @@ func (r *missingRepository) Read(id string) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	if !mf.Missing {
+	if !mf.Missing || mf.Quarantined {
 		return nil, model.ErrNotFound
 	}
 	return mf, nil

@@ -121,6 +121,7 @@ func (api *Router) routes() http.Handler {
 			api.addLibraryManagerRoute(r)
 			api.addOrganizeRoute(r)
 			api.addAlbumCoverRoute(r)
+			api.addQuarantineRoute(r)
 			api.addMusicBrainzRoute(r)
 			api.RX(r, "/library", api.libs.NewRepository, true)
 		})

@@ -579,6 +579,14 @@ func (e *Editor) Settle(ctx context.Context) {
 			e.settleCover(ctx, lib, entry)
 			continue
 		}
+		if entry.Kind == model.EditDelete {
+			e.settleDelete(ctx, lib, entry)
+			continue
+		}
+		if entry.Kind == model.EditQuarantine {
+			e.settleQuarantine(ctx, lib, entry)
+			continue
+		}
 		if _, ok := moveKinds[entry.Kind]; ok {
 			e.settleMove(ctx, lib, entry)
 			continue

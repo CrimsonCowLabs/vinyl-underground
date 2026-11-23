@@ -361,6 +361,41 @@ describe('Edit history page', () => {
     })
   })
 
+  describe('Quarantine (#168)', () => {
+    it('says where a move into Quarantine took the File', () => {
+      render(
+        <EditChangesField
+          record={{
+            ...entry,
+            kind: 'quarantine',
+            changes: [],
+            newPath: '_Quarantine/Artist/Album/01 Song.mp3',
+          }}
+        />,
+      )
+      expect(
+        screen.getByText('resources.editHistory.message.moved'),
+      ).toBeTruthy()
+    })
+
+    it('says a File was deleted for good, and offers no undo', () => {
+      const deleted = { ...entry, kind: 'delete', changes: [], newPath: '' }
+      render(
+        <>
+          <EditChangesField record={deleted} />
+          <UndoEditButton record={deleted} />
+        </>,
+      )
+      expect(
+        screen.getByText('resources.editHistory.message.deleted'),
+      ).toBeTruthy()
+      expect(
+        screen.getByText('resources.editHistory.actions.undo').closest('button')
+          .disabled,
+      ).toBe(true)
+    })
+  })
+
   it("can't undo a write that never happened", () => {
     render(<UndoEditButton record={{ ...entry, state: 'failed' }} />)
     expect(
