@@ -6,8 +6,9 @@ Usage: apply.py ROOT PLAN.tsv [--dry-run]
 
 Every step is checked afterwards by re-listing both folders, because a
 case-insensitive server may apply a name to the wrong sibling. The first step
-that fails or doesn't verify stops the run. Completed steps are recorded in
-PLAN.tsv.done, so re-running the same plan resumes after the last one.
+that fails or doesn't verify stops the run. Completed steps are recorded, whole, in
+PLAN.tsv.done, so re-running the plan skips them, even after it was edited; a new plan
+written to the same name doesn't inherit the old one's progress.
 "decide" steps are only reported. A "quarantine" step first checks that the File
 is byte-identical to the one it duplicates, and stops if not; a "quarantine-audio"
 step (from audiodupes.py) instead checks that the two Files' audio is identical,
@@ -117,6 +118,25 @@ def quarantine_copy(root: str, fields: list[str]) -> str:
     return f"ok: {len(todo)} Files moved out of {away!r}, keeping {kept!r}" + (f" ({earlier} moved earlier)" if earlier else "")
 
 
+def read_progress(log_path: str) -> set[str]:
+    """The steps a run of this plan already finished, each as its line of the plan.
+
+    Steps are recorded whole, not by number, so a new plan written to the same name, or a plan
+    edited after a stop, never takes another plan's progress for its own.
+    """
+    if not os.path.exists(log_path):
+        return set()
+    with open(log_path, encoding="utf-8") as fh:
+        lines = [line.rstrip("\n") for line in fh if line.strip()]
+    if any(line.isdigit() for line in lines):
+        raise ValueError(
+            f"{log_path} records steps by number, as apply.py did before, so it can't tell which steps "
+            "of this plan it means. If the plan is new, move it aside and run again; if this run was "
+            "stopped part-way, check by hand which steps were done and delete them from the plan first."
+        )
+    return set(lines)
+
+
 def main(argv: list[str]) -> int:
     if len(argv) < 2:
         print(__doc__, file=sys.stderr)
@@ -125,15 +145,17 @@ def main(argv: list[str]) -> int:
     with open(plan_path, encoding="utf-8") as fh:
         plan = [line.rstrip("\n").split("\t") for line in fh if line.strip()]
     log_path = plan_path + ".done"
-    finished = set()
-    if os.path.exists(log_path):
-        with open(log_path, encoding="utf-8") as fh:
-            finished = {int(n) for n in fh.read().split()}
+    try:
+        finished = read_progress(log_path)
+    except ValueError as e:
+        print(e, file=sys.stderr)
+        return 2
     log = None if dry else open(log_path, "a", encoding="utf-8")
     done = 0
     for i, (op, src, *rest) in enumerate(plan, 1):
         dst = rest[0] if rest else ""
-        if i in finished:
+        step = "\t".join([op, src, *rest])
+        if step in finished:
             continue
         if op == HELD_TWICE:
             print(f"[{i}/{len(plan)}] {op}\t{describe([op, src, *rest])}", flush=True)
@@ -175,7 +197,7 @@ def main(argv: list[str]) -> int:
             return 1
         done += 1
         assert log is not None
-        log.write(f"{i}\n")
+        log.write(step + "\n")
         log.flush()
         print(f"    {result}", flush=True)
     print(f"{done} steps applied" + (" (dry run)" if dry else ""), file=sys.stderr)
