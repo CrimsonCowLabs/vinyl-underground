@@ -92,7 +92,7 @@ python3 dupes.py $PLANS/jdupes.txt $PLANS/scan.tsv --root /mnt/music > $PLANS/du
 
 Each line is `quarantine<TAB>SRC<TAB>_Quarantine/SRC<TAB>KEEP`: SRC moves to the same relative path under `_Quarantine/`, and KEEP is the byte-identical File that stays. Sets with no audio Files (a DVD's matching `.IFO` and `.BUP`, cover art) are left alone. So are Files under `_Quarantine/` or any folder with a `.ndignore`, such as the recycle bin once you give it one: the app's scanner skips those folders, so they are not part of the Library. Give the recycle bin a `.ndignore` (`touch /mnt/music-rw/trashbox/.ndignore`) before the first scan, or it becomes Tracks. Which File is kept, in order:
 
-1. Not a copy's name: `Song 1`, `Song (1)` or `Copy of Song`, when `Song` itself is in the set.
+1. Not a copy's name: `Song 1`, `Song (1)` or `Copy of Song`, when `Song` itself is in the set, or `(1)Song`, when `01 Song` is.
 2. The deepest folder, so `Artist/Album/Song` beats a loose `Song`. The bytes, and so the tags the app shows, are identical; this only decides where the File lives.
 3. The shortest file name, then the first in alphabetical order.
 
@@ -129,7 +129,7 @@ python3 scan.py /mnt/music > $PLANS/scan.tsv
 python3 audiodupes.py $PLANS/scan.tsv --root /mnt/music > $PLANS/audiodupes.tsv
 ```
 
-Only candidates are compared: each audio File with the copy-named Files beside it (same folder and extension, e.g. `Song 1.mp3`, `Song (1).mp3`, `Copy of Song.mp3` beside `Song.mp3`). Their tag headers are read first, and only Files whose audio is the same size are read in full, so planning reads about the candidates' total size (roughly 30 GB and half an hour over SMB1 for 2,000 pairs). A copy-named File whose audio differs (a different recording or encoding that got the same name) is counted on stderr and left alone. Each line is `quarantine-audio<TAB>SRC<TAB>_Quarantine/SRC<TAB>KEEP`, and the File kept is chosen by the same rules as above, so the copy's name goes. Edit the plan as above: swap SRC and KEEP to keep the other File, or delete a line to keep both.
+Only candidates are compared: each audio File with the copy-named Files beside it (same folder and extension, e.g. `Song 1.mp3`, `Song (1).mp3`, `Copy of Song.mp3` beside `Song.mp3`, or `(1)Song.mp3` beside `01 Song.mp3`). Their tag headers are read first, and only Files whose audio is the same size are read in full, so planning reads about the candidates' total size (roughly 30 GB and half an hour over SMB1 for 2,000 pairs). A copy-named File whose audio differs (a different recording or encoding that got the same name) is counted on stderr and left alone. Each line is `quarantine-audio<TAB>SRC<TAB>_Quarantine/SRC<TAB>KEEP`, and the File kept is chosen by the same rules as above, so the copy's name goes. Edit the plan as above: swap SRC and KEEP to keep the other File, or delete a line to keep both.
 
 **2. Apply.**
 
@@ -364,7 +364,7 @@ python3 health.py /path/to/navidrome.db --list suspect-discs   # the offenders b
 |---|---|
 | `tracks`, `albums` | Tracks and albums in total (totals only, nothing to list) |
 | `duplicates` | Likely Duplicates: the extra Files sharing artist, title and album (ignoring case), and how many groups they form |
-| `copy-named` | Of those, the copy-named Files: `Song 1`, `Song (1)` or `Copy of Song` beside `Song` |
+| `copy-named` | Of those, the copy-named Files: `Song 1`, `Song (1)` or `Copy of Song` beside `Song`, or `(1)Song` beside `01 Song` |
 | `albums-twice` | The same album and album artist in more than one folder, unless each folder holds a different disc |
 | `suspect-discs` | Albums with a disc of one or two Tracks while the rest have no disc number |
 | `no-cover` | Albums with no embedded art and no image in any of their folders |

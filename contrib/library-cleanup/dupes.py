@@ -44,6 +44,8 @@ _COPY_MARKERS = (
     re.compile(r"^Copy of (?P<base>.+)$"),
     re.compile(r"^Copy \(\d+\) of (?P<base>.+)$"),
 )
+# A copy some rippers name with the track number in brackets: "(1)The Hollow" beside "01 The Hollow".
+_BRACKETED_NUMBER = re.compile(r"^\((?P<n>\d{1,3})\) ?(?P<title>.+)$")
 
 
 def parse_jdupes(report: str) -> list[list[str]]:
@@ -63,9 +65,14 @@ def parse_jdupes(report: str) -> list[list[str]]:
 
 
 def copied_from(name: str) -> list[str]:
-    """The names a File called `name` may have been copied from: "Song.mp3" for "Song 1.mp3"."""
+    """The names a File called `name` may have been copied from: "Song.mp3" for "Song 1.mp3",
+    "01 Song.mp3" for "(1)Song.mp3"."""
     stem, ext = os.path.splitext(name)
-    return [m["base"] + ext for marker in _COPY_MARKERS if (m := marker.match(stem))]
+    bases = [m["base"] + ext for marker in _COPY_MARKERS if (m := marker.match(stem))]
+    if m := _BRACKETED_NUMBER.match(stem):
+        n, title = int(m["n"]), m["title"]
+        bases += list(dict.fromkeys(f"{num}{sep}{title}{ext}" for num in (f"{n:02d}", str(n)) for sep in (" ", " - ")))
+    return bases
 
 
 def _is_copy_name(path: str, names: set[str]) -> bool:
