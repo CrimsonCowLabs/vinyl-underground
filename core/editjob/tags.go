@@ -7,8 +7,6 @@ import (
 
 	"github.com/navidrome/navidrome/core/tagedit"
 	"github.com/navidrome/navidrome/model"
-	"github.com/navidrome/navidrome/server/events"
-	"github.com/navidrome/navidrome/utils/singleton"
 )
 
 // TagsStep is the step that writes the edited fields (by tagedit.Field key) into the File of the
@@ -52,11 +50,4 @@ func (k tagsKind) Code(err error) string { return tagedit.Code(err) }
 // Kinds are the step kinds the app runs.
 func Kinds(editor *tagedit.Editor) map[model.EditKind]StepKind {
 	return map[model.EditKind]StepKind{model.EditTags: tagsKind{editor: editor}}
-}
-
-// GetInstance returns the app's one Queue, so the API and the worker share it.
-func GetInstance(ds model.DataStore, broker events.Broker, editor *tagedit.Editor) *Queue {
-	return singleton.GetInstance(func() *Queue {
-		return New(ds, broker, Kinds(editor))
-	})
 }

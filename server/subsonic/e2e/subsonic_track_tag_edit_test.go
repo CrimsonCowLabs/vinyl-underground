@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -15,6 +16,7 @@ import (
 	"github.com/navidrome/navidrome/core"
 	"github.com/navidrome/navidrome/core/artwork"
 	"github.com/navidrome/navidrome/core/auth"
+	"github.com/navidrome/navidrome/core/editjob"
 	"github.com/navidrome/navidrome/core/metrics"
 	"github.com/navidrome/navidrome/core/playlists"
 	"github.com/navidrome/navidrome/core/tagedit"
@@ -99,8 +101,17 @@ var _ = Describe("Editing a Track's tags keeps its identity", func() {
 	})
 
 	edit := func(values tagedit.Values) *httptest.ResponseRecorder {
-		api := server.JWTVerifier(nativeapi.New(ds, core.NewShare(ds), playlists.NewPlaylists(ds, artwork.NewUploader(ds)), nil, tests.NewMockLibraryService(), tests.NewMockUserService(),
-			nil, nil, nil, nil, nil, nil, nil, tagedit.New(ds, s)))
+		editor := tagedit.New(ds, s)
+		router := nativeapi.New(ds, core.NewShare(ds), playlists.NewPlaylists(ds, artwork.NewUploader(ds)), nil, tests.NewMockLibraryService(), tests.NewMockUserService(),
+			nil, nil, nil, nil, nil, nil, nil, editor)
+		// The edit runs as a job on the real database's queue.
+		queue := editjob.New(ds, nil, editjob.Kinds(editor))
+		router.SetEditQueue(queue)
+		qctx, stop := context.WithCancel(ctx)
+		done := make(chan struct{})
+		go func() { queue.Run(qctx); close(done) }()
+		defer func() { stop(); <-done }()
+		api := server.JWTVerifier(router)
 		body, err := json.Marshal(map[string]any{"values": values})
 		Expect(err).ToNot(HaveOccurred())
 		req := httptest.NewRequest(http.MethodPut, "/trackTags/"+trackID, bytes.NewBuffer(body))
@@ -167,5 +178,11 @@ var _ = Describe("Editing a Track's tags keeps its identity", func() {
 		Expect(db.Db().QueryRow("select original_tags from edit_journal where media_file_id = ? and state = 'written'", trackID).Scan(&original)).To(Succeed())
 		Expect(original).To(ContainSubstring(`"TITLE":["Song"]`))
 		Expect(original).To(ContainSubstring(`"TRACKNUMBER":["2/10"]`))
+
+		// The edit was a job of its own, done, and its journal entry has the job's ID.
+		var jobID, state string
+		Expect(db.Db().QueryRow("select id, state from edit_job").Scan(&jobID, &state)).To(Succeed())
+		Expect(state).To(Equal(string(model.EditJobDone)))
+		Expect(ds.EditJournal(ctx).ForJob(jobID)).To(HaveLen(1))
 	})
 })

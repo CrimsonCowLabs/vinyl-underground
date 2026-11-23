@@ -13,6 +13,7 @@ import (
 	"github.com/navidrome/navidrome/core"
 	"github.com/navidrome/navidrome/core/artwork"
 	"github.com/navidrome/navidrome/core/corrections"
+	"github.com/navidrome/navidrome/core/editjob"
 	"github.com/navidrome/navidrome/core/external"
 	"github.com/navidrome/navidrome/core/metrics"
 	"github.com/navidrome/navidrome/core/musicbrainz"
@@ -57,6 +58,10 @@ type Router struct {
 	coverPicker   artwork.CoverPicker
 	releaseSearch releaseSearch
 	tagEditor     *tagedit.Editor
+	// editQueue runs edits as background jobs (see SetEditQueue); editWait is how long an edit
+	// waits for its job before it answers that the job runs in the background.
+	editQueue *editjob.Queue
+	editWait  time.Duration
 }
 
 func New(ds model.DataStore, share core.Share, playlists playlistsvc.Playlists, insights metrics.Insights, libraryService core.Library, userService core.User, maintenance core.Maintenance, pluginManager PluginManager, imgUpload artwork.Uploader, provider external.Provider, quickConnect quickconnect.QuickConnect, refresher refresh.Refresher, coverPicker artwork.CoverPicker, tagEditor *tagedit.Editor) *Router {

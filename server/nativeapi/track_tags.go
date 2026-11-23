@@ -1,25 +1,40 @@
 package nativeapi
 
 import (
+	"cmp"
 	"encoding/json"
-	"errors"
 	"net/http"
+	"strconv"
+	"time"
 
 	"github.com/deluan/rest"
 	"github.com/go-chi/chi/v5"
-	"github.com/navidrome/navidrome/core/safefile"
+	"github.com/navidrome/navidrome/core/editjob"
 	"github.com/navidrome/navidrome/core/tagedit"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
 )
 
-// addTrackTagsRoute lets the admin read and edit one Track's tags in its File (#160, ADR-0011).
-// It is admin only (see routes), and answers editingOff while the Track's library is read-only.
+// defaultEditWait is how long an edit waits for its job to end before it answers that the job
+// runs in the background: long enough for a single File on a slow share.
+const defaultEditWait = 5 * time.Second
+
+// SetEditQueue gives the router the edit job queue its edits are queued on (#162). With none
+// (editing off at startup), edits answer editingOff.
+func (api *Router) SetEditQueue(q *editjob.Queue) {
+	api.editQueue = q
+}
+
+// addTrackTagsRoute lets the admin read and edit one Track's tags in its File (#160, ADR-0011),
+// and follow the edit jobs (#162). It is admin only (see routes), and answers editingOff while
+// the Track's library is read-only.
 func (api *Router) addTrackTagsRoute(r chi.Router) {
 	r.Route("/trackTags/{id}", func(r chi.Router) {
 		r.Get("/", api.readTrackTags)
 		r.Put("/", api.editTrackTags)
 	})
+	r.Get("/editJob", api.listEditJobs)
+	r.Get("/editJob/{id}", api.getEditJob)
 }
 
 func (api *Router) readTrackTags(w http.ResponseWriter, r *http.Request) {
@@ -35,8 +50,19 @@ func (api *Router) readTrackTags(w http.ResponseWriter, r *http.Request) {
 	_ = rest.RespondWithJSON(w, http.StatusOK, tags)
 }
 
+// editResult is what an edit answers: the edit's outcome, once its job has ended, or only the
+// job (Background) while it is still running.
+type editResult struct {
+	tagedit.Result
+	JobID      string `json:"jobId"`
+	Background bool   `json:"background,omitempty"`
+}
+
+// editTrackTags queues the edit as a job of one File, and waits a little for it: a single File
+// is usually written in that time, and the answer is the edit's outcome, as if it had been made
+// inline. Otherwise it answers 202, and the job carries on in the background.
 func (api *Router) editTrackTags(w http.ResponseWriter, r *http.Request) {
-	if api.tagEditor == nil {
+	if api.tagEditor == nil || api.editQueue == nil {
 		writeTagEditError(w, r, tagedit.ErrEditingOff)
 		return
 	}
@@ -49,40 +75,102 @@ func (api *Router) editTrackTags(w http.ResponseWriter, r *http.Request) {
 		writeTagEditError(w, r, tagedit.ErrInvalidTags)
 		return
 	}
-	res, err := api.tagEditor.Edit(r.Context(), chi.URLParam(r, "id"), body.Values)
+	ctx := r.Context()
+	step, err := editjob.TagsStep(chi.URLParam(r, "id"), body.Values)
 	if err != nil {
 		writeTagEditError(w, r, err)
 		return
 	}
+	job, err := api.editQueue.Enqueue(ctx, model.EditTags, []model.EditJobStep{step})
+	if err != nil {
+		writeTagEditError(w, r, err)
+		return
+	}
+	job, err = api.editQueue.Wait(ctx, job.ID, cmp.Or(api.editWait, defaultEditWait))
+	if err != nil {
+		writeTagEditError(w, r, err)
+		return
+	}
+	if job.State != model.EditJobDone || len(job.Steps) == 0 {
+		_ = rest.RespondWithJSON(w, http.StatusAccepted, editResult{JobID: job.ID, Background: true})
+		return
+	}
+	s := job.Steps[0]
+	if s.State == model.EditStepSkipped {
+		writeTagEditCode(w, r, s.Code, s.Error)
+		return
+	}
+	res := editResult{JobID: job.ID, Result: tagedit.Result{
+		Changed: s.State == model.EditStepWritten, Entry: s.EntryID, Warning: s.Warning}}
+	if mf, err := api.ds.MediaFile(ctx).Get(s.MediaFileID); err == nil {
+		res.Track = mf
+	}
 	_ = rest.RespondWithJSON(w, http.StatusOK, res)
+}
+
+// listEditJobs returns the latest edit jobs (?_end, default 20), newest first, each with the
+// Files it skipped.
+func (api *Router) listEditJobs(w http.ResponseWriter, r *http.Request) {
+	if api.editQueue == nil {
+		_ = rest.RespondWithJSON(w, http.StatusOK, model.EditJobs{})
+		return
+	}
+	limit, err := strconv.Atoi(r.URL.Query().Get("_end"))
+	if err != nil || limit <= 0 || limit > 200 {
+		limit = 20
+	}
+	jobs, err := api.editQueue.Jobs(r.Context(), limit)
+	if err != nil {
+		writeTagEditError(w, r, err)
+		return
+	}
+	_ = rest.RespondWithJSON(w, http.StatusOK, jobs)
+}
+
+// getEditJob returns an edit job, with all its steps.
+func (api *Router) getEditJob(w http.ResponseWriter, r *http.Request) {
+	if api.editQueue == nil {
+		writeTagEditError(w, r, model.ErrNotFound)
+		return
+	}
+	job, err := api.editQueue.Job(r.Context(), chi.URLParam(r, "id"))
+	if err != nil {
+		writeTagEditError(w, r, err)
+		return
+	}
+	_ = rest.RespondWithJSON(w, http.StatusOK, job)
+}
+
+// tagEditStatus is the HTTP status of each tagedit.Code.
+var tagEditStatus = map[string]int{
+	"notFound":              http.StatusNotFound,
+	"editingOff":            http.StatusForbidden,
+	"changedOnDisk":         http.StatusConflict,
+	"invalid":               http.StatusBadRequest,
+	"unsupportedFormat":     http.StatusUnprocessableEntity,
+	"notVerified":           http.StatusUnprocessableEntity,
+	"linked":                http.StatusUnprocessableEntity,
+	"oldCopyLeft":           http.StatusConflict,
+	editjob.CodeInterrupted: http.StatusServiceUnavailable,
+	tagedit.CodeInternal:    http.StatusInternalServerError,
 }
 
 // writeTagEditError answers a failed read or edit with a code the dialog translates, and the
 // error's own words for the admin.
 func writeTagEditError(w http.ResponseWriter, r *http.Request, err error) {
-	status, code := http.StatusInternalServerError, "internal"
-	switch {
-	case errors.Is(err, model.ErrNotFound):
-		status, code = http.StatusNotFound, "notFound"
-	case errors.Is(err, tagedit.ErrEditingOff):
-		status, code = http.StatusForbidden, "editingOff"
-	case errors.Is(err, tagedit.ErrChangedOnDisk):
-		status, code = http.StatusConflict, "changedOnDisk"
-	case errors.Is(err, tagedit.ErrInvalidTags):
-		status, code = http.StatusBadRequest, "invalid"
-	case errors.Is(err, tagedit.ErrUnsupportedFormat):
-		status, code = http.StatusUnprocessableEntity, "unsupportedFormat"
-	case errors.Is(err, tagedit.ErrNotVerified):
-		status, code = http.StatusUnprocessableEntity, "notVerified"
-	case errors.Is(err, safefile.ErrLinked):
-		status, code = http.StatusUnprocessableEntity, "linked"
-	case errors.Is(err, tagedit.ErrOldCopyLeft):
-		status, code = http.StatusConflict, "oldCopyLeft"
-	}
-	if status == http.StatusInternalServerError {
+	code := tagedit.Code(err)
+	if code == tagedit.CodeInternal {
 		log.Error(r.Context(), "Error editing a Track's tags", err)
 	} else {
 		log.Debug(r.Context(), "Tag edit refused", "code", code, err)
 	}
-	_ = rest.RespondWithJSON(w, status, map[string]string{"error": code, "message": err.Error()})
+	writeTagEditCode(w, r, code, err.Error())
+}
+
+func writeTagEditCode(w http.ResponseWriter, _ *http.Request, code, message string) {
+	status, ok := tagEditStatus[code]
+	if !ok {
+		status = http.StatusInternalServerError
+	}
+	_ = rest.RespondWithJSON(w, status, map[string]string{"error": code, "message": message})
 }

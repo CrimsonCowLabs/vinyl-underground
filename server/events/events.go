@@ -51,12 +51,12 @@ type ScanStatus struct {
 // ends.
 type EditJob struct {
 	baseEvent
-	ID      string `json:"id"`
+	ID      string             `json:"id"`
 	State   model.EditJobState `json:"state"`
-	Total   int    `json:"total"`
-	Done    int    `json:"done"`
-	Skipped int    `json:"skipped"`
-	Current string `json:"current"`
+	Total   int                `json:"total"`
+	Done    int                `json:"done"`
+	Skipped int                `json:"skipped"`
+	Current string             `json:"current"`
 }
 
 type KeepAlive struct {
