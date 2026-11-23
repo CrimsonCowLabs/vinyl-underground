@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"reflect"
 	"slices"
 	"strconv"
@@ -29,9 +30,12 @@ import (
 // Files couldn't all be written stays, with the reasons, and the migration can be run again: what
 // a File holds already writes nothing.
 //
-// What stays app data: an image marked wrong for an album (a cover block), and a MusicBrainz
-// release picked with Find on MusicBrainz, whose IDs aren't written into the Files yet (#170): the
-// album Correction keeps only the release, and its Cover Art Archive cover.
+// An album Correction's MusicBrainz release, picked with Find on MusicBrainz before #170 wrote
+// picks into the Files, is written too: its musicbrainz_albumid and musicbrainz_releasegroupid into
+// the album's Files, as the overlay applied them, and its Cover Art Archive cover, which the album
+// showed over every other, as its cover.jpg (a chosen cover outranked it, and wins here too).
+//
+// What stays app data: an image marked wrong for an album (a cover block).
 
 // JobMigrate is the edit job of the Correction migration.
 const JobMigrate model.EditKind = "migrateCorrections"
@@ -50,14 +54,12 @@ type MigrationItem struct {
 	Changes    []MigrationChange `json:"changes"`
 	Files      int               `json:"files"`
 	Flags      []FileFlag        `json:"flags"`
-	// KeepsRelease: the Correction's MusicBrainz release stays a Correction (#170).
-	KeepsRelease bool `json:"keepsRelease,omitempty"`
 	// LastRun are the reasons the last migration left the Correction in place.
 	LastRun []FileFlag `json:"lastRun,omitempty"`
 }
 
 // MigrationChange is one value writing a Correction changes, by field (album, albumartist,
-// year, tracknumber, discnumber, artist, cover; undoing for a Correction an undo left half done,
+// year, musicbrainz_albumid, musicbrainz_releasegroupid, tracknumber, discnumber, artist, cover; undoing for a Correction an undo left half done,
 // which is only removed).
 type MigrationChange struct {
 	Field string `json:"field"`
@@ -126,14 +128,14 @@ func migrateArgsOf(job *model.EditJob) (migrateArgs, error) {
 }
 
 // migrates says whether the migration writes the Correction (or, half undone, removes it): every
-// kind the overlay applied on read, but not a cover block, nor an album Correction holding only a
-// MusicBrainz release.
+// kind the overlay applied on read (an album Correction's MusicBrainz release too), but not a
+// cover block.
 func migrates(cr model.Correction) bool {
 	switch {
 	case cr.Undoing:
 		return cr.Kind != model.CorrectionAlbumCoverBlock
 	case cr.Kind == model.CorrectionAlbum:
-		return cr.AlbumName != "" || cr.AlbumArtist != "" || cr.Year != 0
+		return cr.AlbumName != "" || cr.AlbumArtist != "" || cr.Year != 0 || cr.MbzAlbumID != "" || cr.MbzReleaseGroupID != ""
 	}
 	return cr.Kind.IsArtistRename() || cr.Kind == model.CorrectionTrackNumbers || cr.Kind == model.CorrectionAlbumCover
 }
@@ -241,6 +243,17 @@ func (c *corrections) migration(ctx context.Context, editor *tagedit.Editor, ste
 	// folders) write one cover, the one the overlay showed (keyed by the earliest folder).
 	type coverAt struct{ step, at int }
 	covers := map[string]coverAt{}
+	// addCover writes one cover File's step: the one ranked first (at).
+	addCover := func(step model.EditJobStep, rel string, at int) string {
+		if prev, ok := covers[rel]; !ok {
+			covers[rel] = coverAt{step: len(coverSteps), at: at}
+			coverSteps = append(coverSteps, step)
+		} else if at < prev.at {
+			coverSteps[prev.step] = step
+			covers[rel] = coverAt{step: prev.step, at: at}
+		}
+		return rel
+	}
 
 	for _, cr := range all {
 		if !migrates(cr) {
@@ -278,7 +291,18 @@ func (c *corrections) migration(ctx context.Context, editor *tagedit.Editor, ste
 			if cr.Year != 0 {
 				item.Changes = append(item.Changes, MigrationChange{Field: "year", To: strconv.Itoa(cr.Year)})
 			}
-			item.KeepsRelease = cr.MbzAlbumID != ""
+			release := tagedit.Values{}
+			if cr.MbzAlbumID != "" {
+				release["musicbrainz_albumid"] = []string{cr.MbzAlbumID}
+			}
+			if cr.MbzReleaseGroupID != "" {
+				release["musicbrainz_releasegroupid"] = []string{cr.MbzReleaseGroupID}
+			}
+			for _, k := range []string{"musicbrainz_albumid", "musicbrainz_releasegroupid"} {
+				if v, ok := release[k]; ok {
+					item.Changes = append(item.Changes, MigrationChange{Field: k, To: v[0]})
+				}
+			}
 			mfs, err := c.migrationFiles(ctx, squirrel.Eq{"media_file.folder_id": albumFolders[cr.ID]})
 			if err != nil {
 				return nil, nil, err
@@ -303,7 +327,22 @@ func (c *corrections) migration(ctx context.Context, editor *tagedit.Editor, ste
 					if cr.Year != 0 {
 						r.Year = cr.Year
 					}
+					maps.Copy(r.Set, release)
 				})
+			}
+			// The release's cover, which the album showed over every other: a chosen cover
+			// outranked it, so it is written only where the album has none. A cover that can't
+			// be written (its image gone, ...) leaves the Correction's IDs to be written all the
+			// same: nothing shows it any more.
+			if cr.ImageHash != "" {
+				step, rel, at, flag, err := c.migrationCover(ctx, editor, cr, steps)
+				if err != nil {
+					return nil, nil, err
+				}
+				if flag == nil && rel != "" {
+					item.Changes = append(item.Changes, MigrationChange{Field: "cover", From: pickCoverLabel, To: rel})
+					part.CoverPath = addCover(step, rel, pickRank+at)
+				}
 			}
 
 		case cr.Kind == model.CorrectionTrackNumbers:
@@ -365,14 +404,7 @@ func (c *corrections) migration(ctx context.Context, editor *tagedit.Editor, ste
 			case flag != nil:
 				part.Flags = append(part.Flags, *flag)
 			case rel != "":
-				part.CoverPath = rel
-				if prev, ok := covers[rel]; !ok {
-					covers[rel] = coverAt{step: len(coverSteps), at: at}
-					coverSteps = append(coverSteps, step)
-				} else if at < prev.at {
-					coverSteps[prev.step] = step
-					covers[rel] = coverAt{step: prev.step, at: at}
-				}
+				part.CoverPath = addCover(step, rel, at)
 			}
 		}
 		item.Files = len(part.Tracks)
@@ -404,6 +436,13 @@ func (c *corrections) migration(ctx context.Context, editor *tagedit.Editor, ste
 	plan.Args = args.String()
 	return m, plan, nil
 }
+
+// pickRank ranks a picked release's cover after every chosen cover of its album; pickCoverLabel
+// names it.
+const (
+	pickRank       = 1 << 20
+	pickCoverLabel = "Cover Art Archive (MusicBrainz release)"
+)
 
 // numberChanges are what writing a track numbers fix changes: "3 Two" → 2.
 func numberChanges(f model.TrackNumberFix) []MigrationChange {
@@ -682,9 +721,9 @@ func (k migrateKind) Done(ctx context.Context, job *model.EditJob, steps model.E
 	})
 }
 
-// removeMigrated removes the Correction planned (if it is still as planned): an album Correction
-// with a MusicBrainz release keeps only that. A chosen cover outranked the release's cover,
-// which would now outrank the cover File: the release keeps no cover then. It returns the
+// removeMigrated removes the Correction planned (if it is still as planned). A chosen cover
+// outranked a picked release's cover, which a later run would write over it: an album Correction
+// left with a release (its Files not all written) keeps no cover then. It returns the
 // Corrections it changed, as they were, and whether the planned one is gone (false: it changed
 // since it was planned, and is another Correction now, which stays).
 func removeMigrated(repo model.CorrectionRepository, planned savedCorrection) ([]savedCorrection, bool, error) {
@@ -701,10 +740,7 @@ func removeMigrated(repo model.CorrectionRepository, planned savedCorrection) ([
 	var saved []savedCorrection
 	if cur != nil {
 		saved = append(saved, save(*cur))
-		trimmed := *cur
-		trimmed.AlbumName, trimmed.AlbumArtist, trimmed.Year = "", "", 0
-		trimmed.To = trimmedAlbumLabel(*cur, trimmed)
-		if err := replaceCorrection(repo, *cur, trimmed, cur.Kind == model.CorrectionAlbum && cur.MbzAlbumID != ""); err != nil {
+		if err := repo.Delete(cur.ID); err != nil {
 			return nil, false, err
 		}
 	} else if planned.Kind == model.CorrectionAlbumCover {

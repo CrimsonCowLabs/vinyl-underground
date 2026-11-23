@@ -77,4 +77,17 @@ var _ = Describe("Rewrite", func() {
 		Expect(err).ToNot(HaveOccurred())
 		Expect(edit).To(Equal(tagedit.Values{"date": {"1999"}}))
 	})
+
+	It("fills fields only where the File holds none, and never drops a field it sets", func() {
+		r := Rewrite{
+			Set: tagedit.Values{"albumartist": {"Band"}, "musicbrainz_albumartistid": {"id-band"}},
+			Drop: map[string][]string{"albumartist": {"albumartists", "musicbrainz_albumartistid"}},
+			Fill: tagedit.Values{"musicbrainz_trackid": {"rec-1"}, "musicbrainz_releasetrackid": {"rt-1"}},
+		}
+		edit, err := r.Apply(tagedit.Values{"albumartist": {"Bnad"}, "albumartists": {"Bnad"},
+			"musicbrainz_albumartistid": {"id-bnad"}, "musicbrainz_trackid": {"rec-other"}, "musicbrainz_releasetrackid": {""}})
+		Expect(err).ToNot(HaveOccurred())
+		Expect(edit).To(Equal(tagedit.Values{"albumartist": {"Band"}, "albumartists": {},
+			"musicbrainz_albumartistid": {"id-band"}, "musicbrainz_releasetrackid": {"rt-1"}}))
+	})
 })

@@ -23,6 +23,21 @@ type fakeReleaseSearch struct {
 	asked    []string
 	releases []musicbrainz.Release
 	err      error
+	// looked are the releases looked up (Release), each answered from releases.
+	looked []string
+}
+
+func (f *fakeReleaseSearch) Release(_ context.Context, id string) (*musicbrainz.Release, error) {
+	f.looked = append(f.looked, id)
+	if f.err != nil {
+		return nil, f.err
+	}
+	for _, r := range f.releases {
+		if r.ID == id {
+			return &r, nil
+		}
+	}
+	return &musicbrainz.Release{}, nil
 }
 
 func (f *fakeReleaseSearch) SearchReleases(_ context.Context, artist, title string) ([]musicbrainz.Release, error) {

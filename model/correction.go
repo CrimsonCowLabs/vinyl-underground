@@ -33,9 +33,10 @@ const (
 	// CorrectionAlbumCover's, and its ImageHash is the blocked image's content hash. An album can
 	// have several.
 	CorrectionAlbumCoverBlock CorrectionKind = "albumCoverBlock"
-	// CorrectionAlbum corrects an album's title, album artist, year and MusicBrainz release (its
+	// CorrectionAlbum corrected an album's title, album artist, year and MusicBrainz release (its
 	// AlbumName, AlbumArtist, Year, MbzAlbumID and MbzReleaseGroupID; an empty one keeps the
-	// tagged value). Like CorrectionAlbumCover it is
+	// tagged value). Nothing saves one any more (#163, #170): those kept before are only read, by
+	// the Correction migration, which writes them into the Files. Like CorrectionAlbumCover it is
 	// keyed by the album's folder (see AlbumFolderKey), as the tag values are what is wrong and
 	// two albums can share them, and it applies to every File in the album's folders.
 	CorrectionAlbum CorrectionKind = "album"
@@ -82,8 +83,9 @@ type Correction struct {
 	Undoing bool `structs:"undoing" json:"undoing"`
 	// ImageHash and ImageMime name the image a cover Correction makes the album's cover. A cover
 	// block has only the ImageHash of the image it blocks. An album Correction with a picked
-	// MusicBrainz release has its Cover Art Archive front cover, when the archive had one (see
-	// AlbumCovers.Pick). Empty for other kinds.
+	// MusicBrainz release (kept before #170) has its Cover Art Archive front cover, when the
+	// archive had one, which the Correction migration writes as the album's cover.jpg. Empty for
+	// other kinds.
 	ImageHash string `structs:"image_hash" json:"-"`
 	ImageMime string `structs:"image_mime" json:"-"`
 	// AlbumName, AlbumArtist and Year are what an album Correction sets (see CorrectionAlbum):
@@ -193,35 +195,20 @@ func albumCorrections(repo CorrectionRepository, al Album, kinds ...CorrectionKi
 }
 
 // AlbumCovers is what admins decided about an album's cover that stays app data (see
-// AlbumCoverCorrections). A chosen cover isn't: it is written as the album's cover.jpg.
+// AlbumCoverCorrections). A chosen cover isn't: it is written as the album's cover.jpg, and so is
+// a picked MusicBrainz release's (#170).
 type AlbumCovers struct {
-	// Pick is the album Correction whose picked MusicBrainz release brought a Cover Art Archive
-	// cover (its ImageHash and ImageMime), nil when it has none.
-	Pick *Correction
 	// Blocks are the images marked wrong for the album.
 	Blocks Corrections
 }
 
-// AlbumCoverCorrections returns the album's picked release's cover and its cover blocks, with one
-// query, skipping those being undone. Like AlbumCorrection, the pick keyed by the album's earliest
-// folder wins.
+// AlbumCoverCorrections returns the album's cover blocks, skipping those being undone.
 func AlbumCoverCorrections(repo CorrectionRepository, al Album) (AlbumCovers, error) {
-	all, err := albumCorrections(repo, al, CorrectionAlbumCoverBlock, CorrectionAlbum)
+	all, err := albumCorrections(repo, al, CorrectionAlbumCoverBlock)
 	if err != nil {
 		return AlbumCovers{}, err
 	}
-	var res AlbumCovers
-	pickAt := len(al.FolderIDs)
-	for _, c := range all {
-		at := slices.Index(al.FolderIDs, c.MatchKey)
-		switch {
-		case c.Kind == CorrectionAlbumCoverBlock:
-			res.Blocks = append(res.Blocks, c)
-		case c.Kind == CorrectionAlbum && c.ImageHash != "" && at >= 0 && at < pickAt:
-			pickAt, res.Pick = at, &c
-		}
-	}
-	return res, nil
+	return AlbumCovers{Blocks: all}, nil
 }
 
 type CorrectionRepository interface {

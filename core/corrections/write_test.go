@@ -162,7 +162,8 @@ var _ = Describe("Writing Corrections to the Files", func() {
 			Expect(kinds[plan.Kind].Done(ctx, job, steps)).To(Succeed())
 			left := correctionsOf(model.CorrectionAlbum)
 			Expect(left).To(HaveLen(1))
-			// The MusicBrainz release (#170) stays a Correction; the year is the Files' now.
+			// The MusicBrainz release stays, for the Correction migration to write; the year is the
+			// Files' now.
 			Expect(left[0].Year).To(BeZero())
 			Expect(left[0].MbzAlbumID).To(Equal(old.MbzAlbumID))
 
