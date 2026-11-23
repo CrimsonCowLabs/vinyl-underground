@@ -167,6 +167,7 @@ var _ = Describe("Plan", func() {
 		Entry("a title that is only a number", func(mf *model.MediaFile) { mf.Title = "05" }, ReasonNoTitle),
 		Entry(`a title "Track NN"`, func(mf *model.MediaFile) { mf.Title = "Track 01" }, ReasonNoTitle),
 		Entry("a title still starting with its track number", func(mf *model.MediaFile) { mf.Title = "01 Song" }, ReasonTitleNumber),
+		Entry("a title starting with its track number in brackets", func(mf *model.MediaFile) { mf.Title = "(1)Song" }, ReasonTitleNumber),
 		Entry("a title starting with a number retag couldn't tell (FlagNumberKept)", func(mf *model.MediaFile) {
 			mf.Title, mf.TrackNumber = "1 Song", 0
 		}, ReasonTitleNumber),

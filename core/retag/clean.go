@@ -199,7 +199,7 @@ func (c *Cleaned) stripNumber() {
 		if n := atoi(m[1]); c.trackFits(n) {
 			c.setTrack(n)
 			c.Title = m[2]
-			c.fix("took the track number off the title")
+			c.fix(fixTookTrack)
 		}
 		return
 	}
