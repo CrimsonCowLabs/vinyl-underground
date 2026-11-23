@@ -245,4 +245,63 @@ var _ = Describe("Client", func() {
 			Expect(served()[0].URL.Query().Get("query")).To(Equal(`release:"Record"`))
 		})
 	})
+
+	Describe("Release", func() {
+		const releaseJSON = `{"id": "rel-1", "title": "Record", "date": "1999",
+		  "release-group": {"id": "rg-1", "first-release-date": "1998"},
+		  "media": [{"position": 1, "track-count": 2, "tracks": [
+		    {"id": "t-1", "position": 1, "title": "One", "length": 200000,
+		     "artist-credit": [{"name": "Band", "artist": {"id": "a-1", "name": "Band"}}],
+		     "recording": {"id": "rec-1", "title": "One"}},
+		    {"id": "t-2", "position": 2, "title": "Two", "length": 0, "recording": {"id": "rec-2"}}]}]}`
+
+		It("looks up a release with its tracks, recordings and artists", func() {
+			replies = []func(http.ResponseWriter){func(w http.ResponseWriter) { _, _ = w.Write([]byte(releaseJSON)) }}
+			rel, err := client.Release(context.Background(), "rel-1")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(rel.TrackCount()).To(Equal(2))
+			Expect(rel.ReleaseGroup.FirstReleaseDate).To(Equal("1998"))
+			t := rel.Media[0].Tracks[0]
+			Expect(t.ID).To(Equal("t-1"))
+			Expect(t.Recording.ID).To(Equal("rec-1"))
+			Expect(t.ArtistCredit.IDs()).To(Equal([]string{"a-1"}))
+
+			req := served()[0]
+			Expect(req.URL.Path).To(Equal("/ws/2/release/rel-1"))
+			Expect(req.URL.Query().Get("inc")).To(Equal("recordings artist-credits release-groups"))
+		})
+
+		It("keeps answers in its Store, and asks the Store before MusicBrainz", func() {
+			store := &mapStore{m: map[string][]byte{}}
+			opts := musicbrainz.Options{BaseURL: srv.URL + "/ws/2/", Limiter: musicbrainz.NewLimiter(time.Second, clock), Store: store}
+			replies = []func(http.ResponseWriter){func(w http.ResponseWriter) { _, _ = w.Write([]byte(releaseJSON)) }}
+			_, err := musicbrainz.New(opts).Release(context.Background(), "rel-1")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(store.m).To(HaveLen(1))
+
+			// A new Client (a new run) has an empty memory cache, but the Store answers.
+			rel, err := musicbrainz.New(opts).Release(context.Background(), "rel-1")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(rel.Title).To(Equal("Record"))
+			Expect(served()).To(HaveLen(1))
+		})
+	})
 })
+
+type mapStore struct {
+	mu sync.Mutex
+	m  map[string][]byte
+}
+
+func (s *mapStore) Get(k string) ([]byte, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	b, ok := s.m[k]
+	return b, ok
+}
+
+func (s *mapStore) Set(k string, b []byte) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.m[k] = b
+}

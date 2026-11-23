@@ -46,6 +46,32 @@ type Release struct {
 type Media struct {
 	// Format is "CD", `12" Vinyl`, "Digital Media"... or empty.
 	Format string `json:"format"`
+	// Position is the medium's number in the release (the disc number), from 1.
+	Position   int `json:"position"`
+	TrackCount int `json:"track-count"`
+	// Tracks are filled in by Release only.
+	Tracks []Track `json:"tracks"`
+}
+
+// Track is one track of a medium: a recording at a position.
+type Track struct {
+	// ID is the release track's ID (MUSICBRAINZ_RELEASETRACKID).
+	ID       string `json:"id"`
+	Position int    `json:"position"`
+	Title    string `json:"title"`
+	// Length is in milliseconds, 0 when unknown.
+	Length       int           `json:"length"`
+	ArtistCredit ArtistCredits `json:"artist-credit"`
+	Recording    Recording     `json:"recording"`
+}
+
+// TrackCount is the number of tracks on all the release's media.
+func (r Release) TrackCount() int {
+	n := 0
+	for _, m := range r.Media {
+		n += max(m.TrackCount, len(m.Tracks))
+	}
+	return n
 }
 
 // Formats is the release's media as printed: "2×CD", "CD + DVD", leaving out media of unknown format.
@@ -105,6 +131,17 @@ type ReleaseGroup struct {
 	// SecondaryTypes are "Compilation", "Live", "Remix", "Soundtrack", "DJ-mix"...
 	SecondaryTypes   []string `json:"secondary-types"`
 	FirstReleaseDate string   `json:"first-release-date"`
+}
+
+// IDs are the credit's artists' MusicBrainz IDs, in order.
+func (c ArtistCredits) IDs() []string {
+	var ids []string
+	for _, a := range c {
+		if a.Artist.ID != "" {
+			ids = append(ids, a.Artist.ID)
+		}
+	}
+	return ids
 }
 
 // ArtistCredit is one artist of a credit, with the phrase joining it to the next.

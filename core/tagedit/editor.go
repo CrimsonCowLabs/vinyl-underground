@@ -4,6 +4,7 @@ package tagedit
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/hex"
 	"errors"
@@ -156,6 +157,21 @@ func (e *Editor) Read(ctx context.Context, trackID string) (*TrackTags, error) {
 //     Track's row is found by its File's path, never by the tags its persistent ID comes from),
 //     so its favorites, Playlist entries, plays, bookmarks and Downloads stay attached.
 func (e *Editor) Edit(ctx context.Context, trackID string, edit Values) (*Result, error) {
+	return e.EditWith(ctx, trackID, edit, EditOptions{})
+}
+
+// EditOptions change how Edit records and finishes a write, for a job of many writes.
+type EditOptions struct {
+	// JobID groups the write with the job's others in the Edit journal, so the whole job can be
+	// undone. Empty makes the write a job of its own.
+	JobID string
+	// NoRescan leaves the File's folder unscanned (step 6): the job rescans it once, with Rescan,
+	// after its last write there. Until then the Track shows its old tags.
+	NoRescan bool
+}
+
+// EditWith is Edit, for one write of a job.
+func (e *Editor) EditWith(ctx context.Context, trackID string, edit Values, opts EditOptions) (*Result, error) {
 	writeMu.Lock()
 	defer writeMu.Unlock()
 	// Once started, an edit runs to the end, and its journal entry is closed, even if the admin
@@ -182,7 +198,7 @@ func (e *Editor) Edit(ctx context.Context, trackID string, edit Values) (*Result
 	}
 
 	entry := &model.EditEntry{
-		JobID: id.NewRandom(), Kind: model.EditTags, State: model.EditPending,
+		JobID: cmp.Or(opts.JobID, id.NewRandom()), Kind: model.EditTags, State: model.EditPending,
 		LibraryID: f.mf.LibraryID, MediaFileID: f.mf.ID, Path: f.mf.Path, NewPath: f.mf.Path,
 		OriginalTags: model.EditTagValues(orig), Changes: model.EditTagValues(set),
 	}
@@ -202,7 +218,7 @@ func (e *Editor) Edit(ctx context.Context, trackID string, edit Values) (*Result
 				// Put back already: it is a plain failure (or, if the copy got there, a success).
 				if written {
 					e.close(ctx, entry, true, nil)
-					return e.done(ctx, f, entry, set)
+					return e.done(ctx, f, entry, set, opts)
 				}
 				log.Warn(ctx, "Replacing an edited File failed; it was put back", "path", f.abs, err)
 				err = errors.New("replacing the File failed; it was put back as it was")
@@ -219,13 +235,16 @@ func (e *Editor) Edit(ctx context.Context, trackID string, edit Values) (*Result
 		return nil, err
 	}
 	e.close(ctx, entry, true, nil)
-	return e.done(ctx, f, entry, set)
+	return e.done(ctx, f, entry, set, opts)
 }
 
 // done re-keys a Track whose File an edit wrote (step 6 of Edit).
-func (e *Editor) done(ctx context.Context, f *file, entry *model.EditEntry, set map[string][]string) (*Result, error) {
+func (e *Editor) done(ctx context.Context, f *file, entry *model.EditEntry, set map[string][]string, opts EditOptions) (*Result, error) {
 	log.Info(ctx, "Edited a Track's tags", "id", f.mf.ID, "path", f.abs, "tags", slices.Sorted(maps.Keys(set)))
 	res := &Result{Changed: true, Entry: entry.ID, Track: f.mf}
+	if opts.NoRescan {
+		return res, nil
+	}
 	if err := e.rekey(ctx, f); err != nil {
 		log.Warn(ctx, "Scan after an edit failed; the Track shows its new tags after the next scan", "path", f.abs, err)
 		res.Warning = "The File was written; the app shows its new tags after the next scan."
@@ -408,6 +427,14 @@ func (e *Editor) close(ctx context.Context, entry *model.EditEntry, written bool
 	if err := e.ds.EditJournal(ctx).Put(entry); err != nil {
 		log.Error(ctx, "Could not record how an edit ended in the Edit journal", "entry", entry.ID, "state", entry.State, err)
 	}
+}
+
+// Rescan rescans the folder dir (relative to the library libraryID) after a job's writes made
+// with EditOptions.NoRescan, so its Tracks get their new tags and keep their IDs.
+func (e *Editor) Rescan(ctx context.Context, libraryID int, dir string) error {
+	writeMu.Lock()
+	defer writeMu.Unlock()
+	return e.rekey(ctx, &file{mf: &model.MediaFile{LibraryID: libraryID, Path: path.Join(dir, "_")}})
 }
 
 // rekey rescans the edited File's folder, so its Track (the same row, found by the File's path)
