@@ -119,6 +119,7 @@ type configOptions struct {
 	Jukebox                         jukeboxOptions      `json:",omitzero"`
 	Backup                          backupOptions       `json:",omitzero"`
 	Inbox                           inboxOptions        `json:",omitzero"`
+	QuarantineFolder                string              // Quarantine's folder in each library (#168); empty is "_Quarantine"
 	Ripping                         rippingOptions      `json:",omitzero"`
 	LLM                             llmOptions          `json:",omitzero"`
 	PID                             pidOptions          `json:",omitzero"`
@@ -1177,6 +1178,7 @@ func setViperDefaults() {
 	viper.SetDefault("backup.schedule", "")
 	viper.SetDefault("backup.count", 0)
 	viper.SetDefault("inbox.path", "")
+	viper.SetDefault("quarantinefolder", "")
 	viper.SetDefault("inbox.promotepath", "")
 	viper.SetDefault("ripping.enabled", false)
 	viper.SetDefault("ripping.timeout", 30*time.Minute)

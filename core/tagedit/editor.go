@@ -558,6 +558,10 @@ func (e *Editor) Settle(ctx context.Context) {
 			e.settleCover(ctx, lib, entry)
 			continue
 		}
+		if entry.Kind == model.EditQuarantine || entry.Kind == model.EditDelete {
+			e.settleQuarantine(ctx, lib, entry)
+			continue
+		}
 		abs := filepath.Join(lib.Path, filepath.FromSlash(entry.Path))
 		interrupted := errors.New("interrupted by a restart")
 		if entry.CopySum == "" {

@@ -218,6 +218,14 @@ var tagEditStatus = map[string]int{
 	"sharedFolder":  http.StatusUnprocessableEntity,
 	"coverChanged":  http.StatusConflict,
 	"noFolderCover": http.StatusUnprocessableEntity,
+	// Quarantine (#168).
+	"taken":               http.StatusConflict,
+	"inQuarantine":        http.StatusConflict,
+	"notInQuarantine":     http.StatusBadRequest,
+	"deletedForGood":      http.StatusConflict,
+	"unsettled":           http.StatusConflict,
+	"nothingInQuarantine": http.StatusConflict,
+	"quarantineChanged":   http.StatusConflict,
 }
 
 // writeTagEditError answers a failed read or edit with a code the dialog translates, and the

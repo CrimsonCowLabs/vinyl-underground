@@ -11,6 +11,15 @@ const EditUndo EditKind = "undo"
 // holds when it is written (see editjob.RewriteStep): e.g. renaming one of its artists.
 const EditRewrite EditKind = "rewrite"
 
+// EditRestore is the kind of a step that moves a File in Quarantine that no journaled move put
+// there back to where it came from (#168): Files the library-cleanup recipes moved by hand. A
+// File the app moved there is restored by undoing that move.
+const EditRestore EditKind = "restore"
+
+// EditEmptyQuarantine is the kind of the edit job, and of its one step, that deletes the Files in
+// Quarantine for good (#168): the only way the app deletes a File. Its entries are EditDelete.
+const EditEmptyQuarantine EditKind = "emptyQuarantine"
+
 // EditJobState is where an edit job is in its life.
 type EditJobState string
 

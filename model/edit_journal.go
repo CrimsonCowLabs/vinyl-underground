@@ -21,6 +21,13 @@ const (
 	// EditEmbed is an album cover embedded into one File (Embed in Files): the File's first
 	// picture is replaced by Image (or added), and OriginalImage is the picture it had there.
 	EditEmbed EditKind = "embed"
+	// EditQuarantine is a move of a File into Quarantine, or out of it (a restore, or an undo)
+	// (#168): Path is where the File was and NewPath where the move left it, both relative to the
+	// library. MediaFileID is its Track, if it has one. It holds no tags and no image.
+	EditQuarantine EditKind = "quarantine"
+	// EditDelete is a File in Quarantine that Empty Quarantine deleted for good (#168): Path is
+	// where it was, and NewPath is empty. It can't be undone.
+	EditDelete EditKind = "delete"
 )
 
 // EditState is how far a write got.

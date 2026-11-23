@@ -44,7 +44,13 @@ type undoer func(e *Editor, ctx context.Context, jobID string, entry *model.Edit
 //     Its undo moves the File from NewPath back to Path (refused when NewPath no longer holds the
 //     File, or Path is taken), and re-keys the Track by path, as Promote does. Changes stays
 //     empty.
-//   - a Quarantine move, later: the same as a move, with NewPath inside Quarantine.
+//   - a Quarantine move (#168, quarantine.go): Path is where the File was and NewPath where the
+//     move left it, inside Quarantine or (a restore) out of it. Its undo moves the File from
+//     NewPath back to Path, as a move of its own, refused when NewPath no longer holds the File
+//     (ErrChangedOnDisk) or a File is at Path in any letter case (quarantine.ErrTaken), and its
+//     Track is marked in or out of Quarantine and rescanned. Any later standing write of the File
+//     conflicts; a delete by Empty Quarantine (EditDelete, which has no undo) is
+//     ErrDeletedForGood.
 //   - a cover write (#164, cover.go): NewPath is the cover File (the folder's cover.jpg), Image
 //     the image written (none for a removal) and OriginalImage the cover it replaced (none when
 //     there was none); their bytes are kept by checksum in the journal's images (journalImages),
@@ -65,6 +71,8 @@ var undoers = map[model.EditKind]undoer{
 	model.EditTags:  (*Editor).undoTags,
 	model.EditCover: (*Editor).undoCover,
 	model.EditEmbed: (*Editor).undoEmbed,
+	// #168: moves into and out of Quarantine.
+	model.EditQuarantine: (*Editor).undoQuarantine,
 }
 
 // checkLater refuses an entry because of the later writes to its File: one still pending

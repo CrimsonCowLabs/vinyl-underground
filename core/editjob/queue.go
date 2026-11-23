@@ -4,8 +4,8 @@
 // interrupted carries on first, from where it stopped.
 //
 // What a step writes is up to its kind (StepKind): tag edits (set, or rewritten from each File's
-// own: rewrite.go), undos, an album's folder cover and Embed in Files (cover.go); moves and
-// Quarantine moves later. Each kind writes through the Edit journal, with the job's ID. What a
+// own: rewrite.go), undos, an album's folder cover and Embed in Files (cover.go), Quarantine
+// (quarantine.go); moves later. Each kind writes through the Edit journal, with the job's ID. What a
 // job does beyond its Files (e.g. moving an Artist's stars to its new name) is up to its
 // JobKind (see Queue.Handle).
 package editjob
@@ -37,6 +37,10 @@ func Code(err error) string {
 		return "sameFileTwice"
 	case errors.Is(err, ErrJobUnfinished):
 		return "jobUnfinished"
+	case errors.Is(err, ErrNothingInQuarantine):
+		return "nothingInQuarantine"
+	case errors.Is(err, ErrQuarantineChanged):
+		return "quarantineChanged"
 	}
 	return tagedit.Code(err)
 }

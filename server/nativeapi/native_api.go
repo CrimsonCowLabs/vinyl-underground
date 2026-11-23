@@ -120,6 +120,7 @@ func (api *Router) routes() http.Handler {
 			api.addEditHistoryRoute(r)
 			api.addLibraryManagerRoute(r)
 			api.addAlbumCoverRoute(r)
+			api.addQuarantineRoute(r)
 			api.addMusicBrainzRoute(r)
 			api.RX(r, "/library", api.libs.NewRepository, true)
 		})

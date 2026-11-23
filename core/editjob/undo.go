@@ -121,8 +121,13 @@ func (k undoKind) Check(ctx context.Context, step *model.EditJobStep) error {
 	if entry.State != model.EditWritten {
 		return fmt.Errorf("%w: it was never written (%s)", tagedit.ErrNotUndoable, entry.State)
 	}
-	// A folder cover (#164) is no Track's: its library is checked directly.
-	if entry.Kind == model.EditCover && !tagedit.Writable(entry.LibraryID) {
+	// Empty Quarantine's deletes (#168) are for good.
+	if entry.Kind == model.EditDelete {
+		return fmt.Errorf("%w: a File deleted for good can't be brought back", tagedit.ErrNotUndoable)
+	}
+	// A folder cover (#164), or a File in Quarantine (#168), may be no Track's: its library is
+	// checked directly.
+	if (entry.Kind == model.EditCover || entry.Kind == model.EditQuarantine) && !tagedit.Writable(entry.LibraryID) {
 		return tagedit.ErrEditingOff
 	}
 	if _, err := k.editor.Check(ctx, entry.MediaFileID); errors.Is(err, tagedit.ErrEditingOff) {

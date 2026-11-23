@@ -202,6 +202,19 @@ func (m *MockMediaFileRepo) Relocate(id string, libraryID int, path, folderID st
 	return nil
 }
 
+func (m *MockMediaFileRepo) MarkQuarantined(quarantined bool, ids ...string) error {
+	if m.Err {
+		return errors.New("error")
+	}
+	for _, id := range ids {
+		if d, ok := m.Data[id]; ok {
+			d.Quarantined = quarantined
+			d.Missing = d.Missing || quarantined
+		}
+	}
+	return nil
+}
+
 func (m *MockMediaFileRepo) IncPlayCount(id string, timestamp time.Time) error {
 	if m.Err {
 		return errors.New("error")

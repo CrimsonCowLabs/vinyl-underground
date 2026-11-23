@@ -3,6 +3,7 @@ package tagedit
 import (
 	"errors"
 
+	"github.com/navidrome/navidrome/core/quarantine"
 	"github.com/navidrome/navidrome/core/safefile"
 	"github.com/navidrome/navidrome/model"
 )
@@ -50,6 +51,16 @@ func Code(err error) string {
 		return "coverChanged"
 	case errors.Is(err, ErrNoFolderCover):
 		return "noFolderCover"
+	case errors.Is(err, quarantine.ErrTaken):
+		return "taken"
+	case errors.Is(err, ErrInQuarantine):
+		return "inQuarantine"
+	case errors.Is(err, ErrNotInQuarantine):
+		return "notInQuarantine"
+	case errors.Is(err, ErrDeletedForGood):
+		return "deletedForGood"
+	case errors.Is(err, ErrMoveUnsettled):
+		return "unsettled"
 	}
 	return CodeInternal
 }

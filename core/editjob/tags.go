@@ -48,7 +48,8 @@ func (k tagsKind) Run(ctx context.Context, jobID string, step *model.EditJobStep
 func (k tagsKind) Code(err error) string { return tagedit.Code(err) }
 
 // Kinds are the step kinds the app runs: tag edits (set, or rewritten from each File's own),
-// undos of Edit journal entries, an album's folder cover, and Embed in Files.
+// undos of Edit journal entries, an album's folder cover, Embed in Files, and Quarantine's
+// moves, restores and Empty Quarantine.
 func Kinds(ds model.DataStore, editor *tagedit.Editor) map[model.EditKind]StepKind {
 	return map[model.EditKind]StepKind{
 		model.EditTags:    tagsKind{editor: editor},
@@ -57,5 +58,9 @@ func Kinds(ds model.DataStore, editor *tagedit.Editor) map[model.EditKind]StepKi
 		// #164: the album's folder cover, and Embed in Files.
 		model.EditCover: coverKind{editor: editor},
 		model.EditEmbed: embedKind{editor: editor},
+		// #168: Quarantine.
+		model.EditQuarantine:      quarantineKind{editor: editor},
+		model.EditRestore:         restoreKind{editor: editor},
+		model.EditEmptyQuarantine: emptyKind{editor: editor},
 	}
 }
