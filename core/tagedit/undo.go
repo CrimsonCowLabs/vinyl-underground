@@ -18,6 +18,14 @@ var (
 	// ErrChangedLater is an entry a later write to the same File changed some of the same fields
 	// of: undoing it would clobber the later values, so that write is undone first.
 	ErrChangedLater = errors.New("a later write changed the same fields of this File; undo that one first")
+	// ErrAlreadyUndone is an entry whose undo stands: undoing the undo redoes it.
+	ErrAlreadyUndone = errors.New("this write was undone already; undo the undo to redo it")
+	// ErrUnfinished is an entry with a later write to the same File still pending: an interrupted
+	// write the app settles at its next start.
+	ErrUnfinished = errors.New("a later write to this File is unfinished; restart the app to settle it")
+	// ErrTagsChanged is an entry whose File, though unchanged since the last scan, no longer holds
+	// what the entry wrote: its tags were changed outside the app (and rescanned) since.
+	ErrTagsChanged = errors.New("the File's tags were changed outside the app since this write")
 )
 
 // undoer undoes one written entry of its kind, through the write path (Editor.apply for tags),
@@ -55,8 +63,10 @@ var undoers = map[model.EditKind]undoer{
 // set, so it can be undone too, which redoes the entry.
 //
 // Undo refuses, without touching the File, an entry that a later write to the File overlaps
-// (ErrChangedLater), and a File that changed since (ErrChangedOnDisk): its modification time or
-// size differ from the last scan's, or the fields no longer hold what the entry wrote.
+// (ErrChangedLater), an entry already undone (ErrAlreadyUndone), a File with an unfinished later
+// write (ErrUnfinished), and a File that changed since: its modification time or size differ from
+// the last scan's (ErrChangedOnDisk), or its tags no longer hold what the entry wrote
+// (ErrTagsChanged).
 func (e *Editor) Undo(ctx context.Context, entryID string) (*Result, error) {
 	writeMu.Lock()
 	defer writeMu.Unlock()
@@ -82,10 +92,14 @@ func (e *Editor) undoTags(ctx context.Context, entry *model.EditEntry) (*Result,
 	if err != nil {
 		return nil, err
 	}
+	// An unfinished write may have changed the File; it is settled at the next start.
+	if slices.ContainsFunc(later, func(l model.EditEntry) bool { return l.State == model.EditPending }) {
+		return nil, ErrUnfinished
+	}
 	for _, l := range standing(later) {
 		switch {
 		case l.UndoOf == entry.ID:
-			return nil, fmt.Errorf("%w: it was undone already (undo the undo to redo it)", ErrChangedLater)
+			return nil, ErrAlreadyUndone
 		case l.NewPath != l.Path:
 			return nil, fmt.Errorf("%w: the File was moved since", ErrChangedLater)
 		}
@@ -111,7 +125,7 @@ func (e *Editor) undoTags(ctx context.Context, entry *model.EditEntry) (*Result,
 	set := map[string][]string{}
 	for _, k := range slices.Sorted(maps.Keys(entry.Changes)) {
 		if !sameValues(cur[k], entry.Changes[k]) {
-			return nil, fmt.Errorf("%w: %s isn't what the write left", ErrChangedOnDisk, k)
+			return nil, fmt.Errorf("%w: %s isn't what the write left", ErrTagsChanged, k)
 		}
 		set[k] = slices.Clone(entry.OriginalTags[k])
 	}

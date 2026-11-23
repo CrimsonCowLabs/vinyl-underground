@@ -168,7 +168,15 @@ var _ = Describe("Undo", func() {
 		It("when the entry was undone already", func() {
 			undo(entry)
 			before, _ = os.ReadFile(path)
-			Expect(editor.Undo(ctx, entry)).Error().To(MatchError(ErrChangedLater))
+			Expect(editor.Undo(ctx, entry)).Error().To(MatchError(ErrAlreadyUndone))
+			untouched()
+		})
+
+		It("when a later write to the File is unfinished", func() {
+			Expect(journal.Put(&model.EditEntry{Kind: model.EditTags, State: model.EditPending, LibraryID: 1,
+				MediaFileID: trackID, Path: "Artist/Album/01 Song.mp3", NewPath: "Artist/Album/01 Song.mp3",
+				Changes: model.EditTagValues{"COMMENT": {"x"}}})).To(Succeed())
+			Expect(editor.Undo(ctx, entry)).Error().To(MatchError(ErrUnfinished))
 			untouched()
 		})
 
@@ -187,7 +195,7 @@ var _ = Describe("Undo", func() {
 			rescanned()
 			before, _ = os.ReadFile(path)
 
-			Expect(editor.Undo(ctx, entry)).Error().To(MatchError(ErrChangedOnDisk))
+			Expect(editor.Undo(ctx, entry)).Error().To(MatchError(ErrTagsChanged))
 			untouched()
 		})
 

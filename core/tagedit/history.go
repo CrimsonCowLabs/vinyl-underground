@@ -2,6 +2,7 @@ package tagedit
 
 import (
 	"context"
+	"errors"
 	"maps"
 	"slices"
 	"time"
@@ -23,8 +24,10 @@ type HistoryEntry struct {
 	// Track is the File's Track as the app has it now; nil when it is gone.
 	Track   *HistoryTrack `json:"track,omitempty"`
 	Changes []TagChange   `json:"changes"`
-	// UndoOf is the entry this one undid, for an undo.
+	// UndoOf is the entry this one undid, for an undo. Redo is an undo of an undo: it wrote the
+	// undone values again.
 	UndoOf    string    `json:"undoOf,omitempty"`
+	Redo      bool      `json:"redo,omitempty"`
 	Error     string    `json:"error,omitempty"`
 	CreatedAt time.Time `json:"createdAt"`
 }
@@ -59,6 +62,8 @@ func (e *Editor) History(ctx context.Context, offset, limit int) ([]HistoryEntry
 		return nil, 0, err
 	}
 	tracks := map[string]*HistoryTrack{}
+	// undos tells, by entry ID, whether an entry an undo undid was an undo itself.
+	undos := map[string]bool{}
 	res := make([]HistoryEntry, 0, len(entries))
 	for _, en := range entries {
 		h := HistoryEntry{
@@ -72,12 +77,28 @@ func (e *Editor) History(ctx context.Context, offset, limit int) ([]HistoryEntry
 		if en.MediaFileID != "" {
 			t, ok := tracks[en.MediaFileID]
 			if !ok {
-				if mf, err := e.ds.MediaFile(ctx).Get(en.MediaFileID); err == nil {
+				mf, err := e.ds.MediaFile(ctx).Get(en.MediaFileID)
+				switch {
+				case err == nil:
 					t = &HistoryTrack{ID: mf.ID, Title: mf.Title, Artist: mf.Artist, Album: mf.Album, Missing: mf.Missing}
+				case !errors.Is(err, model.ErrNotFound):
+					return nil, 0, err
 				}
 				tracks[en.MediaFileID] = t
 			}
 			h.Track = t
+		}
+		if en.UndoOf != "" {
+			undone, ok := undos[en.UndoOf]
+			if !ok {
+				u, err := journal.Get(en.UndoOf)
+				if err != nil && !errors.Is(err, model.ErrNotFound) {
+					return nil, 0, err
+				}
+				undone = u != nil && u.UndoOf != ""
+				undos[en.UndoOf] = undone
+			}
+			h.Redo = undone
 		}
 		res = append(res, h)
 	}

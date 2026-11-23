@@ -150,6 +150,11 @@ var _ = Describe("/api/editHistory", func() {
 		w = do(admin, http.MethodPost, "/editHistory/"+got[0].ID+"/undo", nil)
 		Expect(w.Code).To(Equal(http.StatusOK), w.Body.String())
 		Expect(do(admin, http.MethodGet, "/trackTags/t1", nil).Body.String()).To(ContainSubstring("Song (Live)"))
+		scanned()
+		got = history()
+		Expect(got).To(HaveLen(3))
+		Expect(got[0].Redo).To(BeTrue(), "an undo of an undo is a redo")
+		Expect(got[1].Redo).To(BeFalse())
 	})
 
 	It("refuses an undo a later edit overlaps", func() {
@@ -160,6 +165,17 @@ var _ = Describe("/api/editHistory", func() {
 		w := do(admin, http.MethodPost, "/editHistory/"+entry+"/undo", nil)
 		Expect(w.Code).To(Equal(http.StatusConflict))
 		Expect(errorCode(w)).To(Equal("changedLater"))
+	})
+
+	It("refuses to undo an entry twice", func() {
+		edit("Song (Live)")
+		entry := history()[0].ID
+		Expect(do(admin, http.MethodPost, "/editHistory/"+entry+"/undo", nil).Code).To(Equal(http.StatusOK))
+		scanned()
+
+		w := do(admin, http.MethodPost, "/editHistory/"+entry+"/undo", nil)
+		Expect(w.Code).To(Equal(http.StatusConflict))
+		Expect(errorCode(w)).To(Equal("alreadyUndone"))
 	})
 
 	It("refuses an undo of a File that changed on disk", func() {

@@ -28,7 +28,10 @@ const useStyles = makeStyles((theme) => ({
 
 // The refusals an undo can answer with, each explained on its own.
 const knownErrors = [
+  'alreadyUndone',
   'changedLater',
+  'tagsChanged',
+  'unfinished',
   'changedOnDisk',
   'editingOff',
   'notFound',
@@ -42,14 +45,15 @@ const knownErrors = [
 const Values = ({ values }) => {
   const classes = useStyles()
   const translate = useTranslate()
-  if (!values?.length) {
+  const shown = (values || []).filter((v) => v !== '')
+  if (!shown.length) {
     return (
       <span className={classes.none}>
         {translate('resources.editHistory.message.none')}
       </span>
     )
   }
-  return <span>{values.join('; ')}</span>
+  return <span>{shown.join('; ')}</span>
 }
 
 Values.propTypes = { values: PropTypes.arrayOf(PropTypes.string) }
@@ -106,6 +110,11 @@ export const EditTrackField = ({ record }) => {
     <Typography variant="body2" component="span">
       <span>{record.track.title}</span>
       <span className={classes.secondary}>{record.track.artist}</span>
+      {record.track.missing && (
+        <span className={classes.none}>
+          {translate('resources.editHistory.message.trackMissing')}
+        </span>
+      )}
     </Typography>
   )
 }
@@ -130,7 +139,9 @@ export const EditStatusField = ({ record }) => {
     return (
       <Chip
         size="small"
-        label={translate('resources.editHistory.status.undo')}
+        label={translate(
+          `resources.editHistory.status.${record.redo ? 'redo' : 'undo'}`,
+        )}
       />
     )
   }

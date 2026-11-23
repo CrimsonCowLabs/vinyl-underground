@@ -54,6 +54,7 @@ const entry = {
     { tag: 'TITLE', old: ['Song'], new: ['Song (Live)'] },
     { tag: 'REPLAYGAIN_X', old: [], new: ['1 dB'] },
     { tag: 'GENRE', old: ['Rock', 'Pop'], new: [] },
+    { tag: 'COMMENT', old: [''], new: ['c'] },
   ],
   createdAt: '2026-11-22T10:00:00Z',
 }
@@ -72,13 +73,24 @@ describe('Edit history page', () => {
     expect(screen.getByText('Rock; Pop')).toBeTruthy()
     expect(
       screen.getAllByText('resources.editHistory.message.none'),
-    ).toHaveLength(2)
+    ).toHaveLength(3)
   })
 
   it('shows the Track, and the File when the Track is gone', () => {
     const { rerender } = render(<EditTrackField record={entry} />)
     expect(screen.getByText('Song (Live)')).toBeTruthy()
     expect(screen.getByText('The Band')).toBeTruthy()
+    expect(
+      screen.queryByText('resources.editHistory.message.trackMissing'),
+    ).toBeNull()
+    rerender(
+      <EditTrackField
+        record={{ ...entry, track: { ...entry.track, missing: true } }}
+      />,
+    )
+    expect(
+      screen.getByText('resources.editHistory.message.trackMissing'),
+    ).toBeTruthy()
     rerender(<EditTrackField record={{ ...entry, track: undefined }} />)
     expect(
       screen.getByText('resources.editHistory.message.trackGone'),
@@ -90,6 +102,10 @@ describe('Edit history page', () => {
       <EditStatusField record={{ ...entry, undoOf: 'e0' }} />,
     )
     expect(screen.getByText('resources.editHistory.status.undo')).toBeTruthy()
+    rerender(
+      <EditStatusField record={{ ...entry, undoOf: 'u1', redo: true }} />,
+    )
+    expect(screen.getByText('resources.editHistory.status.redo')).toBeTruthy()
     rerender(
       <EditStatusField
         record={{
@@ -117,21 +133,24 @@ describe('Edit history page', () => {
     expect(mockRefresh).toHaveBeenCalled()
   })
 
-  it.each(['changedLater', 'changedOnDisk'])(
-    'explains a refused undo (%s)',
-    async (code) => {
-      mockUndo.mockRejectedValue({ body: { error: code } })
-      render(<UndoEditButton record={entry} />)
-      fireEvent.click(screen.getByText('resources.editHistory.actions.undo'))
-      fireEvent.click(screen.getByText('confirm'))
-      await waitFor(() =>
-        expect(mockNotify).toHaveBeenCalledWith(
-          `resources.editHistory.errors.${code}`,
-          { type: 'warning' },
-        ),
-      )
-    },
-  )
+  it.each([
+    'changedLater',
+    'changedOnDisk',
+    'tagsChanged',
+    'alreadyUndone',
+    'unfinished',
+  ])('explains a refused undo (%s)', async (code) => {
+    mockUndo.mockRejectedValue({ body: { error: code } })
+    render(<UndoEditButton record={entry} />)
+    fireEvent.click(screen.getByText('resources.editHistory.actions.undo'))
+    fireEvent.click(screen.getByText('confirm'))
+    await waitFor(() =>
+      expect(mockNotify).toHaveBeenCalledWith(
+        `resources.editHistory.errors.${code}`,
+        { type: 'warning' },
+      ),
+    )
+  })
 
   it("can't undo a write that never happened", () => {
     render(<UndoEditButton record={{ ...entry, state: 'failed' }} />)

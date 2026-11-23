@@ -20,7 +20,7 @@ func (api *Router) addEditHistoryRoute(r chi.Router) {
 }
 
 // maxHistoryPage bounds one page of the Edit history.
-const maxHistoryPage = 500
+const maxHistoryPage = 100
 
 func (api *Router) listEditHistory(w http.ResponseWriter, r *http.Request) {
 	if api.tagEditor == nil {
