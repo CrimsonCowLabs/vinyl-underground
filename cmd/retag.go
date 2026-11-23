@@ -16,7 +16,6 @@ import (
 	"github.com/Masterminds/squirrel"
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/core"
-	"github.com/navidrome/navidrome/core/acoustid"
 	"github.com/navidrome/navidrome/core/musicbrainz"
 	"github.com/navidrome/navidrome/core/retag"
 	"github.com/navidrome/navidrome/core/tagedit"
@@ -30,14 +29,12 @@ var (
 	retagApply         bool
 	retagPath          string
 	retagNoMusicBrainz bool
-	retagNoAcoustID    bool
 )
 
 func init() {
 	retagCmd.Flags().BoolVar(&retagApply, "apply", false, "write the changes (without it, only report them)")
 	retagCmd.Flags().StringVar(&retagPath, "path", "", "only retag the Files under this folder (relative to the library)")
 	retagCmd.Flags().BoolVar(&retagNoMusicBrainz, "no-musicbrainz", false, "don't ask MusicBrainz: local fixes only")
-	retagCmd.Flags().BoolVar(&retagNoAcoustID, "no-acoustid", false, "don't fingerprint Files for AcoustID")
 	rootCmd.AddCommand(retagCmd)
 }
 
@@ -49,19 +46,20 @@ their track number ("10 - Bones"), "Track 06" and number-only titles, file exten
 artist's name in titles, unknown artists, and empty track numbers, disc numbers and years.
 
 Local evidence (the title, the File's name and folder) fixes what it can settle. MusicBrainz,
-matched an album at a time, and AcoustID fingerprints (with ND_ACOUSTID_APIKEY set) repair the
-rest; a value that is set and looks right is never overwritten. What nothing settles is left as
+matched an album at a time, repairs the rest; a value that is set and looks right is never
+overwritten. What nothing settles is left as
 it is, and listed in the report.
 
 Without --apply nothing is written: the run reports what it would change. With --apply, every
-write goes through the Edit journal (one job per run) and is checked before it replaces the File.
+write goes through the Edit journal (one job per run, which the Edit history can undo) and is
+checked before it replaces the File.
 Run it with the server stopped:
 
   docker compose stop vinyl-underground
   docker compose run --rm vinyl-underground retag --apply
   docker compose start vinyl-underground
 
-Answers from MusicBrainz and AcoustID are kept in the cache folder, so a run that is stopped
+Answers from MusicBrainz are kept in the cache folder, so a run that is stopped
 (Ctrl-C stops it between Files) and run again picks up where it was, and a second run changes
 nothing it already fixed.`,
 	Args: cobra.NoArgs,
@@ -92,12 +90,8 @@ func runRetag(ctx context.Context) error {
 			log.Warn(ctx, "Library is read-only: it is left out", "library", l.Name)
 			continue
 		}
-		lib, err := ds.Library(ctx).Get(l.ID)
-		if err != nil {
-			return err
-		}
 		libID := l.ID
-		libs = append(libs, retag.Library{ID: libID, Path: lib.Path, Files: func(ctx context.Context) (model.MediaFiles, error) {
+		libs = append(libs, retag.Library{ID: libID, Files: func(ctx context.Context) (model.MediaFiles, error) {
 			return ds.MediaFile(ctx).GetAll(model.QueryOptions{
 				Filters: squirrel.And{squirrel.Eq{"media_file.library_id": libID}, squirrel.Eq{"missing": false}},
 				Sort:    "path",
@@ -118,15 +112,6 @@ func runRetag(ctx context.Context) error {
 	opts := retag.Options{Writer: editor, Apply: retagApply, JobID: jobID, PathPrefix: retagPath, Progress: os.Stderr}
 	if !retagNoMusicBrainz {
 		opts.MusicBrainz = musicbrainz.New(musicbrainz.Options{Store: retag.DirStore{Dir: filepath.Join(cache, "musicbrainz")}})
-	}
-	switch {
-	case retagNoAcoustID:
-	case conf.Server.AcoustID.ApiKey == "":
-		log.Warn(ctx, "No AcoustID key (ND_ACOUSTID_APIKEY): Files aren't fingerprinted")
-	case !acoustid.Available():
-		log.Warn(ctx, "fpcalc (Chromaprint) isn't installed: Files aren't fingerprinted")
-	default:
-		opts.AcoustID = acoustid.New(acoustid.Options{Key: conf.Server.AcoustID.ApiKey, Store: retag.DirStore{Dir: filepath.Join(cache, "acoustid")}})
 	}
 
 	reportPath := filepath.Join(conf.Server.DataFolder.String(), "retag-"+time.Now().Format("20060102-150405")+".tsv")
@@ -164,7 +149,7 @@ func printRetagSummary(s retag.Summary, jobID, reportPath string) {
 	}
 	w := newTabWriter(os.Stdout)
 	_, _ = fmt.Fprintf(w, "Files\t%d (in %d folders)\n", s.Files, s.Folders)
-	_, _ = fmt.Fprintf(w, "%s\t%d (%d from MusicBrainz, %d from AcoustID)\n", verb, s.Changed, s.FromMusicBrainz, s.FromAcoustID)
+	_, _ = fmt.Fprintf(w, "%s\t%d (%d from MusicBrainz)\n", verb, s.Changed, s.FromMusicBrainz)
 	_, _ = fmt.Fprintf(w, "Unchanged\t%d\n", s.Unchanged)
 	_, _ = fmt.Fprintf(w, "Left flagged\t%d\n", s.Flagged)
 	_, _ = fmt.Fprintf(w, "Skipped\t%d\n", s.Skipped)

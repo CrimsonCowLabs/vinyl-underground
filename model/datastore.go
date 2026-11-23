@@ -49,6 +49,7 @@ type DataStore interface {
 	DJ(ctx context.Context) DJRepository
 	Correction(ctx context.Context) CorrectionRepository
 	EditJournal(ctx context.Context) EditJournalRepository
+	EditJob(ctx context.Context) EditJobRepository
 
 	Resource(ctx context.Context, model any) ResourceRepository
 

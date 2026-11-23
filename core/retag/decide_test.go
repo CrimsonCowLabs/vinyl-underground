@@ -1,7 +1,6 @@
 package retag
 
 import (
-	"github.com/navidrome/navidrome/core/acoustid"
 	"github.com/navidrome/navidrome/core/musicbrainz"
 	"github.com/navidrome/navidrome/core/tagedit"
 	. "github.com/onsi/ginkgo/v2"
@@ -114,65 +113,6 @@ var _ = Describe("deciding", func() {
 		w.fromRelease(f, at(0), rel)
 		Expect(w.Album).To(Equal("Record"))
 		Expect(w.AlbumArtist).To(Equal("Various Artists"))
-	})
-
-	Describe("from AcoustID", func() {
-		rec := func(title, artist string) acoustid.Recording {
-			r := acoustid.Recording{ID: "rec-" + title, Title: title}
-			r.Artists = append(r.Artists, struct {
-				ID         string `json:"id"`
-				Name       string `json:"name"`
-				JoinPhrase string `json:"joinphrase"`
-			}{ID: "a-" + artist, Name: artist})
-			return r
-		}
-		result := func(score float64, recs ...acoustid.Recording) []acoustid.Result {
-			return []acoustid.Result{{Score: score, Recordings: recs}}
-		}
-
-		It("names a File with no real title", func() {
-			f := File{Cleaned: Clean(Local{Title: "13", Artist: "[Unknown Artist]", Album: "Mix"})}
-			w := Want{Local: f.Local}
-			_, ok := w.fromAcoustID(f, result(0.95, rec("Mickey", "Toni Basil")))
-			Expect(ok).To(BeTrue())
-			Expect(w.Title).To(Equal("Mickey"))
-			Expect(w.Artist).To(Equal("Toni Basil"))
-			Expect(w.IDs).To(HaveKeyWithValue("musicbrainz_trackid", []string{"rec-Mickey"}))
-		})
-
-		It("takes nothing from a weak match", func() {
-			f := File{Cleaned: Clean(Local{Title: "13", Artist: "Band", Album: "Mix"})}
-			w := Want{Local: f.Local}
-			_, ok := w.fromAcoustID(f, result(0.6, rec("Mickey", "Toni Basil")))
-			Expect(ok).To(BeFalse())
-			Expect(w.Title).To(Equal("13"))
-		})
-
-		It("takes no title when the recordings disagree on it", func() {
-			f := File{Cleaned: Clean(Local{Title: "13", Artist: "Band", Album: "Mix"})}
-			w := Want{Local: f.Local}
-			notes, ok := w.fromAcoustID(f, result(0.95, rec("Mickey", "Toni Basil"), rec("Hey Mickey", "Toni Basil")))
-			Expect(ok).To(BeFalse())
-			Expect(w.Title).To(Equal("13"))
-			Expect(notes).NotTo(BeEmpty())
-		})
-
-		It("takes nothing for a title that may start with its number when no recording has it", func() {
-			f := File{Cleaned: Clean(Local{Title: "12 Fake Plastic Trees", Artist: "[Unknown Artist]", Album: "Mix", Track: 12})}
-			w := Want{Local: f.Local}
-			_, ok := w.fromAcoustID(f, result(0.95, rec("Creep", "Radiohead")))
-			Expect(ok).To(BeFalse())
-			Expect(w.Artist).To(Equal("[Unknown Artist]"))
-		})
-
-		It("keeps a real title, and picks the recording that has it", func() {
-			f := File{Cleaned: Clean(Local{Title: "Mickey", Artist: "[Unknown Artist]", Album: "Mix"})}
-			w := Want{Local: f.Local}
-			_, ok := w.fromAcoustID(f, result(0.95, rec("Other", "Someone"), rec("Mickey", "Toni Basil")))
-			Expect(ok).To(BeTrue())
-			Expect(w.Title).To(Equal("Mickey"))
-			Expect(w.Artist).To(Equal("Toni Basil"))
-		})
 	})
 
 	Describe("the values to write", func() {

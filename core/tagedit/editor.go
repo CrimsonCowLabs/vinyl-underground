@@ -131,6 +131,17 @@ func writable(libID int) bool {
 	return false
 }
 
+// Check returns the Track whose File an edit would write, or the error the edit would be refused
+// with before the File is read: the Track is gone (model.ErrNotFound), its library isn't
+// writable (ErrEditingOff), or its File is of a kind that can't be checked (ErrUnsupportedFormat).
+func (e *Editor) Check(ctx context.Context, trackID string) (*model.MediaFile, error) {
+	f, err := e.file(ctx, trackID)
+	if err != nil {
+		return nil, err
+	}
+	return f.mf, nil
+}
+
 // Read returns the Track's editable fields, as they are in its File.
 func (e *Editor) Read(ctx context.Context, trackID string) (*TrackTags, error) {
 	f, err := e.file(ctx, trackID)
@@ -162,7 +173,12 @@ func (e *Editor) Read(ctx context.Context, trackID string) (*TrackTags, error) {
 //     Track's row is found by its File's path, never by the tags its persistent ID comes from),
 //     so its favorites, Playlist entries, plays, bookmarks and Downloads stay attached.
 func (e *Editor) Edit(ctx context.Context, trackID string, edit Values) (*Result, error) {
-	return e.EditWith(ctx, trackID, edit, EditOptions{})
+	return e.EditInJob(ctx, id.NewRandom(), trackID, edit)
+}
+
+// EditInJob is Edit, as one step of the edit job jobID: its Edit journal entry has the job's ID.
+func (e *Editor) EditInJob(ctx context.Context, jobID, trackID string, edit Values) (*Result, error) {
+	return e.EditWith(ctx, trackID, edit, EditOptions{JobID: jobID})
 }
 
 // EditOptions change how Edit records and finishes a write, for a job of many writes.
@@ -177,6 +193,7 @@ type EditOptions struct {
 
 // EditWith is Edit, for one write of a job.
 func (e *Editor) EditWith(ctx context.Context, trackID string, edit Values, opts EditOptions) (*Result, error) {
+	opts.JobID = cmp.Or(opts.JobID, id.NewRandom())
 	writeMu.Lock()
 	defer writeMu.Unlock()
 	// Once started, an edit runs to the end, and its journal entry is closed, even if the admin
@@ -201,11 +218,18 @@ func (e *Editor) EditWith(ctx context.Context, trackID string, edit Values, opts
 	if len(set) == 0 {
 		return &Result{Changed: false, Track: f.mf}, nil
 	}
+	return e.apply(ctx, opts, f, orig, set, "")
+}
 
+// apply journals and writes set (TagLib properties) into the File f, whose tags are orig, and
+// re-keys its Track: steps 2 to 6 of Edit, once the File is guarded, as part of the edit job
+// opts.JobID. undoOf is the entry the write undoes, if it is an undo (see Undo).
+func (e *Editor) apply(ctx context.Context, opts EditOptions, f *file, orig, set map[string][]string, undoOf string) (*Result, error) {
+	trackID := f.mf.ID
 	entry := &model.EditEntry{
-		JobID: cmp.Or(opts.JobID, id.NewRandom()), Kind: model.EditTags, State: model.EditPending,
+		JobID: opts.JobID, Kind: model.EditTags, State: model.EditPending,
 		LibraryID: f.mf.LibraryID, MediaFileID: f.mf.ID, Path: f.mf.Path, NewPath: f.mf.Path,
-		OriginalTags: model.EditTagValues(orig), Changes: model.EditTagValues(set),
+		OriginalTags: model.EditTagValues(orig), Changes: model.EditTagValues(set), UndoOf: undoOf,
 	}
 	if u, ok := request.UserFrom(ctx); ok {
 		entry.UserID = u.ID

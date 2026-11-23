@@ -126,7 +126,6 @@ type configOptions struct {
 	Subsonic                        subsonicOptions     `json:",omitzero"`
 	Transcoding                     transcodingOptions  `json:",omitzero"`
 	LastFM                          lastfmOptions       `json:",omitzero"`
-	AcoustID                        acoustIDOptions     `json:",omitzero"`
 	Deezer                          deezerOptions       `json:",omitzero"`
 	ListenBrainz                    listenBrainzOptions `json:",omitzero"`
 	Jellyfin                        jellyfinOptions     `json:",omitzero"`
@@ -205,13 +204,6 @@ type TagConf struct {
 	MaxLength int      `yaml:"maxLength" json:",omitempty"`
 	Split     []string `yaml:"split" json:",omitempty"`
 	Album     bool     `yaml:"album" json:",omitempty"`
-}
-
-// acoustIDOptions set up AcoustID, which the retag command asks to name Files by their audio.
-type acoustIDOptions struct {
-	// ApiKey is an application key registered at acoustid.org; without one, retag doesn't
-	// fingerprint.
-	ApiKey string //nolint:gosec
 }
 
 type lastfmOptions struct {
@@ -1166,7 +1158,6 @@ func setViperDefaults() {
 	viper.SetDefault("agents", "lastfm,deezer,listenbrainz")
 	viper.SetDefault("lastfm.enabled", true)
 	viper.SetDefault("lastfm.language", consts.DefaultInfoLanguage)
-	viper.SetDefault("acoustid.apikey", "")
 	viper.SetDefault("lastfm.apikey", "")
 	viper.SetDefault("lastfm.secret", "")
 	viper.SetDefault("lastfm.scrobblefirstartistonly", false)

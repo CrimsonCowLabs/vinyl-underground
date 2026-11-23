@@ -15,6 +15,7 @@ import (
 	"github.com/navidrome/navidrome/consts"
 	"github.com/navidrome/navidrome/core"
 	"github.com/navidrome/navidrome/core/artwork"
+	"github.com/navidrome/navidrome/core/editjob"
 	"github.com/navidrome/navidrome/core/rip"
 	"github.com/navidrome/navidrome/core/tagedit"
 	"github.com/navidrome/navidrome/db"
@@ -24,6 +25,7 @@ import (
 	"github.com/navidrome/navidrome/scanner"
 	"github.com/navidrome/navidrome/scheduler"
 	"github.com/navidrome/navidrome/server/backgrounds"
+	"github.com/navidrome/navidrome/server/events"
 	"github.com/navidrome/navidrome/server/ripapi"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -98,7 +100,8 @@ func runNavidrome(ctx context.Context) {
 
 	g, ctx := errgroup.WithContext(ctx)
 	ripper := startRipper(ctx, g)
-	g.Go(startServer(ctx, ripper))
+	editQueue := startEditJobs(ctx, g)
+	g.Go(startServer(ctx, ripper, editQueue))
 	g.Go(startSignaller(ctx))
 	g.Go(startScheduler(ctx))
 	g.Go(startPlaybackServer(ctx))
@@ -134,10 +137,12 @@ func mainContext(ctx context.Context) (context.Context, context.CancelFunc) {
 }
 
 // startServer starts the Navidrome web server, adding all the necessary routers.
-func startServer(ctx context.Context, ripper *rip.Ripper) func() error {
+func startServer(ctx context.Context, ripper *rip.Ripper, editQueue *editjob.Queue) func() error {
 	return func() error {
 		a := CreateServer()
-		a.MountRouter("Native API", consts.URLPathNativeAPI, CreateNativeAPIRouter(ctx))
+		nativeAPI := CreateNativeAPIRouter(ctx)
+		nativeAPI.SetEditQueue(editQueue)
+		a.MountRouter("Native API", consts.URLPathNativeAPI, nativeAPI)
 		if ripper != nil {
 			a.MountRouter("Rip API", consts.URLPathNativeAPI+"/rip", ripapi.New(CreateDataStore(), ripper))
 		}
@@ -246,6 +251,23 @@ func settleEdits(ctx context.Context) {
 		return
 	}
 	tagedit.New(CreateDataStore(), CreateScanner(ctx)).Settle(ctx)
+}
+
+// startEditJobs starts the edit job queue (#162), which writes the admin's edits to Files in the
+// background, one at a time. It runs after settleEdits, so a job the last stop interrupted
+// carries on from a settled File. With editing off it doesn't run (and there is none): queued
+// jobs wait for a start with the Library writable.
+func startEditJobs(ctx context.Context, g *errgroup.Group) *editjob.Queue {
+	if !core.CurrentLibraryEditing().Enabled {
+		return nil
+	}
+	ds := CreateDataStore()
+	queue := editjob.New(ds, events.GetBroker(), editjob.Kinds(ds, tagedit.New(ds, CreateScanner(ctx))))
+	g.Go(func() error {
+		queue.Run(ctx)
+		return nil
+	})
+	return queue
 }
 
 // checkInbox turns the Inbox off for this run (Inbox.Path cleared) when the Inbox library isn't

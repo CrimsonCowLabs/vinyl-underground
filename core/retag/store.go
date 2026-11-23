@@ -9,7 +9,7 @@ import (
 	"github.com/navidrome/navidrome/log"
 )
 
-// DirStore keeps MusicBrainz's and AcoustID's answers as files in a folder, for good, so a run
+// DirStore keeps MusicBrainz's answers as files in a folder, for good, so a run
 // stopped part-way, or run again, doesn't ask again (musicbrainz.Store).
 type DirStore struct {
 	Dir string

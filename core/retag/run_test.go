@@ -6,7 +6,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/navidrome/navidrome/core/acoustid"
 	"github.com/navidrome/navidrome/core/musicbrainz"
 	"github.com/navidrome/navidrome/core/tagedit"
 	"github.com/navidrome/navidrome/model"
@@ -64,7 +63,7 @@ func (l *fakeLibrary) Rescan(_ context.Context, _ int, dir string) error {
 }
 
 func (l *fakeLibrary) lib() Library {
-	return Library{ID: 1, Path: "/music", Files: func(context.Context) (model.MediaFiles, error) { return l.mfs, nil }}
+	return Library{ID: 1, Files: func(context.Context) (model.MediaFiles, error) { return l.mfs, nil }}
 }
 
 type fakeMB struct {
@@ -80,16 +79,6 @@ func (m *fakeMB) SearchReleases(_ context.Context, artist, title string) ([]musi
 
 func (m *fakeMB) Release(_ context.Context, id string) (*musicbrainz.Release, error) {
 	return m.releases[id], nil
-}
-
-type fakeAcoustID struct {
-	looked  []string
-	results map[string][]acoustid.Result
-}
-
-func (a *fakeAcoustID) Lookup(_ context.Context, p, _ string) ([]acoustid.Result, error) {
-	a.looked = append(a.looked, p)
-	return a.results[p], nil
 }
 
 func track(id, p, title string, n int, duration float32) model.MediaFile {
@@ -262,22 +251,6 @@ var _ = Describe("Run", func() {
 			Expect(lib.edits).To(BeEmpty())
 			Expect(sum.Changed).To(Equal(0))
 			Expect(mb.searches).To(BeEmpty())
-		})
-	})
-
-	Describe("with AcoustID", func() {
-		It("fingerprints only the Files with junk no release repaired", func() {
-			a := &fakeAcoustID{results: map[string][]acoustid.Result{}}
-			r := acoustid.Recording{ID: "rec-m", Title: "Mickey"}
-			a.results["/music/Unknown/13.mp3"] = []acoustid.Result{{Score: 0.97, Recordings: []acoustid.Recording{r}}}
-			opts.AcoustID = a
-			lib.mfs = model.MediaFiles{
-				track("1", "Unknown/13.mp3", "13", 0, 200),
-				track("2", "Unknown/Fine.mp3", "Fine", 1, 200),
-			}
-			run()
-			Expect(a.looked).To(Equal([]string{"/music/Unknown/13.mp3"}))
-			Expect(lib.edits["1"]).To(HaveKeyWithValue("title", []string{"Mickey"}))
 		})
 	})
 

@@ -1,4 +1,4 @@
-package acoustid_test
+package editjob
 
 import (
 	"testing"
@@ -9,9 +9,9 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-func TestAcoustID(t *testing.T) {
+func TestEditJob(t *testing.T) {
 	tests.Init(t, false)
 	log.SetLevel(log.LevelFatal)
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "AcoustID Suite")
+	RunSpecs(t, "Edit Job Suite")
 }

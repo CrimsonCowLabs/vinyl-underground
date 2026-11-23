@@ -4,14 +4,9 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/navidrome/navidrome/core/acoustid"
 	"github.com/navidrome/navidrome/core/musicbrainz"
 	"github.com/navidrome/navidrome/core/tagedit"
-	"github.com/navidrome/navidrome/utils/str"
 )
-
-// minAcoustIDScore is how sure AcoustID must be that a fingerprint is a recording's.
-const minAcoustIDScore = 0.9
 
 // Want is what a File's tags should be: its values after the local fixes, repaired from a data
 // source. A data source only fills what is empty and replaces what is flagged as junk; a value
@@ -98,52 +93,6 @@ func (w *Want) fromRelease(f File, p Placed, rel *musicbrainz.Release) (notes []
 		w.setID("musicbrainz_releasetrackid", t.ID)
 	}
 	return notes
-}
-
-// fromAcoustID repairs the File from AcoustID's matches of its fingerprint, and reports whether
-// one was taken: the best match must be sure, and name one recording (or, for a File with a
-// real title, have one with that title).
-func (w *Want) fromAcoustID(f File, results []acoustid.Result) (notes []string, ok bool) {
-	if len(results) == 0 || results[0].Score < minAcoustIDScore {
-		return []string{"AcoustID has no sure match"}, false
-	}
-	var recs []acoustid.Recording
-	for _, r := range results[0].Recordings {
-		if r.Title != "" {
-			recs = append(recs, r)
-		}
-	}
-	if len(recs) == 0 {
-		return []string{"AcoustID's match names no recording"}, false
-	}
-	rec := recs[0]
-	junk := f.Has(FlagNoTitle) || f.Has(FlagSlug)
-	if !junk {
-		best := -1.0
-		for _, r := range recs {
-			if s := max(similarity(f.Title, r.Title), similarity(f.Alt, r.Title)); s > best {
-				best, rec = s, r
-			}
-		}
-		if best < titleThreshold {
-			return []string{fmt.Sprintf("AcoustID names %q, not %q", rec.Title, f.Title)}, false
-		}
-	} else {
-		for _, r := range recs[1:] {
-			if str.SanitizeFieldForSorting(r.Title) != str.SanitizeFieldForSorting(rec.Title) {
-				return []string{fmt.Sprintf("AcoustID names more than one recording (%q, %q)", rec.Title, r.Title)}, false
-			}
-		}
-	}
-	w.Title = betterTitle(f, w.Title, rec.Title)
-	if f.Has(FlagUnknownArtist) && rec.Artist() != "" {
-		w.Artist = rec.Artist()
-	}
-	// A recording is on many albums: which one this File is from is left as it is.
-	if f.MbzRecordingID == "" {
-		w.setID("musicbrainz_trackid", rec.ID)
-	}
-	return nil, true
 }
 
 func yearOf(date string) string { return date[:min(len(date), 4)] }

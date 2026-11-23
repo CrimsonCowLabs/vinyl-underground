@@ -8,13 +8,11 @@ import (
 	"io"
 	"maps"
 	"path"
-	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
 	"strings"
 
-	"github.com/navidrome/navidrome/core/acoustid"
 	"github.com/navidrome/navidrome/core/musicbrainz"
 	"github.com/navidrome/navidrome/core/tagedit"
 	"github.com/navidrome/navidrome/log"
@@ -38,11 +36,6 @@ type MusicBrainz interface {
 	Release(ctx context.Context, id string) (*musicbrainz.Release, error)
 }
 
-// AcoustID is the part of acoustid.Client retag uses.
-type AcoustID interface {
-	Lookup(ctx context.Context, path, version string) ([]acoustid.Result, error)
-}
-
 // Writer writes a File's tags: tagedit.Editor.
 type Writer interface {
 	EditWith(ctx context.Context, trackID string, edit tagedit.Values, opts tagedit.EditOptions) (*tagedit.Result, error)
@@ -52,16 +45,13 @@ type Writer interface {
 // Library is one library to retag, with the Files in it that aren't missing.
 type Library struct {
 	ID    int
-	Path  string
 	Files func(ctx context.Context) (model.MediaFiles, error)
 }
 
-// Options set up a run. MusicBrainz and AcoustID are optional: without them only the local
-// fixes are made.
+// Options set up a run. MusicBrainz is optional: without it only the local fixes are made.
 type Options struct {
 	Writer      Writer
 	MusicBrainz MusicBrainz
-	AcoustID    AcoustID
 	// Apply writes the changes; without it the run only reports them.
 	Apply bool
 	// JobID groups the run's writes in the Edit journal.
@@ -76,11 +66,11 @@ type Options struct {
 
 // Summary counts what a run did.
 type Summary struct {
-	Files, Folders                int
-	Changed, Unchanged            int
-	Failed, Skipped, Flagged      int
-	FromMusicBrainz, FromAcoustID int
-	Fixes                         map[string]int
+	Files, Folders           int
+	Changed, Unchanged       int
+	Failed, Skipped, Flagged int
+	FromMusicBrainz          int
+	Fixes                    map[string]int
 }
 
 type runner struct {
@@ -112,7 +102,7 @@ func Run(ctx context.Context, libs []Library, opts Options) (Summary, error) {
 			if err := ctx.Err(); err != nil {
 				return r.sum, err
 			}
-			changed := r.folder(ctx, lib, folders[dir])
+			changed := r.folder(ctx, folders[dir])
 			r.sum.Folders++
 			if changed > 0 && r.Apply {
 				if err := r.Writer.Rescan(ctx, lib.ID, dir); err != nil {
@@ -189,7 +179,7 @@ type work struct {
 
 // folder retags one folder's Files, an album at a time, and returns how many it changed (or
 // would).
-func (r *runner) folder(ctx context.Context, lib Library, mfs []model.MediaFile) int {
+func (r *runner) folder(ctx context.Context, mfs []model.MediaFile) int {
 	albums := map[string][]*work{}
 	for _, mf := range mfs {
 		orig := localOf(mf)
@@ -207,9 +197,6 @@ func (r *runner) folder(ctx context.Context, lib Library, mfs []model.MediaFile)
 		for _, w := range ws {
 			if ctx.Err() != nil {
 				return changed
-			}
-			if w.source == "local" {
-				r.fromAcoustID(ctx, lib, w)
 			}
 			if r.write(ctx, w) {
 				changed++
@@ -343,28 +330,6 @@ func allSame(ws []*work, f func(*work) string) bool {
 	return true
 }
 
-// fromAcoustID names a File no release placed, by its fingerprint, when it has junk to repair.
-func (r *runner) fromAcoustID(ctx context.Context, lib Library, w *work) {
-	f := w.file
-	if r.AcoustID == nil || !f.Junk() {
-		return
-	}
-	abs := filepath.Join(lib.Path, filepath.FromSlash(w.mf.Path))
-	version := strconv.FormatInt(w.mf.Size, 10) + "-" + strconv.FormatInt(w.mf.UpdatedAt.Unix(), 10)
-	results, err := r.AcoustID.Lookup(ctx, abs, version)
-	if err != nil {
-		if !errors.Is(err, context.Canceled) {
-			w.notes = append(w.notes, "AcoustID: "+err.Error())
-		}
-		return
-	}
-	notes, ok := w.want.fromAcoustID(f, results)
-	w.notes = append(w.notes, notes...)
-	if ok {
-		w.source = "acoustid"
-	}
-}
-
 // write writes (or, without Apply, reports) the File's changes, and reports whether it changed.
 func (r *runner) write(ctx context.Context, w *work) bool {
 	vals := w.want.values(w.orig)
@@ -418,8 +383,6 @@ func (r *runner) count(w *work) {
 	switch {
 	case strings.HasPrefix(w.source, "musicbrainz"):
 		r.sum.FromMusicBrainz++
-	case w.source == "acoustid":
-		r.sum.FromAcoustID++
 	}
 	for _, fx := range w.file.Fixes {
 		r.sum.Fixes[fx]++

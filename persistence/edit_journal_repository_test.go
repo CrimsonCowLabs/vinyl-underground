@@ -3,6 +3,7 @@ package persistence
 import (
 	"context"
 
+	"github.com/Masterminds/squirrel"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
 	. "github.com/onsi/ginkgo/v2"
@@ -51,6 +52,22 @@ var _ = Describe("EditJournalRepository", func() {
 		Expect(got.CopySum).To(Equal("new"))
 	})
 
+	It("lists the entries of an edit job, oldest first", func() {
+		a := &model.EditEntry{JobID: "job-1", Kind: model.EditTags, State: model.EditWritten, LibraryID: 1, Path: "a.mp3"}
+		other := &model.EditEntry{JobID: "job-2", Kind: model.EditTags, State: model.EditWritten, LibraryID: 1, Path: "b.mp3"}
+		b := &model.EditEntry{JobID: "job-1", Kind: model.EditTags, State: model.EditFailed, LibraryID: 1, Path: "c.mp3"}
+		for _, e := range []*model.EditEntry{a, other, b} {
+			Expect(repo.Put(e)).To(Succeed())
+		}
+		got, err := repo.ForJob("job-1")
+		Expect(err).ToNot(HaveOccurred())
+		Expect(got).To(HaveLen(2))
+		// The Edit history counts a job's entries this way.
+		Expect(repo.CountAll(model.QueryOptions{Filters: squirrel.Eq{"job_id": "job-1"}})).To(BeEquivalentTo(2))
+		Expect(got[0].Path).To(Equal("a.mp3"))
+		Expect(got[1].Path).To(Equal("c.mp3"))
+	})
+
 	It("lists the entries still pending, oldest first", func() {
 		a := &model.EditEntry{Kind: model.EditTags, State: model.EditPending, LibraryID: 1, Path: "a.mp3"}
 		b := &model.EditEntry{Kind: model.EditTags, State: model.EditPending, LibraryID: 1, Path: "b.mp3"}
@@ -66,5 +83,45 @@ var _ = Describe("EditJournalRepository", func() {
 		Expect(got).To(HaveLen(2))
 		Expect(got[0].Path).To(Equal("a.mp3"))
 		Expect(got[1].Path).To(Equal("b.mp3"))
+	})
+
+	It("finds the writes to the same File recorded after an entry, oldest first", func() {
+		put := func(e model.EditEntry) *model.EditEntry {
+			GinkgoHelper()
+			e.Kind = model.EditTags
+			Expect(repo.Put(&e)).To(Succeed())
+			return &e
+		}
+		put(model.EditEntry{State: model.EditWritten, LibraryID: 1, MediaFileID: "mf-1", Path: "a.mp3", NewPath: "a.mp3"})
+		entry := put(model.EditEntry{State: model.EditWritten, LibraryID: 1, MediaFileID: "mf-1", Path: "a.mp3", NewPath: "a.mp3"})
+		later := put(model.EditEntry{State: model.EditWritten, LibraryID: 1, MediaFileID: "mf-1", Path: "a.mp3", NewPath: "a.mp3"})
+		put(model.EditEntry{State: model.EditFailed, LibraryID: 1, MediaFileID: "mf-1", Path: "a.mp3", NewPath: "a.mp3"})
+		put(model.EditEntry{State: model.EditWritten, LibraryID: 1, MediaFileID: "mf-2", Path: "b.mp3", NewPath: "b.mp3"})
+		put(model.EditEntry{State: model.EditWritten, LibraryID: 2, MediaFileID: "mf-3", Path: "a.mp3", NewPath: "a.mp3"})
+		// The same File, found by its path when the Track isn't known, and a pending write.
+		byPath := put(model.EditEntry{State: model.EditPending, LibraryID: 1, Path: "a.mp3", NewPath: "a.mp3"})
+
+		got, err := repo.After(entry)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(got).To(HaveLen(2))
+		Expect(got[0].ID).To(Equal(later.ID))
+		Expect(got[1].ID).To(Equal(byPath.ID))
+	})
+
+	It("lists every entry newest first, a page at a time, and counts them", func() {
+		for _, p := range []string{"a.mp3", "b.mp3", "c.mp3"} {
+			Expect(repo.Put(&model.EditEntry{Kind: model.EditTags, State: model.EditWritten, LibraryID: 1, Path: p, NewPath: p})).To(Succeed())
+		}
+
+		got, err := repo.GetAll(model.QueryOptions{Max: 2})
+		Expect(err).ToNot(HaveOccurred())
+		Expect(got).To(HaveLen(2))
+		Expect(got[0].Path).To(Equal("c.mp3"))
+		Expect(got[1].Path).To(Equal("b.mp3"))
+		got, err = repo.GetAll(model.QueryOptions{Max: 2, Offset: 2})
+		Expect(err).ToNot(HaveOccurred())
+		Expect(got).To(HaveLen(1))
+		Expect(got[0].Path).To(Equal("a.mp3"))
+		Expect(repo.CountAll()).To(BeNumerically("==", 3))
 	})
 })

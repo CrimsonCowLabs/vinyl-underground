@@ -1,8 +1,7 @@
 // Package retag repairs the tags of the Library's Files in bulk, with no review (the `retag`
 // command): titles holding their track number, file extensions, artists and years, and gaps.
-// Local evidence (the title, the File's name and folder) fixes what it can settle; MusicBrainz,
-// and AcoustID fingerprints, settle the rest, or the File is reported and only its safe fixes
-// are made. Every write goes through tagedit's write path and the Edit journal.
+// Local evidence (the title, the File's name and folder) fixes what it can settle; MusicBrainz
+// settles the rest, or the File is reported and only its safe fixes are made. Every write goes through tagedit's write path and the Edit journal.
 package retag
 
 import (
