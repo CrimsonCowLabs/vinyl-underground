@@ -31,6 +31,7 @@ import BulkEditDialog from './BulkEditDialog'
 import { SendToQuarantineDialog } from '../quarantine/SendToQuarantineDialog'
 import { matchingFilter } from './bulkEdit'
 import OrganizeButton from '../organize/OrganizeButton'
+import CaseMergeButton from '../organize/CaseMergeButton'
 
 const resource = 'libraryTrack'
 
@@ -199,9 +200,11 @@ OrganizeMatching.propTypes = {
 }
 
 // The Library manager's tools: a link ({ to, label, icon }), or a component given the list's
-// filterValues and total: Organize (#167), the Edit history and Quarantine (#168).
+// filterValues and total: Organize (#167), the case merge (#169), the Edit history and Quarantine
+// (#168).
 const tools = [
   { key: 'organize', component: OrganizeMatching },
+  { key: 'caseMerge', component: CaseMergeButton },
   {
     key: 'editHistory',
     to: '/editHistory',

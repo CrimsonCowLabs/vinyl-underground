@@ -722,6 +722,44 @@
         "unknown": "Could not organize the Files. Try again later."
       }
     },
+    "caseMerge": {
+      "title": "Merge case twins",
+      "help": "The NAS treats names that differ only in letter case (DIRE STRAITS and Dire Straits) as one, so scans miss the Files in them. The merge takes two phases. First, all but one of each set of twins get a temporary name (\"Dire Straits [case-merge]\"): a rename loses nothing, whichever twin the NAS reaches. Run it again until no twins are left, as twins inside twins only show once their folders are renamed. Then each renamed folder is merged into its partner, and the side with more Files wins. A File that is byte-identical to the one it would replace goes to Quarantine; any other clash is listed here for you to decide. Every Track keeps its favorites, ratings, plays and Playlist entries, and each run can be undone from the Edit history.",
+      "phase": {
+        "rename": "Phase 1 of 2: give the twins temporary names",
+        "merge": "Phase 2 of 2: merge each renamed folder into its partner",
+        "none": "No names differ only in letter case, and nothing is left to merge."
+      },
+      "summary": {
+        "clashes": "%{smart_count} set of twins |||| %{smart_count} sets of twins",
+        "rename": "%{smart_count} rename |||| %{smart_count} renames",
+        "move": "%{smart_count} move |||| %{smart_count} moves",
+        "rmdir": "%{smart_count} emptied folder removed |||| %{smart_count} emptied folders removed",
+        "quarantine": "%{smart_count} Duplicate to Quarantine, once confirmed byte-identical |||| %{smart_count} Duplicates to Quarantine, once confirmed byte-identical",
+        "decide": "%{smart_count} clash for you to decide |||| %{smart_count} clashes for you to decide"
+      },
+      "clashesTitle": "Names that differ only in letter case",
+      "stepsTitle": "What the run does",
+      "decideTitle": "Left for you to decide (the Files differ)",
+      "op": {
+        "rename": "Rename",
+        "move": "Move",
+        "rmdir": "Remove the emptied folder",
+        "quarantine": "To Quarantine",
+        "decide": "Differs from"
+      },
+      "more": "Show more",
+      "run": "Run",
+      "done": "Done. Plan again for the next step.",
+      "doneSkipped": "Done, but %{smart_count} step was skipped. The Activity panel says why. |||| Done, but %{smart_count} steps were skipped. The Activity panel says why.",
+      "inBackground": "Running in the background. The Activity panel shows how it goes.",
+      "errors": {
+        "editingOff": "Editing is off: the Library is read-only.",
+        "planChanged": "The Library changed since the plan was made. Here is the plan as it is now.",
+        "nothingToMerge": "No names differ only in letter case, and nothing is left to merge.",
+        "unknown": "Could not merge the twins. Try again later."
+      }
+    },
     "libraryTrack": {
       "name": "Library manager |||| Library manager",
       "fields": {
@@ -756,6 +794,7 @@
         "editMatching": "Edit all %{smart_count} matching",
         "organizeSelected": "Organize",
         "organizeMatching": "Organize all %{smart_count} matching",
+        "caseMerge": "Merge case twins",
         "editHistory": "Edit history",
         "quarantine": "Quarantine"
       },
@@ -1435,7 +1474,9 @@
         "organize": "Organize",
         "quarantine": "Send to Quarantine",
         "restore": "Restore from Quarantine",
-        "emptyQuarantine": "Empty Quarantine"
+        "emptyQuarantine": "Empty Quarantine",
+        "caseRename": "Case twins: temporary names",
+        "caseMerge": "Case twins: merge"
       },
       "files": "%{smart_count} File |||| %{smart_count} Files",
       "queued": "Waiting for the edit before it",

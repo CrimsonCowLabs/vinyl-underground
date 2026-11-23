@@ -104,9 +104,13 @@ export const EditChangesField = ({ record }) => {
       </Typography>
     )
   }
-  if (record.kind === 'move' || record.kind === 'quarantine') {
-    // A move (Organize, #167), or one into or out of Quarantine (#168): where the File was, and
-    // where it went.
+  if (
+    record.kind === 'move' ||
+    record.kind === 'quarantine' ||
+    record.kind === 'rename'
+  ) {
+    // A move (Organize, #167), one into or out of Quarantine (#168), or a case merge's rename of a
+    // File or folder with all it holds (#169): where it was, and where it went.
     return (
       <Typography variant="body2" component="span" className={classes.change}>
         <span className={classes.tag}>
@@ -298,6 +302,9 @@ const jobKindsUndoneWhole = new Set([
   'migrateCorrections',
   // Organize (#167): its undo also removes the folders it made, and rescans.
   'organize',
+  // The case merge (#169): the same.
+  'caseRename',
+  'caseMerge',
 ])
 
 export const EditJobField = ({ record }) => {
