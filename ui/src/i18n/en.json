@@ -540,6 +540,52 @@
         "alreadyBlocked": "This cover is already marked wrong. Reload the page to see the next one."
       }
     },
+    "editHistory": {
+      "name": "Edit history |||| Edit history",
+      "empty": "The app hasn't written to any File yet",
+      "fields": {
+        "createdAt": "When",
+        "path": "File",
+        "track": "Track",
+        "changes": "Changes",
+        "state": "Status"
+      },
+      "status": {
+        "undo": "Undo",
+        "redo": "Redo",
+        "failed": "Not written",
+        "pending": "Unfinished"
+      },
+      "actions": {
+        "undo": "Undo"
+      },
+      "message": {
+        "none": "(none)",
+        "trackGone": "No longer in the Library",
+        "trackMissing": "Its File is missing",
+        "undoTitle": "Undo this write",
+        "undoContent": "Write the earlier values back into the File? The undo is listed here too, and can be undone in turn."
+      },
+      "notifications": {
+        "undone": "The earlier values were written back to the File",
+        "undoneRescanPending": "The earlier values were written back to the File. The app shows them after the next scan."
+      },
+      "errors": {
+        "changedLater": "A later write changed the same fields of this File. Undo that one first.",
+        "alreadyUndone": "This write was undone already. Undo the undo to redo it.",
+        "unfinished": "A later write to this File didn't finish. Restart the app to settle it, then try again.",
+        "changedOnDisk": "The File changed on disk since the last scan. Rescan the library first.",
+        "tagsChanged": "The File's tags were changed outside the app since this write, so undoing it would overwrite them. Change them in the Edit dialog instead.",
+        "editingOff": "This File's library is read-only, so it can't be written.",
+        "notFound": "This entry, or its Track, is no longer there.",
+        "notUndoable": "This write can't be undone: it wasn't written, or this kind of write can't be undone yet.",
+        "notVerified": "The restored copy didn't check out, so the File was left as it was.",
+        "unsupportedFormat": "Only mp3, m4a, aiff and wav Files can be written for now.",
+        "linked": "This File has other names (a symlink or hard link), so the app doesn't replace it.",
+        "oldCopyLeft": "An earlier edit left an old copy of this File beside it. Check it and remove it, then try again.",
+        "unknown": "The write could not be undone."
+      }
+    },
     "library": {
       "name": "Library |||| Libraries",
       "fields": {

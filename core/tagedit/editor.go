@@ -180,11 +180,18 @@ func (e *Editor) Edit(ctx context.Context, trackID string, edit Values) (*Result
 	if len(set) == 0 {
 		return &Result{Changed: false, Track: f.mf}, nil
 	}
+	return e.apply(ctx, f, orig, set, "")
+}
 
+// apply journals and writes set (TagLib properties) into the File f, whose tags are orig, and
+// re-keys its Track: steps 2 to 6 of Edit, once the File is guarded. undoOf is the entry the
+// write undoes, if it is an undo (see Undo).
+func (e *Editor) apply(ctx context.Context, f *file, orig, set map[string][]string, undoOf string) (*Result, error) {
+	trackID := f.mf.ID
 	entry := &model.EditEntry{
 		JobID: id.NewRandom(), Kind: model.EditTags, State: model.EditPending,
 		LibraryID: f.mf.LibraryID, MediaFileID: f.mf.ID, Path: f.mf.Path, NewPath: f.mf.Path,
-		OriginalTags: model.EditTagValues(orig), Changes: model.EditTagValues(set),
+		OriginalTags: model.EditTagValues(orig), Changes: model.EditTagValues(set), UndoOf: undoOf,
 	}
 	if u, ok := request.UserFrom(ctx); ok {
 		entry.UserID = u.ID

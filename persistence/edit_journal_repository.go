@@ -60,3 +60,34 @@ func (r *editJournalRepository) Pending() ([]model.EditEntry, error) {
 		OrderBy("created_at", "rowid"), &res)
 	return res, err
 }
+
+// After orders by rowid: entries are only ever added (kept forever), so it is the order they were
+// recorded in, even within one timestamp.
+func (r *editJournalRepository) After(e *model.EditEntry) ([]model.EditEntry, error) {
+	file := Or{And{Eq{"library_id": e.LibraryID}, Or{Eq{"path": e.NewPath}, Eq{"new_path": e.NewPath}}}}
+	if e.MediaFileID != "" {
+		file = append(file, Eq{"media_file_id": e.MediaFileID})
+	}
+	res := []model.EditEntry{}
+	sq := Select("*").From(r.tableName).Where(And{
+		file,
+		NotEq{"state": model.EditFailed},
+		Expr("rowid > (SELECT rowid FROM edit_journal WHERE id = ?)", e.ID),
+	}).OrderBy("rowid")
+	err := r.queryAll(sq, &res)
+	return res, err
+}
+
+func (r *editJournalRepository) GetAll(options ...model.QueryOptions) ([]model.EditEntry, error) {
+	sq := r.newSelect(options...).Columns("*")
+	if len(options) == 0 || options[0].Sort == "" {
+		sq = sq.OrderBy("created_at desc", "rowid desc")
+	}
+	res := []model.EditEntry{}
+	err := r.queryAll(sq, &res)
+	return res, err
+}
+
+func (r *editJournalRepository) CountAll(options ...model.QueryOptions) (int64, error) {
+	return r.count(Select(), options...)
+}

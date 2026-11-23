@@ -54,6 +54,7 @@ import { HTML5Backend } from 'react-dnd-html5-backend'
 import { DndProvider } from 'react-dnd'
 import missing from './missing/index.js'
 import correction from './correction/index.js'
+import editHistory from './editHistory/index.js'
 import { useEffect } from 'react'
 
 const history = createHashHistory()
@@ -185,6 +186,13 @@ const Admin = (props) => {
           <Resource
             name="correction"
             {...correction}
+            options={{ subMenu: 'settings' }}
+          />
+        ) : null,
+        permissions === 'admin' ? (
+          <Resource
+            name="editHistory"
+            {...editHistory}
             options={{ subMenu: 'settings' }}
           />
         ) : null,
