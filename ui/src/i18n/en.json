@@ -512,7 +512,8 @@
         "undoing": "Undoing…"
       },
       "actions": {
-        "undo": "Undo"
+        "undo": "Undo",
+        "undoJob": "Undo job"
       },
       "message": {
         "undoTitle": "Undo Correction",
@@ -550,7 +551,8 @@
         "path": "File",
         "track": "Track",
         "changes": "Changes",
-        "state": "Status"
+        "state": "Status",
+        "jobId": "Job"
       },
       "status": {
         "undo": "Undo",
@@ -566,11 +568,17 @@
         "trackGone": "No longer in the Library",
         "trackMissing": "Its File is missing",
         "undoTitle": "Undo this write",
-        "undoContent": "Write the earlier values back into the File? The undo is listed here too, and can be undone in turn."
+        "undoContent": "Write the earlier values back into the File? The undo is listed here too, and can be undone in turn.",
+        "job": "One of %{smart_count} Files in a job",
+        "undoJobTitle": "Undo this job",
+        "undoJobContent": "Write the earlier values back into all %{smart_count} Files of this job? It runs as a job of its own, and any File a later write changed is skipped."
       },
       "notifications": {
         "undone": "The earlier values were written back to the File",
-        "undoneRescanPending": "The earlier values were written back to the File. The app shows them after the next scan."
+        "undoneRescanPending": "The earlier values were written back to the File. The app shows them after the next scan.",
+        "undoInBackground": "The undo is running in the background. The Activity panel shows how it goes.",
+        "undoneJob": "The earlier values were written back to the job's Files",
+        "undoneJobSkipped": "The job was undone, but %{smart_count} File was skipped. The Activity panel says why. |||| The job was undone, but %{smart_count} Files were skipped. The Activity panel says why."
       },
       "errors": {
         "changedLater": "A later write changed the same fields of this File. Undo that one first.",
@@ -585,6 +593,7 @@
         "unsupportedFormat": "Only mp3, m4a, aiff and wav Files can be written for now.",
         "linked": "This File has other names (a symlink or hard link), so the app doesn't replace it.",
         "oldCopyLeft": "An earlier edit left an old copy of this File beside it. Check it and remove it, then try again.",
+        "interrupted": "A restart interrupted the undo. Check the File's tags, and undo it again if they weren't put back.",
         "unknown": "The write could not be undone."
       }
     },
@@ -1160,7 +1169,8 @@
     "edits": {
       "title": "Edits",
       "kind": {
-        "tags": "Tag edit"
+        "tags": "Tag edit",
+        "undo": "Undo"
       },
       "files": "%{smart_count} File |||| %{smart_count} Files",
       "queued": "Waiting for the edit before it",

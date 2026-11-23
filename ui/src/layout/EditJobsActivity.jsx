@@ -33,12 +33,28 @@ const reasons = [
   'linked',
   'oldCopyLeft',
   'interrupted',
+  'alreadyUndone',
+  'changedLater',
+  'tagsChanged',
+  'unfinished',
+  'notUndoable',
+]
+
+// The undo's own refusals are explained by the Edit history's messages.
+const undoCodes = [
+  'alreadyUndone',
+  'changedLater',
+  'tagsChanged',
+  'unfinished',
+  'notUndoable',
 ]
 
 const Reason = ({ step }) => {
   const translate = useTranslate()
   return reasons.includes(step.code)
-    ? translate(`resources.song.tagEditor.errors.${step.code}`)
+    ? translate(
+        `resources.${undoCodes.includes(step.code) ? 'editHistory' : 'song.tagEditor'}.errors.${step.code}`,
+      )
     : step.error || step.code
 }
 

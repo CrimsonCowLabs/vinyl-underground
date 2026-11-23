@@ -40,7 +40,14 @@ const knownErrors = [
   'unsupportedFormat',
   'linked',
   'oldCopyLeft',
+  'interrupted',
 ]
+
+// errorKey is the message of a refused undo.
+const errorKey = (err) => {
+  const code = err?.body?.error
+  return `resources.editHistory.errors.${knownErrors.includes(code) ? code : 'unknown'}`
+}
 
 const Values = ({ values }) => {
   const classes = useStyles()
@@ -168,19 +175,15 @@ export const UndoEditButton = ({ record }) => {
       .undoEdit(record.id)
       .then(({ data }) =>
         notify(
-          data?.warning
-            ? 'resources.editHistory.notifications.undoneRescanPending'
-            : 'resources.editHistory.notifications.undone',
+          data?.background
+            ? 'resources.editHistory.notifications.undoInBackground'
+            : data?.warning
+              ? 'resources.editHistory.notifications.undoneRescanPending'
+              : 'resources.editHistory.notifications.undone',
           { type: 'info' },
         ),
       )
-      .catch((err) => {
-        const code = err?.body?.error
-        notify(
-          `resources.editHistory.errors.${knownErrors.includes(code) ? code : 'unknown'}`,
-          { type: 'warning' },
-        )
-      })
+      .catch((err) => notify(errorKey(err), { type: 'warning' }))
       .finally(() => {
         setRunning(false)
         refresh()
@@ -213,11 +216,87 @@ export const UndoEditButton = ({ record }) => {
 
 UndoEditButton.propTypes = { record: PropTypes.object }
 
+// An entry that is part of a job of several Files (#162) is marked, and the whole job can be
+// undone from it: every File it wrote, newest first, as a job of its own. A File the undo can't
+// put back (a later write changed it, ...) is skipped; the Activity panel lists why.
+export const EditJobField = ({ record }) => {
+  const translate = useTranslate()
+  const dataProvider = useDataProvider()
+  const notify = useNotify()
+  const refresh = useRefresh()
+  const [open, setOpen] = useState(false)
+  const [running, setRunning] = useState(false)
+
+  const handleConfirm = useCallback(() => {
+    setOpen(false)
+    setRunning(true)
+    dataProvider
+      .undoEditJob(record.jobId)
+      .then(({ data }) => {
+        if (data?.state !== 'done') {
+          notify('resources.editHistory.notifications.undoInBackground', {
+            type: 'info',
+          })
+        } else if (data.skipped > 0) {
+          notify('resources.editHistory.notifications.undoneJobSkipped', {
+            type: 'warning',
+            messageArgs: { smart_count: data.skipped },
+          })
+        } else {
+          notify('resources.editHistory.notifications.undoneJob', {
+            type: 'info',
+            messageArgs: { smart_count: data.total },
+          })
+        }
+      })
+      .catch((err) => notify(errorKey(err), { type: 'warning' }))
+      .finally(() => {
+        setRunning(false)
+        refresh()
+      })
+  }, [dataProvider, record, notify, refresh])
+
+  if (!record || !(record.jobSize > 1)) return null
+  return (
+    <>
+      <Chip
+        size="small"
+        variant="outlined"
+        label={translate('resources.editHistory.message.job', {
+          smart_count: record.jobSize,
+        })}
+      />
+      <Button
+        label={translate('resources.editHistory.actions.undoJob')}
+        onClick={(e) => {
+          e.stopPropagation()
+          setOpen(true)
+        }}
+        disabled={running}
+      >
+        <UndoIcon />
+      </Button>
+      <Confirm
+        isOpen={open}
+        title="resources.editHistory.message.undoJobTitle"
+        content="resources.editHistory.message.undoJobContent"
+        translateOptions={{ smart_count: record.jobSize }}
+        onConfirm={handleConfirm}
+        onClose={() => setOpen(false)}
+      />
+    </>
+  )
+}
+
+EditJobField.propTypes = { record: PropTypes.object }
+
 const HistoryPagination = (props) => (
   <Pagination rowsPerPageOptions={[25, 50, 100]} {...props} />
 )
 
-// Every write the app made to a File, newest first (the server's order; it isn't sortable).
+// Every write the app made to a File, newest first (the server's order; it isn't sortable). A
+// job's writes are next to each other, as jobs run one at a time, and each is marked as part of
+// its job (see EditJobField).
 const EditHistoryList = (props) => {
   return (
     <List
@@ -246,6 +325,11 @@ const EditHistoryList = (props) => {
           render={(r) => <EditStatusField record={r} />}
         />
         <UndoEditButton />
+        <FunctionField
+          source="jobId"
+          sortable={false}
+          render={(r) => <EditJobField record={r} />}
+        />
       </Datagrid>
     </List>
   )

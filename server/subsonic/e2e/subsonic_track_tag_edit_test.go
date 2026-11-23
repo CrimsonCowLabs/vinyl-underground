@@ -105,7 +105,7 @@ var _ = Describe("Editing a Track's tags keeps its identity", func() {
 		router := nativeapi.New(ds, core.NewShare(ds), playlists.NewPlaylists(ds, artwork.NewUploader(ds)), nil, tests.NewMockLibraryService(), tests.NewMockUserService(),
 			nil, nil, nil, nil, nil, nil, nil, editor)
 		// Edits and undos run as jobs on the real database's queue.
-		queue := editjob.New(ds, nil, editjob.Kinds(editor))
+		queue := editjob.New(ds, nil, editjob.Kinds(ds, editor))
 		router.SetEditQueue(queue)
 		qctx, stop := context.WithCancel(ctx)
 		done := make(chan struct{})

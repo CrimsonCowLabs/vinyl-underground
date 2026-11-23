@@ -30,6 +30,9 @@ var _ = Describe("Tag edit jobs", func() {
 		q       *Queue
 		libDir  string
 		files   []string // the Files, absolute
+		// rescanned records the Files' sizes and modification times on their Tracks, as a scan
+		// does.
+		rescanned func()
 	)
 
 	BeforeEach(func() {
@@ -48,19 +51,25 @@ var _ = Describe("Tag edit jobs", func() {
 		Expect(err).ToNot(HaveOccurred())
 		Expect(os.MkdirAll(filepath.Join(libDir, "Artist", "Album"), 0o755)).To(Succeed())
 		files = nil
-		var mfs model.MediaFiles
-		for i, name := range []string{"01 One.mp3", "02 Two.mp3"} {
+		for _, name := range []string{"01 One.mp3", "02 Two.mp3"} {
 			p := filepath.Join(libDir, "Artist", "Album", name)
 			Expect(os.WriteFile(p, data, 0o644)).To(Succeed())
-			info, err := os.Stat(p)
-			Expect(err).ToNot(HaveOccurred())
 			files = append(files, p)
-			mfs = append(mfs, model.MediaFile{ID: "track-" + string(rune('1'+i)), LibraryID: 1, Path: "Artist/Album/" + name,
-				Suffix: "mp3", Size: info.Size(), UpdatedAt: info.ModTime()})
 		}
-		ds.MockedMediaFile.(*tests.MockMediaFileRepo).SetData(mfs)
+		rescanned = func() {
+			GinkgoHelper()
+			var mfs model.MediaFiles
+			for i, p := range files {
+				info, err := os.Stat(p)
+				Expect(err).ToNot(HaveOccurred())
+				mfs = append(mfs, model.MediaFile{ID: "track-" + string(rune('1'+i)), LibraryID: 1, Path: "Artist/Album/" + filepath.Base(p),
+					Suffix: "mp3", Size: info.Size(), UpdatedAt: info.ModTime()})
+			}
+			ds.MockedMediaFile.(*tests.MockMediaFileRepo).SetData(mfs)
+		}
+		rescanned()
 		editor = tagedit.New(ds, nil)
-		q = New(ds, nil, Kinds(editor))
+		q = New(ds, nil, Kinds(ds, editor))
 	})
 
 	titleOf := func(p string) string {
@@ -205,5 +214,108 @@ var _ = Describe("Tag edit jobs", func() {
 		s, err := TagsStep("track-1", tagedit.Values{"title": {"x"}})
 		Expect(err).ToNot(HaveOccurred())
 		Expect(q.Enqueue(ctx, model.EditTags, []model.EditJobStep{s})).Error().To(MatchError(tagedit.ErrEditingOff))
+	})
+
+	Describe("undo", func() {
+		// edited runs a job that edits both Files, as a scan would see it after.
+		edited := func() *model.EditJob {
+			GinkgoHelper()
+			job := run(enqueue())
+			Expect(job.Skipped).To(BeZero())
+			rescanned()
+			return job
+		}
+		undoJob := func(jobID string) *model.EditJob {
+			GinkgoHelper()
+			steps, err := UndoJobSteps(ctx, ds, jobID)
+			Expect(err).ToNot(HaveOccurred())
+			job, err := q.Enqueue(ctx, model.EditUndo, steps)
+			Expect(err).ToNot(HaveOccurred())
+			got := run(job)
+			rescanned()
+			return got
+		}
+
+		It("undoes a whole job as a job of its own, newest File first, journaled with the undo job's ID", func() {
+			before := []string{titleOf(files[0]), titleOf(files[1])}
+			job := edited()
+
+			undo := undoJob(job.ID)
+
+			Expect(undo.ID).ToNot(Equal(job.ID))
+			Expect(undo.Kind).To(Equal(model.EditUndo))
+			Expect(undo.Skipped).To(BeZero())
+			Expect(titleOf(files[0])).To(Equal(before[0]))
+			Expect(titleOf(files[1])).To(Equal(before[1]))
+			// Newest first: the job wrote One, then Two.
+			Expect(undo.Steps[0].Path).To(Equal("Artist/Album/02 Two.mp3"))
+			Expect(undo.Steps[1].Path).To(Equal("Artist/Album/01 One.mp3"))
+			undos, err := journal.ForJob(undo.ID)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(undos).To(HaveLen(2))
+			edits, err := journal.ForJob(job.ID)
+			Expect(err).ToNot(HaveOccurred())
+			Expect([]string{undos[0].UndoOf, undos[1].UndoOf}).To(ConsistOf(edits[0].ID, edits[1].ID))
+			Expect(undo.Steps).To(HaveEach(HaveField("State", model.EditStepWritten)))
+		})
+
+		It("skips a File a later edit changed, with the undo's refusal, and undoes the rest", func() {
+			job := edited()
+			_, err := editor.Edit(ctx, "track-1", tagedit.Values{"title": {"Later"}})
+			Expect(err).ToNot(HaveOccurred())
+			rescanned()
+
+			undo := undoJob(job.ID)
+
+			Expect(undo.Skipped).To(Equal(1))
+			skipped := undo.Steps[1]
+			Expect(skipped.Path).To(Equal("Artist/Album/01 One.mp3"))
+			Expect(skipped.State).To(Equal(model.EditStepSkipped))
+			Expect(skipped.Code).To(Equal("changedLater"))
+			Expect(titleOf(files[0])).To(Equal("Later"))
+			Expect(titleOf(files[1])).ToNot(Equal("New Two"))
+		})
+
+		It("redoes a job by undoing its undo job", func() {
+			job := edited()
+			undo := undoJob(job.ID)
+			redo := undoJob(undo.ID)
+			Expect(redo.Skipped).To(BeZero())
+			Expect(titleOf(files[0])).To(Equal("New One"))
+			Expect(titleOf(files[1])).To(Equal("New Two"))
+		})
+
+		It("undoes one File as a job of one step", func() {
+			job := edited()
+			edits, err := journal.ForJob(job.ID)
+			Expect(err).ToNot(HaveOccurred())
+			step, err := UndoStep(edits[1].ID)
+			Expect(err).ToNot(HaveOccurred())
+			undo, err := q.Enqueue(ctx, model.EditUndo, []model.EditJobStep{step})
+			Expect(err).ToNot(HaveOccurred())
+			got := run(undo)
+			Expect(got.Steps[0].Path).To(Equal("Artist/Album/02 Two.mp3"))
+			Expect(got.Steps[0].State).To(Equal(model.EditStepWritten))
+			Expect(titleOf(files[0])).To(Equal("New One"))
+			Expect(titleOf(files[1])).ToNot(Equal("New Two"))
+		})
+
+		It("refuses to queue the undo of a write that wasn't written", func() {
+			failed := &model.EditEntry{JobID: "j", Kind: model.EditTags, State: model.EditFailed, LibraryID: 1,
+				MediaFileID: "track-1", Path: "Artist/Album/01 One.mp3", NewPath: "Artist/Album/01 One.mp3"}
+			Expect(journal.Put(failed)).To(Succeed())
+			step, err := UndoStep(failed.ID)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(q.Enqueue(ctx, model.EditUndo, []model.EditJobStep{step})).Error().To(MatchError(tagedit.ErrNotUndoable))
+			Expect(q.Enqueue(ctx, model.EditUndo, []model.EditJobStep{{Kind: model.EditUndo, Args: `{"entryId":"nope"}`}})).
+				Error().To(MatchError(model.ErrNotFound))
+		})
+
+		It("refuses to undo a job with nothing written", func() {
+			Expect(journal.Put(&model.EditEntry{JobID: "j", Kind: model.EditTags, State: model.EditFailed, LibraryID: 1,
+				MediaFileID: "track-1", Path: "a.mp3", NewPath: "a.mp3"})).To(Succeed())
+			Expect(UndoJobSteps(ctx, ds, "j")).Error().To(MatchError(tagedit.ErrNotUndoable))
+			Expect(UndoJobSteps(ctx, ds, "none")).Error().To(MatchError(model.ErrNotFound))
+		})
 	})
 })

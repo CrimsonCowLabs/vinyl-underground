@@ -35,6 +35,7 @@ func (api *Router) addTrackTagsRoute(r chi.Router) {
 	})
 	r.Get("/editJob", api.listEditJobs)
 	r.Get("/editJob/{id}", api.getEditJob)
+	r.Post("/editJob/{id}/undo", api.undoEditJob)
 }
 
 func (api *Router) readTrackTags(w http.ResponseWriter, r *http.Request) {
@@ -75,13 +76,20 @@ func (api *Router) editTrackTags(w http.ResponseWriter, r *http.Request) {
 		writeTagEditError(w, r, tagedit.ErrInvalidTags)
 		return
 	}
-	ctx := r.Context()
 	step, err := editjob.TagsStep(chi.URLParam(r, "id"), body.Values)
 	if err != nil {
 		writeTagEditError(w, r, err)
 		return
 	}
-	job, err := api.editQueue.Enqueue(ctx, model.EditTags, []model.EditJobStep{step})
+	api.runFileJob(w, r, model.EditTags, step)
+}
+
+// runFileJob queues a job of one File's step, and waits a little for it (see editTrackTags).
+// A job that ends in time answers the step's outcome, or its refusal as an error; a longer one
+// answers 202 with the job's ID.
+func (api *Router) runFileJob(w http.ResponseWriter, r *http.Request, kind model.EditKind, step model.EditJobStep) {
+	ctx := r.Context()
+	job, err := api.editQueue.Enqueue(ctx, kind, []model.EditJobStep{step})
 	if err != nil {
 		writeTagEditError(w, r, err)
 		return
@@ -145,6 +153,44 @@ func (api *Router) getEditJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = rest.RespondWithJSON(w, http.StatusOK, job)
+}
+
+// undoEditJob undoes every File an edit job wrote, as a job of its own (newest File first), and
+// waits a little for it. It answers the undo job: done, with the Files it skipped and why, or,
+// with 202, still running in the background.
+func (api *Router) undoEditJob(w http.ResponseWriter, r *http.Request) {
+	if api.editQueue == nil {
+		writeTagEditError(w, r, tagedit.ErrEditingOff)
+		return
+	}
+	ctx := r.Context()
+	steps, err := editjob.UndoJobSteps(ctx, api.ds, chi.URLParam(r, "id"))
+	if err != nil {
+		writeTagEditError(w, r, err)
+		return
+	}
+	job, err := api.editQueue.Enqueue(ctx, model.EditUndo, steps)
+	if err != nil {
+		writeTagEditError(w, r, err)
+		return
+	}
+	if job, err = api.editQueue.Wait(ctx, job.ID, cmp.Or(api.editWait, defaultEditWait)); err != nil {
+		writeTagEditError(w, r, err)
+		return
+	}
+	status := http.StatusOK
+	if job.State != model.EditJobDone {
+		status = http.StatusAccepted
+	}
+	// The answer lists the skipped Files only, as the job list does.
+	skipped := model.EditJobSteps{}
+	for _, s := range job.Steps {
+		if s.State == model.EditStepSkipped {
+			skipped = append(skipped, s)
+		}
+	}
+	job.Steps = skipped
+	_ = rest.RespondWithJSON(w, status, job)
 }
 
 // tagEditStatus is the HTTP status of each tagedit.Code.

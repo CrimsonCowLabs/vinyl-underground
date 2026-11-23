@@ -262,7 +262,7 @@ func startEditJobs(ctx context.Context, g *errgroup.Group) *editjob.Queue {
 		return nil
 	}
 	ds := CreateDataStore()
-	queue := editjob.New(ds, events.GetBroker(), editjob.Kinds(tagedit.New(ds, CreateScanner(ctx))))
+	queue := editjob.New(ds, events.GetBroker(), editjob.Kinds(ds, tagedit.New(ds, CreateScanner(ctx))))
 	g.Go(func() error {
 		queue.Run(ctx)
 		return nil

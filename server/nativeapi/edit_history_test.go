@@ -26,7 +26,11 @@ import (
 
 var _ = Describe("/api/editHistory", func() {
 	var (
-		router          http.Handler
+		router http.Handler
+		api    *Router
+		queue  *editjob.Queue
+		// runQueue starts the edit job queue, until the test ends.
+		runQueue        func()
 		admin, listener model.User
 		path            string
 		mfs             *tests.MockMediaFileRepo
@@ -60,15 +64,18 @@ var _ = Describe("/api/editHistory", func() {
 		scanned()
 
 		editor := tagedit.New(ds, nil)
-		api := New(ds, nil, nil, nil, tests.NewMockLibraryService(), tests.NewMockUserService(),
+		api = New(ds, nil, nil, nil, tests.NewMockLibraryService(), tests.NewMockUserService(),
 			nil, nil, nil, nil, nil, nil, nil, editor)
 		// Edits and undos run as jobs (#162).
-		queue := editjob.New(ds, nil, editjob.Kinds(editor))
+		queue = editjob.New(ds, nil, editjob.Kinds(ds, editor))
 		api.SetEditQueue(queue)
-		qctx, stop := context.WithCancel(context.Background())
-		done := make(chan struct{})
-		go func() { queue.Run(qctx); close(done) }()
-		DeferCleanup(func() { stop(); Eventually(done).Should(BeClosed()) })
+		runQueue = func() {
+			qctx, stop := context.WithCancel(context.Background())
+			done := make(chan struct{})
+			go func() { queue.Run(qctx); close(done) }()
+			DeferCleanup(func() { stop(); Eventually(done).Should(BeClosed()) })
+		}
+		runQueue()
 		router = server.JWTVerifier(api)
 		admin = model.User{ID: "admin-1", UserName: "admin", IsAdmin: true, NewPassword: "pass"}
 		listener = model.User{ID: "user-1", UserName: "listener", NewPassword: "pass"}
@@ -197,6 +204,103 @@ var _ = Describe("/api/editHistory", func() {
 		w := do(admin, http.MethodPost, "/editHistory/"+entry+"/undo", nil)
 		Expect(w.Code).To(Equal(http.StatusConflict))
 		Expect(errorCode(w)).To(Equal("changedOnDisk"))
+	})
+
+	It("undoes an entry as a job of its own, journaled with the job's ID", func() {
+		edit("Song (Live)")
+		entry := history()[0]
+		w := do(admin, http.MethodPost, "/editHistory/"+entry.ID+"/undo", nil)
+		Expect(w.Code).To(Equal(http.StatusOK), w.Body.String())
+		var res struct {
+			JobID string `json:"jobId"`
+			Entry string `json:"entryId"`
+		}
+		Expect(json.Unmarshal(w.Body.Bytes(), &res)).To(Succeed())
+		Expect(res.JobID).ToNot(BeEmpty())
+		Expect(res.JobID).ToNot(Equal(entry.JobID))
+		scanned()
+		Expect(history()[0].JobID).To(Equal(res.JobID))
+		job, err := queue.Job(context.Background(), res.JobID)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(job.Kind).To(Equal(model.EditUndo))
+	})
+
+	It("answers that an undo runs in the background when its job doesn't end soon", func() {
+		edit("Song (Live)")
+		entry := history()[0].ID
+		// A queue that is busy, or stopped: here, a router whose queue doesn't run.
+		idle := editjob.New(api.ds, nil, editjob.Kinds(api.ds, api.tagEditor))
+		api.SetEditQueue(idle)
+		api.editWait = 50 * time.Millisecond
+		w := do(admin, http.MethodPost, "/editHistory/"+entry+"/undo", nil)
+		Expect(w.Code).To(Equal(http.StatusAccepted), w.Body.String())
+		Expect(w.Body.String()).To(ContainSubstring(`"background":true`))
+	})
+
+	It("says, of each entry, its job and how many Files the job wrote", func() {
+		journal := api.ds.EditJournal(context.Background())
+		for _, p := range []string{"a.mp3", "b.mp3"} {
+			Expect(journal.Put(&model.EditEntry{JobID: "batch", Kind: model.EditTags, State: model.EditWritten,
+				LibraryID: 1, Path: p, NewPath: p})).To(Succeed())
+		}
+		edit("Song (Live)")
+
+		got := history()
+		Expect(got).To(HaveLen(3))
+		Expect(got[0].JobSize).To(Equal(1))
+		Expect(got[1].JobID).To(Equal("batch"))
+		Expect(got[1].JobSize).To(Equal(2))
+		Expect(got[2].JobSize).To(Equal(2))
+	})
+
+	Describe("undoing a whole job", func() {
+		It("undoes every File of the job, as a job of its own, and answers its outcome", func() {
+			edit("Song (Live)")
+			entry := history()[0]
+
+			w := do(admin, http.MethodPost, "/editJob/"+entry.JobID+"/undo", nil)
+			Expect(w.Code).To(Equal(http.StatusOK), w.Body.String())
+			var job model.EditJob
+			Expect(json.Unmarshal(w.Body.Bytes(), &job)).To(Succeed())
+			Expect(job.ID).ToNot(Equal(entry.JobID))
+			Expect(job.Kind).To(Equal(model.EditUndo))
+			Expect(job.State).To(Equal(model.EditJobDone))
+			Expect(job.Total).To(Equal(1))
+			Expect(job.Skipped).To(BeZero())
+			Expect(do(admin, http.MethodGet, "/trackTags/t1", nil).Body.String()).ToNot(ContainSubstring("Song (Live)"))
+			scanned()
+			Expect(history()[0].UndoOf).To(Equal(entry.ID))
+		})
+
+		It("lists the Files it skipped, and why", func() {
+			edit("Song (Live)")
+			jobID := history()[0].JobID
+			edit("Song (Remix)")
+
+			w := do(admin, http.MethodPost, "/editJob/"+jobID+"/undo", nil)
+			Expect(w.Code).To(Equal(http.StatusOK), w.Body.String())
+			var job model.EditJob
+			Expect(json.Unmarshal(w.Body.Bytes(), &job)).To(Succeed())
+			Expect(job.Skipped).To(Equal(1))
+			Expect(job.Steps).To(HaveLen(1))
+			Expect(job.Steps[0].Code).To(Equal("changedLater"))
+		})
+
+		It("answers 202 while the undo job runs in the background", func() {
+			edit("Song (Live)")
+			jobID := history()[0].JobID
+			api.SetEditQueue(editjob.New(api.ds, nil, editjob.Kinds(api.ds, api.tagEditor)))
+			api.editWait = 50 * time.Millisecond
+			w := do(admin, http.MethodPost, "/editJob/"+jobID+"/undo", nil)
+			Expect(w.Code).To(Equal(http.StatusAccepted), w.Body.String())
+		})
+
+		It("answers notFound for a job that isn't there, and is admin only", func() {
+			Expect(do(admin, http.MethodPost, "/editJob/nope/undo", nil).Code).To(Equal(http.StatusNotFound))
+			edit("Song (Live)")
+			jobID := history()[0].JobID
+			Expect(do(listener, http.MethodPost, "/editJob/"+jobID+"/undo", nil).Code).To(Equal(http.StatusForbidden))
+		})
 	})
 
 	It("answers notFound for an entry that isn't there", func() {

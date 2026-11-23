@@ -56,7 +56,7 @@ var _ = Describe("/api/trackTags", func() {
 		editor := tagedit.New(ds, nil)
 		api = New(ds, nil, nil, nil, tests.NewMockLibraryService(), tests.NewMockUserService(),
 			nil, nil, nil, nil, nil, nil, nil, editor)
-		queue = editjob.New(ds, nil, editjob.Kinds(editor))
+		queue = editjob.New(ds, nil, editjob.Kinds(ds, editor))
 		api.SetEditQueue(queue)
 		router = server.JWTVerifier(api)
 		runQueue = func() {

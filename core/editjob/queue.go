@@ -81,18 +81,19 @@ func (q *Queue) Enqueue(ctx context.Context, kind model.EditKind, steps []model.
 	files := map[string]bool{}
 	for i := range steps {
 		s := &steps[i]
-		if files[s.MediaFileID] {
-			return nil, fmt.Errorf("%w: an edit job writes each File once", ErrSameFileTwice)
-		}
-		files[s.MediaFileID] = true
 		s.Kind = cmp.Or(s.Kind, kind)
 		k, ok := q.kinds[s.Kind]
 		if !ok {
 			return nil, fmt.Errorf("no edit step of kind %q", s.Kind)
 		}
+		// Check may fill in the step's File.
 		if err := k.Check(ctx, s); err != nil {
 			return nil, err
 		}
+		if files[s.MediaFileID] {
+			return nil, fmt.Errorf("%w: an edit job writes each File once", ErrSameFileTwice)
+		}
+		files[s.MediaFileID] = true
 	}
 	job := &model.EditJob{Kind: kind, State: model.EditJobQueued, Total: len(steps)}
 	if u, ok := request.UserFrom(ctx); ok {

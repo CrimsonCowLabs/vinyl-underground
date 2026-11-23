@@ -2,6 +2,11 @@ package model
 
 import "time"
 
+// EditUndo is the kind of an edit job, or of one of its steps, that undoes Edit journal entries
+// (one per step). It is never an entry's kind: an undo's entry has the kind of the entry it
+// undoes, with UndoOf set.
+const EditUndo EditKind = "undo"
+
 // EditJobState is where an edit job is in its life.
 type EditJobState string
 

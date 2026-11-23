@@ -3,13 +3,15 @@ import { render, fireEvent, waitFor, screen } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import {
   EditChangesField,
+  EditJobField,
   EditStatusField,
   EditTrackField,
   UndoEditButton,
 } from './EditHistoryList'
 
-const { mockUndo, mockNotify, mockRefresh } = vi.hoisted(() => ({
+const { mockUndo, mockUndoJob, mockNotify, mockRefresh } = vi.hoisted(() => ({
   mockUndo: vi.fn(),
+  mockUndoJob: vi.fn(),
   mockNotify: vi.fn(),
   mockRefresh: vi.fn(),
 }))
@@ -31,7 +33,7 @@ vi.mock('react-admin', async (importOriginal) => {
           <button onClick={onConfirm}>confirm</button>
         </div>
       ) : null,
-    useDataProvider: () => ({ undoEdit: mockUndo }),
+    useDataProvider: () => ({ undoEdit: mockUndo, undoEditJob: mockUndoJob }),
     useNotify: () => mockNotify,
     useRefresh: () => mockRefresh,
     // A field label falls back to the tag's own name, as react-admin's `_` option does.
@@ -150,6 +152,95 @@ describe('Edit history page', () => {
         { type: 'warning' },
       ),
     )
+  })
+
+  it('says when the undo carries on in the background', async () => {
+    mockUndo.mockResolvedValue({ data: { jobId: 'j9', background: true } })
+    render(<UndoEditButton record={entry} />)
+    fireEvent.click(screen.getByText('resources.editHistory.actions.undo'))
+    fireEvent.click(screen.getByText('confirm'))
+    await waitFor(() =>
+      expect(mockNotify).toHaveBeenCalledWith(
+        'resources.editHistory.notifications.undoInBackground',
+        { type: 'info' },
+      ),
+    )
+  })
+
+  describe('a job of several Files', () => {
+    const inJob = { ...entry, jobId: 'job-1', jobSize: 3 }
+    const undoJob = () => {
+      render(<EditJobField record={inJob} />)
+      fireEvent.click(screen.getByText('resources.editHistory.actions.undoJob'))
+      fireEvent.click(screen.getByText('confirm'))
+    }
+
+    it('marks an entry that is part of one', () => {
+      render(<EditJobField record={inJob} />)
+      expect(screen.getByText('resources.editHistory.message.job')).toBeTruthy()
+    })
+
+    it('marks nothing, and offers no job undo, for a job of one File', () => {
+      const { container } = render(
+        <EditJobField record={{ ...entry, jobId: 'j', jobSize: 1 }} />,
+      )
+      expect(container.textContent).toBe('')
+    })
+
+    it('undoes the whole job after a confirmation', async () => {
+      mockUndoJob.mockResolvedValue({
+        data: { id: 'job-2', state: 'done', total: 3, skipped: 0 },
+      })
+      undoJob()
+      await waitFor(() => expect(mockUndoJob).toHaveBeenCalledWith('job-1'))
+      await waitFor(() =>
+        expect(mockNotify).toHaveBeenCalledWith(
+          'resources.editHistory.notifications.undoneJob',
+          expect.objectContaining({ type: 'info' }),
+        ),
+      )
+      expect(mockRefresh).toHaveBeenCalled()
+    })
+
+    it('says how many Files the undo skipped', async () => {
+      mockUndoJob.mockResolvedValue({
+        data: { id: 'job-2', state: 'done', total: 3, skipped: 2 },
+      })
+      undoJob()
+      await waitFor(() =>
+        expect(mockNotify).toHaveBeenCalledWith(
+          'resources.editHistory.notifications.undoneJobSkipped',
+          expect.objectContaining({
+            type: 'warning',
+            messageArgs: { smart_count: 2 },
+          }),
+        ),
+      )
+    })
+
+    it('says when the undo job carries on in the background', async () => {
+      mockUndoJob.mockResolvedValue({
+        data: { id: 'job-2', state: 'running', total: 3, skipped: 0 },
+      })
+      undoJob()
+      await waitFor(() =>
+        expect(mockNotify).toHaveBeenCalledWith(
+          'resources.editHistory.notifications.undoInBackground',
+          { type: 'info' },
+        ),
+      )
+    })
+
+    it('explains a refused job undo', async () => {
+      mockUndoJob.mockRejectedValue({ body: { error: 'notUndoable' } })
+      undoJob()
+      await waitFor(() =>
+        expect(mockNotify).toHaveBeenCalledWith(
+          'resources.editHistory.errors.notUndoable',
+          { type: 'warning' },
+        ),
+      )
+    })
   })
 
   it("can't undo a write that never happened", () => {

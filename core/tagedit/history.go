@@ -13,8 +13,11 @@ import (
 // HistoryEntry is one Edit journal entry as the Edit history page shows it: when, which File and
 // Track, and each field's old and new value.
 type HistoryEntry struct {
-	ID        string          `json:"id"`
-	JobID     string          `json:"jobId"`
+	ID    string `json:"id"`
+	JobID string `json:"jobId"`
+	// JobSize is how many entries the entry's job has (#162): the history groups them, and a job
+	// of several can be undone as a whole.
+	JobSize   int             `json:"jobSize"`
 	Kind      model.EditKind  `json:"kind"`
 	State     model.EditState `json:"state"`
 	UserID    string          `json:"userId,omitempty"`
@@ -62,6 +65,7 @@ func (e *Editor) History(ctx context.Context, offset, limit int) ([]HistoryEntry
 		return nil, 0, err
 	}
 	tracks := map[string]*HistoryTrack{}
+	jobSizes := map[string]int{}
 	// undos tells, by entry ID, whether an entry an undo undid was an undo itself.
 	undos := map[string]bool{}
 	res := make([]HistoryEntry, 0, len(entries))
@@ -73,6 +77,18 @@ func (e *Editor) History(ctx context.Context, offset, limit int) ([]HistoryEntry
 		}
 		for _, k := range slices.Sorted(maps.Keys(en.Changes)) {
 			h.Changes = append(h.Changes, TagChange{Tag: k, Old: nonNil(en.OriginalTags[k]), New: nonNil(en.Changes[k])})
+		}
+		if en.JobID != "" {
+			size, ok := jobSizes[en.JobID]
+			if !ok {
+				job, err := journal.ForJob(en.JobID)
+				if err != nil {
+					return nil, 0, err
+				}
+				size = len(job)
+				jobSizes[en.JobID] = size
+			}
+			h.JobSize = size
 		}
 		if en.MediaFileID != "" {
 			t, ok := tracks[en.MediaFileID]
