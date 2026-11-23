@@ -3,6 +3,7 @@ package editjob
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"sync"
 	"sync/atomic"
@@ -400,6 +401,43 @@ var _ = Describe("Queue", func() {
 			got := wait(job)
 			Expect(kind.Ran()).To(Equal([]string{"b.mp3", "c.mp3"}))
 			Expect(got.Steps[1].State).To(Equal(model.EditStepWritten))
+		})
+
+		It("settles a File that is no Track's by its library too: the same path in another library is another File", func() {
+			job := interrupted()
+			steps, err := jobs.Steps(job.ID)
+			Expect(err).ToNot(HaveOccurred())
+			for i := range steps {
+				steps[i].MediaFileID, steps[i].Path, steps[i].Args = "", "cover.jpg", fmt.Sprintf(`{"libraryId":%d}`, i+1)
+				Expect(jobs.PutStep(&steps[i])).To(Succeed())
+			}
+			// Library 1's cover.jpg is written; library 2's, running, has no entry: it runs again.
+			Expect(journal.Put(&model.EditEntry{JobID: job.ID, Kind: model.EditMove, State: model.EditWritten,
+				LibraryID: 1, Path: "cover.jpg", NewPath: "x/cover.jpg"})).To(Succeed())
+			run()
+			got := wait(job)
+			Expect(kind.Ran()).To(Equal([]string{"cover.jpg", "cover.jpg"}))
+			Expect(got.Steps[1].State).To(Equal(model.EditStepWritten))
+			Expect(got.Steps[1].EntryID).To(Equal("entry-cover.jpg"))
+		})
+
+		It("settles an undo step by the entry it undoes", func() {
+			job := interrupted()
+			steps, err := jobs.Steps(job.ID)
+			Expect(err).ToNot(HaveOccurred())
+			for i := range steps {
+				steps[i].MediaFileID, steps[i].Path, steps[i].Args = "", "cover.jpg", fmt.Sprintf(`{"entryId":"e%d"}`, i+1)
+				Expect(jobs.PutStep(&steps[i])).To(Succeed())
+			}
+			undoOfB := &model.EditEntry{JobID: job.ID, Kind: model.EditMove, State: model.EditWritten,
+				LibraryID: 2, Path: "cover.jpg", NewPath: "old/cover.jpg", UndoOf: "e2"}
+			Expect(journal.Put(&model.EditEntry{JobID: job.ID, Kind: model.EditMove, State: model.EditWritten,
+				LibraryID: 1, Path: "cover.jpg", NewPath: "old/cover.jpg", UndoOf: "e1"})).To(Succeed())
+			Expect(journal.Put(undoOfB)).To(Succeed())
+			run()
+			got := wait(job)
+			Expect(got.Steps[1].State).To(Equal(model.EditStepWritten))
+			Expect(got.Steps[1].EntryID).To(Equal(undoOfB.ID))
 		})
 
 		It("writes a File again that the stop came before anything was written to", func() {

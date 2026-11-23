@@ -13,6 +13,7 @@ package editjob
 import (
 	"cmp"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
@@ -465,13 +466,29 @@ func fileKey(s *model.EditJobStep) string {
 	return "file:" + string(s.Kind) + "\x00" + s.Path + "\x00" + s.Args
 }
 
-// sameFile reports whether the journal entry e wrote the step's File (see fileKey): a step's Path
-// is the File's before the write, as the entry's Path is.
+// sameFile reports whether the journal entry e wrote the step's File (see fileKey): its Track's,
+// or, for a File that is no Track's, the entry an undo step undoes, or else the File at the step's
+// Path (the File's before the write, as the entry's Path is) in the library its Args name, if they
+// name one (a move step's do).
 func sameFile(s *model.EditJobStep, e *model.EditEntry) bool {
 	if s.MediaFileID != "" {
 		return e.MediaFileID == s.MediaFileID
 	}
-	return e.MediaFileID == "" && e.Path == s.Path
+	if e.MediaFileID != "" {
+		return false
+	}
+	var a struct {
+		LibraryID int    `json:"libraryId"`
+		EntryID   string `json:"entryId"`
+	}
+	_ = json.Unmarshal([]byte(s.Args), &a)
+	switch {
+	case a.EntryID != "":
+		return e.UndoOf == a.EntryID
+	case a.LibraryID != 0 && e.LibraryID != a.LibraryID:
+		return false
+	}
+	return e.Path == s.Path
 }
 
 // save records the job's progress, counted from its steps, and tells the UI.

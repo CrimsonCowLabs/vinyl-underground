@@ -155,6 +155,15 @@ func (e *Editor) move(ctx context.Context, jobID string, m Move, undoOf string, 
 		return nil, fmt.Errorf("recording the move in the Edit journal: %w", err)
 	}
 	err = safefile.Move(e.fsys, src, absPath(lib, newPath), safefile.MoveHooks{
+		// A rename (on one share) is told by the File's size and time, a copy (across
+		// filesystems) by its checksum; either is kept as the entry's CopySum.
+		Renaming: func(info fs.FileInfo) error {
+			entry.CopySum = safefile.RenameMark(info)
+			if err := journal.Put(entry); err != nil {
+				return fmt.Errorf("recording the move in the Edit journal: %w", err)
+			}
+			return nil
+		},
 		Copied: func(sum []byte) error {
 			entry.CopySum = hex.EncodeToString(sum)
 			if err := journal.Put(entry); err != nil {
@@ -177,10 +186,11 @@ func (e *Editor) move(ctx context.Context, jobID string, m Move, undoOf string, 
 		entry.Error = err.Error()
 		_ = journal.Put(entry)
 		res.Warning = "The File was moved, but its old copy is still there; it is removed when the app next starts."
-	case errors.Is(err, safefile.ErrBothLeft):
-		// The File is at both paths: the entry stays pending, so the next start finishes the move
-		// (Settle), and the Track follows it.
-		log.Error(ctx, "A move left its File at both paths; the next start finishes it", "path", src, err)
+	case errors.Is(err, safefile.ErrUnrecorded):
+		// The File is at its new path (and perhaps its old one too) but the move couldn't be
+		// recorded nor undone: the entry stays pending, so the next start settles it (Settle), and
+		// the Track follows the File.
+		log.Error(ctx, "A move couldn't be recorded nor undone; the next start settles it", "path", src, err)
 		entry.Error = err.Error()
 		_ = journal.Put(entry)
 		return nil, err
@@ -226,14 +236,23 @@ func (e *Editor) undoMove(ctx context.Context, jobID string, entry *model.EditEn
 		return nil, err
 	}
 	check := func(abs string) error {
-		got, _, err := safefile.Hash(e.fsys, abs)
+		info, err := e.fsys.Lstat(abs)
 		if errors.Is(err, fs.ErrNotExist) {
 			return fmt.Errorf("%w: the File isn't where the move left it", ErrChangedOnDisk)
 		}
 		if err != nil {
 			return err
 		}
-		if hex.EncodeToString(got) != entry.CopySum {
+		same := safefile.RenameMark(info) == entry.CopySum
+		if !safefile.IsRenameMark(entry.CopySum) {
+			// Copied across filesystems: told by its checksum.
+			got, _, err := safefile.Hash(e.fsys, abs)
+			if err != nil {
+				return err
+			}
+			same = hex.EncodeToString(got) == entry.CopySum
+		}
+		if !same {
 			return fmt.Errorf("%w: the File changed since it was moved", ErrChangedOnDisk)
 		}
 		return nil
@@ -246,7 +265,14 @@ func (e *Editor) undoMove(ctx context.Context, jobID string, entry *model.EditEn
 // (safefile.SettleMove), and points its Track at where the File is.
 func (e *Editor) settleMove(ctx context.Context, lib *model.Library, entry *model.EditEntry) {
 	src, dest := absPath(lib, entry.Path), absPath(lib, entry.NewPath)
-	moved, err := safefile.SettleMove(e.fsys, src, dest, sumOf(entry))
+	var moved bool
+	var err error
+	if safefile.IsRenameMark(entry.CopySum) {
+		// A rename: the File is at one path or the other, never both.
+		moved, err = safefile.SettleRename(e.fsys, src, dest, entry.CopySum)
+	} else {
+		moved, err = safefile.SettleMove(e.fsys, src, dest, sumOf(entry))
+	}
 	if err != nil && !errors.Is(err, safefile.ErrSourceLeft) {
 		log.Error(ctx, "Could not settle an interrupted move; it is tried again at the next start", "entry", entry.ID, "path", src, "newPath", dest, err)
 		return

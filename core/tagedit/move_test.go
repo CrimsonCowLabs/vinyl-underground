@@ -4,6 +4,8 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
+	"syscall"
 
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/conf/configtest"
@@ -17,6 +19,17 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
+
+// exdevFS can't rename a File into another folder, as across two mounts (EXDEV); a move's temp
+// renames still work.
+type exdevFS struct{ safefile.FS }
+
+func (f exdevFS) Rename(oldname, newname string) error {
+	if !strings.Contains(oldname, "vu-move") {
+		return &os.LinkError{Op: "rename", Old: oldname, New: newname, Err: syscall.EXDEV}
+	}
+	return f.FS.Rename(oldname, newname)
+}
 
 var _ = Describe("Moves", func() {
 	var (
@@ -115,7 +128,22 @@ var _ = Describe("Moves", func() {
 			Expect(e.MediaFileID).To(Equal("mf-1"))
 			Expect(e.Path).To(Equal("iTunes/Band/Record/a.mp3"))
 			Expect(e.NewPath).To(Equal("Band/Record (1999)/01 A.mp3"))
-			Expect(e.CopySum).To(Equal(sumOfBytes([]byte("audio"))))
+			// On one share the File is renamed, and told by its size and time.
+			Expect(safefile.IsRenameMark(e.CopySum)).To(BeTrue())
+			Expect(e.CopySum).To(HavePrefix("moved:5:"))
+		})
+
+		It("copies, checks and deletes the File across filesystems, told by its checksum; its undo works too", func() {
+			editor.fsys = exdevFS{safefile.OS{}}
+			res, err := move("mf-1", "iTunes/Band/Record/a.mp3", "Band/Record (1999)/01 A.mp3")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(files()).To(Equal(map[string]string{"Band/Record (1999)/01 A.mp3": "audio"}))
+			Expect(entry(res.Entry).CopySum).To(Equal(sumOfBytes([]byte("audio"))))
+			Expect(track("mf-1").Path).To(Equal("Band/Record (1999)/01 A.mp3"))
+
+			_, err = editor.Undo(ctx, res.Entry)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(files()).To(Equal(map[string]string{"iTunes/Band/Record/a.mp3": "audio"}))
 		})
 
 		It("reuses a folder whose name differs only in letter case, and journals the path as it is on disk", func() {
@@ -226,6 +254,57 @@ var _ = Describe("Moves", func() {
 			Expect(err).ToNot(HaveOccurred())
 			_, err = editor.Undo(ctx, res.Entry)
 			Expect(err).To(MatchError(ErrChangedLater))
+		})
+	})
+
+	Describe("Settle of a rename", func() {
+		pending := func() *model.EditEntry {
+			GinkgoHelper()
+			info, err := os.Stat(filepath.Join(libDir, "iTunes/Band/Record/a.mp3"))
+			Expect(err).ToNot(HaveOccurred())
+			e := &model.EditEntry{JobID: "job-1", Kind: model.EditMove, State: model.EditPending, LibraryID: 1,
+				MediaFileID: "mf-1", Path: "iTunes/Band/Record/a.mp3", NewPath: "Band/Record (1999)/01 A.mp3",
+				CopySum: safefile.RenameMark(info)}
+			Expect(ds.EditJournal(ctx).Put(e)).To(Succeed())
+			return e
+		}
+		renamed := func() {
+			GinkgoHelper()
+			Expect(os.MkdirAll(filepath.Join(libDir, "Band/Record (1999)"), 0o755)).To(Succeed())
+			Expect(os.Rename(filepath.Join(libDir, "iTunes/Band/Record/a.mp3"), filepath.Join(libDir, "Band/Record (1999)/01 A.mp3"))).To(Succeed())
+		}
+
+		It("closes a rename that never happened as not written: the File is at its old path only", func() {
+			e := pending()
+			editor.Settle(ctx)
+			Expect(files()).To(Equal(map[string]string{"iTunes/Band/Record/a.mp3": "audio"}))
+			Expect(track("mf-1").Path).To(Equal("iTunes/Band/Record/a.mp3"))
+			Expect(entry(e.ID).State).To(Equal(model.EditFailed))
+		})
+
+		It("finishes a rename that happened before the Track followed: the File is at its new path only", func() {
+			e := pending()
+			renamed()
+			editor.Settle(ctx)
+			Expect(track("mf-1").Path).To(Equal("Band/Record (1999)/01 A.mp3"))
+			Expect(entry(e.ID).State).To(Equal(model.EditWritten))
+		})
+
+		It("closes a rename whose Track had followed already", func() {
+			e := pending()
+			renamed()
+			Expect(editor.relocate(ctx, "mf-1", &model.Library{ID: 1, Path: libDir}, "Band/Record (1999)/01 A.mp3")).To(Succeed())
+			editor.Settle(ctx)
+			Expect(track("mf-1").Path).To(Equal("Band/Record (1999)/01 A.mp3"))
+			Expect(entry(e.ID).State).To(Equal(model.EditWritten))
+		})
+
+		It("leaves pending, and reports, a rename whose File is at neither path", func() {
+			e := pending()
+			Expect(os.Remove(filepath.Join(libDir, "iTunes/Band/Record/a.mp3"))).To(Succeed())
+			editor.Settle(ctx)
+			Expect(entry(e.ID).State).To(Equal(model.EditPending))
+			Expect(track("mf-1").Path).To(Equal("iTunes/Band/Record/a.mp3"))
 		})
 	})
 
