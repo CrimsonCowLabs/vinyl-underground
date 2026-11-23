@@ -3,9 +3,11 @@
 // one at a time, in order, so the Library is never written to in parallel. A job a restart
 // interrupted carries on first, from where it stopped.
 //
-// What a step writes is up to its kind (StepKind): tag edits, undos, an album's folder cover
-// and Embed in Files (cover.go); moves and Quarantine moves later. Each kind writes through the
-// Edit journal, with the job's ID.
+// What a step writes is up to its kind (StepKind): tag edits (set, or rewritten from each File's
+// own: rewrite.go), undos, an album's folder cover and Embed in Files (cover.go); moves and
+// Quarantine moves later. Each kind writes through the Edit journal, with the job's ID. What a
+// job does beyond its Files (e.g. moving an Artist's stars to its new name) is up to its
+// JobKind (see Queue.Handle).
 package editjob
 
 import (

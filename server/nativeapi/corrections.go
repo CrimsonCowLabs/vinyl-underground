@@ -191,8 +191,11 @@ func (api *Router) runWriteJob(w http.ResponseWriter, r *http.Request, plan *cor
 		writeWriteError(w, r, err)
 		return
 	}
+	queued := job
 	if job, err = api.editQueue.Wait(ctx, job.ID, cmp.Or(api.editWait, defaultEditWait)); err != nil {
-		writeTagEditError(w, r, err)
+		// The job is queued and runs anyway: an error here would have the admin save it again.
+		log.Warn(ctx, "Could not wait for an edit job; it carries on in the background", "job", queued.ID, err)
+		_ = rest.RespondWithJSON(w, http.StatusAccepted, writeResult{JobID: queued.ID, Background: true, PickCover: pickCover})
 		return
 	}
 	res := writeResult{JobID: job.ID, PickCover: pickCover}
