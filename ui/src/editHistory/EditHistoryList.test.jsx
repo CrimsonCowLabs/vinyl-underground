@@ -78,6 +78,32 @@ describe('Edit history page', () => {
     ).toHaveLength(3)
   })
 
+  describe('moves (Organize)', () => {
+    const move = {
+      ...entry,
+      kind: 'move',
+      path: 'iTunes/x/a.mp3',
+      newPath: 'Band/Record (1999)/01 A.mp3',
+      changes: [],
+    }
+
+    it('shows where the File was and where it went', () => {
+      render(<EditChangesField record={move} />)
+      expect(
+        screen.getByText('resources.editHistory.message.moved'),
+      ).toBeTruthy()
+      expect(screen.getByText('iTunes/x/a.mp3')).toBeTruthy()
+      expect(screen.getByText('Band/Record (1999)/01 A.mp3')).toBeTruthy()
+    })
+
+    it('names a File moved with its album, which is no Track', () => {
+      render(<EditTrackField record={{ ...move, track: undefined }} />)
+      expect(
+        screen.getByText('resources.editHistory.message.albumFile'),
+      ).toBeTruthy()
+    })
+  })
+
   describe('album covers', () => {
     const cover = {
       ...entry,

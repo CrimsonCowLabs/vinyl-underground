@@ -21,6 +21,11 @@ const (
 	// EditEmbed is an album cover embedded into one File (Embed in Files): the File's first
 	// picture is replaced by Image (or added), and OriginalImage is the picture it had there.
 	EditEmbed EditKind = "embed"
+	// EditMove is a File moved within its library (Organize): Path is where it was and NewPath
+	// where the move put it; CopySum is the File's checksum (it is not changed). MediaFileID is
+	// its Track, kept with its ID and pointed at NewPath, or empty for a File that is no Track's
+	// (a cover.jpg moved with its album). See tagedit.Editor.MoveInJob.
+	EditMove EditKind = "move"
 )
 
 // EditState is how far a write got.

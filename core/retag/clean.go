@@ -6,6 +6,7 @@ package retag
 
 import (
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode"
@@ -48,6 +49,28 @@ type Cleaned struct {
 	// Alt is the title without its leading number, with FlagNumberKept.
 	Alt string
 }
+
+// The fixes that take a number off the front of a title.
+const (
+	fixSplitTitle    = "split the artist, track number and year out of the title"
+	fixTookDiscTrack = "took the disc and track number off the title"
+	fixTookTrack     = "took the track number off the title"
+)
+
+// TookNumber reports whether the fixes took a track (or disc) number off the front of the title:
+// the File's title tag still starts with it. Organize leaves such a File where it is until it is
+// retagged, so it isn't named "05 05 Song".
+func (c Cleaned) TookNumber() bool {
+	return slices.ContainsFunc(c.Fixes, func(f string) bool {
+		return f == fixSplitTitle || f == fixTookDiscTrack || f == fixTookTrack
+	})
+}
+
+// UnknownArtist reports whether a is no artist: empty, or "[Unknown Artist]" and the like.
+func UnknownArtist(a string) bool { return unknownArtist(a) }
+
+// UnknownAlbum reports whether a is no album: empty, or "Unknown Album" and the like.
+func UnknownAlbum(a string) bool { return unknownAlbum(a) }
 
 // Junk reports whether the File has a title, artist or album a data source should repair.
 func (c Cleaned) Junk() bool {
@@ -107,7 +130,7 @@ func Clean(in Local) Cleaned {
 			if m[4] != "" && c.Year == 0 {
 				c.Year = atoi(m[4])
 			}
-			c.fix("split the artist, track number and year out of the title")
+			c.fix(fixSplitTitle)
 		}
 	}
 	c.stripNumber()
@@ -166,7 +189,7 @@ func (c *Cleaned) stripNumber() {
 			}
 			c.setTrack(n)
 			c.Title = m[3]
-			c.fix("took the disc and track number off the title")
+			c.fix(fixTookDiscTrack)
 			return
 		}
 	}
@@ -190,7 +213,7 @@ func (c *Cleaned) stripNumber() {
 	}
 	c.setTrack(n)
 	c.Title = m[3]
-	c.fix("took the track number off the title")
+	c.fix(fixTookTrack)
 }
 
 // stripArtist takes "Artist - " off the front of the title, when it is the File's artist.

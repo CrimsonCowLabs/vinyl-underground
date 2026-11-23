@@ -11,6 +11,10 @@ const EditUndo EditKind = "undo"
 // holds when it is written (see editjob.RewriteStep): e.g. renaming one of its artists.
 const EditRewrite EditKind = "rewrite"
 
+// EditOrganize is the kind of an Organize job (#167): one move step (EditMove) per File, whose
+// JobKind removes the folders the moves left empty and rescans the Files' old and new folders.
+const EditOrganize EditKind = "organize"
+
 // EditJobState is where an edit job is in its life.
 type EditJobState string
 

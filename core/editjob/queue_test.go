@@ -186,6 +186,16 @@ var _ = Describe("Queue", func() {
 			Expect(jobs.GetAll(0)).To(BeEmpty())
 		})
 
+		It("tells Files that are no Track's apart by their path (a cover.jpg moved with its album)", func() {
+			steps := fileSteps("cover.jpg", "notes.txt")
+			steps[0].MediaFileID, steps[1].MediaFileID = "", ""
+			Expect(q.Enqueue(ctx, fakeKind, steps)).Error().ToNot(HaveOccurred())
+
+			twice := fileSteps("cover.jpg", "cover.jpg")
+			twice[0].MediaFileID, twice[1].MediaFileID = "", ""
+			Expect(q.Enqueue(ctx, fakeKind, twice)).Error().To(MatchError(ErrSameFileTwice))
+		})
+
 		It("refuses a job with no steps", func() {
 			Expect(q.Enqueue(ctx, fakeKind, nil)).Error().To(HaveOccurred())
 		})
@@ -371,6 +381,23 @@ var _ = Describe("Queue", func() {
 			Expect(kind.Ran()).To(Equal([]string{"c.mp3"}))
 			Expect(got.Steps[1].State).To(Equal(model.EditStepSkipped))
 			Expect(got.Steps[1].Code).To(Equal("interrupted"))
+		})
+
+		It("settles a File that is no Track's by its path, not by another such File's entry", func() {
+			job := interrupted()
+			steps, err := jobs.Steps(job.ID)
+			Expect(err).ToNot(HaveOccurred())
+			for i := range steps {
+				steps[i].MediaFileID = ""
+				Expect(jobs.PutStep(&steps[i])).To(Succeed())
+			}
+			// a.mp3's entry is written; b.mp3, running, has none: it runs again.
+			Expect(journal.Put(&model.EditEntry{JobID: job.ID, Kind: model.EditMove, State: model.EditWritten,
+				Path: "a.mp3", NewPath: "x/a.mp3"})).To(Succeed())
+			run()
+			got := wait(job)
+			Expect(kind.Ran()).To(Equal([]string{"b.mp3", "c.mp3"}))
+			Expect(got.Steps[1].State).To(Equal(model.EditStepWritten))
 		})
 
 		It("writes a File again that the stop came before anything was written to", func() {

@@ -136,10 +136,10 @@ func (q *Queue) EnqueueWith(ctx context.Context, kind model.EditKind, args strin
 		if err := k.Check(ctx, s); err != nil {
 			return nil, err
 		}
-		if files[s.MediaFileID] {
+		if files[fileKey(s)] {
 			return nil, fmt.Errorf("%w: an edit job writes each File once", ErrSameFileTwice)
 		}
-		files[s.MediaFileID] = true
+		files[fileKey(s)] = true
 	}
 	job := &model.EditJob{Kind: kind, Args: args, State: model.EditJobQueued, Total: len(steps)}
 	if u, ok := request.UserFrom(ctx); ok {
@@ -431,7 +431,7 @@ func (q *Queue) recover(ctx context.Context, job *model.EditJob, s *model.EditJo
 	var entry *model.EditEntry
 	for i := range entries {
 		// A job has one step per File: its latest entry for the File is the step's.
-		if entries[i].MediaFileID == s.MediaFileID {
+		if sameFile(s, &entries[i]) {
 			entry = &entries[i]
 		}
 	}
@@ -453,6 +453,24 @@ func (q *Queue) recover(ctx context.Context, job *model.EditJob, s *model.EditJo
 		return nil
 	}
 	return q.ds.EditJob(ctx).PutStep(s)
+}
+
+// fileKey is the File a step writes: its Track, or, for a File that is no Track's (an album's
+// cover.jpg, written or moved), its path.
+func fileKey(s *model.EditJobStep) string {
+	if s.MediaFileID != "" {
+		return "track:" + s.MediaFileID
+	}
+	return "path:" + s.Path
+}
+
+// sameFile reports whether the journal entry e wrote the step's File (see fileKey): a step's Path
+// is the File's before the write, as the entry's Path is.
+func sameFile(s *model.EditJobStep, e *model.EditEntry) bool {
+	if s.MediaFileID != "" {
+		return e.MediaFileID == s.MediaFileID
+	}
+	return e.MediaFileID == "" && e.Path == s.Path
 }
 
 // save records the job's progress, counted from its steps, and tells the UI.
