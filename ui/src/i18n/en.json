@@ -70,6 +70,7 @@
         "saved": "Tags saved to the File",
         "savedRescanPending": "Tags saved to the File. The app shows them after the next scan.",
         "nothingChanged": "The File already holds these tags: nothing was written.",
+        "savingInBackground": "The tags are being saved in the background. The Activity panel shows how it goes.",
         "fields": {
           "title": "Title",
           "artist": "Artist",
@@ -104,6 +105,7 @@
           "notVerified": "The edited copy didn’t check out, so the File was left as it was.",
           "linked": "This File has other names (a symlink or hard link), so the app doesn't replace it.",
           "oldCopyLeft": "An earlier edit left an old copy of this File beside it. Check it and remove it, then try again.",
+          "interrupted": "A restart interrupted the edit, and the File was left as it was. Try again.",
           "unknown": "The tags could not be saved."
         }
       }
@@ -1108,7 +1110,19 @@
     "serverDown": "OFFLINE",
     "scanType": "Last Scan",
     "status": "Scan Error",
-    "elapsedTime": "Elapsed Time"
+    "elapsedTime": "Elapsed Time",
+    "edits": {
+      "title": "Edits",
+      "kind": {
+        "tags": "Tag edit"
+      },
+      "files": "%{smart_count} File |||| %{smart_count} Files",
+      "queued": "Waiting for the edit before it",
+      "progress": "%{done} of %{total} Files",
+      "current": "Writing %{path}",
+      "done": "Done",
+      "skipped": "%{smart_count} File skipped |||| %{smart_count} Files skipped"
+    }
   },
   "whosListening": {
     "title": "Who's Listening",

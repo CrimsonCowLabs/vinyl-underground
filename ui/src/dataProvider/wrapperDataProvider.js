@@ -315,8 +315,9 @@ const wrapperDataProvider = {
     httpClient(`${REST_URL}/trackTags/${id}`).then(({ json }) => ({
       data: json,
     })),
-  // Writes the changed fields (by key; no values removes a tag) into the Track's File:
-  // { changed, track, warning }.
+  // Writes the changed fields (by key; no values removes a tag) into the Track's File, as an
+  // edit job the server waits for a little: { changed, track, warning, jobId }, or
+  // { jobId, background: true } when the job carries on in the background.
   editTrackTags: (id, values) =>
     httpClient(`${REST_URL}/trackTags/${id}`, {
       method: 'PUT',

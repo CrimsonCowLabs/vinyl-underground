@@ -42,6 +42,10 @@ _Avoid_: Rename, tidy, sort
 The app's permanent record of every write it makes to a File: its original tags and path, and what changed. Any File, or a whole job of writes, can be undone from it, and an undo is recorded too. Each write is checked before it replaces the File (made to a temporary copy, re-read, audio data unchanged), and a File changed since the last scan is skipped.
 _Avoid_: History (a Listener's listening history), log, backup (no byte copy is kept)
 
+**Edit job**:
+A batch of writes to Files the app runs in the background, one step per File, kept so it carries on after a restart. Jobs run one at a time, so the Library is never written to in parallel. A File a job can't write (e.g. changed on disk since the last scan) is skipped, with the reason, and the rest are still written. Every write is in the Edit journal with its job, so a whole job can be undone. A single Track's edit is a job of one File, which the Edit dialog waits for.
+_Avoid_: Task, batch, queue item
+
 **Library manager**:
 The app's role as the tool that edits the Library's Files (tags, covers, names, folders and Quarantine), for the admin only. It needs a writable Library: with a read-only one, editing is off and nothing falls back to an in-app overlay.
 _Avoid_: Tag editor, file manager

@@ -4,6 +4,7 @@ import {
   EVENT_SERVER_START,
   EVENT_NOW_PLAYING_COUNT,
   EVENT_STREAM_RECONNECTED,
+  EVENT_EDIT_JOB,
 } from '../actions'
 import config from '../config'
 
@@ -24,6 +25,23 @@ describe('activityReducer', () => {
 
   it('returns the initial state when no action is specified', () => {
     expect(activityReducer(undefined, {})).toEqual(initialState)
+  })
+
+  it("keeps the latest edit job's progress", () => {
+    const data = {
+      id: 'job-1',
+      state: 'running',
+      total: 3,
+      done: 1,
+      skipped: 0,
+      current: 'Artist/Album/02 Song.mp3',
+    }
+    const newState = activityReducer(initialState, {
+      type: EVENT_EDIT_JOB,
+      data,
+    })
+    expect(newState.editJob).toEqual(data)
+    expect(newState.scanStatus).toEqual(initialState.scanStatus)
   })
 
   it('handles EVENT_SCAN_STATUS action with elapsedTime field', () => {

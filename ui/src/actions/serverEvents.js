@@ -4,6 +4,8 @@ export const EVENT_REFRESH_RESOURCE = 'refreshResource'
 export const EVENT_NOW_PLAYING_COUNT = 'nowPlayingCount'
 export const EVENT_NOW_PLAYING_COUNT_SYNC = 'nowPlayingCountSync'
 export const EVENT_STREAM_RECONNECTED = 'streamReconnected'
+// An edit job's progress (#162): { id, state, total, done, skipped, current }.
+export const EVENT_EDIT_JOB = 'editJob'
 
 export const processEvent = (type, data) => ({
   type,

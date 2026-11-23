@@ -35,6 +35,7 @@ const knownErrors = [
   'notVerified',
   'linked',
   'oldCopyLeft',
+  'interrupted',
 ]
 
 const errorKey = (err) => {
@@ -124,7 +125,8 @@ FieldInput.propTypes = {
 
 // The per-Track Edit dialog (admin only, while editing is on): edits any tag the scanner maps,
 // plus lyrics, as the Track's File holds them. Only the fields changed are written into the
-// File, which the server checks before it replaces the File (#160).
+// File, which the server checks before it replaces the File (#160). The save runs as an edit
+// job, which the server waits for a little (#162): a longer one carries on in the background.
 export const EditTagsDialog = ({ record, onClose }) => {
   const translate = useTranslate()
   const dataProvider = useDataProvider()
@@ -166,6 +168,15 @@ export const EditTagsDialog = ({ record, onClose }) => {
       dataProvider
         .editTrackTags(id, changes)
         .then(({ data }) => {
+          if (data?.background) {
+            // The edit's job takes longer than the server waits: it carries on in the
+            // background, and the Activity panel shows how it goes.
+            notify('resources.song.tagEditor.savingInBackground', {
+              type: 'info',
+            })
+            onClose()
+            return
+          }
           const note =
             data?.changed === false
               ? 'nothingChanged'
