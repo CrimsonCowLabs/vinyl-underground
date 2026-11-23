@@ -81,6 +81,12 @@ type Corrections interface {
 	// is corrected. A picked release's Cover Art Archive cover is kept with it (Options.PickedCover)
 	// and outranks CoverArtPriority, for the album, its disc art and its Tracks' own art.
 	CorrectAlbum(ctx context.Context, albumID string, fix AlbumFix) (*Applied, error)
+	// CorrectTrackNumbers saves one Correction of the disc and track numbers of the album's
+	// Tracks, each tied to its File, replacing (and keeping what it renumbered of) an earlier one
+	// for the album, then rescans the album's folders and refreshes it. Tracks whose numbers are
+	// unchanged are left out, and one set back to its tagged numbers is dropped. Two Tracks of a
+	// disc may end up with one number: that is the admin's call. Track IDs are unchanged.
+	CorrectTrackNumbers(ctx context.Context, albumID string, tracks []TrackNumber) (*Applied, error)
 	// Undo stops applying the Correction, rescans the folders of the Tracks it applied to, and
 	// then deletes it. If the rescan fails, it stays marked as undoing, and Undo can be retried.
 	Undo(ctx context.Context, id string) (*Applied, error)
@@ -411,7 +417,8 @@ func (c *corrections) Undo(ctx context.Context, id string) (*Applied, error) {
 	if cr.Kind.IsAlbumCover() {
 		return c.undoAlbumCover(ctx, cr)
 	}
-	if cr.Kind == model.CorrectionAlbum {
+	if cr.Kind.IsAlbumTags() {
+		// Neither builds on the other (they correct other tags), so either can go first
 		return c.undoAlbum(ctx, cr)
 	}
 	if err := c.checkUndoOrder(ctx, cr); err != nil {

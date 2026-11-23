@@ -301,6 +301,13 @@ const wrapperDataProvider = {
       method: 'POST',
       body: JSON.stringify({ albumId, name, albumArtist, year, ...mbz }),
     }).then(({ json }) => ({ data: { id: json.correction.id, ...json } })),
+  // A track numbers Correction of the album's Tracks, [{ id, discNumber, trackNumber }], saved
+  // together: { correction, albumId, done }.
+  correctTrackNumbers: (albumId, tracks) =>
+    httpClient(`${REST_URL}/correction/trackNumbers`, {
+      method: 'POST',
+      body: JSON.stringify({ albumId, tracks }),
+    }).then(({ json }) => ({ data: { id: json.correction.id, ...json } })),
   // Find on MusicBrainz (admin only): the MusicBrainz releases matching an album artist and
   // title, [{ id, releaseGroupId, title, artist, year, country, format, status, score,
   // description, thumbnailUrl }]. A failure's body has an `error` code to translate.

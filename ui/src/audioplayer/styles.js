@@ -32,6 +32,11 @@ const useStyle = makeStyles(
       '& .react-jinke-music-player': {
         display: (props) => (props.isDesktop ? undefined : 'none'),
       },
+      // Now Playing's Queue tab is the queue, so the package's own pop-up
+      // list, and the bar's button opening it, are hidden. The button's path
+      // outweighs the package's own rule showing it.
+      '& .music-player-panel .panel-content .player-content .group.audio-lists-btn, & .audio-lists-panel':
+        { display: 'none' },
       '@media screen and (max-width:810px)': {
         '& .sound-operation': {
           display: 'none',

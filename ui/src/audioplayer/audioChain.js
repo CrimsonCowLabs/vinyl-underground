@@ -118,6 +118,10 @@ export const createAudioChain = (options = {}) => {
     // Call when playback starts: a context may start suspended, or be
     // suspended by the browser. Does nothing until the chain is built.
     resume,
+
+    // Whether the chain is built. A feature that shouldn't be the one to
+    // build it (the equalizer on Internet Radio) checks this first.
+    isBuilt: () => graph !== null,
   }
 }
 

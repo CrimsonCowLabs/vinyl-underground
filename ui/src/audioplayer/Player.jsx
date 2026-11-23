@@ -35,9 +35,12 @@ import { useStationSkips } from '../station/useStationSkips'
 import StationBlurb from '../station/StationBlurb'
 import StationPicking from '../station/StationPicking'
 import NowPlaying from '../nowPlaying/NowPlaying'
+// Registers the Lyrics and Queue tools in Now Playing's toolbar
+import '../nowPlaying/tabTools'
 import { closeNowPlaying } from '../nowPlaying/nowPlayingState'
 import { nowPlayingPlayerProps } from './nowPlayingPlayerProps'
 import { sleepTimer, usePlaybackSpeed } from '../playbackTools'
+import { useEqualizer } from '../equalizer'
 import { PlayerThemeProvider } from './PlayerThemeProvider'
 import MiniPlayer from './MiniPlayer'
 
@@ -154,6 +157,7 @@ const Player = () => {
   useEffect(() => {
     if (audioInstance) audioChain.attach(audioInstance)
   }, [audioInstance])
+  useEqualizer(isRadio)
 
   useEffect(() => {
     if (audioInstance) sleepTimer.attach(audioInstance)

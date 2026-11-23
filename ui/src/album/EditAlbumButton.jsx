@@ -6,6 +6,7 @@ import {
   useNotify,
   usePermissions,
   useRedirect,
+  useRefresh,
   useTranslate,
 } from 'react-admin'
 import {
@@ -21,6 +22,13 @@ import {
 import { Alert, Autocomplete } from '@material-ui/lab'
 import EditIcon from '@material-ui/icons/Edit'
 import { useArtistSuggestions } from '../artist/useArtistSuggestions'
+import { TrackNumbersEditor } from './TrackNumbersEditor'
+import {
+  markSaved,
+  trackNumberChanges,
+  trackNumbersValid,
+  useTrackNumberRows,
+} from './trackNumbers'
 import { FindOnMusicBrainz } from './FindOnMusicBrainz'
 
 // The server answers a refused Correction with a code; anything else is a generic error.
@@ -44,12 +52,15 @@ const pickCoverNotes = {
 const albumYear = (record) => record.maxOriginalYear || record.maxYear || ''
 
 // The album Edit dialog: corrects the album's title, album artist (offered from the existing
-// Artists as you type) and year. Only what is changed is corrected.
+// Artists as you type) and year, and its Tracks' disc and track numbers. Only what is changed is
+// corrected: the track numbers first (they keep the album's ID), then the album.
 const EditAlbumDialog = ({ record, onClose }) => {
   const translate = useTranslate()
   const dataProvider = useDataProvider()
   const notify = useNotify()
   const redirect = useRedirect()
+  const refresh = useRefresh()
+  const [trackRows, setTrackRows] = useTrackNumberRows(record.id)
   const [name, setName] = useState(record.name || '')
   const [albumArtist, setAlbumArtist] = useState(record.albumArtist || '')
   const [year, setYear] = useState(String(albumYear(record)))
@@ -69,39 +80,70 @@ const EditAlbumDialog = ({ record, onClose }) => {
     artist === (record.albumArtist || '') &&
     (yearValue === 0 || yearValue === Number(albumYear(record) || 0)) &&
     !release
-  const canSave = !saving && name.trim() && artist && yearValid && !unchanged
+  const trackChanges = trackNumberChanges(trackRows || [])
+  const canSave =
+    !saving &&
+    name.trim() &&
+    artist &&
+    yearValid &&
+    trackNumbersValid(trackRows || []) &&
+    (!unchanged || trackChanges.length > 0)
 
   const handleSave = useCallback(
     (e) => {
       e.preventDefault()
       setSaving(true)
       setError(null)
-      dataProvider
-        .correctAlbum(record.id, {
-          name: name.trim(),
-          albumArtist: artist,
-          year: yearValue,
-          ...(release && {
-            mbzAlbumId: release.id,
-            mbzReleaseGroupId: release.releaseGroupId,
-            mbzRelease: release.description,
-          }),
-        })
+      const numbered = trackChanges.length
+        ? dataProvider
+            .correctTrackNumbers(record.id, trackChanges)
+            .then((res) => {
+              setTrackRows(markSaved)
+              return res
+            })
+        : Promise.resolve({ data: { albumId: record.id, done: true } })
+      numbered
+        .then(({ data: numbers }) =>
+          unchanged
+            ? { data: numbers }
+            : dataProvider
+                .correctAlbum(record.id, {
+                  name: name.trim(),
+                  albumArtist: artist,
+                  year: yearValue,
+                  ...(release && {
+                    mbzAlbumId: release.id,
+                    mbzReleaseGroupId: release.releaseGroupId,
+                    mbzRelease: release.description,
+                  }),
+                })
+                .then(({ data }) => ({
+                  data: { ...data, done: data.done && numbers.done },
+                })),
+        )
         .then(({ data }) => {
           onClose()
           // A picked release whose cover couldn't be had is worth a word over the usual one
           const pickNote = pickCoverNotes[data.pickCover]
-          if (data.done) {
+          const level = pickNote ? 'warning' : 'info'
+          if (data.done && data.albumId === record.id) {
+            // The album keeps its ID (e.g. only track numbers changed): its page reloads
             notify(pickNote || 'resources.album.editor.corrected', {
-              type: pickNote ? 'warning' : 'info',
+              type: level,
+            })
+            refresh()
+          } else if (data.done) {
+            notify(pickNote || 'resources.album.editor.corrected', {
+              type: level,
             })
             redirect(`/album/${data.albumId}/show`)
           } else {
-            // The rescan finishes in the background, and this page's album ID goes with it
             notify(pickNote || 'resources.album.editor.correcting', {
-              type: pickNote ? 'warning' : 'info',
+              type: level,
             })
-            redirect('/album')
+            // The rescan finishes in the background, and an album Correction takes this page's
+            // album ID with it
+            if (!unchanged) redirect('/album')
           }
         })
         .catch((err) => {
@@ -121,10 +163,14 @@ const EditAlbumDialog = ({ record, onClose }) => {
       name,
       artist,
       yearValue,
+      unchanged,
+      trackChanges,
+      setTrackRows,
       release,
       onClose,
       notify,
       redirect,
+      refresh,
       translate,
     ],
   )
@@ -134,7 +180,7 @@ const EditAlbumDialog = ({ record, onClose }) => {
       open
       onClose={onClose}
       fullWidth
-      maxWidth="xs"
+      maxWidth={trackRows?.length ? 'sm' : 'xs'}
       aria-labelledby="edit-album-title"
     >
       <form onSubmit={handleSave}>
@@ -198,6 +244,11 @@ const EditAlbumDialog = ({ record, onClose }) => {
             title={name}
             picked={release}
             onPick={setRelease}
+            disabled={saving}
+          />
+          <TrackNumbersEditor
+            rows={trackRows}
+            onChange={setTrackRows}
             disabled={saving}
           />
           {error && (

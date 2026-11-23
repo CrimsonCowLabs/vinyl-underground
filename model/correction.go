@@ -1,7 +1,10 @@
 package model
 
 import (
+	"database/sql/driver"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"time"
@@ -36,12 +39,24 @@ const (
 	// keyed by the album's folder (see AlbumFolderKey), as the tag values are what is wrong and
 	// two albums can share them, and it applies to every File in the album's folders.
 	CorrectionAlbum CorrectionKind = "album"
+	// CorrectionTrackNumbers corrects the track and disc numbers of an album's Tracks, saved
+	// together from the album's Edit dialog. Each of its TrackNumbers is tied to one File, by its
+	// library and path, so it applies to that File whatever its album, and is orphaned once the File
+	// is gone. The Correction is keyed by the album's folder (see AlbumFolderKey) only to group the
+	// album's Tracks into one, which editing the album again replaces.
+	CorrectionTrackNumbers CorrectionKind = "trackNumbers"
 )
 
 // IsAlbumCover says whether the Correction is about an album's cover (a choice or a block). It
 // changes no tag, so saving or undoing it refreshes only the album's artwork.
 func (k CorrectionKind) IsAlbumCover() bool {
 	return k == CorrectionAlbumCover || k == CorrectionAlbumCoverBlock
+}
+
+// IsAlbumTags says whether the Correction corrects tags of an album's Files (the album's values,
+// or its Tracks' numbers). Undoing it rescans the album's folders.
+func (k CorrectionKind) IsAlbumTags() bool {
+	return k == CorrectionAlbum || k == CorrectionTrackNumbers
 }
 
 // IsArtistRename says whether the Correction renames an Artist, merging it or not.
@@ -76,6 +91,8 @@ type Correction struct {
 	AlbumName   string `structs:"album_name" json:"albumName,omitempty"`
 	AlbumArtist string `structs:"album_artist" json:"albumArtist,omitempty"`
 	Year        int    `structs:"year" json:"year,omitempty"`
+	// TrackNumbers are the Files a track numbers Correction renumbers (see CorrectionTrackNumbers).
+	TrackNumbers TrackNumberFixes `structs:"track_numbers" json:"-"`
 	// MbzAlbumID and MbzReleaseGroupID are the MusicBrainz release and release group an album
 	// Correction sets (Find on MusicBrainz), as if tagged musicbrainz_albumid and
 	// musicbrainz_releasegroupid. Empty when it leaves them as tagged.
@@ -88,6 +105,48 @@ type Correction struct {
 }
 
 type Corrections []Correction
+
+// TrackNumberFix is the track and disc number a track numbers Correction gives one File, keyed by
+// its library and its path in it. FromDisc and FromTrack are the numbers as tagged, and Title the
+// Track's title, as shown to the admin.
+type TrackNumberFix struct {
+	LibraryID int    `json:"libraryId"`
+	Path      string `json:"path"`
+	Title     string `json:"title"`
+	FromDisc  int    `json:"fromDisc"`
+	FromTrack int    `json:"fromTrack"`
+	Disc      int    `json:"disc"`
+	Track     int    `json:"track"`
+}
+
+// TrackNumberFixes are stored as a JSON array (empty for other kinds).
+type TrackNumberFixes []TrackNumberFix
+
+func (t TrackNumberFixes) Value() (driver.Value, error) {
+	if len(t) == 0 {
+		return "", nil
+	}
+	b, err := json.Marshal(t)
+	return string(b), err
+}
+
+func (t *TrackNumberFixes) Scan(src any) error {
+	var b []byte
+	switch v := src.(type) {
+	case nil:
+	case string:
+		b = []byte(v)
+	case []byte:
+		b = v
+	default:
+		return fmt.Errorf("can't read track numbers from %T", src)
+	}
+	*t = nil
+	if len(b) == 0 {
+		return nil
+	}
+	return json.Unmarshal(b, t)
+}
 
 // ArtistNameKey is how an Artist rename matches names: like the Artist ID, regardless of
 // capitals and typographic quotes and dashes, and also of extra spaces.

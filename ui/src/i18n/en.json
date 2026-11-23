@@ -112,6 +112,10 @@
         "help": "Corrects the album in every client, without changing its Files. Tracks keep their IDs, and the album keeps its stars and play counts. Undo it on the Corrections page.",
         "corrected": "Album corrected",
         "correcting": "Saved. The album is being updated in the background",
+        "trackNumbers": "Track order",
+        "discNumber": "Disc",
+        "trackNumber": "Track",
+        "duplicateNumber": "Disc %{disc} has track %{track} more than once: %{titles}",
         "errors": {
           "sharedFolder": "Another album shares this album's folder, so it can't be corrected on its own.",
           "renamedAway": "A Correction renames \"%{name}\" away. Pick the Artist it is renamed to.",
@@ -451,7 +455,8 @@
         "artistMerge": "Artist merge",
         "albumCover": "Album cover",
         "albumCoverBlock": "Cover marked wrong",
-        "album": "Album"
+        "album": "Album",
+        "trackNumbers": "Track order"
       },
       "status": {
         "tracks": "1 Track |||| %{smart_count} Tracks",
@@ -465,7 +470,8 @@
         "undoTitle": "Undo Correction",
         "undoContent": "Undo \"%{from} → %{to}\"? The original names come back once the affected folders are rescanned.",
         "undoContentAlbumCover": "Undo the cover choice for \"%{from}\"? The album goes back to its usual cover.",
-        "undoContentAlbumCoverBlock": "Stop blocking \"%{to}\" for \"%{from}\"? The album may show that image again."
+        "undoContentAlbumCoverBlock": "Stop blocking \"%{to}\" for \"%{from}\"? The album may show that image again.",
+        "undoContentTrackNumbers": "Undo the track order of \"%{from}\"? Its Tracks get their tagged numbers back once its folders are rescanned."
       },
       "notifications": {
         "undone": "Correction undone",
@@ -1087,6 +1093,51 @@
     "speed": {
       "label": "Speed",
       "title": "Playback speed"
+    },
+    "tabs": {
+      "label": "Now Playing view",
+      "art": "Art",
+      "lyrics": "Lyrics",
+      "queue": "Queue"
+    },
+    "lyrics": {
+      "notSynced": "Lyrics aren't synced for this Track",
+      "none": "No lyrics for this Track"
+    },
+    "queue": {
+      "upNext": "Up next",
+      "upNextStation": "Up next, picked by %{name}",
+      "move": "Move %{name}",
+      "remove": "Remove %{name} from the queue"
+    },
+    "eq": {
+      "label": "EQ",
+      "title": "Equalizer",
+      "on": "Equalizer on",
+      "presetsLabel": "Presets",
+      "presets": {
+        "flat": "Flat",
+        "bassBoost": "Bass boost",
+        "trebleBoost": "Treble boost",
+        "vocal": "Vocal",
+        "loudness": "Loudness",
+        "lateNight": "Late night"
+      },
+      "custom": "Custom",
+      "preamp": "Preamp",
+      "autoPreamp": "Lowered %{db} dB more, so boosts don't clip",
+      "save": "Save",
+      "saveTitle": "Save preset",
+      "rename": "Rename",
+      "renameTitle": "Rename preset",
+      "delete": "Delete",
+      "presetName": "Name",
+      "replacesPreset": "Replaces the preset with this name",
+      "nameTaken": "Another preset has this name",
+      "radioWaits": "Internet Radio plays without the equalizer. It starts with the next Track.",
+      "saveButton": "Save",
+      "needsAudioEffects": "The equalizer needs Audio effects, which are off on this device. Turn them on in Personal.",
+      "openSettings": "Open Personal"
     }
   },
   "help": {
