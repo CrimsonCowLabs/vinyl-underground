@@ -140,6 +140,16 @@ var _ = Describe("MediaRepository", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(got.Path).To(Equal("Music/Atb [case-merge]/gone.mp3"))
 			Expect(got.Missing).To(BeTrue(), "the next scan finds its File")
+
+			// A Track in Quarantine at the path stays, for its restore; a ghost there goes.
+			Expect(mr.Put(&model.MediaFile{ID: "rel-mf-3", LibraryID: 1, Path: "Music/Dire Straits/a.mp3", Missing: true})).To(Succeed())
+			Expect(mr.MarkQuarantined(true, "rel-mf-3")).To(Succeed())
+			Expect(mr.Put(&model.MediaFile{ID: "rel-mf-4", LibraryID: 1, Path: "Music/Dire Straits/a.mp3", Missing: true})).To(Succeed())
+			Expect(mr.Repath("rel-mf-1", "Music/Dire Straits/a.mp3", "f-new")).To(Succeed())
+			_, err = mr.Get("rel-mf-3")
+			Expect(err).ToNot(HaveOccurred())
+			_, err = mr.Get("rel-mf-4")
+			Expect(err).To(MatchError(model.ErrNotFound))
 		})
 	})
 

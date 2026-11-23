@@ -201,7 +201,9 @@ func (r *mediaFileRepository) Put(m *model.MediaFile) error {
 	if m.CreatedAt.IsZero() {
 		m.CreatedAt = time.Now()
 	}
-	id, err := r.putByMatch(Eq{"path": m.Path, "library_id": m.LibraryID}, m.ID, &dbMediaFile{MediaFile: m})
+	// A Track in Quarantine (#168) keeps its row at the path its File left, for a restore; another
+	// Track's File may be there meanwhile (a case merge's Duplicate, #169), and is that Track's.
+	id, err := r.putByMatch(Eq{"path": m.Path, "library_id": m.LibraryID, "quarantined": false}, m.ID, &dbMediaFile{MediaFile: m})
 	if err != nil {
 		return err
 	}
@@ -471,16 +473,33 @@ func (r *mediaFileRepository) Relocate(id string, libraryID int, path, folderID 
 func (r *mediaFileRepository) Repath(id string, path, folderID string) error {
 	var cur struct {
 		LibraryID int
-		UpdatedAt time.Time
-		Missing   bool
 	}
-	if err := r.queryOne(Select("library_id", "updated_at", "missing").From(r.tableName).Where(Eq{"id": id}), &cur); err != nil {
+	if err := r.queryOne(Select("library_id").From(r.tableName).Where(Eq{"id": id}), &cur); err != nil {
 		return err
 	}
-	if err := r.Relocate(id, cur.LibraryID, path, folderID); err != nil {
+	// As Relocate, any other Track at that path goes (what is attached to one that isn't missing
+	// moving to id first), but a Track in Quarantine: its row is kept at the path its File left,
+	// for a restore to bring it back to (the scanner passes over it meanwhile).
+	var others []struct {
+		ID      string
+		Missing bool
+	}
+	sel := Select("id", "missing").From(r.tableName).
+		Where(And{Eq{"library_id": cur.LibraryID}, Eq{"path": path}, NotEq{"id": id}, Eq{"quarantined": false}})
+	if err := r.queryAll(sel, &others); err != nil {
 		return err
 	}
-	_, err := r.executeSQL(Update(r.tableName).Set("updated_at", cur.UpdatedAt).Set("missing", cur.Missing).Where(Eq{"id": id}))
+	for _, o := range others {
+		if !o.Missing {
+			if err := r.ReassignReferences(o.ID, id); err != nil {
+				return fmt.Errorf("merging the Track at %q: %w", path, err)
+			}
+		}
+		if err := r.delete(Eq{"id": o.ID}); err != nil {
+			return fmt.Errorf("removing the other Track at %q: %w", path, err)
+		}
+	}
+	_, err := r.executeSQL(Update(r.tableName).Set("path", path).Set("folder_id", folderID).Where(Eq{"id": id}))
 	return err
 }
 
@@ -581,10 +600,13 @@ func (r *mediaFileRepository) MarkMissingByFolder(missing bool, folderIDs ...str
 // GetMissingAndMatching returns all mediafiles that are missing and their potential matches (comparing PIDs)
 // that were added/updated after the last scan started. The result is ordered by PID.
 // It does not need to load bookmarks, annotations and participants, as they are not used by the scanner.
+// A Track in Quarantine (#168) isn't missing in that sense: its File is in Quarantine, not moved,
+// and a byte-identical copy in the Library (the File it duplicates, #169) is another Track.
 func (r *mediaFileRepository) GetMissingAndMatching(libId int) (model.MediaFileCursor, error) {
 	subQ := r.newSelect().Columns("pid").
 		Where(And{
 			Eq{"media_file.missing": true},
+			Eq{"media_file.quarantined": false},
 			Eq{"library_id": libId},
 		})
 	subQText, subQArgs, err := subQ.PlaceholderFormat(Question).ToSql()
@@ -595,7 +617,7 @@ func (r *mediaFileRepository) GetMissingAndMatching(libId int) (model.MediaFileC
 		LeftJoin("library on media_file.library_id = library.id").
 		Where("pid in ("+subQText+")", subQArgs...).
 		Where(Or{
-			Eq{"missing": true},
+			And{Eq{"missing": true}, Eq{"media_file.quarantined": false}},
 			ConcatExpr("media_file.created_at > library.last_scan_started_at"),
 		}).
 		OrderBy("pid")

@@ -348,12 +348,18 @@ func (m *caseMerger) quarantinePath(keep string) string {
 // resolveFileClash is a File other at opath clashing with keep at kpath: a Duplicate to
 // Quarantine when both are Files of the same size, else the admin's to decide.
 func (m *caseMerger) resolveFileClash(keep *caseNode, kpath string, other *caseNode, opath string) bool {
-	if !keep.dir && !other.dir && keep.size == other.size && (m.alike == nil || m.alike(kpath, opath)) {
+	if m.duplicate(keep, kpath, other, opath) {
 		m.add(CaseStep{Op: CaseQuarantine, Path: opath, NewPath: m.quarantinePath(kpath), Keep: kpath})
 		return true
 	}
 	m.add(CaseStep{Op: CaseDecide, Path: opath, NewPath: kpath})
 	return false
+}
+
+// duplicate reports whether other may be a Duplicate of keep: both Files, of the same size, alike
+// at a look (see planCaseMergesWith).
+func (m *caseMerger) duplicate(keep *caseNode, kpath string, other *caseNode, opath string) bool {
+	return !keep.dir && !other.dir && keep.size == other.size && (m.alike == nil || m.alike(kpath, opath))
 }
 
 func (m *caseMerger) mergeInto(winner *caseNode, wpath string, loser *caseNode, lpath string) {

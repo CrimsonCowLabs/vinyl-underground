@@ -228,6 +228,42 @@ var _ = Describe("Case merge", func() {
 		Expect(dup.Quarantined).To(BeFalse())
 	})
 
+	It("keeps the Track of a Duplicate sent to Quarantine when the renamed side wins and takes back the path it left", func() {
+		l = newLibrary()
+		l.trackWith("Music/Dire Straits/Brothers/01.mp3", "so far away", model.MediaFile{ID: "so-far"})
+		l.trackWith("Music/DIRE STRAITS [case-merge]/Brothers/01.mp3", "so far away", model.MediaFile{ID: "so-far-2"})
+		l.track("Music/DIRE STRAITS [case-merge]/Brothers/02.mp3", model.MediaFile{ID: "money"})
+		before := l.files()
+
+		p := plan()
+		Expect(ops(p.Steps)).To(Equal([]string{
+			"quarantine Music/Dire Straits/Brothers/01.mp3 -> _Quarantine/Music/DIRE STRAITS [case-merge]/Brothers/01.mp3",
+			"rmdir Music/Dire Straits/Brothers -> ",
+			"rmdir Music/Dire Straits -> ",
+			"rename Music/DIRE STRAITS [case-merge] -> Music/Dire Straits",
+		}))
+		job := run(p)
+		Expect(job.Skipped).To(BeZero())
+		Expect(paths()).To(Equal(map[string]string{
+			"so-far":   "Music/Dire Straits/Brothers/01.mp3",
+			"so-far-2": "Music/Dire Straits/Brothers/01.mp3",
+			"money":    "Music/Dire Straits/Brothers/02.mp3",
+		}))
+		dup, err := l.ds.MediaFile(l.ctx).Get("so-far")
+		Expect(err).ToNot(HaveOccurred())
+		Expect(dup.Quarantined).To(BeTrue(), "kept for a restore")
+
+		undo(job)
+		files := l.files()
+		delete(files, "_Quarantine/.ndignore")
+		Expect(files).To(Equal(before))
+		Expect(paths()).To(Equal(map[string]string{
+			"so-far":   "Music/Dire Straits/Brothers/01.mp3",
+			"so-far-2": "Music/DIRE STRAITS [case-merge]/Brothers/01.mp3",
+			"money":    "Music/DIRE STRAITS [case-merge]/Brothers/02.mp3",
+		}))
+	})
+
 	It("refuses a plan that changed since it was reviewed, and queues nothing", func() {
 		p := plan()
 		Expect(os.Rename(filepath.Join(l.dir, "Music/BANGLES"), filepath.Join(l.dir, "Music/BANGLES 2"))).To(Succeed())

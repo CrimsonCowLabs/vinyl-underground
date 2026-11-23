@@ -225,6 +225,48 @@ var _ = Describe("The case merge keeps each Track's identity", func() {
 		attached(map[string]string{kept: kept, renamed: renamed})
 	})
 
+	It("sends a Duplicate to Quarantine and keeps its Track there, while the kept File's Track takes its path", func() {
+		// The ALL CAPS side holds more Files, so it wins, and takes back the other's name.
+		dup := "Music/DIRE STRAITS/Brothers in Arms/01 So Far Away.mp3"
+		data, err := os.ReadFile(filepath.Join(nasDir, filepath.FromSlash(kept)))
+		Expect(err).ToNot(HaveOccurred())
+		Expect(os.WriteFile(filepath.Join(nasDir, filepath.FromSlash(dup)), data, 0o644)).To(Succeed())
+		scan(false)
+		var dupID string
+		for _, mf := range tracks() {
+			if mf.Path == dup {
+				dupID = mf.ID
+			}
+		}
+		Expect(dupID).ToNot(BeEmpty())
+
+		run(plan())
+		p := plan()
+		Expect(p.Phase).To(Equal(organize.PhaseMerge))
+		run(p)
+		Expect(exists("_Quarantine/Music/DIRE STRAITS [case-merge]/Brothers in Arms/01 So Far Away.mp3")).To(BeTrue())
+		Expect(exists(kept)).To(BeTrue())
+		Expect(exists(merged)).To(BeTrue())
+
+		// The losing side's copy went to Quarantine: its Track waits there, missing, at the path
+		// it left (for a restore), with what is attached to it; the winning side's copy, and its
+		// Track, are at that path now. A full scan reads it into that Track, not the other.
+		for range 2 {
+			got := map[string]string{}
+			for _, mf := range tracks() {
+				got[mf.ID] = mf.Path
+			}
+			Expect(got).To(Equal(map[string]string{dupID: kept, ids[renamed]: merged}))
+			quarantined, err := ds.MediaFile(ctx).Get(ids[kept])
+			Expect(err).ToNot(HaveOccurred())
+			Expect(quarantined.Quarantined).To(BeTrue())
+			Expect(quarantined.Missing).To(BeTrue())
+			Expect(quarantined.Path).To(Equal(kept))
+			Expect(quarantined.Starred).To(BeTrue())
+			scan(true)
+		}
+	})
+
 	It("refuses a run of a plan that isn't the one reviewed", func() {
 		w := call(http.MethodPost, "/organize/case/run", map[string]any{"token": "stale"})
 		Expect(w.Code).To(Equal(http.StatusConflict), w.Body.String())
