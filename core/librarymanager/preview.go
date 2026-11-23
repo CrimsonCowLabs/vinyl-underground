@@ -115,8 +115,8 @@ func (m *Manager) plan(ctx context.Context, edit BulkEdit) ([]PreviewRow, []stri
 		r := PreviewRow{ID: mf.ID, Title: mf.Title, Artist: mf.Artist, Album: mf.Album, Path: mf.Path,
 			Old: old, New: values, Status: StatusChange}
 		switch {
-		case tagedit.Editable(mf) != nil:
-			r.Status = tagedit.Code(tagedit.Editable(mf))
+		case tagedit.CanEdit(mf) != nil:
+			r.Status = tagedit.Code(tagedit.CanEdit(mf))
 		case slices.Equal(old, values):
 			r.Status = StatusUnchanged
 		}
