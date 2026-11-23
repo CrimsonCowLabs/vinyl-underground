@@ -136,7 +136,7 @@ func (e *Editor) undoTags(ctx context.Context, jobID string, entry *model.EditEn
 		}
 		set[k] = slices.Clone(entry.OriginalTags[k])
 	}
-	return e.apply(ctx, jobID, f, cur, set, entry.ID)
+	return e.apply(ctx, EditOptions{JobID: jobID}, f, cur, set, entry.ID)
 }
 
 // standing drops, from the later writes to a File (oldest first), each write that a later one

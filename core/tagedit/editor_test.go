@@ -481,6 +481,23 @@ var _ = Describe("Editor", func() {
 		}))
 	})
 
+	Describe("a job of many writes", func() {
+		It("records the write under the job, and leaves the folder for the job to rescan once", func() {
+			track("test.mp3")
+			opts := EditOptions{JobID: "job-1", NoRescan: true}
+			res, err := editor.EditWith(ctx, trackID, Values{"title": {"Song (Live)"}}, opts)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(res.Changed).To(BeTrue())
+			Expect(journal.All()[0].JobID).To(Equal("job-1"))
+			Expect(scanner.GetScanFoldersCalls()).To(BeEmpty())
+
+			Expect(editor.Rescan(ctx, 1, relDir)).To(Succeed())
+			Expect(scanner.GetScanFoldersCalls()).To(ConsistOf(tests.ScanFoldersCall{
+				FullScan: false, Targets: []model.ScanTarget{{LibraryID: 1, FolderPath: relDir}},
+			}))
+		})
+	})
+
 	It("refuses invalid values", func() {
 		track("test.mp3")
 		for _, v := range []Values{

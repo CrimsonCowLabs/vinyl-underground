@@ -356,6 +356,8 @@ Every File becomes a Track, exactly as it is tagged, so a messy Library shows up
 
 After each step that changes the share, unmount the writable mount and run a Full Scan in the app. Re-run steps 2 to 6 when new music arrives outside the Inbox.
 
+With the share mounted read-write for the app (ADR-0011), the app's own `retag` command repairs tags across the whole Library with no review: track numbers left in titles (`10 - Bones`), `Track 06` and number-only titles, file extensions and artist names in titles, unknown artists, and empty track, disc and year fields, from the File's name and MusicBrainz. Every write goes through the Edit journal, and a whole run can be undone from the Edit history. See [`deploy/README.md`](deploy/README.md#13-repair-tags-across-the-library-retag).
+
 ## Documentation
 
 | Document | What's in it |
