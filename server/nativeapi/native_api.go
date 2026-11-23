@@ -108,6 +108,7 @@ func (api *Router) routes() http.Handler {
 			api.addPluginRoute(r)
 			api.addMetadataRoute(r)
 			api.addCorrectionRoute(r)
+			api.addLibraryEditingRoute(r)
 			api.addAlbumCoverRoute(r)
 			api.addMusicBrainzRoute(r)
 			api.RX(r, "/library", api.libs.NewRepository, true)

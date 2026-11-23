@@ -68,10 +68,12 @@ services:
       # Scanned as a second library that only the admin sees (ND_INBOX_PATH,
       # /inbox in the image).
       - *inbox-volume
-      # The Library is always read-only for the app (ADR-0002), except its one
-      # Vinyl Underground/ folder, which docker-compose.promote.yml binds over
-      # /music/Vinyl Underground read-write for Promote (ADR-0008).
-      - "${VU_LIBRARY_DIR:-/mnt/music}:/music:ro"
+      # The Library, read-only unless VU_LIBRARY_MODE=rw. Editing the Library's
+      # Files needs it read-write, on the host too (ADR-0011); the app checks at
+      # startup by trying a write, and editing is off without one.
+      # docker-compose.promote.yml binds /music/Vinyl Underground read-write for
+      # Promote (ADR-0008).
+      - "${VU_LIBRARY_DIR:-/mnt/music}:/music:${VU_LIBRARY_MODE:-ro}"
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:4533/ping"]
       interval: 30s

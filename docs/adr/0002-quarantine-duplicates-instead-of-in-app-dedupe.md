@@ -1,5 +1,7 @@
 # Duplicates are quarantined on the drive, not hidden in the app
 
+_Superseded in part by [ADR-0011](0011-app-manages-the-librarys-files.md): the Library is no longer read-only to the app, and Quarantine becomes a move made from the app._
+
 Navidrome has no dedupe: every File becomes its own Track, so byte-identical copies such as `Song 1.mp3` show up twice. We considered grouping Duplicates under one Track inside the app (by content hash). Instead, because Duplicates are byte-identical by definition, we move them out of the Library once, with a `jdupes` recipe, into a Quarantine folder that the scanner ignores (via `.ndignore`). The app keeps the simple rule that one Track is one File and carries no dedupe code.
 
 ## Consequences

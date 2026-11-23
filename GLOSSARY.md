@@ -27,12 +27,24 @@ An album (with its album artist) kept on the drive as two separate copies in dif
 _Avoid_: Duplicate album (its Files are not Duplicates), double album (an album of two discs)
 
 **Correction**:
-An admin's fix to a wrong tag value (e.g. renaming the Artist "Greatful Dead" to "Grateful Dead"), kept in the app and applied whenever a File's tags are read, or to a wrong album cover (an image chosen or uploaded as the album's cover, or an image marked wrong for the album, which is then skipped; applied whenever its cover is resolved). It is never written to the File, and it never changes a Track's identity. Renaming an Artist to another Artist's name merges the two (an artist merge Correction). An album Correction fixes an album's title, album artist and year, and can give it a MusicBrainz release (picked with Find on MusicBrainz, whose Cover Art Archive cover then becomes the album's cover unless one is chosen), tied to the album's folder (the "Edit" button on the album page saves one). A track numbers Correction (shown as "Track order") fixes the disc and track numbers of an album's Tracks, each tied to its File, saved together from the same dialog; it is the only Correction of single Tracks.
-_Avoid_: Edit, override, retag (that writes the Files)
+An admin's fix to a wrong tag value (e.g. renaming the Artist "Greatful Dead" to "Grateful Dead"), written to the Files it fixes through the Edit journal, or to a wrong album cover (an image chosen or uploaded as the album's cover, written as the folder's `cover.jpg`, or an image marked wrong for the album, which is then skipped; only that mark is kept in the app). It never changes a Track's identity, and it never moves a File (that is Organize). Corrections kept in the app before ADR-0011, and applied whenever a File's tags were read, are migrated into the Files. Renaming an Artist to another Artist's name merges the two (an artist merge Correction). An album Correction fixes an album's title, album artist and year, and can give it a MusicBrainz release (picked with Find on MusicBrainz, whose Cover Art Archive cover then becomes the album's cover unless one is chosen), tied to the album's folder (the "Edit" button on the album page saves one). A track numbers Correction (shown as "Track order") fixes the disc and track numbers of an album's Tracks, each tied to its File, saved together from the same dialog; it is the only Correction of single Tracks.
+_Avoid_: Edit, override
 
 **Quarantine**:
-The folder on the drive holding Files removed from the Library (Duplicates, and the weaker copy of each album held twice), kept until they are permanently deleted.
+The folder on the drive holding Files removed from the Library (Duplicates, and the weaker copy of each album held twice), kept until they are permanently deleted. The app moves Files there, through the Edit journal, so a move can be undone; only Empty Quarantine, after a confirmation, deletes them.
 _Avoid_: Trash, recycle bin
+
+**Organize**:
+To rename and move the Library's Files into one naming scheme, `<Album Artist>/<Album> (<Year>)/<NN> <Title>.<ext>` (`<D>-<NN>` on a multi-disc album), only through a plan the admin has reviewed. Folders whose names differ only in letter case are merged this way. A tag edit never moves a File by itself.
+_Avoid_: Rename, tidy, sort
+
+**Edit journal**:
+The app's permanent record of every write it makes to a File: its original tags and path, and what changed. Any File, or a whole job of writes, can be undone from it, and an undo is recorded too. Each write is checked before it replaces the File (made to a temporary copy, re-read, audio data unchanged), and a File changed since the last scan is skipped.
+_Avoid_: History (a Listener's listening history), log, backup (no byte copy is kept)
+
+**Library manager**:
+The app's role as the tool that edits the Library's Files (tags, covers, names, folders and Quarantine), for the admin only. It needs a writable Library: with a read-only one, editing is off and nothing falls back to an in-app overlay.
+_Avoid_: Tag editor, file manager
 
 ### People
 

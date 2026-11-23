@@ -12,6 +12,8 @@ import { useMediaQuery } from '@material-ui/core'
 import { List, DateField, useResourceRefresh, SizeField } from '../common'
 import LibraryListBulkActions from './LibraryListBulkActions'
 import LibraryListActions from './LibraryListActions'
+import LibraryEditingField from './LibraryEditingField'
+import { useLibraryEditing } from './useLibraryEditing'
 
 const LibraryFilter = (props) => (
   <Filter {...props} variant={'outlined'}>
@@ -23,6 +25,7 @@ const LibraryList = (props) => {
   const isXsmall = useMediaQuery((theme) => theme.breakpoints.down('xs'))
   const isDesktop = useMediaQuery((theme) => theme.breakpoints.up('lg'))
   useResourceRefresh('library')
+  const editing = useLibraryEditing()
 
   return (
     <List
@@ -43,6 +46,11 @@ const LibraryList = (props) => {
           <TextField source="name" />
           {isDesktop && <TextField source="path" />}
           <BooleanField source="defaultNewUsers" />
+          <LibraryEditingField
+            source="editing"
+            sortable={false}
+            isWritable={editing.isWritable}
+          />
           <NumberField source="totalSongs" />
           <NumberField source="totalAlbums" />
           <NumberField source="totalMissingFiles" />
