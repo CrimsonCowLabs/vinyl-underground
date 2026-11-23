@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	"image/draw"
 	"image/jpeg"
 	"io"
 	"io/fs"
@@ -56,14 +57,13 @@ var coverNames = []string{"cover.jpg", "cover.jpeg"}
 const maxCoverPixels = 64 << 20
 
 // CoverJPEG returns the image as the JPEG a cover.jpg holds: a JPEG as it is, any other image the
-// app can read (PNG, GIF, WebP) re-encoded. ErrInvalidImage for anything else.
+// app can read (PNG, GIF, WebP) re-encoded, on white where it is transparent. Every image is
+// decoded whole first, within maxCoverPixels, so a truncated or oversized one is refused
+// (ErrInvalidImage), as is anything else.
 func CoverJPEG(data []byte) ([]byte, error) {
 	cfg, format, err := image.DecodeConfig(bytes.NewReader(data))
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalidImage, err)
-	}
-	if format == "jpeg" {
-		return data, nil
 	}
 	if cfg.Width <= 0 || cfg.Height <= 0 || cfg.Width > maxCoverPixels/cfg.Height {
 		return nil, fmt.Errorf("%w: it is too large (%dx%d)", ErrInvalidImage, cfg.Width, cfg.Height)
@@ -72,8 +72,15 @@ func CoverJPEG(data []byte) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalidImage, err)
 	}
+	if format == "jpeg" {
+		return data, nil
+	}
+	// JPEG has no transparency: what was transparent is white, not black.
+	opaque := image.NewRGBA(img.Bounds())
+	draw.Draw(opaque, opaque.Bounds(), image.White, image.Point{}, draw.Src)
+	draw.Draw(opaque, opaque.Bounds(), img, img.Bounds().Min, draw.Over)
 	var buf bytes.Buffer
-	if err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: 95}); err != nil {
+	if err := jpeg.Encode(&buf, opaque, &jpeg.Options{Quality: 95}); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalidImage, err)
 	}
 	return buf.Bytes(), nil
@@ -250,6 +257,12 @@ func (e *Editor) WriteCoverInJob(ctx context.Context, jobID, albumID string, ima
 		return nil, err
 	}
 	if cur != nil && bytes.Equal(cur, data) {
+		// Nothing to write, but a chosen cover would still hide the File.
+		if e.removeCoverChoice(ctx, a.album) {
+			if err := artwork.RefreshAlbumCover(ctx, e.ds, a.album.ID); err != nil {
+				log.Warn(ctx, "Could not refresh the album's cover", "album", a.album.Name, err)
+			}
+		}
 		return &Result{Changed: false}, nil
 	}
 	entry, err := e.putCover(ctx, jobID, a.lib, a.rel(), data, model.EditImage{Sum: hexSum(data), Mime: "image/jpeg"}, "")
@@ -268,21 +281,24 @@ func (e *Editor) WriteCoverInJob(ctx context.Context, jobID, albumID string, ima
 }
 
 // removeCoverChoice removes the album's chosen (or uploaded) cover Correction: it outranks every
-// source, so it would hide the cover File just written. A failure is only logged.
-func (e *Editor) removeCoverChoice(ctx context.Context, al *model.Album) {
+// source, so it would hide the cover File just written. It reports whether there was one, and it
+// was removed; a failure is only logged. An undo of the cover write doesn't bring it back: no
+// cover Correction is made any more (ADR-0011).
+func (e *Editor) removeCoverChoice(ctx context.Context, al *model.Album) bool {
 	repo := e.ds.Correction(ctx)
 	choice, err := model.AlbumCorrection(repo, model.CorrectionAlbumCover, *al)
 	if errors.Is(err, model.ErrNotFound) {
-		return
+		return false
 	}
 	if err == nil {
 		err = repo.Delete(choice.ID)
 	}
 	if err != nil {
 		log.Warn(ctx, "Could not remove the album's chosen cover; it still shows over the cover File", "album", al.Name, err)
-		return
+		return false
 	}
 	log.Info(ctx, "Removed the album's chosen cover, now written to its folder", "album", al.Name, "source", choice.To)
+	return true
 }
 
 // putCover writes want (nil removes the cover) as the cover File rel of the library, journaled as
@@ -400,7 +416,9 @@ func (e *Editor) coverDone(ctx context.Context, lib *model.Library, dir string) 
 	}
 	filter := squirrel.And{squirrel.Eq{"media_file.library_id": lib.ID, "media_file.missing": false}}
 	if scanDir != "" {
-		filter = append(filter, squirrel.Like{"media_file.path": scanDir + "/%"})
+		// The folder's name is matched literally: _ and % in it are no wildcards.
+		escaped := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(scanDir)
+		filter = append(filter, squirrel.Expr(`media_file.path LIKE ? ESCAPE '\'`, escaped+"/%"))
 	}
 	tracks, err := e.ds.MediaFile(ctx).GetAll(model.QueryOptions{Filters: filter})
 	if err != nil {

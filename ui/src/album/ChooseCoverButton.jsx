@@ -398,8 +398,10 @@ const ChooseCoverDialog = ({ record, onClose }) => {
   const [error, setError] = useState(null)
   const [confirmEmbed, setConfirmEmbed] = useState(false)
   // A cover is written to the album's folder (#164): only while its library is writable
-  const { isWritable } = useLibraryEditing()
+  // (the writes wait for the server's answer; the note only once it is known).
+  const { loaded, isWritable } = useLibraryEditing()
   const writable = isWritable(record.libraryId) === true
+  const readOnly = loaded && !writable
 
   // Runs one of the dialog's actions, closing it once saved, or showing why it failed. note
   // is the notification for what the request answered.
@@ -481,7 +483,7 @@ const ChooseCoverDialog = ({ record, onClose }) => {
         <DialogContentText>
           {translate('resources.album.coverPicker.help')}
         </DialogContentText>
-        {!writable && (
+        {readOnly && (
           <DialogContentText className={classes.section}>
             {translate('resources.album.coverPicker.editingOff')}
           </DialogContentText>

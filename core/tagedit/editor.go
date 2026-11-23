@@ -113,7 +113,9 @@ func (e *Editor) file(ctx context.Context, trackID string) (*file, error) {
 	return &file{mf: mf, lib: lib, abs: filepath.Join(lib.Path, filepath.FromSlash(mf.Path))}, nil
 }
 
-// writable reports whether editing is on for the library libID (checked at startup).
+// Writable reports whether editing is on for the library libID (checked at startup).
+func Writable(libID int) bool { return writable(libID) }
+
 func writable(libID int) bool {
 	editing := core.CurrentLibraryEditing()
 	if !editing.Enabled {

@@ -51,7 +51,8 @@ vi.mock('react-admin', async (importOriginal) => {
 
 vi.mock('../library/useLibraryEditing', () => ({
   useLibraryEditing: () => ({
-    loaded: true,
+    // undefined: the server hasn't answered yet
+    loaded: mockWritable.value !== undefined,
     enabled: true,
     isWritable: () => mockWritable.value,
   }),
@@ -365,6 +366,16 @@ describe('ChooseCoverButton', () => {
         .getByText('resources.album.coverPicker.markWrong')
         .closest('button').disabled,
     ).toBe(false)
+  })
+
+  it('says nothing of a read-only library while it isn’t known yet', async () => {
+    mockWritable.value = undefined
+    render(<ChooseCoverButton record={album} />)
+    open()
+    await screen.findByAltText('cover.jpg')
+    expect(
+      screen.queryByText('resources.album.coverPicker.editingOff'),
+    ).toBeNull()
   })
 
   describe('Embed in Files', () => {

@@ -1,9 +1,13 @@
 package tagedit
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"image"
+	"image/jpeg"
+	"image/png"
 	"os"
 	"path/filepath"
 	"strings"
@@ -171,6 +175,54 @@ var _ = Describe("Cover writes", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(coverFile("cover.jpg")[:3]).To(Equal([]byte{0xFF, 0xD8, 0xFF}))
 			Expect(entry(res.Entry).Image.Mime).To(Equal("image/jpeg"))
+		})
+
+		It("removes a chosen cover Correction even when the folder holds the image already", func() {
+			Expect(os.WriteFile(filepath.Join(dir, "cover.jpg"), cover, 0o644)).To(Succeed())
+			choice := model.Correction{Kind: model.CorrectionAlbumCover, MatchKey: model.AlbumFolderKey(al),
+				From: "Band – Record", To: "Last.fm", ImageHash: "0123456789abcdef", ImageMime: "image/jpeg"}
+			Expect(ds.Correction(ctx).Add(&choice)).To(Succeed())
+
+			res, err := editor.WriteCover(ctx, al.ID, cover)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(res.Changed).To(BeFalse())
+			_, err = ds.Correction(ctx).Get(choice.ID)
+			Expect(err).To(MatchError(model.ErrNotFound))
+			_, err = ds.ArtworkQueue(ctx).Get(model.KindAlbumArtwork, al.ID, model.ImageTypePrimary)
+			Expect(err).ToNot(HaveOccurred(), "the album's cover is resolved again")
+		})
+
+		It("refuses a truncated JPEG", func() {
+			_, err := editor.WriteCover(ctx, al.ID, cover[:len(cover)/2])
+			Expect(err).To(MatchError(ErrInvalidImage))
+			Expect(names()).To(BeEmpty())
+		})
+
+		It("writes a transparent PNG on white", func() {
+			img := image.NewNRGBA(image.Rect(0, 0, 4, 4)) // all transparent
+			var buf bytes.Buffer
+			Expect(png.Encode(&buf, img)).To(Succeed())
+			_, err := editor.WriteCover(ctx, al.ID, buf.Bytes())
+			Expect(err).ToNot(HaveOccurred())
+			written, err := jpeg.Decode(bytes.NewReader(coverFile("cover.jpg")))
+			Expect(err).ToNot(HaveOccurred())
+			r, g, b, _ := written.At(1, 1).RGBA()
+			Expect([]uint32{r >> 8, g >> 8, b >> 8}).To(HaveEach(BeNumerically(">", 250)))
+		})
+
+		It("refreshes the cover of its own folder's albums only, taking _ in a folder's name literally", func() {
+			odd := addFolder(ctx, ds, "Band/Re_ord")
+			Expect(os.MkdirAll(filepath.Join(libDir, "Band", "Re_ord"), 0o755)).To(Succeed())
+			other := model.Album{ID: "al-odd", Name: "Re_ord", AlbumArtist: "Band", LibraryID: 1, FolderIDs: []string{odd.ID}}
+			Expect(ds.Album(ctx).Put(&other)).To(Succeed())
+			addAlbumTrack(ctx, ds, "mf-odd", other.ID, odd)
+
+			_, err := editor.WriteCover(ctx, other.ID, cover)
+			Expect(err).ToNot(HaveOccurred())
+			_, err = ds.ArtworkQueue(ctx).Get(model.KindAlbumArtwork, other.ID, model.ImageTypePrimary)
+			Expect(err).ToNot(HaveOccurred())
+			_, err = ds.ArtworkQueue(ctx).Get(model.KindAlbumArtwork, al.ID, model.ImageTypePrimary)
+			Expect(err).To(MatchError(model.ErrNotFound), "Band/Record isn't Band/Re_ord")
 		})
 
 		It("refuses bytes that aren't an image", func() {

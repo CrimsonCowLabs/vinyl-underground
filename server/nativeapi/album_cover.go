@@ -108,6 +108,11 @@ func (api *Router) writeAlbumCover(w http.ResponseWriter, r *http.Request, album
 		writeTagEditError(w, r, tagedit.ErrEditingOff)
 		return
 	}
+	// Refused before the image is kept: the journal's images are never swept.
+	if _, err := api.tagEditor.CheckCover(r.Context(), albumID); err != nil {
+		writeTagEditError(w, r, err)
+		return
+	}
 	step, err := editjob.CoverStep(api.tagEditor, albumID, data)
 	if err != nil {
 		writeTagEditError(w, r, err)

@@ -108,6 +108,20 @@ var _ = Describe("Cover jobs", func() {
 		Expect(filepath.Join(dir, "cover.jpg")).ToNot(BeAnExistingFile())
 	})
 
+	It("refuses the undo of a cover write up front while its library is read-only", func() {
+		step, err := CoverStep(editor, "al-1", cover)
+		Expect(err).ToNot(HaveOccurred())
+		job, err := q.Enqueue(ctx, model.EditCover, []model.EditJobStep{step})
+		Expect(err).ToNot(HaveOccurred())
+		run(job)
+
+		core.SetLibraryEditing(core.LibraryEditing{Enabled: true, Libraries: []core.LibraryWritable{{ID: 1, Writable: false}}})
+		steps, err := UndoJobSteps(ctx, ds, job.ID)
+		Expect(err).ToNot(HaveOccurred())
+		_, err = q.Enqueue(ctx, model.EditUndo, steps)
+		Expect(err).To(MatchError(tagedit.ErrEditingOff))
+	})
+
 	It("refuses a cover job for an image the app can't read, queueing nothing", func() {
 		_, err := CoverStep(editor, "al-1", []byte("nope"))
 		Expect(err).To(MatchError(tagedit.ErrInvalidImage))

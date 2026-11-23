@@ -19,6 +19,7 @@ import (
 
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/conf/configtest"
+	"github.com/navidrome/navidrome/core"
 	"github.com/navidrome/navidrome/core/artwork"
 	"github.com/navidrome/navidrome/core/auth"
 	"github.com/navidrome/navidrome/core/corrections"
@@ -66,6 +67,14 @@ func (f *fakeCoverPicker) Store(_ context.Context, albumID, candidateID string) 
 	stored, err := artwork.StoreChosenCover(testPNG())
 	return stored, artwork.CoverCandidate{ID: candidateID, Source: "folder", Label: "cover.png"}, err
 }
+
+// fakeFolderRepo has the Library's folders, for finding an album's own folder.
+type fakeFolderRepo struct {
+	model.FolderRepository
+	folders []model.Folder
+}
+
+func (f fakeFolderRepo) GetAll(...model.QueryOptions) ([]model.Folder, error) { return f.folders, nil }
 
 func testPNG() []byte {
 	var buf bytes.Buffer
@@ -121,6 +130,19 @@ var _ = Describe("Album cover API", func() {
 			artwork.CoverSourceLocal:           {Candidates: []artwork.CoverCandidate{{ID: "cand-1", Source: "folder", Label: "cover.png"}}},
 			artwork.CoverSourceCoverArtArchive: {Candidates: []artwork.CoverCandidate{}, Failed: true},
 		}}
+		// The album's own folder, where its cover goes (CheckCover runs before a write is queued).
+		libDir := GinkgoT().TempDir()
+		Expect(os.MkdirAll(filepath.Join(libDir, "Band", "Record"), 0o755)).To(Succeed())
+		ds.MockedLibrary = &tests.MockLibraryRepo{}
+		ds.MockedLibrary.(*tests.MockLibraryRepo).SetData(model.Libraries{{ID: 1, Name: "Music", Path: libDir}})
+		ds.MockedFolder = fakeFolderRepo{folders: []model.Folder{{ID: "f-1", LibraryID: 1, Path: "Band", Name: "Record", ParentID: "f-band"}}}
+		mfs := tests.CreateMockMediaFileRepo()
+		mfs.SetCountAll(0) // no other album's Tracks in its folder
+		ds.MockedMediaFile = mfs
+		ds.Album(context.TODO()).(*tests.MockAlbumRepo).SetData(model.Albums{
+			{ID: "al-1", Name: "Record", LibraryID: 1, FolderIDs: []string{"f-1"}}})
+		core.SetLibraryEditing(core.LibraryEditing{Enabled: true, Libraries: []core.LibraryWritable{{ID: 1, Name: "Music", Writable: true}}})
+		DeferCleanup(core.SetLibraryEditing, core.LibraryEditing{})
 		editor = tagedit.New(ds, nil)
 		nativeRouter = New(ds, nil, nil, nil, tests.NewMockLibraryService(), tests.NewMockUserService(), nil, nil, nil, nil, nil, nil, picker, editor)
 		svc = &fakeCorrections{}
@@ -273,7 +295,8 @@ var _ = Describe("Album cover API", func() {
 			return w
 		}
 		BeforeEach(func() {
-			ds.Album(context.TODO()).(*tests.MockAlbumRepo).SetData(model.Albums{{ID: "al-1", Name: "Record"}})
+			ds.Album(context.TODO()).(*tests.MockAlbumRepo).SetData(model.Albums{
+				{ID: "al-1", Name: "Record", LibraryID: 1, FolderIDs: []string{"f-1"}}})
 		})
 
 		It("writes the image as the album's cover.jpg, with no Correction", func() {
