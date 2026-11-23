@@ -39,8 +39,12 @@ To rename and move the Library's Files into one naming scheme, `<Album Artist>/<
 _Avoid_: Rename, tidy, sort
 
 **Edit journal**:
-The app's permanent record of every write it makes to a File: its original tags and path, and what changed. The admin sees it, newest first, on the Edit history page. Any File, or a whole job of writes, can be undone from it, and an undo is recorded too. Each write is checked before it replaces the File (made to a temporary copy, re-read, audio data unchanged), and a File changed since the last scan is skipped.
-_Avoid_: History (a Listener's listening history), log, backup (no byte copy is kept)
+The app's permanent record of every write it makes to a File: its original tags and path, and what changed. The admin sees it, newest first, on the Edit history page. Any File, or a whole job of writes, can be undone from it, and an undo is recorded too. Each write is checked before it replaces the File (made to a temporary copy, re-read, audio data unchanged), and a File changed since the last scan is skipped. For an album cover it also keeps the image a write replaced (the folder's old `cover.jpg`, or a File's embedded picture), in the app's data folder, so an undo puts it back byte for byte.
+_Avoid_: History (a Listener's listening history), log, backup (no byte copy of a File is kept)
+
+**Embed in Files**:
+The admin's explicit action that writes an album's folder cover (`cover.jpg`) into each of its Files as their first picture, as one Edit job, checked like any tag write. It is never automatic, since it rewrites every File and makes each one larger.
+_Avoid_: Embed art, sync covers
 
 **Edit job**:
 A batch of writes to Files the app runs in the background, one step per File, kept so it carries on after a restart. Jobs run one at a time, so the Library is never written to in parallel. A File a job can't write (e.g. changed on disk since the last scan) is skipped, with the reason, and the rest are still written. Every write is in the Edit journal with its job, so a whole job can be undone. A single Track's edit is a job of one File, which the Edit dialog waits for.

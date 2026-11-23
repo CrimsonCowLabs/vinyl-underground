@@ -7,12 +7,20 @@ import (
 	"time"
 )
 
-// EditKind is what a write to a File did. Tag edits are the first; moves (Organize), Quarantine
-// moves, cover writes and undos are recorded the same way later.
+// EditKind is what a write to a File did: tag edits, cover writes and embeds (an undo has the
+// kind of the write it undoes); moves (Organize) and Quarantine moves are recorded the same way
+// later.
 type EditKind string
 
 const (
 	EditTags EditKind = "tags"
+	// EditCover is a write of an album's folder cover (its cover.jpg): Path and NewPath are the
+	// cover File, OriginalImage the cover it replaced (none for a new one) and Image the one it
+	// wrote (none for an undo that removed it). It has no Track.
+	EditCover EditKind = "cover"
+	// EditEmbed is an album cover embedded into one File (Embed in Files): the File's first
+	// picture is replaced by Image (or added), and OriginalImage is the picture it had there.
+	EditEmbed EditKind = "embed"
 )
 
 // EditState is how far a write got.
@@ -58,10 +66,48 @@ type EditEntry struct {
 	// UndoOf is the entry an undo undoes (#161). An undo has the kind of the entry it undoes, and
 	// can be undone in turn (a redo). See undoers in core/tagedit for how
 	// each kind undoes its entries.
-	UndoOf    string    `structs:"undo_of" json:"undoOf,omitempty"`
-	Error     string    `structs:"error" json:"error,omitempty"`
-	CreatedAt time.Time `structs:"created_at" json:"createdAt"`
-	UpdatedAt time.Time `structs:"updated_at" json:"updatedAt"`
+	UndoOf string `structs:"undo_of" json:"undoOf,omitempty"`
+	// OriginalImage and Image are, for a cover write or an embed, the image the write replaced and
+	// the one it wrote; an empty Sum means none. Empty for a tag edit.
+	OriginalImage EditImage `structs:"original_image,omitnested" json:"originalImage"`
+	Image         EditImage `structs:"image,omitnested" json:"image"`
+	Error         string    `structs:"error" json:"error,omitempty"`
+	CreatedAt     time.Time `structs:"created_at" json:"createdAt"`
+	UpdatedAt     time.Time `structs:"updated_at" json:"updatedAt"`
+}
+
+// EditImage is an image a cover write or an embed replaced or wrote. Its bytes are kept apart from
+// the journal, by Sum (see tagedit's journal images), so an undo can put it back byte for byte.
+type EditImage struct {
+	// Sum is the image's SHA-256 (hex); empty means no image.
+	Sum  string `json:"sum,omitempty"`
+	Mime string `json:"mime,omitempty"`
+	// Type and Description are an embedded picture's (e.g. "Front Cover").
+	Type        string `json:"type,omitempty"`
+	Description string `json:"description,omitempty"`
+}
+
+func (i EditImage) Value() (driver.Value, error) {
+	b, err := json.Marshal(i)
+	return string(b), err
+}
+
+func (i *EditImage) Scan(src any) error {
+	var b []byte
+	switch v := src.(type) {
+	case nil:
+	case string:
+		b = []byte(v)
+	case []byte:
+		b = v
+	default:
+		return fmt.Errorf("can't read an image from %T", src)
+	}
+	*i = EditImage{}
+	if len(b) == 0 {
+		return nil
+	}
+	return json.Unmarshal(b, i)
 }
 
 // EditTagValues are tags by TagLib property name, stored as a JSON object.

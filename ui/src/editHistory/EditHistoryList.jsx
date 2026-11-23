@@ -43,7 +43,19 @@ const knownErrors = [
   'interrupted',
   'jobUnfinished',
   'sameFileTwice',
+  'coverChanged',
 ]
+
+// What a cover write (the folder's cover.jpg) or an embed (Embed in Files) did, by whether it
+// replaced an image, and wrote one (#164).
+const imageChange = (record) => {
+  const had = !!record.originalImage?.sum
+  const wrote = !!record.image?.sum
+  if (record.kind === 'cover') {
+    return wrote ? (had ? 'coverReplaced' : 'coverWritten') : 'coverRemoved'
+  }
+  return wrote ? (had ? 'embedReplaced' : 'embedAdded') : 'embedRemoved'
+}
 
 // errorKey is the message of a refused undo.
 const errorKey = (err) => {
@@ -73,6 +85,13 @@ export const EditChangesField = ({ record }) => {
   const classes = useStyles()
   const translate = useTranslate()
   if (!record) return null
+  if (record.kind === 'cover' || record.kind === 'embed') {
+    return (
+      <Typography variant="body2" component="span" className={classes.change}>
+        {translate(`resources.editHistory.message.${imageChange(record)}`)}
+      </Typography>
+    )
+  }
   return (
     <>
       {(record.changes || []).map((c) => (
@@ -108,6 +127,14 @@ export const EditTrackField = ({ record }) => {
   const classes = useStyles()
   const translate = useTranslate()
   if (!record) return null
+  if (record.kind === 'cover') {
+    // A folder cover is no Track's.
+    return (
+      <Typography variant="body2" component="span" className={classes.none}>
+        {translate('resources.editHistory.message.albumCover')}
+      </Typography>
+    )
+  }
   if (!record.track) {
     return (
       <Typography variant="body2" component="span" className={classes.none}>
@@ -181,7 +208,9 @@ export const UndoEditButton = ({ record }) => {
             ? 'resources.editHistory.notifications.undoInBackground'
             : data?.warning
               ? 'resources.editHistory.notifications.undoneRescanPending'
-              : 'resources.editHistory.notifications.undone',
+              : record.kind === 'cover'
+                ? 'resources.editHistory.notifications.undoneCover'
+                : 'resources.editHistory.notifications.undone',
           { type: 'info' },
         ),
       )
