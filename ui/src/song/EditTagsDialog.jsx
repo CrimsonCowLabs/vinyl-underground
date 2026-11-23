@@ -46,7 +46,7 @@ const errorKey = (err) => {
 const inputMode = { number: 'numeric', date: 'numeric' }
 
 // FieldInput edits one field: one input per value, with add and remove for a multi-valued one.
-const FieldInput = ({ field, values, onChange, disabled }) => {
+export const FieldInput = ({ field, values, onChange, disabled }) => {
   const translate = useTranslate()
   const label = translate(`resources.song.tagEditor.fields.${field.key}`)
   const set = (i, v) => onChange(values.map((old, j) => (j === i ? v : old)))

@@ -599,6 +599,68 @@
         "unknown": "The write could not be undone."
       }
     },
+    "libraryTrack": {
+      "name": "Library manager |||| Library manager",
+      "fields": {
+        "title": "Title",
+        "artist": "Artist",
+        "album": "Album",
+        "albumArtist": "Album artist",
+        "year": "Year",
+        "trackNumber": "Track",
+        "path": "File",
+        "suffix": "Format",
+        "bitRate": "Bitrate",
+        "folder": "Folder",
+        "artists_id": "Artist",
+        "album_id": "Album",
+        "format": "Format",
+        "rip": "Rips",
+        "missing_tag": "Missing tags"
+      },
+      "rip": {
+        "true": "Only Rips",
+        "false": "No Rips"
+      },
+      "missingTag": {
+        "album": "No album",
+        "album_artist": "No album artist",
+        "year": "No year",
+        "track_number": "No track number"
+      },
+      "actions": {
+        "editSelected": "Edit tags",
+        "editMatching": "Edit all %{smart_count} matching",
+        "editHistory": "Edit history"
+      },
+      "message": {
+        "editingOff": "Editing is off: the Library is read-only, so the Library manager can't change its Files."
+      },
+      "bulkEdit": {
+        "titleSelected": "Edit the tags of %{smart_count} Track |||| Edit the tags of %{smart_count} Tracks",
+        "titleMatching": "Edit the tags of all %{smart_count} matching Track |||| Edit the tags of all %{smart_count} matching Tracks",
+        "help": "Set one field to the same value in every File, or clear it. You'll see each Track's old and new value before anything is written. It runs as one job, which the Edit history can undo as a whole.",
+        "field": "Field",
+        "clear": "Clear this field",
+        "preview": "Preview",
+        "change": "Old → new",
+        "unchanged": "Already holds this value",
+        "summary": "%{smart_count} of %{total} Tracks will change (%{unchanged} already hold this value, %{refused} can't be edited). |||| %{smart_count} of %{total} Tracks will change (%{unchanged} already hold this value, %{refused} can't be edited).",
+        "more": "and %{smart_count} more Track |||| and %{smart_count} more Tracks",
+        "run": "Write %{smart_count} File |||| Write %{smart_count} Files",
+        "done": "The tags were written to %{smart_count} File |||| The tags were written to %{smart_count} Files",
+        "doneSkipped": "The tags were written, but %{smart_count} File was skipped. The Activity panel says why. |||| The tags were written, but %{smart_count} Files were skipped. The Activity panel says why.",
+        "inBackground": "The edit is running in the background. The Activity panel shows how it goes.",
+        "errors": {
+          "editingOff": "Editing is off: the Library is read-only.",
+          "invalid": "A value isn’t valid: numbers must be numbers, dates YYYY, YYYY-MM or YYYY-MM-DD, and MusicBrainz IDs UUIDs. Only one value for a single-valued field.",
+          "noSelection": "Select some Tracks first.",
+          "tooMany": "Too many Tracks are selected one by one. Use Edit all matching instead.",
+          "nothingToChange": "None of these Tracks would change.",
+          "unknown": "The bulk edit could not be made."
+        }
+      }
+    },
     "library": {
       "name": "Library |||| Libraries",
       "fields": {

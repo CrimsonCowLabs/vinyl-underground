@@ -118,6 +118,13 @@ var _ = Describe("Library manager", Ordered, func() {
 			Expect(idsOf(mfs)).To(Equal([]string{"track-1"}))
 		})
 
+		It("takes a filter's JSON values (booleans, numbers, lists) as the listing's query string has them", func() {
+			mfs, err := m.Tracks(ctx, librarymanager.Selection{Filter: map[string]any{
+				"rip": false, "missing_tag": []any{"album_artist"}, "library_id": float64(1), "title": "one", "starred": false}})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(idsOf(mfs)).To(Equal([]string{"track-1"}))
+		})
+
 		It("resolves the selected Tracks, in path order, without missing Files", func() {
 			mfs, err := m.Tracks(ctx, librarymanager.Selection{IDs: []string{"track-4", "track-1", "track-5", "no-such-track"}})
 			Expect(err).ToNot(HaveOccurred())
