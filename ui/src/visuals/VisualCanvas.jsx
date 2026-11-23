@@ -33,13 +33,14 @@ const VisualCanvas = ({
       theme: latest.current.theme,
       playing: latest.current.playing,
       fps: frameRate(),
+      coverShare,
     })
     runRef.current = run
     return () => {
       run.stop()
       runRef.current = null
     }
-  }, [mode, analyser])
+  }, [mode, analyser, coverShare])
 
   useEffect(() => {
     runRef.current?.setTheme(theme)
@@ -53,7 +54,6 @@ const VisualCanvas = ({
     <canvas
       ref={canvasRef}
       className={className}
-      data-cover-share={coverShare}
       role="img"
       aria-label={translate('nowPlaying.visuals.canvas', {
         name: translate(`nowPlaying.visuals.modes.${mode}`),

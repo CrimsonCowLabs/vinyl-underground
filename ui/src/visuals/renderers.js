@@ -2,14 +2,12 @@
 // few shapes a frame, so a phone keeps up. Each is a visual for runVisual:
 // { create(canvas, { analyser, theme }) }, returning a renderer.
 //
-// theme is a visualTheme (see visualTheme.js): { accent, glow, cover, mode }.
+// theme comes from useVisualTheme: { accent, glow, cover, mode }. resize gets
+// the canvas's size in device pixels and how many there are per CSS pixel.
 import { alpha } from '@material-ui/core/styles'
 import { bandLevels, logBands, smooth, wavePoints } from './visualMath'
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value))
-
-const pixelRatio = () =>
-  Math.min(typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1, 2)
 
 const sampleRate = (analyser) => analyser.context?.sampleRate || 48000
 
@@ -23,12 +21,14 @@ const spectrum = {
     let bands = []
     let width = canvas.width
     let height = canvas.height
+    let ratio = 1
     let colours = theme
 
-    const resize = (w, h) => {
+    const resize = (w, h, pixelRatio = 1) => {
       width = w
       height = h
-      const count = clamp(Math.round(w / pixelRatio() / 12), 16, 64)
+      ratio = pixelRatio
+      const count = clamp(Math.round(w / ratio / 12), 16, 64)
       bands = logBands(count, {
         sampleRate: sampleRate(analyser),
         binCount: analyser.frequencyBinCount,
@@ -48,7 +48,7 @@ const spectrum = {
         const slot = (width - 2 * margin) / levels.length
         const bar = slot * 0.62
         const floor = height * 0.92
-        const minimum = 2 * pixelRatio()
+        const minimum = 2 * ratio
         const fill = context.createLinearGradient(
           0,
           floor - height * 0.84,
@@ -77,6 +77,7 @@ const waveform = {
     const points = []
     let width = canvas.width
     let height = canvas.height
+    let ratio = 1
     let colours = theme
 
     const trace = (count) => {
@@ -92,24 +93,25 @@ const waveform = {
     }
 
     return {
-      resize: (w, h) => {
+      resize: (w, h, pixelRatio = 1) => {
         width = w
         height = h
+        ratio = pixelRatio
       },
       setTheme: (value) => (colours = value),
       draw() {
         analyser.getByteTimeDomainData(data)
-        const count = clamp(Math.round(width / pixelRatio() / 4), 64, 512)
+        const count = clamp(Math.round(width / ratio / 4), 64, 512)
         smooth(points, wavePoints(data, count), { rise: 0.5, fall: 0.5 })
         context.clearRect(0, 0, width, height)
         context.lineJoin = 'round'
         context.lineCap = 'round'
         trace(count)
         context.strokeStyle = colours.glow
-        context.lineWidth = 9 * pixelRatio()
+        context.lineWidth = 9 * ratio
         context.stroke()
         context.strokeStyle = colours.accent
-        context.lineWidth = 2.5 * pixelRatio()
+        context.lineWidth = 2.5 * ratio
         context.stroke()
       },
     }
@@ -123,15 +125,15 @@ export const GLOW_SPREAD = 1.3
 // Glow: light in the cover's colour spilling out around the album art and
 // swelling with the bass, drawn as the blurred shadow of a square under the
 // cover. It changes gently (slow to rise, slower to fall), never flashing.
-// The cover sits in the middle of the canvas; the canvas's data-cover-share
-// says how much of its shorter side the cover takes.
+// The cover sits in the middle of the canvas, taking coverShare of its
+// shorter side.
 const glow = {
-  create(canvas, { analyser, theme }) {
+  create(canvas, { analyser, theme, coverShare = 1 / GLOW_SPREAD }) {
     const context = canvas.getContext('2d')
     const data = new Uint8Array(analyser.frequencyBinCount)
     const level = [0]
     let bass = []
-    let share = 1 / GLOW_SPREAD
+    const share = coverShare
     let width = canvas.width
     let height = canvas.height
     let colours = theme
@@ -139,7 +141,6 @@ const glow = {
     const resize = (w, h) => {
       width = w
       height = h
-      share = Number(canvas.dataset?.coverShare) || 1 / GLOW_SPREAD
       bass = logBands(4, {
         sampleRate: sampleRate(analyser),
         binCount: analyser.frequencyBinCount,

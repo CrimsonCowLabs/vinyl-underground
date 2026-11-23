@@ -63,6 +63,9 @@ const useStyles = makeStyles(
       height: `${GLOW_SPREAD * 100}%`,
       pointerEvents: 'none',
     },
+    // The Full screen buttons sit on the visual, which is always dark (a
+    // dimmed cover, or the cover itself), so they are white on a dark disc
+    // in either theme
     expand: {
       position: 'absolute',
       top: 6,
@@ -135,9 +138,12 @@ const useBrowserFullScreen = (element, onLeave) => {
     }
     FULLSCREEN_EVENTS.forEach((e) => document.addEventListener(e, onChange))
     // Chrome can leave focus on the page's body in full screen, out of the
-    // Dialog's reach, so Esc is caught here too when the browser passes it on
+    // Dialog's reach, so Esc there is caught here when the browser passes it
+    // on. Esc anywhere else is the Dialog's, or whatever is open over it.
     const onKeyDown = (e) => {
-      if (e.key === 'Escape') onLeaveRef.current()
+      const onPage =
+        e.target === document.body || e.target === document.documentElement
+      if (e.key === 'Escape' && onPage) onLeaveRef.current()
     }
     document.addEventListener('keydown', onKeyDown)
     try {

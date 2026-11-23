@@ -123,6 +123,13 @@ export const createAudioChain = (options = {}) => {
       return build() ? graph.analyser : null
     },
 
+    // Visuals no longer need the analyser (turned off, unavailable, or
+    // waiting on Internet Radio). A chain already built stays, but a new
+    // element (a player remount) isn't routed through Web Audio for them.
+    releaseAnalyser() {
+      analyserWanted = false
+    },
+
     // Call when playback starts: a context may start suspended, or be
     // suspended by the browser. Does nothing until the chain is built.
     resume,

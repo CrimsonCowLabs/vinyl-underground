@@ -1,6 +1,6 @@
 // The visuals a Listener can choose in Now Playing, in the order the Visuals
-// tool lists them, after "Off". Each is a visual for runVisual: an id, its
-// label's translation key, and create(canvas, { analyser, theme }).
+// tool lists them, after "Off". Each is a visual for runVisual: an id (its
+// label is nowPlaying.visuals.modes.<id>), and create(canvas, options).
 //
 // `surround` is how the visual sits with the album art: 'over' draws on the
 // cover, dimmed (spectrum, waveform); 'around' draws behind it, past its

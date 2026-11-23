@@ -179,7 +179,7 @@ A better player and a look of our own, built into the existing web UI ([ADR-0003
 - Content: large album art; title, artist and album, each a link; seek bar with elapsed and remaining time; previous, play/pause and next; star and rating. The Star toggle is drawn as a star (filled when starred, outlined when not), not the heart the inherited `LoveButton` draws.
 - Art: on Art, the cover sits on a record that slides partly out of its sleeve.
 - Toolbar: Lyrics, Queue, EQ, Visuals, Sleep timer and Speed. A slot whose feature isn't built yet is hidden.
-- The art area has **Art · Lyrics · Queue** tabs (Art becomes Art/Visuals once visuals land). The selected tab is remembered per device. On desktop, the player package's own queue pop-up is hidden.
+- The art area has **Art · Lyrics · Queue** tabs (Art is labelled Visuals while a visual plays there). The selected tab is remembered per device. On desktop, the player package's own queue pop-up is hidden.
 - Lyrics: synced lyrics highlight the current line, and tapping a line seeks to it. Unsynced lyrics are shown as plain scrollable text instead of being dropped.
 - Queue: tap to play, drag to reorder, remove.
 - On a Station: the DJ's name and the latest Blurb (when Blurbs are enabled) in a card under the title and rating, updating as Tracks change.

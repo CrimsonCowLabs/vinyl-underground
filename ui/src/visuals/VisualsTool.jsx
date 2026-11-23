@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { useDispatch, useSelector } from 'react-redux'
+import { useDispatch } from 'react-redux'
 import { useTranslate } from 'react-admin'
 import {
   Button,
@@ -16,10 +16,10 @@ import { NowPlayingToolButton } from '../nowPlaying/NowPlayingToolbar'
 import { showNowPlayingTab } from '../nowPlaying/nowPlayingState'
 import ToolSheet from '../playbackTools/ToolSheet'
 import { useAudioEffectsAvailable } from '../audioplayer/audioEffects'
-import { audioChain } from '../audioplayer/audioChain'
 import { setVisuals } from '../actions'
 import { OFF, VISUAL_MODES } from './visualModes'
 import { useVisualShown, useVisuals } from './visualsSettings'
+import { useRadioWaits } from './useVisualAnalyser'
 
 const useStyles = makeStyles(
   (theme) => ({
@@ -78,7 +78,7 @@ const VisualsTool = ({ onNavigate }) => {
   const { mode, warned, enabled } = useVisuals()
   const shown = useVisualShown()
   const available = useAudioEffectsAvailable()
-  const isRadio = useSelector((state) => !!state.player?.current?.isRadio)
+  const radioWaits = useRadioWaits()
   const [open, setOpen] = useState(false)
   const [asking, setAsking] = useState(null)
 
@@ -134,8 +134,7 @@ const VisualsTool = ({ onNavigate }) => {
             </Button>
           </div>
         ) : (
-          isRadio &&
-          !audioChain.isBuilt() && (
+          radioWaits && (
             <Typography
               variant="body2"
               color="textSecondary"

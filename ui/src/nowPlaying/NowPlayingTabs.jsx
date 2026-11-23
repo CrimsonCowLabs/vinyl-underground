@@ -46,8 +46,9 @@ const useStyles = makeStyles(
 )
 
 // NowPlayingTabs switches Now Playing's art area between Art, Lyrics and
-// Queue. Art reads Visuals while a visual plays there (#96). The choice is kept per device (see nowPlayingState). The arrow keys
-// move between the tabs, as in any tab list.
+// Queue. Art reads Visuals while a visual plays there (#96). The choice is
+// kept per device (see nowPlayingState). The arrow keys move between the
+// tabs, as in any tab list.
 const NowPlayingTabs = () => {
   const classes = useStyles()
   const translate = useTranslate()

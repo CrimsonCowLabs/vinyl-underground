@@ -340,4 +340,15 @@ describe('createAudioChain', () => {
     chain.attach(newElement())
     expect(changes).toHaveLength(3)
   })
+
+  it('stops building the chain for visuals once they let go of the analyser', () => {
+    chain.attach(newElement())
+    chain.getAnalyser()
+    chain.releaseAnalyser()
+
+    // A remount (say, during Internet Radio) builds nothing for them
+    chain.attach(newElement())
+    expect(contexts).toHaveLength(1)
+    expect(chain.isBuilt()).toBe(false)
+  })
 })

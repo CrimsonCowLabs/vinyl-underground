@@ -1,12 +1,15 @@
 // runVisual plays a visual on a canvas: it owns the frame loop, so every
 // visual saves battery the same way.
 //
-// A visual is { create(canvas, { analyser, theme }) }, which returns a
+// A visual is { create(canvas, { analyser, theme, ...options }) }, which
+// returns a
 // renderer, or a Promise of one for a visual that loads its code when chosen
 // (Milkdrop, #97). A renderer is:
 //
 //   draw(now)                 paint one frame; now is the frame's time in ms
-//   resize?(width, height)    the canvas's new size in device pixels
+//   resize?(width, height, pixelRatio)
+//                             the canvas's new size in device pixels, and
+//                             how many there are per CSS pixel
 //   setTheme?(theme)          the player's theme changed (a new cover's accent)
 //   destroy?()                let go of anything it holds
 //
@@ -25,7 +28,7 @@ const MAX_PIXEL_RATIO = 2
 export const runVisual = (
   canvas,
   visual,
-  { analyser, theme, fps = 60, playing = true } = {},
+  { analyser, theme, fps = 60, playing = true, ...options } = {},
 ) => {
   const interval = 1000 / fps
   let renderer = null
@@ -43,7 +46,16 @@ export const runVisual = (
       canvas.width = width
       canvas.height = height
     }
-    renderer?.resize?.(width, height)
+    renderer?.resize?.(width, height, ratio)
+    drawIfSettled()
+  }
+
+  // A canvas that has stopped drawing (paused, settled) is drawn once when
+  // it changes, so a resize (which clears it) or a new cover's colours show
+  const drawIfSettled = () => {
+    if (renderer && !stopped && frame === null && !document.hidden) {
+      renderer.draw(performance.now())
+    }
   }
 
   const tick = (now) => {
@@ -92,13 +104,18 @@ export const runVisual = (
       return
     }
     renderer = created
-    fitCanvas()
     schedule()
+    fitCanvas()
   }
 
-  const created = visual.create(canvas, { analyser, theme })
-  if (typeof created?.then === 'function') created.then(begin)
-  else begin(created)
+  const created = visual.create(canvas, { analyser, theme, ...options })
+  if (typeof created?.then === 'function') {
+    // A visual that fails to load leaves the canvas blank; the visual
+    // itself says why (Milkdrop without WebGL falls back, #97)
+    created.then(begin).catch(() => {})
+  } else {
+    begin(created)
+  }
 
   return {
     setPlaying(value) {
@@ -110,6 +127,7 @@ export const runVisual = (
       if (value === currentTheme) return
       currentTheme = value
       renderer?.setTheme?.(value)
+      drawIfSettled()
     },
     stop() {
       if (stopped) return

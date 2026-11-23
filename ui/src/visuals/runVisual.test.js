@@ -143,4 +143,16 @@ describe('runVisual', () => {
     expect(second.draw).not.toHaveBeenCalled()
     expect(second.destroy).toHaveBeenCalled()
   })
+
+  it('shows a new theme even once it has settled after a pause', () => {
+    const { visual, renderer } = fakeVisual()
+    const run = runVisual(canvas(), visual, { analyser, theme: 'dark' })
+    run.setPlaying(false)
+    frames(Math.ceil(SETTLE_MS / 16) + 5)
+    const drawn = renderer.draw.mock.calls.length
+
+    run.setTheme('light')
+    expect(renderer.draw).toHaveBeenCalledTimes(drawn + 1)
+    expect(callbacks.size).toBe(0)
+  })
 })

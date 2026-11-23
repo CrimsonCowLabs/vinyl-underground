@@ -335,6 +335,15 @@ describe('visuals in Now Playing', () => {
       ).toBeInTheDocument()
     })
 
+    it('lets go of the analyser, so a player remount builds nothing', () => {
+      vi.spyOn(audioChain, 'releaseAnalyser')
+      setup({
+        isRadio: true,
+        settings: { visuals: { mode: 'spectrum', warned: true } },
+      })
+      expect(audioChain.releaseAnalyser).toHaveBeenCalled()
+    })
+
     it('joins a chain that is already built', () => {
       audioChain.isBuilt.mockReturnValue(true)
       setup({
@@ -346,9 +355,10 @@ describe('visuals in Now Playing', () => {
   })
 
   it('asks for the analyser again when the chain is rebuilt', () => {
-    let rebuilt
+    const listeners = []
+    const rebuilt = () => listeners.forEach((listener) => listener())
     vi.spyOn(audioChain, 'onChange').mockImplementation((listener) => {
-      rebuilt = listener
+      listeners.push(listener)
       return () => {}
     })
     setup({ settings: { visuals: { mode: 'spectrum', warned: true } } })
