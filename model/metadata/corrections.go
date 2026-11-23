@@ -232,7 +232,7 @@ func (c Corrections) renameArtists(mf *model.MediaFile) {
 		renamed := make(model.ParticipantList, 0, len(list))
 		for _, p := range list {
 			if to := c.resolve(p.Name, &applied); to != p.Name {
-				display = replaceName(display, p.Name, to)
+				display = ReplaceName(display, p.Name, to)
 				p.Name = to
 				p.ID = ArtistID(to)
 				p.OrderArtistName = str.SanitizeFieldForSortingNoArticle(to)
@@ -254,10 +254,11 @@ func (c Corrections) renameArtists(mf *model.MediaFile) {
 	mf.CorrectionIDs = slices.Compact(applied)
 }
 
-// replaceName swaps the name for its new one in a display name, which joins the tagged names.
+// ReplaceName swaps the name for its new one in a display name, which joins the tagged names
+// (e.g. a Track artist "Ann & Bob").
 // A display name of just that Artist (give or take spaces) becomes the new name. Otherwise the
 // name is replaced where it stands whole, so renaming "Ann" leaves "Joanne & Ann"'s Joanne alone.
-func replaceName(display, name, to string) string {
+func ReplaceName(display, name, to string) string {
 	if model.ArtistNameKey(display) == model.ArtistNameKey(name) {
 		return to
 	}

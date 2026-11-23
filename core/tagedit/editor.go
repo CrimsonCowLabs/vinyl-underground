@@ -172,6 +172,13 @@ func (e *Editor) Edit(ctx context.Context, trackID string, edit Values) (*Result
 
 // EditInJob is Edit, as one step of the edit job jobID: its Edit journal entry has the job's ID.
 func (e *Editor) EditInJob(ctx context.Context, jobID, trackID string, edit Values) (*Result, error) {
+	return e.RewriteInJob(ctx, jobID, trackID, func(Values) (Values, error) { return edit, nil })
+}
+
+// RewriteInJob is EditInJob with the edit worked out by rewrite from the File's fields as they
+// are when it is written (read once it is guarded, while no other write can change it): e.g.
+// renaming one of its artists, which leaves the others alone.
+func (e *Editor) RewriteInJob(ctx context.Context, jobID, trackID string, rewrite func(cur Values) (Values, error)) (*Result, error) {
 	writeMu.Lock()
 	defer writeMu.Unlock()
 	// Once started, an edit runs to the end, and its journal entry is closed, even if the admin
@@ -186,6 +193,10 @@ func (e *Editor) EditInJob(ctx context.Context, jobID, trackID string, edit Valu
 		return nil, err
 	}
 	orig, err := e.tagger.Read(f.abs)
+	if err != nil {
+		return nil, err
+	}
+	edit, err := rewrite(valuesOf(orig))
 	if err != nil {
 		return nil, err
 	}

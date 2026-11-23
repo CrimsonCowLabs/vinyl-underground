@@ -12,6 +12,7 @@ import (
 	"github.com/navidrome/navidrome/conf/configtest"
 	"github.com/navidrome/navidrome/core/auth"
 	"github.com/navidrome/navidrome/core/corrections"
+	"github.com/navidrome/navidrome/core/tagedit"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/server"
 	"github.com/navidrome/navidrome/tests"
@@ -30,6 +31,11 @@ type fakeCorrections struct {
 	albums  []string
 	numbers []string
 	fixes   []corrections.AlbumFix
+	// plans are the jobs planned (see PlanAlbumEdit), plan what each answers (nil for one of
+	// "mf-1"), planErr its refusal.
+	plans   []string
+	plan    *corrections.Plan
+	planErr error
 }
 
 func (f *fakeCorrections) GetAll(context.Context) (model.Corrections, error) { return f.all, f.err }
@@ -86,6 +92,7 @@ func (f *fakeCorrections) Undo(_ context.Context, id string) (*corrections.Appli
 var _ = Describe("Corrections API", func() {
 	var svc *fakeCorrections
 	var router http.Handler
+	var nativeRouter *Router
 	var adminToken, userToken string
 
 	BeforeEach(func() {
@@ -93,9 +100,10 @@ var _ = Describe("Corrections API", func() {
 		conf.Server.EnableSharing = false
 		ds := &tests.MockDataStore{}
 		auth.Init(ds)
-		nativeRouter := New(ds, nil, nil, nil, tests.NewMockLibraryService(), tests.NewMockUserService(), nil, nil, nil, nil, nil, nil, nil, nil)
+		nativeRouter = New(ds, nil, nil, nil, tests.NewMockLibraryService(), tests.NewMockUserService(), nil, nil, nil, nil, nil, nil, nil, nil)
 		svc = &fakeCorrections{}
 		nativeRouter.corrections = svc
+		runEditQueue(nativeRouter, ds, fakeWriteKind{})
 		router = server.JWTVerifier(nativeRouter)
 
 		adminUser := model.User{ID: "admin-1", UserName: "admin", IsAdmin: true, NewPassword: "adminpass"}
@@ -136,23 +144,39 @@ var _ = Describe("Corrections API", func() {
 		Expect(got[0]).To(HaveKeyWithValue("trackCount", BeNumerically("==", 0)))
 	})
 
-	It("renames an Artist", func() {
+	It("renames an Artist in its Files, as one job, saving no Correction", func() {
+		svc.plan = fakePlan(corrections.JobArtistRename, "mf-1", "mf-2")
 		w := do("POST", "/correction/artistRename", adminToken, map[string]string{"artistId": "ar-1", "name": "Grateful Dead"})
-		Expect(w.Code).To(Equal(http.StatusOK))
-		Expect(svc.renamed).To(Equal([]string{"ar-1->Grateful Dead"}))
-		var got map[string]any
+		Expect(w.Code).To(Equal(http.StatusOK), w.Body.String())
+		Expect(svc.plans).To(Equal([]string{"rename ar-1->Grateful Dead"}))
+		Expect(svc.renamed).To(BeEmpty())
+		var got struct {
+			JobID    string         `json:"jobId"`
+			Done     bool           `json:"done"`
+			ArtistID string         `json:"artistId"`
+			Job      *model.EditJob `json:"job"`
+		}
 		Expect(json.Unmarshal(w.Body.Bytes(), &got)).To(Succeed())
-		Expect(got).To(HaveKeyWithValue("artistId", "new-id"))
-		Expect(got).To(HaveKeyWithValue("done", true))
+		Expect(got.Done).To(BeTrue())
+		Expect(got.ArtistID).To(Equal("new-artist"))
+		Expect(got.Job.Kind).To(Equal(corrections.JobArtistRename))
+		Expect(got.Job.Total).To(Equal(2))
+		Expect(got.Job.Skipped).To(BeZero())
 	})
 
-	It("merges an Artist into another", func() {
+	It("merges an Artist into another in its Files, and lists the Files it skipped", func() {
+		svc.plan = fakePlan(corrections.JobArtistMerge, "mf-1", "skip-2")
 		w := do("POST", "/correction/artistMerge", adminToken, map[string]string{"artistId": "ar-1", "intoId": "ar-2"})
-		Expect(w.Code).To(Equal(http.StatusOK))
-		Expect(svc.merged).To(Equal([]string{"ar-1->ar-2"}))
-		var got map[string]any
+		Expect(w.Code).To(Equal(http.StatusOK), w.Body.String())
+		Expect(svc.plans).To(Equal([]string{"merge ar-1->ar-2"}))
+		Expect(svc.merged).To(BeEmpty())
+		var got struct {
+			Job *model.EditJob `json:"job"`
+		}
 		Expect(json.Unmarshal(w.Body.Bytes(), &got)).To(Succeed())
-		Expect(got).To(HaveKeyWithValue("artistId", "ar-2"))
+		Expect(got.Job.Skipped).To(Equal(1))
+		Expect(got.Job.Steps).To(HaveLen(1))
+		Expect(got.Job.Steps[0].Code).To(Equal("changedOnDisk"))
 	})
 
 	It("refuses an undo a later Correction builds on", func() {
@@ -170,17 +194,26 @@ var _ = Describe("Corrections API", func() {
 
 	DescribeTable("answers each failure with a status and a code the UI can show",
 		func(err error, status int, code string) {
-			svc.err = err
+			svc.planErr = err
 			w := do("POST", "/correction/artistRename", adminToken, map[string]string{"artistId": "ar-1", "name": "X"})
 			Expect(w.Code).To(Equal(status))
 			Expect(errorCode(w)).To(Equal(code))
 		},
 		Entry("existing Artist", corrections.ErrArtistExists, http.StatusConflict, "artistExists"),
 		Entry("renamed away", corrections.ErrRenamedAway, http.StatusBadRequest, "renamedAway"),
-		Entry("already corrected", model.ErrAlreadyExists, http.StatusConflict, "alreadyCorrected"),
 		Entry("invalid name", model.ErrValidation, http.StatusBadRequest, "invalid"),
 		Entry("unknown Artist", model.ErrNotFound, http.StatusNotFound, "notFound"),
+		Entry("a library editing is off for", tagedit.ErrEditingOff, http.StatusForbidden, "editingOff"),
+		Entry("a File that can't be edited", tagedit.ErrUnsupportedFormat, http.StatusUnprocessableEntity, "unsupportedFormat"),
 	)
+
+	It("answers editingOff with no edit job queue (editing off at startup)", func() {
+		nativeRouter.SetEditQueue(nil)
+		w := do("POST", "/correction/artistMerge", adminToken, map[string]string{"artistId": "ar-1", "intoId": "ar-2"})
+		Expect(w.Code).To(Equal(http.StatusForbidden))
+		Expect(errorCode(w)).To(Equal("editingOff"))
+		Expect(svc.plans).To(BeEmpty())
+	})
 
 	It("denies access to regular users", func() {
 		Expect(do("GET", "/correction", userToken, nil).Code).To(Equal(http.StatusForbidden))
@@ -189,8 +222,7 @@ var _ = Describe("Corrections API", func() {
 		Expect(do("POST", "/correction/artistMerge", userToken, map[string]string{"artistId": "ar-1", "intoId": "ar-2"}).Code).
 			To(Equal(http.StatusForbidden))
 		Expect(do("POST", "/correction/c1/undo", userToken, nil).Code).To(Equal(http.StatusForbidden))
-		Expect(svc.renamed).To(BeEmpty())
-		Expect(svc.merged).To(BeEmpty())
+		Expect(svc.plans).To(BeEmpty())
 		Expect(svc.undone).To(BeEmpty())
 	})
 })

@@ -15,6 +15,8 @@ type MockEditJobRepo struct {
 	mu    sync.Mutex
 	jobs  []model.EditJob
 	steps []model.EditJobStep
+	// AnnotationMoves are the artist annotation moves asked of it, e.g. "merge job-1 a b".
+	AnnotationMoves []string
 	// FailPut, when set, can fail a Put of the job.
 	FailPut func(*model.EditJob) error
 }
@@ -115,4 +117,25 @@ func (m *MockEditJobRepo) Steps(jobID string, states ...model.EditStepState) (mo
 	}
 	slices.SortStableFunc(res, func(a, b model.EditJobStep) int { return cmp.Compare(a.Position, b.Position) })
 	return res, nil
+}
+
+func (m *MockEditJobRepo) KeepArtistAnnotations(jobID, fromID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.AnnotationMoves = append(m.AnnotationMoves, "keep "+jobID+" "+fromID)
+	return nil
+}
+
+func (m *MockEditJobRepo) MergeArtistAnnotations(jobID, fromID, toID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.AnnotationMoves = append(m.AnnotationMoves, "merge "+jobID+" "+fromID+" "+toID)
+	return nil
+}
+
+func (m *MockEditJobRepo) SplitArtistAnnotations(jobID, fromID, toID string, all bool) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.AnnotationMoves = append(m.AnnotationMoves, "split "+jobID+" "+fromID+" "+toID+" "+strconv.FormatBool(all))
+	return nil
 }

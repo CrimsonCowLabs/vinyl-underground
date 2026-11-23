@@ -29,7 +29,7 @@ func (f *fakeCorrections) CorrectTrackNumbers(_ context.Context, albumID string,
 	return &corrections.Applied{Correction: model.Correction{ID: "c4"}, AlbumID: albumID, Done: true}, nil
 }
 
-var _ = Describe("Track numbers Correction API", func() {
+var _ = Describe("Track order API", func() {
 	var svc *fakeCorrections
 	var router http.Handler
 	var adminToken, userToken string
@@ -44,7 +44,10 @@ var _ = Describe("Track numbers Correction API", func() {
 		nativeRouter := New(ds, nil, nil, nil, tests.NewMockLibraryService(), tests.NewMockUserService(), nil, nil, nil, nil, nil, nil, nil, nil)
 		svc = &fakeCorrections{}
 		nativeRouter.corrections = svc
+		runEditQueue(nativeRouter, ds, fakeWriteKind{})
 		router = server.JWTVerifier(nativeRouter)
+		ds.MediaFile(context.TODO()).(*tests.MockMediaFileRepo).SetData(model.MediaFiles{
+			{ID: "mf-1", AlbumID: "al-1"}, {ID: "mf-2", AlbumID: "al-1"}})
 
 		adminUser := model.User{ID: "admin-1", UserName: "admin", IsAdmin: true, NewPassword: "adminpass"}
 		regularUser := model.User{ID: "user-1", UserName: "regular", IsAdmin: false, NewPassword: "userpass"}
@@ -65,27 +68,34 @@ var _ = Describe("Track numbers Correction API", func() {
 		return w
 	}
 
-	It("corrects the album's Tracks' numbers together", func() {
+	It("writes the Tracks' disc and track numbers into their Files, as one job", func() {
+		svc.plan = fakePlan(corrections.JobTrackNumbers, "mf-1", "mf-2")
 		w := post(adminToken, body)
-		Expect(w.Code).To(Equal(http.StatusOK))
-		Expect(svc.numbers).To(Equal([]string{"al-1/mf-1->1-2", "al-1/mf-2->2-1"}))
-		var got map[string]any
+		Expect(w.Code).To(Equal(http.StatusOK), w.Body.String())
+		Expect(svc.plans).To(Equal([]string{"album al-1 mf-1 mf-2"}))
+		Expect(svc.numbers).To(BeEmpty())
+		var got struct {
+			Done    bool           `json:"done"`
+			AlbumID string         `json:"albumId"`
+			Job     *model.EditJob `json:"job"`
+		}
 		Expect(json.Unmarshal(w.Body.Bytes(), &got)).To(Succeed())
-		Expect(got).To(HaveKeyWithValue("albumId", "al-1"))
-		Expect(got).To(HaveKeyWithValue("done", true))
+		Expect(got.Done).To(BeTrue())
+		Expect(got.AlbumID).To(Equal("al-1"))
+		Expect(got.Job.Kind).To(Equal(corrections.JobTrackNumbers))
 	})
 
-	It("refuses an album sharing its folder with another album", func() {
-		svc.err = corrections.ErrSharedFolder
+	It("refuses numbers that are no numbers", func() {
+		svc.planErr = model.ErrValidation
 		w := post(adminToken, body)
 		Expect(w.Code).To(Equal(http.StatusBadRequest))
 		var res struct{ Error string }
 		Expect(json.Unmarshal(w.Body.Bytes(), &res)).To(Succeed())
-		Expect(res.Error).To(Equal("sharedFolder"))
+		Expect(res.Error).To(Equal("invalid"))
 	})
 
 	It("denies access to regular users", func() {
 		Expect(post(userToken, body).Code).To(Equal(http.StatusForbidden))
-		Expect(svc.numbers).To(BeEmpty())
+		Expect(svc.plans).To(BeEmpty())
 	})
 })
