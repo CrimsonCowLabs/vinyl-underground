@@ -8,17 +8,14 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/Masterminds/squirrel"
 	"github.com/navidrome/navidrome/core/editjob"
-	"github.com/navidrome/navidrome/core/refresh"
 	"github.com/navidrome/navidrome/core/tagedit"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/model/metadata"
 	"github.com/navidrome/navidrome/persistence"
-	"github.com/navidrome/navidrome/scanner"
 )
 
 // The album Edit dialog, Track order and artist rename and merge write their fixes into the
@@ -58,8 +55,7 @@ type Plan struct {
 
 // writeArgs are the Args of a job of the kinds above.
 type writeArgs struct {
-	// Folders are the album's folders, which key its Corrections, or the folders whose Tracks the
-	// Corrections an artist job removed applied to: rescanned once they are removed or put back.
+	// Folders are the album's folders, which key its Corrections.
 	Folders []string `json:"folders,omitempty"`
 	// Name, AlbumArtist and Year say which of the album's values the job wrote into its Files.
 	Name        bool `json:"name,omitempty"`
@@ -77,9 +73,8 @@ type writeArgs struct {
 	Merge  bool     `json:"merge,omitempty"`
 
 	// Restore are the Corrections as they were before the job removed (or trimmed) them, which
-	// undoing it puts back. Rescan is set while Folders are still to be rescanned after that.
+	// undoing it puts back.
 	Restore []savedCorrection `json:"restore,omitempty"`
-	Rescan  bool              `json:"rescan,omitempty"`
 }
 
 type fileRef struct {
@@ -334,10 +329,17 @@ func (c *corrections) planArtist(ctx context.Context, ar *model.Artist, name str
 			names, keys[cr.MatchKey], added = append(names, cr.From), true, true
 		}
 	}
+	// The folders of the albums whose album Corrections (not yet migrated, #165) set the Artist.
 	albumArtistFixes := map[string]bool{}
 	for _, cr := range all {
 		if cr.Kind == model.CorrectionAlbum && !cr.Undoing && cr.AlbumArtist != "" && keys[model.ArtistNameKey(cr.AlbumArtist)] {
-			albumArtistFixes[cr.ID] = true
+			folders, err := c.ds.Correction(ctx).AlbumFolderIDs(cr.MatchKey)
+			if err != nil {
+				return nil, err
+			}
+			for _, f := range folders {
+				albumArtistFixes[f] = true
+			}
 		}
 	}
 
@@ -358,7 +360,7 @@ func (c *corrections) planArtist(ctx context.Context, ar *model.Artist, name str
 	}
 	for _, mf := range tracks {
 		r := rename
-		if slices.ContainsFunc(mf.CorrectionIDs, func(id string) bool { return albumArtistFixes[id] }) {
+		if albumArtistFixes[mf.FolderID] {
 			r.Set = tagedit.Values{"albumartist": {name}}
 			r.Drop = map[string][]string{"albumartist": newAlbumArtistDrops}
 		}
@@ -372,23 +374,21 @@ func (c *corrections) planArtist(ctx context.Context, ar *model.Artist, name str
 	return plan, nil
 }
 
-// JobKinds are the job kinds above, for the edit job queue (editjob.Queue.Handle). The scanner
-// rescans the folders whose Corrections a job removes, or its undo puts back.
-func JobKinds(ds model.DataStore, s tagedit.Scanner) map[model.EditKind]editjob.JobKind {
-	w := writeKind{ds: ds, scanner: s, scanAttempts: 60, scanRetryDelay: time.Second}
+// JobKinds are the job kinds above, and the Correction migration's (JobMigrate), for the edit job
+// queue (editjob.Queue.Handle).
+func JobKinds(ds model.DataStore) map[model.EditKind]editjob.JobKind {
+	w := writeKind{ds: ds}
 	return map[model.EditKind]editjob.JobKind{
 		JobAlbumEdit:    albumKind{w},
 		JobTrackNumbers: albumKind{w},
 		JobArtistRename: artistKind{w},
 		JobArtistMerge:  artistKind{w},
+		JobMigrate:      migrateKind{ds: ds},
 	}
 }
 
 type writeKind struct {
-	ds             model.DataStore
-	scanner        tagedit.Scanner
-	scanAttempts   int
-	scanRetryDelay time.Duration
+	ds model.DataStore
 }
 
 // written returns the Files a job's steps left holding what they write: written, or unchanged.
@@ -408,48 +408,17 @@ func anySkipped(steps model.EditJobSteps) bool {
 	return slices.ContainsFunc(steps, func(s model.EditJobStep) bool { return s.State == model.EditStepSkipped })
 }
 
-// change changes Corrections in a transaction (edit, which returns whether it changed any),
-// keeps what it noted in the job's Args with them, then rescans the folders noted.
+// change changes Corrections in a transaction (edit, which returns whether it changed any), and
+// keeps what it noted in the job's Args with them. Nothing applies a Correction on read any more
+// (#165), so nothing is rescanned.
 func (w writeKind) change(ctx context.Context, job *model.EditJob, a *writeArgs, edit func(tx model.DataStore) (bool, error)) error {
-	err := w.ds.WithTx(func(tx model.DataStore) error {
-		changed, err := edit(tx)
-		if err != nil {
+	return w.ds.WithTx(func(tx model.DataStore) error {
+		if _, err := edit(tx); err != nil {
 			return err
-		}
-		if changed {
-			a.Rescan = true
 		}
 		job.Args = a.String()
 		return tx.EditJob(ctx).Put(job)
 	})
-	if err != nil || !a.Rescan {
-		return err
-	}
-	if err := w.rescan(ctx, a.Folders); err != nil {
-		return err
-	}
-	a.Rescan = false
-	job.Args = a.String()
-	return w.ds.EditJob(ctx).Put(job)
-}
-
-// rescan fully rescans the folders, so the Corrections removed or put back apply as they now are
-// (a Correction changes no File, so only a full scan reads them again).
-func (w writeKind) rescan(ctx context.Context, folderIDs []string) error {
-	targets, err := refresh.FolderTargets(ctx, w.ds, folderIDs)
-	if err != nil || len(targets) == 0 || w.scanner == nil {
-		return err
-	}
-	log.Info(ctx, "Corrections: rescanning after removing or putting back Corrections", "folders", len(targets))
-	for i := range max(w.scanAttempts, 1) {
-		if i > 0 {
-			time.Sleep(w.scanRetryDelay)
-		}
-		if _, err = w.scanner.ScanFolders(ctx, true, targets); !errors.Is(err, scanner.ErrAlreadyScanning) {
-			return err
-		}
-	}
-	return err
 }
 
 // restore puts back the Corrections a job removed, in place of what is there now.
@@ -477,11 +446,7 @@ func (w writeKind) Undone(ctx context.Context, job *model.EditJob, steps model.E
 		return err
 	}
 	if len(a.Restore) == 0 {
-		if !a.Rescan {
-			return nil
-		}
-		// Put back already, but the rescan after it failed: it is tried again.
-		return w.change(ctx, job, &a, func(model.DataStore) (bool, error) { return false, nil })
+		return nil
 	}
 	saved := a.Restore
 	a.Restore = nil
@@ -504,7 +469,7 @@ func (k albumKind) Done(ctx context.Context, job *model.EditJob, steps model.Edi
 		return err
 	}
 	ok := written(steps)
-	if len(ok) == 0 && !a.Rescan {
+	if len(ok) == 0 {
 		return nil
 	}
 	return k.change(ctx, job, &a, func(tx model.DataStore) (bool, error) {
@@ -628,7 +593,7 @@ func (k artistKind) Done(ctx context.Context, job *model.EditJob, steps model.Ed
 	if err != nil {
 		return err
 	}
-	if len(written(steps)) == 0 && !a.Rescan {
+	if len(written(steps)) == 0 {
 		return nil
 	}
 	keys := map[string]bool{}
@@ -653,24 +618,14 @@ func (k artistKind) Done(ctx context.Context, job *model.EditJob, steps model.Ed
 				continue
 			}
 			switch {
-			// An artist merge Correction keeps the stars and ratings it merged, for its own undo
-			// on the Corrections page; once the Files no longer hold its name it applies to
-			// nothing (and #165 retires it), so it is left.
+			// An artist merge Correction keeps the stars and ratings it merged; once the Files
+			// no longer hold its name it applies to nothing, and the Correction migration (#165)
+			// removes it, keeping them for its own undo.
 			case cr.Kind == model.CorrectionArtistRename && keys[cr.MatchKey]:
-				folders, err := repo.FolderIDs(cr.ID)
-				if err != nil {
-					return false, err
-				}
-				a.Folders = append(a.Folders, folders...)
 				if err := repo.Delete(cr.ID); err != nil {
 					return false, err
 				}
 			case cr.Kind == model.CorrectionAlbum && cr.AlbumArtist != "" && keys[model.ArtistNameKey(cr.AlbumArtist)]:
-				folders, err := repo.AlbumFolderIDs(cr.MatchKey)
-				if err != nil {
-					return false, err
-				}
-				a.Folders = append(a.Folders, folders...)
 				trimmed := cr
 				trimmed.AlbumArtist = ""
 				trimmed.To = trimmedAlbumLabel(cr, trimmed)
@@ -686,8 +641,6 @@ func (k artistKind) Done(ctx context.Context, job *model.EditJob, steps model.Ed
 		if len(saved) == 0 {
 			return false, nil
 		}
-		slices.Sort(a.Folders)
-		a.Folders = slices.Compact(a.Folders)
 		log.Info(ctx, "Corrections: removed the Corrections an artist rename job made stale", "job", job.ID, "corrections", len(saved))
 		a.Restore = saved
 		return true, nil

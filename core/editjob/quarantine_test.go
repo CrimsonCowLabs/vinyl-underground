@@ -51,7 +51,10 @@ var _ = Describe("Quarantine jobs", func() {
 		DeferCleanup(func() { core.SetLibraryEditing(core.LibraryEditing{}) })
 		for i, p := range paths {
 			write(p, "song")
-			mf := model.MediaFile{ID: "track-" + string(rune('1'+i)), LibraryID: 1, Path: p, Suffix: "mp3", Participants: model.Participants{}}
+			info, err := os.Stat(abs(p))
+			Expect(err).ToNot(HaveOccurred())
+			mf := model.MediaFile{ID: "track-" + string(rune('1'+i)), LibraryID: 1, Path: p, Suffix: "mp3", Participants: model.Participants{},
+				Size: info.Size(), UpdatedAt: info.ModTime()}
 			Expect(ds.MediaFile(ctx).Put(&mf)).To(Succeed())
 		}
 		editor = tagedit.New(ds, nil)
@@ -105,7 +108,7 @@ var _ = Describe("Quarantine jobs", func() {
 		write("_Quarantine/Band/Record/01 one.mp3", "earlier")
 		job := quarantineJob()
 		Expect(job.Skipped).To(Equal(1))
-		Expect(job.Steps[0].Code).To(Equal("taken"))
+		Expect(job.Steps[0].Code).To(Equal("pathTaken"))
 		Expect(abs(paths[0])).To(BeARegularFile())
 		Expect(abs("_Quarantine/" + paths[1])).To(BeARegularFile())
 	})
@@ -154,7 +157,9 @@ var _ = Describe("Quarantine jobs", func() {
 			Expect(err).ToNot(HaveOccurred())
 			job = run(job)
 			Expect(job.Skipped).To(Equal(0))
-			Expect(job.Steps[0].MediaFileID).To(Equal(moved[0].MediaFileID), "a restart finds its entry by the Track")
+			mf, err := ds.MediaFile(ctx).Get(moved[0].MediaFileID)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(mf.Quarantined).To(BeFalse(), "its Track comes back with it")
 			Expect(abs(moved[0].Path)).To(BeARegularFile())
 		})
 

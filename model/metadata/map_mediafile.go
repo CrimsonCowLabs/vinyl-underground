@@ -14,35 +14,13 @@ import (
 	"github.com/navidrome/navidrome/utils/str"
 )
 
-// ToMediaFile maps the File's tags to a Track, as tagged.
+// ToMediaFile maps the File's tags to a Track, as tagged: a File's tags are the only source of
+// truth (the Corrections once applied on read are written into the Files, #165).
 func (md Metadata) ToMediaFile(libID int, folderID string) model.MediaFile {
-	return md.ToCorrectedMediaFile(libID, folderID, Corrections{})
-}
-
-// ToCorrectedMediaFile maps the File's tags to a Track, with the Corrections applied. The Track's
-// persistent ID comes from the tags as tagged, so a Correction never makes it a different Track.
-func (md Metadata) ToCorrectedMediaFile(libID int, folderID string, corrections Corrections) model.MediaFile {
 	mf := md.mapMediaFile(libID, folderID)
 
-	// Persistent IDs: the Track's from the tags as tagged, the album's from the corrected ones, so
-	// a renamed album artist's albums join any the new name already has. An album Correction
-	// corrects the tags themselves, before the artist renames, which then apply to the album
-	// artist it sets rather than to the tagged one: the album Correction wins. Track and disc
-	// numbers are corrected the same way, by File (they are in the Track's persistent ID too).
+	// Persistent IDs
 	mf.PID = md.trackPID(mf)
-	var applied []string
-	if corrected, id, ok := corrections.correctAlbum(md, folderID); ok {
-		md, applied = corrected, append(applied, id)
-	}
-	if corrected, id, ok := corrections.correctTrackNumbers(md, libID); ok {
-		md, applied = corrected, append(applied, id)
-	}
-	if len(applied) > 0 {
-		pid := mf.PID
-		mf = md.mapMediaFile(libID, folderID)
-		mf.PID, mf.CorrectionIDs = pid, applied
-	}
-	corrections.renameArtists(&mf)
 	mf.AlbumID = md.albumID(mf, conf.Server.PID.Album)
 
 	// BFR These IDs will go away once the UI handle multiple participants.

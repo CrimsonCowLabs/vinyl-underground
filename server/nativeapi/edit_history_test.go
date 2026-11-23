@@ -259,6 +259,8 @@ var _ = Describe("/api/editHistory", func() {
 		Expect(got[1].JobID).To(Equal("batch"))
 		Expect(got[1].JobSize).To(Equal(2))
 		Expect(got[2].JobSize).To(Equal(2))
+		Expect(got[1].JobKind).To(BeEmpty(), "a job with no row in the queue")
+		Expect(got[0].JobKind).To(Equal(model.EditTags))
 	})
 
 	Describe("undoing a whole job", func() {

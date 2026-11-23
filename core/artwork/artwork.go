@@ -294,7 +294,7 @@ func (s *service) serveMediaFile(ctx context.Context, artID model.ArtworkID, siz
 	return s.Get(ctx, mf.DiscCoverArtID(), size, square)
 }
 
-// provisionalTrack serves a Track's own art (its album's choice, else its embedded art)
+// provisionalTrack serves a Track's own art (its album's picked release's cover, else its embedded art)
 // immediately, leaving the state row to the worker.
 func (s *service) provisionalTrack(ctx context.Context, artID model.ArtworkID, mf model.MediaFile, size int, square bool) (*Image, error) {
 	res, err := newLocalResolver(s.ds, s.ffmpeg).resolveTrack(ctx, mf)
@@ -322,7 +322,7 @@ func (s *service) serveDisc(ctx context.Context, artID model.ArtworkID, size int
 	}
 	albumArtID := model.ArtworkID{Kind: model.KindAlbumArtwork, ID: dr.album.ID}
 	// Disc art has no state row, hence no content hash: keying on id, album mtime, DiscArtPriority
-	// and the album's chosen and blocked images lets a warm cache answer without running the chain
+	// and the album's picked and blocked images lets a warm cache answer without running the chain
 	// or touching the disk.
 	key := fmt.Sprintf("%s|%d|%s|%s", artID.ID, dr.cacheTime().UnixNano(), conf.Server.DiscArtPriority, dr.covers.key())
 	img, err := s.serveSource(ctx, key, "", dr.cacheTime(), size, square, selectImage)

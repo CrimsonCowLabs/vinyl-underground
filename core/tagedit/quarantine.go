@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io/fs"
 	"path"
-	"path/filepath"
 	"strings"
 
 	"github.com/Masterminds/squirrel"
@@ -18,16 +17,20 @@ import (
 	"github.com/navidrome/navidrome/model/request"
 )
 
-// Quarantine moves (#168, ADR-0011). A File sent to Quarantine is moved, by one rename, to the
-// same path beneath the Quarantine folder (quarantine.Target: folders differing only in letter
-// case are reused, and a File already there is never overwritten), journaled as an
-// EditQuarantine entry first, so a restart settles it and an undo moves it back. Its Track's row
-// stays, missing and quarantined, so the File's return to its path (an undo, or a restore) brings
-// back the same Track, with its favorites, Playlist entries and plays. Only Empty Quarantine
-// (EmptyInJob) deletes Files.
-//
-// This is the minimal move Quarantine needs. Organize (#167) brings the general journaled move of
-// a File within the Library (core/safefile); once it is in, these moves should go through it.
+// Quarantine moves (#168, ADR-0011). A File sent to Quarantine goes to the same path beneath the
+// Quarantine folder by the Library's one move (MoveInJob, safefile.Move: a server-side rename
+// that never replaces a File, in any letter case, reusing folders that differ only in letter
+// case), journaled as an EditQuarantine entry, so a restart settles it (settleMove) and an undo
+// moves it back (undoMove). The move leaves the Track's row where it is (RegisterMoveKind's
+// relocate false): the row stays, missing and quarantined, so the File's return to its path (an
+// undo, or a restore) brings back the same Track, with its favorites, Playlist entries and plays.
+// Only Empty Quarantine (EmptyInJob) deletes Files.
+
+func init() {
+	RegisterMoveKind(model.EditQuarantine, false)
+	// Its undo is a move's, with the Track marked in or out of Quarantine around it.
+	undoers[model.EditQuarantine] = (*Editor).undoQuarantine
+}
 
 var (
 	// ErrInQuarantine is a Track whose File is in Quarantine already.
@@ -36,16 +39,13 @@ var (
 	ErrNotInQuarantine = errors.New("this File isn't in Quarantine")
 	// ErrDeletedForGood is an undo of a move into Quarantine whose File Empty Quarantine deleted.
 	ErrDeletedForGood = errors.New("this File was deleted for good, by Empty Quarantine")
-	// ErrMoveUnsettled is a move after which the File was found in neither place, or in both: the
-	// entry stays pending, and the next start settles it.
-	ErrMoveUnsettled = errors.New("the move could not be checked; the next start settles it")
 )
 
 // QuarantineInJob moves the File of the Track trackID into Quarantine, as part of the edit job
 // jobID, and the Track leaves the Library (missing, and quarantined, so its row is kept). It is
-// refused while the Track's library is read-only (ErrEditingOff), when its File isn't there
-// (ErrChangedOnDisk), when it is in Quarantine already (ErrInQuarantine), and when a File is at
-// its place in Quarantine already (quarantine.ErrTaken).
+// refused while the Track's library is read-only (ErrEditingOff), when its File changed on disk
+// or isn't there (ErrChangedOnDisk), when it is in Quarantine already (ErrInQuarantine), and when
+// a File is at its place in Quarantine already, in any letter case (safefile.ErrDestTaken).
 func (e *Editor) QuarantineInJob(ctx context.Context, jobID, trackID string) (*Result, error) {
 	writeMu.Lock()
 	defer writeMu.Unlock()
@@ -55,7 +55,12 @@ func (e *Editor) QuarantineInJob(ctx context.Context, jobID, trackID string) (*R
 	if err != nil {
 		return nil, err
 	}
-	return e.move(ctx, jobID, lib, mf.ID, mf.Path, quarantine.Into(mf.Path), "")
+	// The scanner is kept out of Quarantine before any File goes there.
+	if _, err := quarantine.Ensure(e.fsys, lib.Path); err != nil {
+		return nil, err
+	}
+	m := Move{LibraryID: lib.ID, TrackID: mf.ID, Path: mf.Path, NewPath: quarantine.Into(mf.Path), Kind: model.EditQuarantine}
+	return e.quarantineMove(ctx, func() (*Result, error) { return e.move(ctx, jobID, m, "", nil) }, mf.ID, true)
 }
 
 // CheckQuarantine is the refusal a Track's move into Quarantine meets before its File is looked
@@ -98,11 +103,10 @@ func (e *Editor) RestoreInJob(ctx context.Context, jobID string, libID int, rel 
 	if err != nil {
 		return nil, err
 	}
-	lib, err := e.ds.Library(ctx).Get(libID)
-	if err != nil {
-		return nil, err
-	}
-	return e.move(ctx, jobID, lib, trackID, rel, quarantine.Original(rel), "")
+	// The move names no Track: the Track's row is at the File's old path, not at rel, and stays
+	// there for the File to come back to. The step is told by its path, in its library.
+	m := Move{LibraryID: libID, Path: rel, NewPath: quarantine.Original(rel), Kind: model.EditQuarantine}
+	return e.quarantineMove(ctx, func() (*Result, error) { return e.move(ctx, jobID, m, "", nil) }, trackID, false)
 }
 
 // CheckRestore is the refusal a restore of the File at rel in Quarantine meets before the File is
@@ -123,8 +127,9 @@ func (e *Editor) CheckRestore(ctx context.Context, libID int, rel string) (strin
 	return mfs[0].ID, nil
 }
 
-// undoQuarantine undoes a move into or out of Quarantine (see undoers): the File goes back from
-// NewPath to Path, as a move of its own, journaled with UndoOf.
+// undoQuarantine undoes a move into or out of Quarantine (see undoers): undoMove moves the File
+// from NewPath back to Path, journaled with UndoOf, and the Track is marked in or out of
+// Quarantine around it.
 func (e *Editor) undoQuarantine(ctx context.Context, jobID string, entry *model.EditEntry) (*Result, error) {
 	err := e.checkLater(ctx, entry, func(l model.EditEntry) error {
 		if l.Kind == model.EditDelete {
@@ -135,147 +140,109 @@ func (e *Editor) undoQuarantine(ctx context.Context, jobID string, entry *model.
 	if err != nil {
 		return nil, err
 	}
-	if !writable(entry.LibraryID) {
-		return nil, ErrEditingOff
-	}
-	lib, err := e.ds.Library(ctx).Get(entry.LibraryID)
-	if err != nil {
-		return nil, err
-	}
-	return e.move(ctx, jobID, lib, entry.MediaFileID, entry.NewPath, entry.Path, entry.ID)
-}
-
-// move moves the File at from to to (both relative to the library lib), journaled: the target is
-// planned first (quarantine.Target), the entry recorded pending, then the File renamed and the
-// move checked by listing both folders. Into Quarantine, its folder (with its .ndignore) is made
-// first, so the scanner never sees the File there.
-func (e *Editor) move(ctx context.Context, jobID string, lib *model.Library, trackID, from, to, undoOf string) (*Result, error) {
-	if !quarantine.Present(e.fsys, lib.Path, from) {
-		return nil, fmt.Errorf("%w: the File isn't at %s", ErrChangedOnDisk, from)
-	}
-	if quarantine.Within(to) {
+	into := quarantine.Within(entry.Path)
+	if into {
+		lib, err := e.ds.Library(ctx).Get(entry.LibraryID)
+		if err != nil {
+			return nil, err
+		}
 		if _, err := quarantine.Ensure(e.fsys, lib.Path); err != nil {
 			return nil, err
 		}
 	}
-	target, err := quarantine.Target(e.fsys, lib.Path, to)
-	if err != nil {
-		return nil, err
-	}
-	entry := &model.EditEntry{JobID: jobID, Kind: model.EditQuarantine, State: model.EditPending,
-		LibraryID: lib.ID, MediaFileID: trackID, Path: from, NewPath: target, UndoOf: undoOf}
-	if u, ok := request.UserFrom(ctx); ok {
-		entry.UserID = u.ID
-	}
-	if err := e.ds.EditJournal(ctx).Put(entry); err != nil {
-		return nil, fmt.Errorf("recording the move in the Edit journal: %w", err)
-	}
-	// The Track is marked before its File goes, so no scan in between takes it for an ordinary
-	// missing Track, which the Missing files page and PurgeMissing delete.
-	into := quarantine.Within(target)
-	if into && trackID != "" {
-		if err := e.ds.MediaFile(ctx).MarkQuarantined(true, trackID); err != nil {
-			err = fmt.Errorf("marking the Track as in Quarantine: %w", err)
-			e.close(ctx, entry, false, err)
-			return nil, err
+	trackID := entry.MediaFileID
+	if trackID == "" {
+		// A restore of a File the recipes moved: its Track is the row at where it went.
+		if mfs, err := e.ds.MediaFile(ctx).GetAll(model.QueryOptions{Max: 1, Filters: squirrel.Eq{
+			"media_file.library_id": entry.LibraryID, "media_file.path": entry.NewPath}}); err == nil && len(mfs) > 0 {
+			trackID = mfs[0].ID
 		}
 	}
+	return e.quarantineMove(ctx, func() (*Result, error) { return e.undoMove(ctx, jobID, entry) }, trackID, into)
+}
 
-	err = quarantine.MkdirAll(e.fsys, lib.Path, path.Dir(target))
-	if err == nil {
-		err = e.fsys.Rename(e.abs(lib, from), e.abs(lib, target))
+// quarantineMove runs a move into Quarantine (into) or out of it, of the Track trackID's File
+// (if it has one), and brings the Track up to date. Into Quarantine, the Track is marked before
+// its File goes, so no scan in between takes it for an ordinary missing Track, which the Missing
+// files page and PurgeMissing delete; the mark is taken off again if the File stays.
+func (e *Editor) quarantineMove(ctx context.Context, move func() (*Result, error), trackID string, into bool) (*Result, error) {
+	repo := e.ds.MediaFile(ctx)
+	if into && trackID != "" {
+		if err := repo.MarkQuarantined(true, trackID); err != nil {
+			return nil, fmt.Errorf("marking the Track as in Quarantine: %w", err)
+		}
 	}
-	written, known := e.moved(lib, entry)
-	switch {
-	case !known:
-		entry.Error = fmt.Sprintf("%v (%v)", ErrMoveUnsettled, err)
-		_ = e.ds.EditJournal(ctx).Put(entry)
-		log.Error(ctx, "A move into or out of Quarantine could not be checked; the next start settles it", "from", from, "to", target, err)
-		return nil, ErrMoveUnsettled
-	case !written:
-		err = fmt.Errorf("moving the File: %w", errors.Join(err, errors.New("the File was left where it was")))
-		e.close(ctx, entry, false, err)
-		if into && trackID != "" {
-			if merr := e.ds.MediaFile(ctx).MarkQuarantined(false, trackID); merr != nil {
+	res, err := move()
+	if err != nil {
+		if into && trackID != "" && !errors.Is(err, safefile.ErrUnrecorded) {
+			if merr := repo.MarkQuarantined(false, trackID); merr != nil {
 				log.Error(ctx, "Could not take a Track whose File stayed put back out of Quarantine", "id", trackID, merr)
 			}
 		}
-		log.Warn(ctx, "Could not move a File into or out of Quarantine", "from", from, "to", target, err)
 		return nil, err
 	}
-	e.close(ctx, entry, true, nil)
-	log.Info(ctx, "Moved a File", "from", from, "to", target, "quarantine", quarantine.Within(target))
-	return e.moveDone(ctx, lib, entry), nil
-}
-
-// moved tells, by listing both folders, whether the move of entry happened (the File is at
-// NewPath, and not at Path) or not (the other way round); known is false when it is in both
-// places, or neither.
-func (e *Editor) moved(lib *model.Library, entry *model.EditEntry) (written, known bool) {
-	at, to := quarantine.Present(e.fsys, lib.Path, entry.Path), quarantine.Present(e.fsys, lib.Path, entry.NewPath)
-	return to, at != to
-}
-
-// moveDone brings the Track of a written move up to date: into Quarantine it leaves the Library
-// (missing and quarantined, its row kept); out of it, it is no longer quarantined, and the scan
-// of the File's folder finds it again on the same row, matched by its path.
-func (e *Editor) moveDone(ctx context.Context, lib *model.Library, entry *model.EditEntry) *Result {
-	into := quarantine.Within(entry.NewPath)
-	res := &Result{Changed: true, Entry: entry.ID}
-	if entry.MediaFileID != "" {
-		repo := e.ds.MediaFile(ctx)
-		err := repo.MarkQuarantined(into, entry.MediaFileID)
-		if err == nil && into {
-			// It leaves the Library now, whether or not the scan below gets to run.
-			err = repo.MarkMissing(true, &model.MediaFile{ID: entry.MediaFileID})
-		}
-		if err != nil {
-			log.Error(ctx, "Could not mark a Track in or out of Quarantine", "id", entry.MediaFileID, err)
-		}
+	if trackID == "" || !res.Changed {
+		return res, nil
+	}
+	entry, err := e.ds.EditJournal(ctx).Get(res.Entry)
+	if err != nil {
+		return res, nil
+	}
+	err = repo.MarkQuarantined(into, trackID)
+	if err == nil && into {
+		// It leaves the Library now, whether or not the scan below gets to run.
+		err = repo.MarkMissing(true, &model.MediaFile{ID: trackID})
+	}
+	if err != nil {
+		log.Error(ctx, "Could not mark a Track in or out of Quarantine", "id", trackID, err)
 	}
 	// The folder in the Library: the one the File left, or the one it came back to.
 	inLibrary := entry.Path
 	if !into {
 		inLibrary = entry.NewPath
 	}
-	if err := e.rekey(ctx, &file{mf: &model.MediaFile{LibraryID: lib.ID, Path: inLibrary}}); err != nil {
+	if err := e.rekey(ctx, &file{mf: &model.MediaFile{LibraryID: entry.LibraryID, Path: inLibrary}}); err != nil {
 		log.Warn(ctx, "Scan after a move into or out of Quarantine failed", "path", inLibrary, err)
 		res.Warning = "The File was moved; the app shows it after the next scan."
 	}
-	if mf, err := e.ds.MediaFile(ctx).Get(entry.MediaFileID); err == nil {
+	if mf, err := repo.Get(trackID); err == nil {
 		res.Track = mf
 	}
-	return res
+	return res, nil
 }
 
-// settleQuarantine settles a move, or a delete, the app stopped in the middle of (see Settle).
+// settleQuarantine settles a move into or out of Quarantine the app stopped in the middle of, as
+// any move (settleMove), then marks its Track where its File ended up: into Quarantine, out of
+// the Library (the mark was set before the move); out of it, no longer quarantined (the next scan
+// finds it). A move that didn't happen takes the mark back off.
 func (e *Editor) settleQuarantine(ctx context.Context, lib *model.Library, entry *model.EditEntry) {
-	interrupted := errors.New("interrupted by a restart")
-	if entry.Kind == model.EditDelete {
-		gone := !safefile.Exists(e.fsys, e.abs(lib, entry.Path))
-		e.close(ctx, entry, gone, interrupted)
-		log.Info(ctx, "Settled an interrupted delete", "path", entry.Path, "deleted", gone)
-		if gone && entry.MediaFileID != "" {
-			e.removeTracks(ctx, []string{entry.MediaFileID})
-		}
+	e.settleMove(ctx, lib, entry)
+	if entry.MediaFileID == "" || entry.State == model.EditPending {
 		return
 	}
-	written, known := e.moved(lib, entry)
-	if !known {
-		log.Error(ctx, "Could not settle an interrupted move: the File is in both places, or neither; it is tried again at the next start",
-			"entry", entry.ID, "from", entry.Path, "to", entry.NewPath)
-		return
+	into := quarantine.Within(entry.NewPath) == (entry.State == model.EditWritten)
+	repo := e.ds.MediaFile(ctx)
+	err := repo.MarkQuarantined(into, entry.MediaFileID)
+	if err == nil && into && entry.State == model.EditWritten {
+		err = repo.MarkMissing(true, &model.MediaFile{ID: entry.MediaFileID})
 	}
-	log.Info(ctx, "Settled an interrupted move", "from", entry.Path, "to", entry.NewPath, "moved", written)
-	e.close(ctx, entry, written, interrupted)
-	if written {
-		e.moveDone(ctx, lib, entry)
+	if err != nil {
+		log.Error(ctx, "Could not mark the Track of an interrupted move in or out of Quarantine", "id", entry.MediaFileID, err)
 	}
 }
 
-func (e *Editor) abs(lib *model.Library, rel string) string {
-	return filepath.Join(lib.Path, filepath.FromSlash(rel))
+// settleDelete settles a delete by Empty Quarantine the app stopped in the middle of (see
+// Settle): the File gone is a delete written, and its Track goes too.
+func (e *Editor) settleDelete(ctx context.Context, lib *model.Library, entry *model.EditEntry) {
+	gone := !safefile.Exists(e.fsys, e.abs(lib, entry.Path))
+	e.close(ctx, entry, gone, errors.New("interrupted by a restart"))
+	log.Info(ctx, "Settled an interrupted delete", "path", entry.Path, "deleted", gone)
+	if gone && entry.MediaFileID != "" {
+		e.removeTracks(ctx, []string{entry.MediaFileID})
+	}
 }
+
+func (e *Editor) abs(lib *model.Library, rel string) string { return absPath(lib, rel) }
 
 // QuarantinedFile is a File in Quarantine, as the admin confirmed Empty Quarantine for it: its
 // library, path and size.

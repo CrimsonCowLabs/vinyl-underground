@@ -30,6 +30,7 @@ import { useLibraryEditing } from '../library/useLibraryEditing'
 import BulkEditDialog from './BulkEditDialog'
 import { SendToQuarantineDialog } from '../quarantine/SendToQuarantineDialog'
 import { matchingFilter } from './bulkEdit'
+import OrganizeButton from '../organize/OrganizeButton'
 
 const resource = 'libraryTrack'
 
@@ -152,22 +153,55 @@ const SendSelectedToQuarantine = ({ selectedIds }) => {
 
 SendSelectedToQuarantine.propTypes = { selectedIds: PropTypes.array }
 
-const SelectedBulkEdit = ({ selectedIds }) => (
-  <>
-    <BulkEditButton
-      selection={{ ids: selectedIds }}
-      count={selectedIds.length}
-      label="resources.libraryTrack.actions.editSelected"
-    />
-    <SendSelectedToQuarantine selectedIds={selectedIds} />
-  </>
-)
+const SelectedBulkEdit = ({ selectedIds }) => {
+  const refresh = useRefresh()
+  const unselectAll = useUnselectAll()
+  return (
+    <>
+      <BulkEditButton
+        selection={{ ids: selectedIds }}
+        count={selectedIds.length}
+        label="resources.libraryTrack.actions.editSelected"
+      />
+      <OrganizeButton
+        scope={{ ids: selectedIds }}
+        count={selectedIds.length}
+        label="resources.libraryTrack.actions.organizeSelected"
+        onDone={() => {
+          unselectAll(resource)
+          refresh()
+        }}
+      />
+      <SendSelectedToQuarantine selectedIds={selectedIds} />
+    </>
+  )
+}
 
 SelectedBulkEdit.propTypes = { selectedIds: PropTypes.array }
 
-// The Library manager's tools. Organize adds its entry point here as it lands (#166); the Edit
-// history and Quarantine (#168) are here.
+// OrganizeMatching organizes all the Tracks matching the filter (with none, the whole Library).
+const OrganizeMatching = ({ filterValues, total }) => {
+  const refresh = useRefresh()
+  return (
+    <OrganizeButton
+      scope={{ filter: matchingFilter(filterValues) }}
+      count={total}
+      label="resources.libraryTrack.actions.organizeMatching"
+      disabled={!total}
+      onDone={refresh}
+    />
+  )
+}
+
+OrganizeMatching.propTypes = {
+  filterValues: PropTypes.object,
+  total: PropTypes.number,
+}
+
+// The Library manager's tools: a link ({ to, label, icon }), or a component given the list's
+// filterValues and total: Organize (#167), the Edit history and Quarantine (#168).
 const tools = [
+  { key: 'organize', component: OrganizeMatching },
   {
     key: 'editHistory',
     to: '/editHistory',
@@ -206,11 +240,15 @@ export const LibraryManagerActions = ({
         label="resources.libraryTrack.actions.editMatching"
         disabled={!total}
       />
-      {tools.map(({ key, to, label, icon: Icon }) => (
-        <Button key={key} component={Link} to={to} label={translate(label)}>
-          <Icon />
-        </Button>
-      ))}
+      {tools.map(({ key, to, label, icon: Icon, component: Tool }) =>
+        Tool ? (
+          <Tool key={key} filterValues={filterValues} total={total} />
+        ) : (
+          <Button key={key} component={Link} to={to} label={translate(label)}>
+            <Icon />
+          </Button>
+        ),
+      )}
     </TopToolbar>
   )
 }

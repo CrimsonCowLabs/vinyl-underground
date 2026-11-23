@@ -8,7 +8,6 @@ import (
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/conf/configtest"
 	"github.com/navidrome/navidrome/core"
-	"github.com/navidrome/navidrome/core/quarantine"
 	"github.com/navidrome/navidrome/core/safefile"
 	"github.com/navidrome/navidrome/db"
 	"github.com/navidrome/navidrome/model"
@@ -79,7 +78,11 @@ var _ = Describe("Quarantine moves", func() {
 		DeferCleanup(func() { core.SetLibraryEditing(core.LibraryEditing{}) })
 
 		write(songPath, "song")
-		mf := model.MediaFile{ID: "mf-1", LibraryID: 1, Path: songPath, Title: "Song", Participants: model.Participants{}}
+		// As the scanner records it: the move's guard checks the File's size and time.
+		info, err := os.Stat(abs(songPath))
+		Expect(err).ToNot(HaveOccurred())
+		mf := model.MediaFile{ID: "mf-1", LibraryID: 1, Path: songPath, Title: "Song", Participants: model.Participants{},
+			Size: info.Size(), UpdatedAt: info.ModTime()}
 		Expect(ds.MediaFile(ctx).Put(&mf)).To(Succeed())
 
 		scanner = tests.NewMockScanner()
@@ -133,8 +136,8 @@ var _ = Describe("Quarantine moves", func() {
 		It("flags a File already at the target and never overwrites it", func() {
 			write("_Quarantine/Artist/Album/01 song.mp3", "earlier")
 			_, err := editor.QuarantineInJob(ctx, "job-1", "mf-1")
-			Expect(err).To(MatchError(quarantine.ErrTaken))
-			Expect(Code(err)).To(Equal("taken"))
+			Expect(err).To(MatchError(safefile.ErrDestTaken))
+			Expect(Code(err)).To(Equal("pathTaken"))
 			Expect(content(songPath)).To(Equal("song"))
 			Expect(content("_Quarantine/Artist/Album/01 song.mp3")).To(Equal("earlier"))
 			Expect(track("mf-1").Missing).To(BeFalse())
@@ -181,18 +184,23 @@ var _ = Describe("Quarantine moves", func() {
 	})
 
 	Describe("Settle", func() {
+		// pending is a move into Quarantine a stop cut off after its rename was recorded (the
+		// File's RenameMark) and its Track marked.
 		pending := func() *model.EditEntry {
 			GinkgoHelper()
+			info, err := os.Stat(abs(songPath))
+			Expect(err).ToNot(HaveOccurred())
 			e := &model.EditEntry{JobID: "job-1", Kind: model.EditQuarantine, State: model.EditPending, LibraryID: 1,
-				MediaFileID: "mf-1", Path: songPath, NewPath: "_Quarantine/" + songPath}
+				MediaFileID: "mf-1", Path: songPath, NewPath: "_Quarantine/" + songPath, CopySum: safefile.RenameMark(info)}
 			Expect(ds.EditJournal(ctx).Put(e)).To(Succeed())
+			Expect(ds.MediaFile(ctx).MarkQuarantined(true, "mf-1")).To(Succeed())
 			return e
 		}
 
 		It("finishes a move the stop cut off after the File was moved", func() {
 			e := pending()
-			write("_Quarantine/"+songPath, "song")
-			Expect(os.Remove(abs(songPath))).To(Succeed())
+			Expect(os.MkdirAll(filepath.Dir(abs("_Quarantine/"+songPath)), 0o755)).To(Succeed())
+			Expect(os.Rename(abs(songPath), abs("_Quarantine/"+songPath))).To(Succeed())
 			editor.Settle(ctx)
 			Expect(entry(e.ID).State).To(Equal(model.EditWritten))
 			Expect(track("mf-1").Quarantined).To(BeTrue())
@@ -204,6 +212,7 @@ var _ = Describe("Quarantine moves", func() {
 			editor.Settle(ctx)
 			Expect(entry(e.ID).State).To(Equal(model.EditFailed))
 			Expect(track("mf-1").Missing).To(BeFalse())
+			Expect(track("mf-1").Quarantined).To(BeFalse())
 			Expect(content(songPath)).To(Equal("song"))
 		})
 
@@ -256,7 +265,7 @@ var _ = Describe("Quarantine moves", func() {
 		It("never overwrites a File that took the original path since", func() {
 			write("Artist/Album/01 SONG.mp3", "new")
 			_, err := editor.Undo(ctx, moved)
-			Expect(err).To(MatchError(quarantine.ErrTaken))
+			Expect(err).To(MatchError(safefile.ErrDestTaken))
 			Expect(content("_Quarantine/" + songPath)).To(Equal("song"))
 			Expect(content("Artist/Album/01 SONG.mp3")).To(Equal("new"))
 		})
@@ -280,7 +289,7 @@ var _ = Describe("Quarantine moves", func() {
 			Expect(content(songPath)).To(Equal("song"))
 			e := entry(res.Entry)
 			Expect(e.Kind).To(Equal(model.EditQuarantine))
-			Expect(e.MediaFileID).To(Equal("mf-1"))
+			Expect(e.MediaFileID).To(BeEmpty(), "the Track's row stays at the File's old path, for it to come back to")
 			Expect(e.Path).To(Equal("_Quarantine/" + songPath))
 			Expect(e.NewPath).To(Equal(songPath))
 			Expect(track("mf-1").Quarantined).To(BeFalse())

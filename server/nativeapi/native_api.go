@@ -66,7 +66,7 @@ type Router struct {
 
 func New(ds model.DataStore, share core.Share, playlists playlistsvc.Playlists, insights metrics.Insights, libraryService core.Library, userService core.User, maintenance core.Maintenance, pluginManager PluginManager, imgUpload artwork.Uploader, provider external.Provider, quickConnect quickconnect.QuickConnect, refresher refresh.Refresher, coverPicker artwork.CoverPicker, tagEditor *tagedit.Editor) *Router {
 	r := &Router{tagEditor: tagEditor, ds: ds, share: share, playlists: playlists, insights: insights, libs: libraryService, users: userService, maintenance: maintenance, pluginManager: pluginManager, imgUpload: imgUpload, provider: provider, quickConnect: quickConnect, refresher: refresher, coverPicker: coverPicker,
-		corrections: corrections.New(ds, refresher), releaseSearch: musicbrainz.New(musicbrainz.Options{})}
+		corrections: corrections.New(ds), releaseSearch: musicbrainz.New(musicbrainz.Options{})}
 	r.Handler = r.routes()
 	return r
 }
@@ -119,6 +119,7 @@ func (api *Router) routes() http.Handler {
 			api.addTrackTagsRoute(r)
 			api.addEditHistoryRoute(r)
 			api.addLibraryManagerRoute(r)
+			api.addOrganizeRoute(r)
 			api.addAlbumCoverRoute(r)
 			api.addQuarantineRoute(r)
 			api.addMusicBrainzRoute(r)

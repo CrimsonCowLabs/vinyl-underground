@@ -30,6 +30,17 @@ const ytDlpName = "yt-dlp"
 // sumsName is the release asset listing the SHA-256 of every other asset.
 const sumsName = "SHA2-256SUMS"
 
+const (
+	// latestKeptFor is how long Binary.Latest remembers the latest release's version. GitHub
+	// allows only 60 lookups an hour without a login.
+	latestKeptFor = time.Hour
+	// failedLatestKeptFor is how long Binary.Latest remembers that the lookup failed, so a page
+	// loaded again and again while GitHub is down doesn't wait on it each time.
+	failedLatestKeptFor = 5 * time.Minute
+	// latestTimeout bounds one lookup, which the Rips page waits on.
+	latestTimeout = 10 * time.Second
+)
+
 // AssetFor returns the name of the standalone yt-dlp release asset that runs on the platform.
 // musl picks the build for Alpine, which the Docker image uses.
 func AssetFor(goos, goarch string, musl bool) (string, error) {
@@ -78,6 +89,15 @@ type Binary struct {
 	modTime time.Time
 	// lastVersion is version, readable without mu.
 	lastVersion atomic.Value
+
+	// latestMu guards the latest release's version as last looked up (see Latest). It is apart
+	// from mu so the lookup doesn't wait for an update.
+	latestMu  sync.Mutex
+	latestTag string
+	latestErr error
+	latestAt  time.Time
+	// now is the clock (time.Now when nil), set in tests.
+	now func() time.Time
 }
 
 // UpdateResult is what Binary.Update did.
@@ -137,6 +157,42 @@ func (b *Binary) Update(ctx context.Context) (UpdateResult, error) {
 		return UpdateResult{Previous: prev, Version: prev}, err
 	}
 	return UpdateResult{Previous: prev, Version: version, Updated: updated}, nil
+}
+
+// Latest returns the latest release's version, or "" when ReleaseURL doesn't say (a release's own
+// folder, as for a mirror). It looks it up at most once an hour, and an update tells it too.
+func (b *Binary) Latest(ctx context.Context) (string, error) {
+	b.latestMu.Lock()
+	defer b.latestMu.Unlock()
+	now := b.clock()
+	if !b.latestAt.IsZero() {
+		keep := latestKeptFor
+		if b.latestErr != nil {
+			keep = failedLatestKeptFor
+		}
+		if now.Sub(b.latestAt) < keep {
+			return b.latestTag, b.latestErr
+		}
+	}
+	ctx, cancel := context.WithTimeout(ctx, latestTimeout)
+	defer cancel()
+	rel, err := b.latest(ctx)
+	b.latestTag, b.latestErr, b.latestAt = rel.tag, err, now
+	return rel.tag, err
+}
+
+// rememberLatest keeps the latest release's version that an update has just looked up.
+func (b *Binary) rememberLatest(tag string) {
+	b.latestMu.Lock()
+	defer b.latestMu.Unlock()
+	b.latestTag, b.latestErr, b.latestAt = tag, nil, b.clock()
+}
+
+func (b *Binary) clock() time.Time {
+	if b.now == nil {
+		return time.Now()
+	}
+	return b.now()
 }
 
 func (b *Binary) installedVersion(ctx context.Context) (string, error) {
@@ -200,6 +256,7 @@ func (b *Binary) install(ctx context.Context, current string) (version string, u
 	if err != nil {
 		return "", false, err
 	}
+	b.rememberLatest(rel.tag)
 	if current != "" && rel.tag == current {
 		return current, false, nil
 	}

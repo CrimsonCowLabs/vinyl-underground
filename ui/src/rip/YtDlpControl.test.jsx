@@ -22,19 +22,65 @@ vi.mock('../dataProvider', () => ({
 
 const reply = (json) => Promise.resolve({ json })
 
+const updateButton = () =>
+  screen.getByRole('button', { name: /resources.rip.ytdlp.update/ })
+const highlighted = (button) =>
+  button.classList.contains('MuiButton-containedPrimary')
+
 describe('YtDlpControl', () => {
   beforeEach(() => {
-    vi.clearAllMocks()
+    vi.resetAllMocks()
   })
 
-  it('shows the installed version', async () => {
+  it("shows the installed version alone when the latest release isn't known", async () => {
     http.mockReturnValueOnce(reply({ version: '2026.10.01' }))
     render(<YtDlpControl />)
 
     expect(
-      await screen.findByText(/resources.rip.ytdlp.version.*2026.10.01/),
+      await screen.findByText(/resources.rip.ytdlp.version .*2026.10.01/),
     ).toBeInTheDocument()
     expect(http).toHaveBeenCalledWith('/api/rip/ytdlp')
+    expect(highlighted(updateButton())).toBe(false)
+  })
+
+  it('says when a newer release is available and highlights Update', async () => {
+    http.mockReturnValueOnce(
+      reply({ version: '2026.10.01', latest: '2026.11.01' }),
+    )
+    render(<YtDlpControl />)
+
+    expect(
+      await screen.findByText(
+        /resources.rip.ytdlp.versionAvailable.*2026.10.01.*2026.11.01/,
+      ),
+    ).toBeInTheDocument()
+    expect(highlighted(updateButton())).toBe(true)
+  })
+
+  it('says when the installed version is the latest', async () => {
+    http.mockReturnValueOnce(
+      reply({ version: '2026.11.01', latest: '2026.11.01' }),
+    )
+    render(<YtDlpControl />)
+
+    expect(
+      await screen.findByText(
+        /resources.rip.ytdlp.versionUpToDate.*2026.11.01/,
+      ),
+    ).toBeInTheDocument()
+    expect(highlighted(updateButton())).toBe(false)
+  })
+
+  it('says which release Update will install when yt-dlp is not installed yet', async () => {
+    http.mockReturnValueOnce(reply({ version: '', latest: '2026.11.01' }))
+    render(<YtDlpControl />)
+
+    expect(
+      await screen.findByText(
+        /resources.rip.ytdlp.notInstalledAvailable.*2026.11.01/,
+      ),
+    ).toBeInTheDocument()
+    expect(highlighted(updateButton())).toBe(true)
   })
 
   it('says when yt-dlp is not installed yet', async () => {
@@ -64,21 +110,30 @@ describe('YtDlpControl', () => {
 
   it('updates yt-dlp on demand and shows the new version', async () => {
     http
-      .mockReturnValueOnce(reply({ version: '2026.10.01' }))
+      .mockReturnValueOnce(
+        reply({ version: '2026.10.01', latest: '2026.11.01' }),
+      )
       .mockReturnValueOnce(
         reply({ previous: '2026.10.01', version: '2026.11.01', updated: true }),
       )
+      .mockReturnValueOnce(
+        reply({ version: '2026.11.01', latest: '2026.11.01' }),
+      )
     render(<YtDlpControl />)
-    await screen.findByText(/2026.10.01/)
+    await screen.findByText(/versionAvailable/)
 
-    fireEvent.click(
-      screen.getByRole('button', { name: /resources.rip.ytdlp.update/ }),
-    )
+    fireEvent.click(updateButton())
 
-    expect(await screen.findByText(/2026.11.01/)).toBeInTheDocument()
-    expect(http).toHaveBeenLastCalledWith('/api/rip/ytdlp/update', {
+    expect(
+      await screen.findByText(
+        /resources.rip.ytdlp.versionUpToDate.*2026.11.01/,
+      ),
+    ).toBeInTheDocument()
+    expect(highlighted(updateButton())).toBe(false)
+    expect(http).toHaveBeenCalledWith('/api/rip/ytdlp/update', {
       method: 'POST',
     })
+    expect(http).toHaveBeenLastCalledWith('/api/rip/ytdlp')
     expect(notify).toHaveBeenCalledWith(
       expect.stringContaining('resources.rip.ytdlp.updated'),
       'info',
@@ -95,6 +150,7 @@ describe('YtDlpControl', () => {
           updated: false,
         }),
       )
+      .mockReturnValueOnce(reply({ version: '2026.11.01' }))
     render(<YtDlpControl />)
     await screen.findByText(/2026.11.01/)
     fireEvent.click(
@@ -136,6 +192,26 @@ describe('YtDlpControl', () => {
     expect(
       screen.getByRole('button', { name: /resources.rip.ytdlp.update/ }),
     ).toBeEnabled()
+  })
+
+  it("shows the updated version even when the new state can't be read back", async () => {
+    http
+      .mockReturnValueOnce(
+        reply({ version: '2026.10.01', latest: '2026.11.01' }),
+      )
+      .mockReturnValueOnce(
+        reply({ previous: '2026.10.01', version: '2026.11.01', updated: true }),
+      )
+      .mockImplementationOnce(() => Promise.reject({ message: 'Bad Gateway' }))
+    render(<YtDlpControl />)
+    await screen.findByText(/versionAvailable/)
+
+    fireEvent.click(updateButton())
+
+    expect(
+      await screen.findByText(/resources.rip.ytdlp.version .*2026.11.01/),
+    ).toBeInTheDocument()
+    expect(highlighted(updateButton())).toBe(false)
   })
 
   it('disables the button while updating', async () => {

@@ -10,6 +10,7 @@ import {
 } from '@material-ui/core'
 import { httpClient } from '../../dataProvider'
 import { errorText, jobUrl } from './reviewApi'
+import { clearDraft } from './reviewDrafts'
 
 // DiscardDialog asks before deleting Files for good: they don't go to Quarantine.
 export const DiscardDialog = ({ open, message, busy, onConfirm, onCancel }) => {
@@ -38,7 +39,7 @@ export const DiscardDialog = ({ open, message, busy, onConfirm, onCancel }) => {
 }
 
 // DiscardJobButton discards a whole job, once confirmed: all its Files, and the job itself.
-// fileCount is how many Files the job has, for the confirmation.
+// fileCount is how many Files the job has, for the confirmation. Its unsaved edits go with it.
 export const DiscardJobButton = ({ jobId, fileCount }) => {
   const translate = useTranslate()
   const notify = useNotify()
@@ -51,6 +52,7 @@ export const DiscardJobButton = ({ jobId, fileCount }) => {
     httpClient(jobUrl(jobId), { method: 'DELETE' })
       .then(() => {
         notify('resources.rip.review.discarded', 'info')
+        clearDraft(jobId)
         setOpen(false)
         refresh()
       })

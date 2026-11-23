@@ -44,7 +44,9 @@ const knownErrors = [
   'jobUnfinished',
   'sameFileTwice',
   'coverChanged',
-  'taken',
+  'pathTaken',
+  'caseTwin',
+  'outside',
   'deletedForGood',
 ]
 
@@ -87,16 +89,11 @@ export const EditChangesField = ({ record }) => {
   const classes = useStyles()
   const translate = useTranslate()
   if (!record) return null
-  if (record.kind === 'quarantine' || record.kind === 'delete') {
-    // A move into or out of Quarantine, or a File Empty Quarantine deleted (#168).
+  if (record.kind === 'delete') {
+    // A File Empty Quarantine deleted (#168).
     return (
       <Typography variant="body2" component="span" className={classes.change}>
-        {record.kind === 'delete'
-          ? translate('resources.editHistory.message.deleted')
-          : translate('resources.editHistory.message.moved', {
-              path: record.path,
-              newPath: record.newPath,
-            })}
+        {translate('resources.editHistory.message.deleted')}
       </Typography>
     )
   }
@@ -104,6 +101,22 @@ export const EditChangesField = ({ record }) => {
     return (
       <Typography variant="body2" component="span" className={classes.change}>
         {translate(`resources.editHistory.message.${imageChange(record)}`)}
+      </Typography>
+    )
+  }
+  if (record.kind === 'move' || record.kind === 'quarantine') {
+    // A move (Organize, #167), or one into or out of Quarantine (#168): where the File was, and
+    // where it went.
+    return (
+      <Typography variant="body2" component="span" className={classes.change}>
+        <span className={classes.tag}>
+          {translate('resources.editHistory.message.moved')}
+        </span>
+        <span>{record.path}</span>
+        <span className={classes.arrow} aria-hidden>
+          →
+        </span>
+        <span>{record.newPath}</span>
       </Typography>
     )
   }
@@ -147,6 +160,14 @@ export const EditTrackField = ({ record }) => {
     return (
       <Typography variant="body2" component="span" className={classes.none}>
         {translate('resources.editHistory.message.albumCover')}
+      </Typography>
+    )
+  }
+  if (!record.track && record.kind === 'move' && !record.mediaFileId) {
+    // A File moved with its album (its cover.jpg, ...) is no Track's.
+    return (
+      <Typography variant="body2" component="span" className={classes.none}>
+        {translate('resources.editHistory.message.albumFile')}
       </Typography>
     )
   }
@@ -266,7 +287,19 @@ UndoEditButton.propTypes = { record: PropTypes.object }
 
 // An entry that is part of a job of several Files (#162) is marked, and the whole job can be
 // undone from it: every File it wrote, newest first, as a job of its own. A File the undo can't
-// put back (a later write changed it, ...) is skipped; the Activity panel lists why.
+// put back (a later write changed it, ...) is skipped; the Activity panel lists why. A job of a
+// kind that does more than write its Files (it moves stars, or removes Corrections) is undone
+// whole even when it wrote one File, so that is undone too.
+const jobKindsUndoneWhole = new Set([
+  'albumEdit',
+  'trackNumbers',
+  'artistRename',
+  'artistMerge',
+  'migrateCorrections',
+  // Organize (#167): its undo also removes the folders it made, and rescans.
+  'organize',
+])
+
 export const EditJobField = ({ record }) => {
   const translate = useTranslate()
   const dataProvider = useDataProvider()
@@ -304,7 +337,11 @@ export const EditJobField = ({ record }) => {
       })
   }, [dataProvider, record, notify, refresh])
 
-  if (!record || !(record.jobSize > 1)) return null
+  if (
+    !record ||
+    !(record.jobSize > 1 || jobKindsUndoneWhole.has(record.jobKind))
+  )
+    return null
   return (
     <>
       <Chip

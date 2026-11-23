@@ -105,7 +105,9 @@ type MediaFile struct {
 
 	Tags         Tags         `structs:"tags" json:"tags,omitempty" hash:"ignore"`       // All imported tags from the original file
 	Participants Participants `structs:"participants" json:"participants" hash:"ignore"` // All artists that participated in this track
-	// CorrectionIDs are the Corrections the scanner applied to this Track's tags.
+	// CorrectionIDs are the Corrections the retired overlay applied to this Track's tags, as the
+	// last scan before #165 left them (a rescan clears them): the Correction migration finds a
+	// renamed Artist's Tracks by them.
 	CorrectionIDs []string `structs:"-" json:"-" hash:"ignore"`
 
 	Missing   bool      `structs:"missing" json:"missing" hash:"ignore"`      // If the file is not found in the library's FS
@@ -158,8 +160,8 @@ func (mf MediaFile) CoverArtID() ArtworkID {
 
 // DiscCoverArtID returns the disc artwork ID when the media file has a disc number,
 // otherwise it returns the album artwork ID. Disc art keeps no state row, so it is versioned by
-// the album's image: it falls back to the album cover, and shows the album's chosen cover, so a
-// choice saved, replaced or undone changes the ID clients cache it by.
+// the album's image: it falls back to the album cover, and shows the album's picked release's
+// cover, so a pick saved, replaced or undone changes the ID clients cache it by.
 func (mf MediaFile) DiscCoverArtID() ArtworkID {
 	if mf.DiscNumber > 0 {
 		return ArtworkID{Kind: KindDiscArtwork, ID: DiscArtworkID(mf.AlbumID, mf.DiscNumber), Hash: mf.AlbumImage.ImageHash}

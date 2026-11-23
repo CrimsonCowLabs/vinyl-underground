@@ -218,12 +218,14 @@ var tagEditStatus = map[string]int{
 	"sharedFolder":  http.StatusUnprocessableEntity,
 	"coverChanged":  http.StatusConflict,
 	"noFolderCover": http.StatusUnprocessableEntity,
+	// Moves (#167).
+	"pathTaken": http.StatusConflict,
+	"caseTwin":  http.StatusConflict,
+	"outside":   http.StatusUnprocessableEntity,
 	// Quarantine (#168).
-	"taken":               http.StatusConflict,
 	"inQuarantine":        http.StatusConflict,
 	"notInQuarantine":     http.StatusBadRequest,
 	"deletedForGood":      http.StatusConflict,
-	"unsettled":           http.StatusConflict,
 	"nothingInQuarantine": http.StatusConflict,
 	"quarantineChanged":   http.StatusConflict,
 }

@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"golang.org/x/text/unicode/norm"
+	"github.com/navidrome/navidrome/core/libpath"
 )
 
 // Fallbacks for a promoted File whose tags are missing.
@@ -19,10 +19,8 @@ const (
 	untitled      = "Untitled"
 )
 
-// maxNameBytes caps each folder or File name Promote makes, before the " (<Year>)", "<NN> ",
-// " (2)" and extension it may add. SMB allows 255 bytes per name; this leaves room for those and
-// for the hidden temp name a File is copied under.
-const maxNameBytes = 120
+// maxNameBytes caps each folder or File name Promote makes (see libpath.MaxNameBytes).
+const maxNameBytes = libpath.MaxNameBytes
 
 // promoteNames are the three names of a promoted File's place in the promote folder:
 // <Artist>/<Album>/<File>.
@@ -38,50 +36,17 @@ type promoteNames struct {
 func promoteLayout(tags FileTags, src string) promoteNames {
 	ext := strings.ToLower(filepath.Ext(src))
 	artist := safeName(cmp.Or(strings.TrimSpace(tags.AlbumArtist), strings.TrimSpace(tags.Artist)), unknownArtist)
-	album := safeName(tags.Album, unknownAlbum)
-	if y := tagYear(tags.Year); y > 0 {
-		album = fmt.Sprintf("%s (%d)", album, y)
-	}
+	album := libpath.AlbumFolder(safeName(tags.Album, unknownAlbum), tagYear(tags.Year))
 	title := safeName(tags.Title, "")
 	if title == "" {
 		title = safeName(strings.TrimSuffix(filepath.Base(src), filepath.Ext(src)), untitled)
 	}
-	if n := tagNumber(tags.TrackNumber); n > 0 {
-		title = fmt.Sprintf("%02d %s", n, title)
-	}
-	return promoteNames{Artist: artist, Album: album, File: title + ext}
+	return promoteNames{Artist: artist, Album: album, File: libpath.TrackFile(title, 0, tagNumber(tags.TrackNumber), false, ext)}
 }
 
-// safeName makes s a safe folder or File name (see promoteLayout), or fallback if nothing is left.
-func safeName(s, fallback string) string {
-	s = norm.NFC.String(sanitize(s))
-	if strings.HasPrefix(s, ".") && !strings.HasPrefix(s, "..") {
-		s = s[1:]
-	}
-	s = strings.TrimSpace(s)
-	if len(s) > maxNameBytes {
-		s = strings.ToValidUTF8(s[:maxNameBytes], "")
-	}
-	s = strings.TrimRight(s, " .")
-	if s == "" {
-		return fallback
-	}
-	if reservedName(s) {
-		s += "_"
-	}
-	return s
-}
-
-// reservedName reports whether s is a device name Windows (and so some SMB servers) refuses as
-// a File or folder name.
-func reservedName(s string) bool {
-	switch u := strings.ToUpper(s); u {
-	case "CON", "PRN", "AUX", "NUL":
-		return true
-	default:
-		return len(u) == 4 && (strings.HasPrefix(u, "COM") || strings.HasPrefix(u, "LPT")) && u[3] >= '1' && u[3] <= '9'
-	}
-}
+// safeName makes s a safe folder or File name (see libpath.SafeName, which Organize shares), or
+// fallback if nothing is left.
+func safeName(s, fallback string) string { return libpath.SafeName(s, fallback) }
 
 // ErrOutsidePromoteFolder is returned when a folder Promote would write into leads out of the
 // promote folder (a symlink).
@@ -151,9 +116,8 @@ func foldMatch(fsys promoteFS, dir, name string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	want := norm.NFC.String(name)
 	for _, e := range entries {
-		if strings.EqualFold(norm.NFC.String(e.Name()), want) {
+		if libpath.SameName(e.Name(), name) {
 			return e.Name(), nil
 		}
 	}

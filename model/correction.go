@@ -192,34 +192,31 @@ func albumCorrections(repo CorrectionRepository, al Album, kinds ...CorrectionKi
 	return slices.DeleteFunc(all, func(c Correction) bool { return c.Undoing }), nil
 }
 
-// AlbumCovers is what admins decided about an album's cover (see AlbumCoverCorrections).
+// AlbumCovers is what admins decided about an album's cover that stays app data (see
+// AlbumCoverCorrections). A chosen cover isn't: it is written as the album's cover.jpg.
 type AlbumCovers struct {
-	// Choice is the image chosen or uploaded as the album's cover, nil when it has none.
-	Choice *Correction
 	// Pick is the album Correction whose picked MusicBrainz release brought a Cover Art Archive
-	// cover (its ImageHash and ImageMime), nil when it has none. The Choice outranks it.
+	// cover (its ImageHash and ImageMime), nil when it has none.
 	Pick *Correction
 	// Blocks are the images marked wrong for the album.
 	Blocks Corrections
 }
 
-// AlbumCoverCorrections returns the album's cover choice, its picked release's cover and its
-// cover blocks, with one query, skipping those being undone. Like AlbumCorrection, the choice (and
-// the pick) keyed by the album's earliest folder wins.
+// AlbumCoverCorrections returns the album's picked release's cover and its cover blocks, with one
+// query, skipping those being undone. Like AlbumCorrection, the pick keyed by the album's earliest
+// folder wins.
 func AlbumCoverCorrections(repo CorrectionRepository, al Album) (AlbumCovers, error) {
-	all, err := albumCorrections(repo, al, CorrectionAlbumCover, CorrectionAlbumCoverBlock, CorrectionAlbum)
+	all, err := albumCorrections(repo, al, CorrectionAlbumCoverBlock, CorrectionAlbum)
 	if err != nil {
 		return AlbumCovers{}, err
 	}
 	var res AlbumCovers
-	choiceAt, pickAt := len(al.FolderIDs), len(al.FolderIDs)
+	pickAt := len(al.FolderIDs)
 	for _, c := range all {
 		at := slices.Index(al.FolderIDs, c.MatchKey)
 		switch {
 		case c.Kind == CorrectionAlbumCoverBlock:
 			res.Blocks = append(res.Blocks, c)
-		case c.Kind == CorrectionAlbumCover && at >= 0 && at < choiceAt:
-			choiceAt, res.Choice = at, &c
 		case c.Kind == CorrectionAlbum && c.ImageHash != "" && at >= 0 && at < pickAt:
 			pickAt, res.Pick = at, &c
 		}
@@ -249,14 +246,9 @@ type CorrectionRepository interface {
 	// AlbumFolderKey): key itself, and every folder of the albums in it, e.g. the album's
 	// other discs.
 	AlbumFolderIDs(key string) ([]string, error)
-
-	// MergeArtistAnnotations merges every Listener's star, rating and play count of Artist fromID into
-	// Artist toID's, for the artist merge Correction with correctionID: play counts are added
-	// together, and toID keeps its own star and rating, taking fromID's only where it has none.
-	// What it moved is kept with the Correction, for SplitArtistAnnotations.
-	MergeArtistAnnotations(correctionID, fromID, toID string) error
-	// SplitArtistAnnotations moves back from Artist fromID to Artist toID what the merge with
-	// correctionID moved in: the play counts it added, and the star and rating it gave fromID
-	// unless they have changed since.
-	SplitArtistAnnotations(correctionID, fromID, toID string) error
+	// KeepArtistAnnotations keeps with the artist rename Correction correctionID every Listener's
+	// star and rating of the Artist artistID (its new name, which the overlay moved them to),
+	// unless kept already: a scan before the Correction migration (#165) reads the old name, and
+	// would purge the new one with them. The migration merges them into the new name again.
+	KeepArtistAnnotations(correctionID, artistID string) error
 }

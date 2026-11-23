@@ -12,7 +12,6 @@ import (
 	"github.com/Masterminds/squirrel"
 	"github.com/navidrome/navidrome/core/artwork"
 	"github.com/navidrome/navidrome/core/musicbrainz"
-	"github.com/navidrome/navidrome/core/refresh"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
 )
@@ -42,21 +41,11 @@ const mbzLabel = " · MusicBrainz: "
 const maxReleaseLabel = 200
 
 func (c *corrections) CorrectAlbum(ctx context.Context, albumID string, fix AlbumFix) (*Applied, error) {
-	fix.Name = strings.TrimSpace(fix.Name)
-	fix.AlbumArtist = strings.Join(strings.Fields(fix.AlbumArtist), " ")
 	fix.MbzAlbumID = strings.ToLower(strings.TrimSpace(fix.MbzAlbumID))
 	fix.MbzReleaseGroupID = strings.ToLower(strings.TrimSpace(fix.MbzReleaseGroupID))
-	switch {
-	case fix.Name == "":
-		return nil, fmt.Errorf("%w: the title is empty", model.ErrValidation)
-	case fix.AlbumArtist == "":
-		return nil, fmt.Errorf("%w: the album artist is empty", model.ErrValidation)
-	case fix.Year != 0 && (fix.Year < 1000 || fix.Year > 9999):
-		return nil, fmt.Errorf("%w: %d is no year", model.ErrValidation, fix.Year)
 	// A release and its release group are picked together, so the tagged release group never
 	// stays next to another release
-	case (fix.MbzAlbumID != "" || fix.MbzReleaseGroupID != "") &&
-		(!isMbzID(fix.MbzAlbumID) || !isMbzID(fix.MbzReleaseGroupID)):
+	if !isMbzID(fix.MbzAlbumID) || !isMbzID(fix.MbzReleaseGroupID) {
 		return nil, fmt.Errorf("%w: a release and its release group need both their MusicBrainz IDs", model.ErrValidation)
 	}
 	al, err := c.ds.Album(ctx).Get(albumID)
@@ -68,68 +57,43 @@ func (c *corrections) CorrectAlbum(ctx context.Context, albumID string, fix Albu
 		return nil, fmt.Errorf("%w: the album has no folder", model.ErrValidation)
 	}
 
-	// Only what differs from the album now is corrected: an album artist left alone still follows
-	// later Artist renames. What an earlier Correction corrected stays corrected.
-	cr := model.Correction{Kind: model.CorrectionAlbum, MatchKey: key,
-		From: albumInfoLabel(al.AlbumArtist, al.Name, albumYear(*al)),
-		To:   albumInfoLabel(fix.AlbumArtist, fix.Name, cmp.Or(fix.Year, albumYear(*al)))}
+	// Only the release is saved: the album's title, album artist and year go to its Files. What
+	// an earlier album Correction (not yet migrated, #165) corrects stays as it is.
+	label := albumInfoLabel(al.AlbumArtist, al.Name, albumYear(*al))
+	cr := model.Correction{Kind: model.CorrectionAlbum, MatchKey: key, From: label, To: label}
 	old, err := model.AlbumCorrection(c.ds.Correction(ctx), model.CorrectionAlbum, *al)
 	if err == nil {
-		cr.From, cr.AlbumName, cr.AlbumArtist, cr.Year = old.From, old.AlbumName, old.AlbumArtist, old.Year
+		cr.From, cr.To, cr.AlbumName, cr.AlbumArtist, cr.Year = old.From, old.To, old.AlbumName, old.AlbumArtist, old.Year
 		cr.MbzAlbumID, cr.MbzReleaseGroupID = old.MbzAlbumID, old.MbzReleaseGroupID
 		cr.ImageHash, cr.ImageMime = old.ImageHash, old.ImageMime
+		if i := strings.Index(cr.To, mbzLabel); i >= 0 {
+			cr.To = cr.To[:i]
+		}
 	} else if !errors.Is(err, model.ErrNotFound) {
 		return nil, err
 	}
-	changed := false
-	if fix.Name != al.Name {
-		cr.AlbumName, changed = fix.Name, true
-	}
-	if fix.AlbumArtist != al.AlbumArtist {
-		cr.AlbumArtist, changed = fix.AlbumArtist, true
-		if _, err := c.artistCorrection(ctx, model.ArtistNameKey(fix.AlbumArtist)); err == nil {
-			return nil, ErrRenamedAway
-		} else if !errors.Is(err, model.ErrNotFound) {
-			return nil, err
-		}
-	}
-	if fix.Year != 0 && fix.Year != albumYear(*al) {
-		cr.Year, changed = fix.Year, true
-	}
-	// A picked release replaces the album's release and release group together: the tagged
-	// release group belongs to the tagged release. Picking the release the album is tagged with
-	// still brings its cover forward.
-	if fix.MbzAlbumID != "" && (fix.MbzAlbumID != cr.MbzAlbumID || fix.MbzReleaseGroupID != cr.MbzReleaseGroupID) {
-		cr.MbzAlbumID, cr.MbzReleaseGroupID, changed = fix.MbzAlbumID, fix.MbzReleaseGroupID, true
+	// Picking the release the album has already still asks for its cover, if it has none (the
+	// archive failed, or had none then).
+	changed := fix.MbzAlbumID != cr.MbzAlbumID || fix.MbzReleaseGroupID != cr.MbzReleaseGroupID
+	if changed {
+		cr.MbzAlbumID, cr.MbzReleaseGroupID = fix.MbzAlbumID, fix.MbzReleaseGroupID
 		cr.ImageHash, cr.ImageMime = "", ""
-		cr.To += mbzLabel + pickedReleaseLabel(fix)
-	} else if old != nil && cr.MbzAlbumID != "" {
-		if i := strings.Index(old.To, mbzLabel); i >= 0 {
-			cr.To += old.To[i:]
-		}
 	}
-	// Only picking a release asks the archive for its cover: a new pick, or picking the same release
-	// again while it has none (the archive failed, or had none then). Other edits leave it be.
-	fetchCover := fix.MbzAlbumID != "" && cr.ImageHash == "" && c.opts.PickedCover != nil
+	cr.To += mbzLabel + pickedReleaseLabel(fix)
+	if old != nil && !changed {
+		cr.To = old.To
+	}
+	fetchCover := cr.ImageHash == "" && c.opts.PickedCover != nil
 	if !changed && !fetchCover {
 		return nil, ErrNothingToWrite
 	}
 	if err := c.checkSharedFolder(ctx, *al); err != nil {
 		return nil, err
 	}
-	// Whatever the archive answers, the rest of the Correction is saved
+	// Whatever the archive answers, the pick is saved
 	var pickCover PickCover
 	if fetchCover {
 		pickCover = c.fetchPickedCover(ctx, &cr)
-	}
-	var oldCover string
-	if old != nil {
-		oldCover = old.ImageHash
-	}
-
-	targets, err := c.refresher.ScanTargets(ctx, model.KindAlbumArtwork, al.ID)
-	if err != nil {
-		return nil, err
 	}
 	err = c.ds.WithTx(func(tx model.DataStore) error {
 		repo := tx.Correction(ctx)
@@ -143,18 +107,12 @@ func (c *corrections) CorrectAlbum(ctx context.Context, albumID string, fix Albu
 	if err != nil {
 		return nil, err
 	}
-	log.Info(ctx, "Corrections: correcting an album", "from", cr.From, "to", cr.To, "folders", len(targets))
-	res := &Applied{Correction: cr, AlbumID: al.ID, PickCover: pickCover}
-	var after func(context.Context) error
-	if cr.ImageHash != oldCover {
-		// The rescan refreshes the album's cover, but its Tracks' own art follows the pick too
-		after = func(ctx context.Context) error { return c.refreshFolderCovers(ctx, key) }
+	log.Info(ctx, "Corrections: picking a MusicBrainz release for an album", "album", cr.From, "release", cr.MbzAlbumID)
+	// No tag changes: only the covers, which follow the pick's.
+	if err := c.refreshFolderCovers(ctx, key); err != nil {
+		log.Warn(ctx, "Corrections: could not refresh the covers", "album", al.Name, err)
 	}
-	res.Done = c.rescan(ctx, targets, refresh.Item{Kind: model.KindAlbumArtwork, ID: al.ID}, after)
-	if res.Done {
-		res.AlbumID = c.albumIn(ctx, al.FolderIDs, al.ID)
-	}
-	return res, nil
+	return &Applied{Correction: cr, AlbumID: al.ID, PickCover: pickCover, Done: true}, nil
 }
 
 // checkSharedFolder returns ErrSharedFolder if the album's folders hold another album's Tracks.
@@ -169,63 +127,6 @@ func (c *corrections) checkSharedFolder(ctx context.Context, al model.Album) err
 		return ErrSharedFolder
 	}
 	return nil
-}
-
-// undoAlbum stops applying an album (or track numbers) Correction, rescans the album's folders (those its Tracks are
-// in, and those it was saved for, in case its own rescan has not reached them), then deletes it.
-func (c *corrections) undoAlbum(ctx context.Context, cr *model.Correction) (*Applied, error) {
-	repo := c.ds.Correction(ctx)
-	folderIDs, err := repo.FolderIDs(cr.ID)
-	if err != nil {
-		return nil, err
-	}
-	albumFolders, err := repo.AlbumFolderIDs(cr.MatchKey)
-	if err != nil {
-		return nil, err
-	}
-	folderIDs = append(folderIDs, albumFolders...)
-	targets, err := refresh.FolderTargets(ctx, c.ds, folderIDs)
-	if err != nil {
-		return nil, err
-	}
-	res := &Applied{Correction: *cr, Done: true}
-	if len(targets) == 0 {
-		log.Info(ctx, "Corrections: deleting a Correction of the album's tags whose folders are gone", "kind", cr.Kind, "from", cr.From, "to", cr.To)
-		return res, repo.Delete(cr.ID)
-	}
-	if err := repo.SetUndoing(cr.ID); err != nil {
-		return nil, err
-	}
-	res.AlbumID = c.albumIn(ctx, folderIDs, "")
-	log.Info(ctx, "Corrections: undoing a Correction of the album's tags", "kind", cr.Kind, "from", cr.From, "to", cr.To, "folders", len(targets))
-	res.Done = c.rescan(ctx, targets, refresh.Item{Kind: model.KindAlbumArtwork, ID: res.AlbumID}, func(ctx context.Context) error {
-		if err := c.ds.Correction(ctx).Delete(cr.ID); err != nil {
-			return err
-		}
-		if cr.ImageHash == "" {
-			return nil
-		}
-		// The album's and its Tracks' art no longer show the picked release's cover
-		return c.refreshFolderCovers(ctx, cr.MatchKey)
-	})
-	if res.Done {
-		res.AlbumID = c.albumIn(ctx, folderIDs, res.AlbumID)
-	}
-	return res, nil
-}
-
-// albumIn returns the album of a present Track in the folders, or def if there is none: once an
-// album Correction is applied (or undone) that is the album with its new ID.
-func (c *corrections) albumIn(ctx context.Context, folderIDs []string, def string) string {
-	mfs, err := c.ds.MediaFile(ctx).GetAll(model.QueryOptions{Max: 1,
-		Filters: squirrel.Eq{"media_file.folder_id": folderIDs, "media_file.missing": false}})
-	if err != nil || len(mfs) == 0 {
-		if err != nil {
-			log.Warn(ctx, "Corrections: could not find the album's new ID", err)
-		}
-		return def
-	}
-	return mfs[0].AlbumID
 }
 
 // albumYear is the year clients show for the album: its original year when it has one.

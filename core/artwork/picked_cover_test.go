@@ -169,7 +169,7 @@ var _ = Describe("A picked MusicBrainz release's cover", func() {
 		Expect(readAll(res.reader)).To(Equal(string(picked)))
 	})
 
-	It("gives way to a chosen cover", func() {
+	It("isn't outranked by a chosen cover Correction kept before #164 (the migration writes it as cover.jpg)", func() {
 		pick(picked)
 		red := pngOf(color.RGBA{R: 255, A: 255})
 		chosen, err := StoreChosenCover(red)
@@ -177,9 +177,9 @@ var _ = Describe("A picked MusicBrainz release's cover", func() {
 		Expect(corrections.Add(&model.Correction{Kind: model.CorrectionAlbumCover, MatchKey: "cd1",
 			ImageHash: chosen.Hash, ImageMime: chosen.Mime})).To(Succeed())
 
-		Expect(resolve("al", "al1").source).To(Equal(ChosenSource))
-		Expect(resolveDisc().source).To(Equal(ChosenSource))
-		Expect(resolve("mf", "mf1").source).To(Equal(ChosenSource))
+		Expect(resolve("al", "al1").source).To(Equal(PickSource))
+		Expect(resolveDisc().source).To(Equal(PickSource))
+		Expect(resolve("mf", "mf1").source).To(Equal(PickSource))
 	})
 
 	It("is passed over once blocked, falling back to the usual order", func() {

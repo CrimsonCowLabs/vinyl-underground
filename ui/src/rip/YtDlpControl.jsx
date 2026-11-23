@@ -6,19 +6,26 @@ import { REST_URL } from '../consts'
 
 const url = `${REST_URL}/rip/ytdlp`
 
-// YtDlpControl shows the installed yt-dlp's version and updates it on demand. The server also
-// updates it on a schedule, and after a failed Rip.
+// statusOf reads the server's {version, latest}. latest is null when the server couldn't look up
+// the latest release.
+const statusOf = (json) => ({
+  version: json?.version ?? '',
+  latest: json?.latest || null,
+})
+
+// YtDlpControl shows the installed yt-dlp's version, says whether a newer release is available,
+// and updates it on demand. The server also updates it on a schedule, and after a failed Rip.
 const YtDlpControl = () => {
   const translate = useTranslate()
   const notify = useNotify()
-  const [version, setVersion] = useState(null)
+  const [status, setStatus] = useState(null)
   const [updating, setUpdating] = useState(false)
   const [loadError, setLoadError] = useState(null)
 
   useEffect(() => {
     let active = true
     httpClient(url)
-      .then(({ json }) => active && setVersion(json?.version ?? ''))
+      .then(({ json }) => active && setStatus(statusOf(json)))
       .catch(
         (error) =>
           active &&
@@ -33,7 +40,7 @@ const YtDlpControl = () => {
     setUpdating(true)
     httpClient(`${url}/update`, { method: 'POST' })
       .then(({ json }) => {
-        setVersion(json.version)
+        setStatus({ version: json.version, latest: null })
         setLoadError(null)
         notify(
           translate(
@@ -44,6 +51,10 @@ const YtDlpControl = () => {
           ),
           'info',
         )
+        // Read the new state back, so the notice compares the new version with the latest.
+        return httpClient(url)
+          .then(({ json }) => setStatus(statusOf(json)))
+          .catch(() => {})
       })
       .catch((error) => {
         notify(
@@ -54,11 +65,24 @@ const YtDlpControl = () => {
       .finally(() => setUpdating(false))
   }
 
+  const version = status?.version
+  const latest = status?.latest
+  const newer = status != null && latest != null && latest !== version
+
   let label = ''
   if (loadError) {
     label = translate('resources.rip.ytdlp.unknown', { error: loadError })
   } else if (version === '') {
-    label = translate('resources.rip.ytdlp.notInstalled')
+    label = newer
+      ? translate('resources.rip.ytdlp.notInstalledAvailable', { latest })
+      : translate('resources.rip.ytdlp.notInstalled')
+  } else if (version && newer) {
+    label = translate('resources.rip.ytdlp.versionAvailable', {
+      version,
+      latest,
+    })
+  } else if (version && latest) {
+    label = translate('resources.rip.ytdlp.versionUpToDate', { version })
   } else if (version) {
     label = translate('resources.rip.ytdlp.version', { version })
   }
@@ -71,7 +95,8 @@ const YtDlpControl = () => {
       <Box ml={1}>
         <Button
           size="small"
-          variant="outlined"
+          variant={newer ? 'contained' : 'outlined'}
+          color={newer ? 'primary' : 'default'}
           onClick={handleUpdate}
           disabled={updating}
         >

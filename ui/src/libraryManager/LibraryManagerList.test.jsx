@@ -66,6 +66,19 @@ describe('<LibraryManagerList />', () => {
     ).toHaveAttribute('href', '/quarantine')
   })
 
+  it('offers to organize all matching (with no filter, the whole Library), as one of its tools', () => {
+    render(
+      <ThemeProvider theme={createTheme()}>
+        <MemoryRouter>
+          <LibraryManagerActions />
+        </MemoryRouter>
+      </ThemeProvider>,
+    )
+    expect(
+      screen.getByText('resources.libraryTrack.actions.organizeMatching 42'),
+    ).toBeInTheDocument()
+  })
+
   it("can't edit all matching when nothing matches", () => {
     listContext = { filterValues: {}, total: 0 }
     render(

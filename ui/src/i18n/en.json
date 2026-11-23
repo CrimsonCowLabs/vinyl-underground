@@ -144,6 +144,7 @@
       },
       "actions": {
         "edit": "Edit",
+        "organize": "Organize",
         "playAll": "Play",
         "playNext": "Play Next",
         "addToQueue": "Play Later",
@@ -533,7 +534,7 @@
       "status": {
         "tracks": "1 Track |||| %{smart_count} Tracks",
         "orphaned": "Matches nothing",
-        "undoing": "Undoing…"
+        "toMigrate": "To write into the Files"
       },
       "actions": {
         "undo": "Undo",
@@ -541,19 +542,58 @@
       },
       "message": {
         "undoTitle": "Undo Correction",
-        "undoContent": "Undo \"%{from} → %{to}\"? The original names come back once the affected folders are rescanned.",
-        "undoContentAlbumCover": "Undo the cover choice for \"%{from}\"? The album goes back to its usual cover.",
         "undoContentAlbumCoverBlock": "Stop blocking \"%{to}\" for \"%{from}\"? The album may show that image again.",
-        "undoContentTrackNumbers": "Undo the track order of \"%{from}\"? Its Tracks get their tagged numbers back once its folders are rescanned."
+        "undoContentRelease": "Forget the MusicBrainz release picked for \"%{from}\"? The album goes back to its usual cover."
       },
       "notifications": {
-        "undone": "Correction undone",
-        "undoing": "Undoing. The Library is being updated in the background"
+        "undone": "Correction undone"
+      },
+      "migration": {
+        "title": "Write the Corrections into the Files",
+        "help": "These Corrections were kept in the app and applied whenever a File's tags were read. The app no longer does that: write them into the Files, so every player sees them. They are written as one job, which you can undo from the Edit history. Each Correction is removed once all its Files are written; one whose Files couldn't all be written stays here, with the reason.",
+        "approve": "Write into 1 File |||| Write into %{smart_count} Files",
+        "confirmTitle": "Write the Corrections into the Files",
+        "confirmContent": "Write the Corrections into 1 File? It is checked before it replaces the one on the drive, and the whole job can be undone from the Edit history. |||| Write the Corrections into %{smart_count} Files? Each File is checked before it replaces the one on the drive, and the whole job can be undone from the Edit history.",
+        "files": "Writes 1 File |||| Writes %{smart_count} Files",
+        "noFiles": "Applies to no File any more: it is removed",
+        "keepsRelease": "The MusicBrainz release picked for the album stays in the app for now",
+        "flagged": "1 File can't be written |||| %{smart_count} Files can't be written",
+        "lastRun": "Last time, 1 File wasn't written |||| Last time, %{smart_count} Files weren't written",
+        "fields": {
+          "album": "Album",
+          "albumartist": "Album artist",
+          "year": "Year",
+          "tracknumber": "Track number",
+          "discnumber": "Disc number",
+          "artist": "Artist",
+          "cover": "Cover",
+          "undoing": "Being undone: removed"
+        },
+        "codes": {
+          "missing": "missing",
+          "changedOnDisk": "changed on disk, rescan first",
+          "unsupportedFormat": "a kind of File that can't be edited yet",
+          "editingOff": "the Library is read-only",
+          "imageMissing": "the chosen image is gone",
+          "linked": "the File has other names",
+          "notVerified": "the written copy didn't check out",
+          "noAlbumFolder": "the album has no folder of its own",
+          "sharedFolder": "another album shares its folder",
+          "invalidImage": "the image can't be read",
+          "interrupted": "interrupted by a restart",
+          "changedSince": "the Correction changed since; run the migration again"
+        },
+        "notifications": {
+          "done": "The Corrections are written into the Files",
+          "skipped": "1 File couldn't be written; its Corrections stay |||| %{smart_count} Files couldn't be written; their Corrections stay",
+          "background": "Writing the Corrections in the background. See Activity.",
+          "editingOff": "The Library's Files can't be written to (its folder is read-only)."
+        }
       },
       "errors": {
         "artistExists": "An Artist named \"%{name}\" already exists. Pick it from the suggestions to merge into it.",
-        "undoLaterFirst": "A later Correction builds on this one. Undo that one first.",
-        "renamedAway": "A Correction renames \"%{name}\" away. Undo it on the Corrections page instead.",
+        "migrateFirst": "This Correction is written into the Files from the Corrections page; it can't be undone.",
+        "renamedAway": "A Correction renames \"%{name}\" away. Write it into the Files on the Corrections page first.",
         "alreadyCorrected": "This Artist already has a Correction.",
         "invalid": "Enter a new, different name.",
         "notFound": "This Artist no longer exists.",
@@ -605,7 +645,8 @@
         "embedAdded": "Cover embedded in the File",
         "embedReplaced": "Embedded cover replaced",
         "embedRemoved": "Embedded cover removed",
-        "moved": "Moved from %{path} to %{newPath}",
+        "moved": "Moved",
+        "albumFile": "A File moved with its album",
         "deleted": "Deleted for good, by Empty Quarantine"
       },
       "notifications": {
@@ -633,9 +674,52 @@
         "jobUnfinished": "This job hasn't finished yet. Undo it once it has.",
         "sameFileTwice": "This job wrote the same File twice, so it can't be undone as a whole. Undo its writes one at a time.",
         "coverChanged": "The cover was changed outside the app since this write, so undoing it would overwrite that.",
-        "unknown": "The write could not be undone.",
-        "taken": "A File is at its old place now, in some letter case, so this one wasn't moved back.",
-        "deletedForGood": "This File was deleted for good, by Empty Quarantine, so it can't come back."
+        "pathTaken": "Another File is at this File's old path now, so it isn't moved back over it.",
+        "caseTwin": "A folder on the way has a twin whose name differs only in letter case. Merge the two first.",
+        "outside": "A folder on the way leads out of the library (a link), so nothing is moved through it.",
+        "deletedForGood": "This File was deleted for good, by Empty Quarantine, so it can't come back.",
+        "unknown": "The write could not be undone."
+      }
+    },
+    "organize": {
+      "help": "Organize moves Files to match their tags: <Album Artist>/<Album> (<Year>)/<NN> <Title>, or <D>-<NN> <Title> on a multi-disc album. Nothing moves until you run the plan. Each Track keeps its favorites, ratings, plays and Playlist entries, and the whole job can be undone from the Edit history.",
+      "summary": {
+        "tracks": "%{smart_count} Track moves |||| %{smart_count} Tracks move",
+        "files": "%{smart_count} other File (covers and the like) moves with its album, and so does anything else in the album's folder |||| %{smart_count} other Files (covers and the like) move with their albums, and so does anything else in their albums' folders",
+        "inPlace": "%{smart_count} Track is in place already |||| %{smart_count} Tracks are in place already",
+        "left": "%{smart_count} File can't be placed, and stays where it is |||| %{smart_count} Files can't be placed, and stay where they are"
+      },
+      "leftTitle": "Left where they are",
+      "movesTitle": "Moves",
+      "fields": {
+        "path": "File",
+        "reason": "Why"
+      },
+      "reasons": {
+        "noAlbumArtist": "No album artist. Set one first (its album's other Tracks may have other artists)",
+        "noAlbum": "No album",
+        "noTitle": "No real title (empty, only a number, or \"Track NN\")",
+        "titleNumber": "The title starts with a number. Run retag, or fix the title first",
+        "noTrackNumber": "No track number",
+        "noDiscNumber": "No disc number, on a multi-disc album",
+        "caseTwin": "A folder on the way has a twin whose name differs only in letter case. Merge the two first",
+        "samePath": "Another File is planned for the same path",
+        "pathTaken": "A File is at the new path already",
+        "editingOff": "Its library is read-only",
+        "unknown": "Can't be placed"
+      },
+      "more": "Show more",
+      "run": "Move %{smart_count} Track |||| Move %{smart_count} Tracks",
+      "done": "The Files were moved",
+      "doneSkipped": "The Files were moved, but %{smart_count} was skipped. The Activity panel says why. |||| The Files were moved, but %{smart_count} were skipped. The Activity panel says why.",
+      "inBackground": "The Files are being moved in the background. The Activity panel shows how it goes.",
+      "errors": {
+        "editingOff": "Editing is off: the Library is read-only.",
+        "noSelection": "Select the Tracks to organize first.",
+        "tooMany": "Too many Tracks are selected one by one. Organize all matching the filter instead.",
+        "planChanged": "The Library changed since the plan was made. Here is the plan as it is now.",
+        "nothingToMove": "Every File is in place already, or can't be placed.",
+        "unknown": "Could not organize the Files. Try again later."
       }
     },
     "libraryTrack": {
@@ -670,6 +754,8 @@
       "actions": {
         "editSelected": "Edit tags",
         "editMatching": "Edit all %{smart_count} matching",
+        "organizeSelected": "Organize",
+        "organizeMatching": "Organize all %{smart_count} matching",
         "editHistory": "Edit history",
         "quarantine": "Quarantine"
       },
@@ -749,7 +835,9 @@
         "tooMany": "Too many Tracks selected one by one.",
         "notFound": "This Track, or File, is no longer there.",
         "changedOnDisk": "The File isn't where the app last saw it. Rescan the library first.",
-        "taken": "A File is already there, in some letter case, so nothing was moved.",
+        "pathTaken": "A File is already there, in some letter case, so nothing was moved.",
+        "caseTwin": "A folder on the way has a twin whose name differs only in letter case. Merge the two first.",
+        "outside": "A folder on the way leads out of the library (a link), so nothing is moved through it.",
         "changedLater": "A later write changed this File. Undo that one first.",
         "alreadyUndone": "This File was restored already.",
         "unfinished": "A later write to this File didn't finish. Restart the app to settle it, then try again.",
@@ -757,7 +845,6 @@
         "notInQuarantine": "This File isn't in Quarantine.",
         "nothingInQuarantine": "Quarantine is empty.",
         "quarantineChanged": "Quarantine changed since you looked. Check it again before emptying it.",
-        "unsettled": "The move couldn't be checked. Restart the app to settle it.",
         "unknown": "Something went wrong; the Files were left as they were."
       }
     },
@@ -932,7 +1019,10 @@
       },
       "ytdlp": {
         "version": "yt-dlp %{version}",
+        "versionAvailable": "yt-dlp %{version} · %{latest} available",
+        "versionUpToDate": "yt-dlp %{version} · up to date",
         "notInstalled": "yt-dlp is not installed yet",
+        "notInstalledAvailable": "yt-dlp is not installed yet · %{latest} available",
         "unknown": "yt-dlp's version is unknown (%{error})",
         "update": "Update yt-dlp",
         "updating": "Updating yt-dlp...",
@@ -1339,8 +1429,10 @@
         "trackNumbers": "Track order",
         "artistRename": "Artist rename",
         "artistMerge": "Artist merge",
+        "migrateCorrections": "Corrections written into the Files",
         "cover": "Album cover",
         "embed": "Embed in Files",
+        "organize": "Organize",
         "quarantine": "Send to Quarantine",
         "restore": "Restore from Quarantine",
         "emptyQuarantine": "Empty Quarantine"

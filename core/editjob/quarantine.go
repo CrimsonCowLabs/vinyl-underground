@@ -57,11 +57,6 @@ func RestoreFileStep(ctx context.Context, ds model.DataStore, libID int, path st
 	return RestoreStep(libID, path), nil
 }
 
-// emptyStepFile is the File an Empty Quarantine step stands for: no Track's, so a restart never
-// takes one of the job's deletes for the step's outcome, and runs the step again (its deletes
-// pass over the Files gone already).
-const emptyStepFile = "quarantine"
-
 type emptyArgs struct {
 	Files []tagedit.QuarantinedFile `json:"files"`
 }
@@ -76,8 +71,9 @@ func EmptyStep(files []tagedit.QuarantinedFile) (model.EditJobStep, error) {
 	if err != nil {
 		return model.EditJobStep{}, err
 	}
-	return model.EditJobStep{Kind: model.EditEmptyQuarantine, MediaFileID: emptyStepFile,
-		Path: quarantine.Folder(), Args: string(args)}, nil
+	// No Track's: the queue tells the step by its path, Quarantine's folder, which none of its
+	// deletes has, so a restart runs the step again (its deletes pass over the Files gone already).
+	return model.EditJobStep{Kind: model.EditEmptyQuarantine, Path: quarantine.Folder(), Args: string(args)}, nil
 }
 
 // ConfirmedEmptyStep is the EmptyStep for every File in the Quarantine of the libraries the app
@@ -141,18 +137,17 @@ func (k restoreKind) args(step *model.EditJobStep) (restoreArgs, error) {
 	return a, nil
 }
 
-// Check refuses a restore up front, and fills in the Track that comes back with the File, so a
-// restart finds the step's journal entry by it.
+// Check refuses a restore up front. The move names no Track (see RestoreInJob), so the queue
+// tells the step, and a restart its journal entry, by its path in its library (its Args').
 func (k restoreKind) Check(ctx context.Context, step *model.EditJobStep) error {
 	a, err := k.args(step)
 	if err != nil {
 		return err
 	}
-	trackID, err := k.editor.CheckRestore(ctx, a.LibraryID, a.Path)
-	if err != nil {
+	if _, err := k.editor.CheckRestore(ctx, a.LibraryID, a.Path); err != nil {
 		return err
 	}
-	step.MediaFileID, step.Path = trackID, a.Path
+	step.Path = a.Path
 	return nil
 }
 

@@ -150,6 +150,8 @@ type Options struct {
 type Updater interface {
 	Update(ctx context.Context) (UpdateResult, error)
 	Version(ctx context.Context) (string, error)
+	// Latest returns the latest release's version, or "" when it can't be told.
+	Latest(ctx context.Context) (string, error)
 }
 
 // Scheduler runs a function on a crontab schedule. scheduler.Scheduler implements it.
@@ -613,6 +615,14 @@ func (r *Ripper) YtDlpVersion(ctx context.Context) (string, error) {
 		return "", ErrNoUpdater
 	}
 	return r.opts.Updater.Version(ctx)
+}
+
+// YtDlpLatest returns the latest yt-dlp release's version, or "" when it can't be told.
+func (r *Ripper) YtDlpLatest(ctx context.Context) (string, error) {
+	if r.opts.Updater == nil {
+		return "", ErrNoUpdater
+	}
+	return r.opts.Updater.Latest(ctx)
 }
 
 // ScheduleYtDlpUpdates updates yt-dlp on the crontab schedule, waiting for a running Rip each

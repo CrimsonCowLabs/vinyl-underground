@@ -46,7 +46,9 @@ const useStyles = makeStyles((theme) => ({
 // The refusals a restore or Empty Quarantine can answer with, each explained.
 const knownErrors = [
   'editingOff',
-  'taken',
+  'pathTaken',
+  'caseTwin',
+  'outside',
   'changedOnDisk',
   'changedLater',
   'alreadyUndone',
@@ -55,7 +57,6 @@ const knownErrors = [
   'notInQuarantine',
   'nothingInQuarantine',
   'quarantineChanged',
-  'unsettled',
 ]
 
 const errorKey = (err) => {

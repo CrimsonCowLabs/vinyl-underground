@@ -18,13 +18,20 @@ type HistoryEntry struct {
 	JobID string `json:"jobId"`
 	// JobSize is how many entries the entry's job has (#162): the history groups them, and a job
 	// of several can be undone as a whole.
-	JobSize   int             `json:"jobSize"`
+	JobSize int `json:"jobSize"`
+	// JobKind is the kind of the entry's job, when it has a row in the queue: a job of a kind
+	// that does more than write its Files (e.g. the Correction migration) is undone as a whole,
+	// whatever its size.
+	JobKind   model.EditKind  `json:"jobKind,omitempty"`
 	Kind      model.EditKind  `json:"kind"`
 	State     model.EditState `json:"state"`
 	UserID    string          `json:"userId,omitempty"`
 	LibraryID int             `json:"libraryId"`
-	Path      string          `json:"path"`
-	NewPath   string          `json:"newPath"`
+	// MediaFileID is the entry's Track, empty for a File that is no Track's (a folder cover, a File
+	// moved with its album); Track is nil both then and when the Track is gone.
+	MediaFileID string `json:"mediaFileId,omitempty"`
+	Path        string `json:"path"`
+	NewPath     string `json:"newPath"`
 	// Track is the File's Track as the app has it now; nil when it is gone.
 	Track   *HistoryTrack `json:"track,omitempty"`
 	Changes []TagChange   `json:"changes"`
@@ -71,13 +78,14 @@ func (e *Editor) History(ctx context.Context, offset, limit int) ([]HistoryEntry
 	}
 	tracks := map[string]*HistoryTrack{}
 	jobSizes := map[string]int{}
+	jobKinds := map[string]model.EditKind{}
 	// undos tells, by entry ID, whether an entry an undo undid was an undo itself.
 	undos := map[string]bool{}
 	res := make([]HistoryEntry, 0, len(entries))
 	for _, en := range entries {
 		h := HistoryEntry{
 			ID: en.ID, JobID: en.JobID, Kind: en.Kind, State: en.State, UserID: en.UserID,
-			LibraryID: en.LibraryID, Path: en.Path, NewPath: en.NewPath, UndoOf: en.UndoOf,
+			LibraryID: en.LibraryID, MediaFileID: en.MediaFileID, Path: en.Path, NewPath: en.NewPath, UndoOf: en.UndoOf,
 			Error: en.Error, CreatedAt: en.CreatedAt, Changes: []TagChange{},
 			OriginalImage: en.OriginalImage, Image: en.Image,
 		}
@@ -95,6 +103,18 @@ func (e *Editor) History(ctx context.Context, offset, limit int) ([]HistoryEntry
 				jobSizes[en.JobID] = size
 			}
 			h.JobSize = size
+			kind, ok := jobKinds[en.JobID]
+			if !ok {
+				job, err := e.ds.EditJob(ctx).Get(en.JobID)
+				if err != nil && !errors.Is(err, model.ErrNotFound) {
+					return nil, 0, err
+				}
+				if job != nil {
+					kind = job.Kind
+				}
+				jobKinds[en.JobID] = kind
+			}
+			h.JobKind = kind
 		}
 		if en.MediaFileID != "" {
 			t, ok := tracks[en.MediaFileID]

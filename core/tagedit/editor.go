@@ -157,6 +157,20 @@ func (e *Editor) Check(ctx context.Context, trackID string) (*model.MediaFile, e
 	return f.mf, nil
 }
 
+// CheckFile is Check, and also the guard an edit meets first: a File that is gone, or changed on
+// disk since the last scan (ErrChangedOnDisk). It stats the File but reads nothing, so a plan of
+// many writes (the Correction migration, #165) can flag the Files it would skip.
+func (e *Editor) CheckFile(ctx context.Context, trackID string) (*model.MediaFile, error) {
+	f, err := e.file(ctx, trackID)
+	if err != nil {
+		return nil, err
+	}
+	if err := e.guard(f); err != nil {
+		return f.mf, err
+	}
+	return f.mf, nil
+}
+
 // Read returns the Track's editable fields, as they are in its File.
 func (e *Editor) Read(ctx context.Context, trackID string) (*TrackTags, error) {
 	f, err := e.file(ctx, trackID)
@@ -523,7 +537,14 @@ func (e *Editor) rekey(ctx context.Context, f *file) error {
 	if dir == "." {
 		dir = ""
 	}
-	targets := []model.ScanTarget{{LibraryID: f.mf.LibraryID, FolderPath: dir}}
+	return e.scan(ctx, []model.ScanTarget{{LibraryID: f.mf.LibraryID, FolderPath: dir}})
+}
+
+// scan rescans the targets, waiting a little for a busy scanner.
+func (e *Editor) scan(ctx context.Context, targets []model.ScanTarget) error {
+	if e.scanner == nil {
+		return nil
+	}
 	ctx = context.WithoutCancel(ctx)
 	var err error
 	for i := range max(e.scanAttempts, 1) {
@@ -558,8 +579,16 @@ func (e *Editor) Settle(ctx context.Context) {
 			e.settleCover(ctx, lib, entry)
 			continue
 		}
-		if entry.Kind == model.EditQuarantine || entry.Kind == model.EditDelete {
+		if entry.Kind == model.EditDelete {
+			e.settleDelete(ctx, lib, entry)
+			continue
+		}
+		if entry.Kind == model.EditQuarantine {
 			e.settleQuarantine(ctx, lib, entry)
+			continue
+		}
+		if _, ok := moveKinds[entry.Kind]; ok {
+			e.settleMove(ctx, lib, entry)
 			continue
 		}
 		abs := filepath.Join(lib.Path, filepath.FromSlash(entry.Path))

@@ -21,6 +21,13 @@ const (
 	// EditEmbed is an album cover embedded into one File (Embed in Files): the File's first
 	// picture is replaced by Image (or added), and OriginalImage is the picture it had there.
 	EditEmbed EditKind = "embed"
+	// EditMove is a File moved within its library (Organize): Path is where it was and NewPath
+	// where the move put it; CopySum tells the File after a restart: a safefile.RenameMark (size
+	// and modification time) for a rename on one share, or its checksum (hex) for a copy across
+	// filesystems (safefile.IsRenameMark tells them apart). MediaFileID is
+	// its Track, kept with its ID and pointed at NewPath, or empty for a File that is no Track's
+	// (a cover.jpg moved with its album). See tagedit.Editor.MoveInJob.
+	EditMove EditKind = "move"
 	// EditQuarantine is a move of a File into Quarantine, or out of it (a restore, or an undo)
 	// (#168): Path is where the File was and NewPath where the move left it, both relative to the
 	// library. MediaFileID is its Track, if it has one. It holds no tags and no image.

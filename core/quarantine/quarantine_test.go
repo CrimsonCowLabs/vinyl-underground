@@ -53,35 +53,6 @@ var _ = Describe("Quarantine", func() {
 		})
 	})
 
-	Describe("Target", func() {
-		It("keeps the File's relative path beneath Quarantine", func() {
-			got, err := Target(safefile.OS{}, root, Into("Artist/Album/01 Song.mp3"))
-			Expect(err).ToNot(HaveOccurred())
-			Expect(got).To(Equal("_Quarantine/Artist/Album/01 Song.mp3"))
-		})
-		It("reuses folders already there whose names differ only in letter case", func() {
-			mkdir("_quarantine/ARTIST/album")
-			got, err := Target(safefile.OS{}, root, Into("Artist/Album/01 Song.mp3"))
-			Expect(err).ToNot(HaveOccurred())
-			Expect(got).To(Equal("_quarantine/ARTIST/album/01 Song.mp3"))
-		})
-		It("flags a File already at the target, in any letter case", func() {
-			touch("_Quarantine/Artist/Album/01 song.MP3")
-			_, err := Target(safefile.OS{}, root, Into("Artist/Album/01 Song.mp3"))
-			Expect(err).To(MatchError(ErrTaken))
-		})
-		It("flags a folder at the target File's name", func() {
-			mkdir("_Quarantine/Artist/Album/01 Song.mp3")
-			_, err := Target(safefile.OS{}, root, Into("Artist/Album/01 Song.mp3"))
-			Expect(err).To(MatchError(ErrTaken))
-		})
-		It("refuses a path through a File where a folder should be", func() {
-			touch("_Quarantine/Artist")
-			_, err := Target(safefile.OS{}, root, Into("Artist/Album/01 Song.mp3"))
-			Expect(err).To(MatchError(ErrTaken))
-		})
-	})
-
 	Describe("Original", func() {
 		It("is a File's path with Quarantine taken off, whatever its letter case", func() {
 			Expect(Original("_quarantine/Artist/Song.mp3")).To(Equal("Artist/Song.mp3"))

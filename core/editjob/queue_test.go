@@ -3,6 +3,7 @@ package editjob
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"sync"
 	"sync/atomic"
@@ -184,6 +185,30 @@ var _ = Describe("Queue", func() {
 			steps := append(fileSteps("a.mp3", "b.mp3"), fileSteps("a.mp3")...)
 			Expect(q.Enqueue(ctx, fakeKind, steps)).Error().To(MatchError(ErrSameFileTwice))
 			Expect(jobs.GetAll(0)).To(BeEmpty())
+		})
+
+		It("tells Files that are no Track's apart by their path (a cover.jpg moved with its album)", func() {
+			steps := fileSteps("cover.jpg", "notes.txt", "cover.jpg")
+			steps[0].MediaFileID, steps[1].MediaFileID, steps[2].MediaFileID = "", "", ""
+			// The same path in two libraries: two Files.
+			steps[0].Args, steps[1].Args, steps[2].Args = `{"libraryId":1}`, `{"libraryId":1}`, `{"libraryId":2}`
+			Expect(q.Enqueue(ctx, fakeKind, steps)).Error().ToNot(HaveOccurred())
+
+			twice := fileSteps("cover.jpg", "cover.jpg")
+			twice[0].MediaFileID, twice[1].MediaFileID = "", ""
+			Expect(q.Enqueue(ctx, fakeKind, twice)).Error().To(MatchError(ErrSameFileTwice))
+		})
+
+		It("tells a File that is no Track's by its path in its library: a checked undo step's too", func() {
+			undo := func(entry string, lib int) *model.EditJobStep {
+				return &model.EditJobStep{Kind: model.EditUndo, Path: "Band/Record (1999)/cover.jpg",
+					Args: fmt.Sprintf(`{"entryId":%q,"libraryId":%d}`, entry, lib)}
+			}
+			Expect(fileKey(undo("a", 1))).ToNot(Equal(fileKey(undo("b", 2))), "the same path in two libraries")
+			Expect(fileKey(undo("a", 1))).To(Equal(fileKey(undo("b", 1))), "one File, twice")
+			cover := &model.EditJobStep{Kind: model.EditCover, Path: "Band/Record/cover.jpg", Args: `{"albumId":"al-1","sum":"x"}`}
+			other := &model.EditJobStep{Kind: model.EditCover, Path: "Band/Record/cover.jpg", Args: `{"albumId":"al-2","sum":"y"}`}
+			Expect(fileKey(cover)).To(Equal(fileKey(other)), "a cover is told by its path")
 		})
 
 		It("refuses a job with no steps", func() {
@@ -371,6 +396,60 @@ var _ = Describe("Queue", func() {
 			Expect(kind.Ran()).To(Equal([]string{"c.mp3"}))
 			Expect(got.Steps[1].State).To(Equal(model.EditStepSkipped))
 			Expect(got.Steps[1].Code).To(Equal("interrupted"))
+		})
+
+		It("settles a File that is no Track's by its path, not by another such File's entry", func() {
+			job := interrupted()
+			steps, err := jobs.Steps(job.ID)
+			Expect(err).ToNot(HaveOccurred())
+			for i := range steps {
+				steps[i].MediaFileID = ""
+				Expect(jobs.PutStep(&steps[i])).To(Succeed())
+			}
+			// a.mp3's entry is written; b.mp3, running, has none: it runs again.
+			Expect(journal.Put(&model.EditEntry{JobID: job.ID, Kind: model.EditMove, State: model.EditWritten,
+				Path: "a.mp3", NewPath: "x/a.mp3"})).To(Succeed())
+			run()
+			got := wait(job)
+			Expect(kind.Ran()).To(Equal([]string{"b.mp3", "c.mp3"}))
+			Expect(got.Steps[1].State).To(Equal(model.EditStepWritten))
+		})
+
+		It("settles a File that is no Track's by its library too: the same path in another library is another File", func() {
+			job := interrupted()
+			steps, err := jobs.Steps(job.ID)
+			Expect(err).ToNot(HaveOccurred())
+			for i := range steps {
+				steps[i].MediaFileID, steps[i].Path, steps[i].Args = "", "cover.jpg", fmt.Sprintf(`{"libraryId":%d}`, i+1)
+				Expect(jobs.PutStep(&steps[i])).To(Succeed())
+			}
+			// Library 1's cover.jpg is written; library 2's, running, has no entry: it runs again.
+			Expect(journal.Put(&model.EditEntry{JobID: job.ID, Kind: model.EditMove, State: model.EditWritten,
+				LibraryID: 1, Path: "cover.jpg", NewPath: "x/cover.jpg"})).To(Succeed())
+			run()
+			got := wait(job)
+			Expect(kind.Ran()).To(Equal([]string{"cover.jpg", "cover.jpg"}))
+			Expect(got.Steps[1].State).To(Equal(model.EditStepWritten))
+			Expect(got.Steps[1].EntryID).To(Equal("entry-cover.jpg"))
+		})
+
+		It("settles an undo step by the entry it undoes", func() {
+			job := interrupted()
+			steps, err := jobs.Steps(job.ID)
+			Expect(err).ToNot(HaveOccurred())
+			for i := range steps {
+				steps[i].MediaFileID, steps[i].Path, steps[i].Args = "", "cover.jpg", fmt.Sprintf(`{"entryId":"e%d"}`, i+1)
+				Expect(jobs.PutStep(&steps[i])).To(Succeed())
+			}
+			undoOfB := &model.EditEntry{JobID: job.ID, Kind: model.EditMove, State: model.EditWritten,
+				LibraryID: 2, Path: "cover.jpg", NewPath: "old/cover.jpg", UndoOf: "e2"}
+			Expect(journal.Put(&model.EditEntry{JobID: job.ID, Kind: model.EditMove, State: model.EditWritten,
+				LibraryID: 1, Path: "cover.jpg", NewPath: "old/cover.jpg", UndoOf: "e1"})).To(Succeed())
+			Expect(journal.Put(undoOfB)).To(Succeed())
+			run()
+			got := wait(job)
+			Expect(got.Steps[1].State).To(Equal(model.EditStepWritten))
+			Expect(got.Steps[1].EntryID).To(Equal(undoOfB.ID))
 		})
 
 		It("writes a File again that the stop came before anything was written to", func() {

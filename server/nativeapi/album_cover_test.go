@@ -250,7 +250,6 @@ var _ = Describe("Album cover API", func() {
 		Expect(res.Entry).To(Equal("entry-1"))
 		Expect(res.JobID).ToNot(BeEmpty())
 		Expect(written()[:3]).To(Equal([]byte{0xFF, 0xD8, 0xFF}), "the PNG is written as a JPEG")
-		Expect(svc.covers).To(BeEmpty())
 	})
 
 	It("answers editingOff, and stores nothing, while editing is off", func() {
@@ -259,7 +258,6 @@ var _ = Describe("Album cover API", func() {
 		Expect(w.Code).To(Equal(http.StatusForbidden))
 		Expect(w.Body.String()).To(ContainSubstring(`"editingOff"`))
 		Expect(picker.stored).To(BeEmpty())
-		Expect(svc.covers).To(BeEmpty())
 	})
 
 	DescribeTable("answers each failure with a status and a code the UI can show",
@@ -303,7 +301,6 @@ var _ = Describe("Album cover API", func() {
 			w := upload(adminToken, "al-1", "front.png", testPNG())
 			Expect(w.Code).To(Equal(http.StatusOK), w.Body.String())
 			Expect(written()[:3]).To(Equal([]byte{0xFF, 0xD8, 0xFF}))
-			Expect(svc.covers).To(BeEmpty())
 		})
 
 		It("keeps nothing for an unknown album", func() {
