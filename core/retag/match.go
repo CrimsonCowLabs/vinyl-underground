@@ -40,9 +40,9 @@ const (
 	minUntitled = 3
 )
 
-// lengthFits reports whether a File lasting seconds can be a track of ms milliseconds: within 4
+// LengthFits reports whether a File lasting seconds can be a track of ms milliseconds: within 4
 // seconds, or 3% of a long track. A track of unknown length fits, unknown.
-func lengthFits(seconds float64, ms int) (fits, known bool) {
+func LengthFits(seconds float64, ms int) (fits, known bool) {
 	if ms <= 0 || seconds <= 0 {
 		return true, false
 	}
@@ -81,7 +81,7 @@ func MatchRelease(files []File, rel *musicbrainz.Release) (map[string]Placed, bo
 	for fi, f := range files {
 		for _, m := range rel.Media {
 			for _, t := range m.Tracks {
-				fits, known := lengthFits(f.Duration, t.Length)
+				fits, known := LengthFits(f.Duration, t.Length)
 				if !fits {
 					continue
 				}

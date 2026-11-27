@@ -173,6 +173,8 @@ var _ = Describe("Find on MusicBrainz API", func() {
 		var got []map[string]any
 		Expect(json.Unmarshal(find(adminToken, "Band", "Record").Body.Bytes(), &got)).To(Succeed())
 		Expect(got[0]).To(HaveKeyWithValue("trackCount", float64(15)))
+		Expect(got[0]).To(HaveKeyWithValue("discTrackCounts", []any{float64(12), float64(3)}), "an album may be one disc of it")
+		Expect(got[1]).ToNot(HaveKey("discTrackCounts"))
 		Expect(got[1]).To(HaveKeyWithValue("trackCount", float64(0)))
 	})
 

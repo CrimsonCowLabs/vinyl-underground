@@ -311,7 +311,7 @@ const wrapperDataProvider = {
   // Writes the album's title, album artist and year, and its Tracks' changed numbers (tracks, if
   // any), into its Files, as one edit job (see writeResult). With a MusicBrainz release picked
   // with Find on MusicBrainz (mbzAlbumId), the job writes its IDs too, and the release's values
-  // the admin accepts (canonical: { album, albumArtist, date, titles }), replacing track IDs that
+  // the admin accepts (canonical: { album, albumArtist, date, titles, artists }), replacing track IDs that
   // differ only with replaceTrackIds, its cover as cover.jpg with cover, and the album's
   // MusicBrainz genres in place of the Files' with genres. The answer then has
   // pickCover, and rolledBack when a File couldn't be written, so the others were put back.

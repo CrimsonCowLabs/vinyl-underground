@@ -25,9 +25,10 @@ const number = (disc, track) => (disc > 0 ? `${disc}-${track}` : `${track}`)
 // saving (match is the server's pairing, see dataProvider.matchMusicBrainzRelease): which release
 // track each Track is, the Tracks that pair with none (they are left without track IDs), and the
 // track IDs a File holds already that differ from the release's (kept, unless the admin says to
-// replace them). The release's own title, album artist, date and track titles, where they differ,
-// are offered, and written only if ticked; its cover, and the album's genres on MusicBrainz
-// (if it has any), are offered ticked.
+// replace them). The release's own title, album artist, date, track titles and track artists,
+// where they differ, are offered, and written only if ticked; its cover, and the album's genres
+// on MusicBrainz (if it has any), are offered ticked. An album that is one disc of the release
+// (match.disc) is numbered as that disc when saved, which the dialog says.
 export const ReleasePairing = ({ match, options, onChange, disabled }) => {
   const classes = useStyles()
   const translate = useTranslate()
@@ -66,10 +67,23 @@ export const ReleasePairing = ({ match, options, onChange, disabled }) => {
           style={{ marginBottom: 8 }}
           data-testid="mbz-by-position"
         >
-          {translate('resources.album.musicbrainz.pairing.byPosition', {
-            smart_count: match.byPosition,
-          })}
+          {match.disc > 0
+            ? translate('resources.album.musicbrainz.pairing.byPositionDisc', {
+                smart_count: match.byPosition,
+                disc: match.disc,
+              })
+            : translate('resources.album.musicbrainz.pairing.byPosition', {
+                smart_count: match.byPosition,
+              })}
         </Alert>
+      )}
+      {match.disc > 0 && (
+        <Typography variant="body2" data-testid="mbz-disc">
+          {translate('resources.album.musicbrainz.pairing.disc', {
+            disc: match.disc,
+            discs: match.discs,
+          })}
+        </Typography>
       )}
       <Typography variant="subtitle2">
         {translate('resources.album.musicbrainz.pairing.title')}
@@ -85,7 +99,7 @@ export const ReleasePairing = ({ match, options, onChange, disabled }) => {
                     {translate(
                       'resources.album.musicbrainz.pairing.pairedWith',
                       {
-                        track: `${number(t.paired.disc, t.paired.position)}. ${t.paired.title}`,
+                        track: `${number(t.paired.disc, t.paired.position)}. ${t.paired.title}${t.paired.artist ? ` (${t.paired.artist})` : ''}`,
                       },
                     )}
                     {t.byPosition &&
@@ -167,6 +181,15 @@ export const ReleasePairing = ({ match, options, onChange, disabled }) => {
             options.canonical.titles,
             setCanonical('titles'),
           )}
+        {canonical.artists > 0 &&
+          option(
+            'artists',
+            translate('resources.album.musicbrainz.pairing.useArtists', {
+              smart_count: canonical.artists,
+            }),
+            options.canonical.artists,
+            setCanonical('artists'),
+          )}
         {mismatches.length > 0 &&
           option(
             'replaceTrackIds',
@@ -200,6 +223,8 @@ ReleasePairing.propTypes = {
   match: PropTypes.shape({
     holds: PropTypes.bool,
     byPosition: PropTypes.number,
+    disc: PropTypes.number,
+    discs: PropTypes.number,
     tracks: PropTypes.array.isRequired,
     unpaired: PropTypes.array.isRequired,
     albumArtistMatches: PropTypes.bool,

@@ -49,6 +49,9 @@ type releaseMatch struct {
 	// TrackCount is the release's number of tracks, which the dialog compares with the album's
 	// to pick the releases worth fitting (see fitReleases).
 	TrackCount int `json:"trackCount"`
+	// DiscTrackCounts are the numbers of tracks of each of its discs, in order, when it has
+	// several: an album that is one of them is worth fitting too.
+	DiscTrackCounts []int `json:"discTrackCounts,omitempty"`
 	// Description names the release on the Corrections page once picked: "Record (GB, CD, 1999)".
 	Description string `json:"description"`
 	// ThumbnailURL is the archive's public 250px front cover, which may not exist. It is public,
@@ -267,7 +270,13 @@ func (api *Router) findReleases(ctx context.Context, q musicbrainz.Query, artist
 
 // releaseMatchOf is the release as Find on MusicBrainz lists it.
 func releaseMatchOf(rel musicbrainz.Release) releaseMatch {
-	return releaseMatch{ID: rel.ID, ReleaseGroupID: rel.ReleaseGroup.ID, Title: rel.Title,
+	var discs []int
+	if len(rel.Media) > 1 && rel.TrackCount() > 0 {
+		for _, m := range rel.Media {
+			discs = append(discs, max(m.TrackCount, len(m.Tracks)))
+		}
+	}
+	return releaseMatch{DiscTrackCounts: discs, ID: rel.ID, ReleaseGroupID: rel.ReleaseGroup.ID, Title: rel.Title,
 		Artist: rel.ArtistCredit.String(), Year: rel.Year(), Country: rel.Country,
 		Format: rel.Formats(), Status: rel.Status, Score: rel.Score, TrackCount: rel.TrackCount(), Description: rel.Description(),
 		ThumbnailURL: coverArtNames.ReleaseFront(rel.ID).ThumbnailURL}
