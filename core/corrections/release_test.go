@@ -262,6 +262,44 @@ var _ = Describe("Writing a MusicBrainz release into the Files", func() {
 				Expect(t.Paired).To(BeNil())
 			}
 		})
+
+		It("scores each release by the Tracks that pair and how close their lengths are, marking the best fit", func() {
+			// Bonus Jam is track 3 now, so it pairs by its number; the Files' durations are known.
+			for id, d := range map[string]any{"mf-1": 200.5, "mf-2": 181.0, "mf-3": 240.0} {
+				_, err := db.Db().Exec("update media_file set duration = ? where id = ?", d, id)
+				Expect(err).ToNot(HaveOccurred())
+			}
+			_, err := db.Db().Exec("update media_file set track_number = 3 where id = 'mf-3'")
+			Expect(err).ToNot(HaveOccurred())
+			edition := func(id, status string, lengths ...int) *musicbrainz.Release {
+				rel := testRelease()
+				rel.ID, rel.Status = id, status
+				for i := range rel.Media[0].Tracks {
+					rel.Media[0].Tracks[i].Length = lengths[i]
+				}
+				return rel
+			}
+			// The remaster's lengths are 1-2s off the Files'; the original's within a second.
+			remaster := edition("00000000-0000-4000-8000-00000000000a", "Official", 202000, 182000, 242000)
+			original := edition(relID, "Promotion", 200000, 180000, 240000)
+			short := edition("00000000-0000-4000-8000-00000000000b", "Official", 200000, 180000, 240000)
+			short.Media[0].Tracks, short.Media[0].TrackCount = short.Media[0].Tracks[:2], 2
+			noGroup := edition("00000000-0000-4000-8000-00000000000c", "Official", 200000, 180000, 240000)
+			noGroup.ReleaseGroup.ID = ""
+
+			fits, err := svc.FitReleases(ctx, al.ID, []*musicbrainz.Release{remaster, original, short, noGroup})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(fits).To(HaveLen(3), "a release without its IDs is left unscored")
+			Expect(fits[0]).To(MatchFields(IgnoreExtras, Fields{"ID": Equal(remaster.ID), "Paired": Equal(3),
+				"TrackCount": Equal(3), "AlbumTracks": Equal(3), "LengthDiff": PointTo(Equal(1.5)), "Best": BeFalse()}))
+			Expect(fits[1]).To(MatchFields(IgnoreExtras, Fields{"ID": Equal(relID), "Paired": Equal(3),
+				"LengthDiff": PointTo(Equal(0.5)), "Best": BeTrue()}))
+			Expect(fits[2]).To(MatchFields(IgnoreExtras, Fields{"Paired": Equal(0), "TrackCount": Equal(2),
+				"LengthDiff": BeNil(), "Best": BeFalse()}), "a release with fewer tracks than the album pairs none")
+
+			_, err = svc.FitReleases(ctx, "no-such-album", []*musicbrainz.Release{original})
+			Expect(err).To(MatchError(model.ErrNotFound))
+		})
 	})
 
 	Describe("the write plan", func() {

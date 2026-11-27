@@ -68,6 +68,9 @@ type Corrections interface {
 	// saving, and PlanRelease works out the job (JobRelease) writing it.
 	MatchRelease(ctx context.Context, albumID string, rel *musicbrainz.Release) (*ReleaseMatch, error)
 	PlanRelease(ctx context.Context, editor *tagedit.Editor, albumID string, rel *musicbrainz.Release, w ReleaseWrite) (*Plan, error)
+	// FitReleases scores each release, in search order, by how well it fits the album's Files,
+	// and marks the best fit (fit.go).
+	FitReleases(ctx context.Context, albumID string, rels []*musicbrainz.Release) ([]ReleaseFit, error)
 
 	// PlanMigration lists every Correction the Correction migration writes into the Files (#165),
 	// with what writing it changes and the Files it can't write; it writes nothing.

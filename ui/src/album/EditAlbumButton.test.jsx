@@ -13,9 +13,11 @@ const {
   mockRefresh,
   mockFindReleases,
   mockMatch,
+  mockFit,
   mockEditing,
 } = vi.hoisted(() => ({
   mockMatch: vi.fn(),
+  mockFit: vi.fn(),
   mockEditing: { writable: true },
   mockPermissions: { value: 'admin' },
   mockCorrectAlbum: vi.fn(),
@@ -33,6 +35,7 @@ const mockDataProvider = {
   getList: mockGetList,
   findMusicBrainzReleases: mockFindReleases,
   matchMusicBrainzRelease: mockMatch,
+  fitMusicBrainzReleases: mockFit,
 }
 
 vi.mock('react-admin', async (importOriginal) => {
@@ -783,6 +786,196 @@ describe('EditAlbumButton', () => {
           year: 1998,
         }),
       )
+    })
+
+    describe('the best match', () => {
+      // The album has two Tracks; so have rel-a, rel-b and rel-c, rel-1 and rel-2 none known.
+      const songs = [
+        { id: 'mf1', title: 'One', discNumber: 1, trackNumber: 1 },
+        { id: 'mf2', title: 'Two', discNumber: 1, trackNumber: 2 },
+      ]
+      const editions = [
+        ...releases,
+        ...['a', 'b', 'c'].map((x) => ({
+          ...releases[0],
+          id: `rel-${x}`,
+          trackCount: 2,
+        })),
+        { ...releases[0], id: 'rel-long', trackCount: 3 },
+      ]
+      const fits = [
+        {
+          id: 'rel-a',
+          paired: 2,
+          trackCount: 2,
+          albumTracks: 2,
+          lengthDiff: 2.25,
+          best: false,
+        },
+        {
+          id: 'rel-b',
+          paired: 2,
+          trackCount: 2,
+          albumTracks: 2,
+          lengthDiff: 0.6,
+          best: true,
+        },
+        {
+          id: 'rel-c',
+          paired: 1,
+          trackCount: 2,
+          albumTracks: 2,
+          lengthDiff: null,
+          best: false,
+        },
+      ]
+      const pending = () => {
+        let answer
+        mockFit.mockReturnValueOnce(
+          new Promise((resolve) => {
+            answer = resolve
+          }),
+        )
+        return (data) => answer({ data })
+      }
+
+      beforeEach(() => {
+        mockGetList.mockImplementation((resource) =>
+          Promise.resolve({ data: resource === 'song' ? songs : [] }),
+        )
+        // Each search answers anew, as the server does
+        mockFindReleases.mockImplementation(() =>
+          Promise.resolve({ data: [...editions] }),
+        )
+        mockFit.mockReset()
+      })
+
+      it('checks the releases with as many tracks as the album, marking the one that fits its Files best', async () => {
+        const answer = pending()
+        render(<EditAlbumButton record={record} />)
+        open()
+        await screen.findByText('One')
+        find()
+        await screen.findByTestId('mbz-release-rel-b')
+        await waitFor(() => expect(mockFit).toHaveBeenCalled())
+        expect(mockFit).toHaveBeenCalledWith('al1', ['rel-a', 'rel-b', 'rel-c'])
+        expect(screen.getByTestId('mbz-fitting').textContent).toContain(
+          'resources.album.musicbrainz.fitting',
+        )
+        expect(screen.queryByTestId('mbz-best-match')).toBeNull()
+
+        answer(fits)
+        await waitFor(() =>
+          expect(screen.queryByTestId('mbz-fitting')).toBeNull(),
+        )
+        const marks = screen.getAllByTestId('mbz-best-match')
+        expect(marks).toHaveLength(1)
+        expect(screen.getByTestId('mbz-release-rel-b').contains(marks[0])).toBe(
+          true,
+        )
+        expect(marks[0].textContent).toBe(
+          'resources.album.musicbrainz.bestMatch',
+        )
+        expect(screen.getByTestId('mbz-fit-rel-b').textContent).toBe(
+          'resources.album.musicbrainz.fit.paired {"smart_count":2,"paired":2} · resources.album.musicbrainz.fit.lengths {"seconds":"0.6"}',
+        )
+        expect(screen.getByTestId('mbz-fit-rel-a').textContent).toContain(
+          '{"seconds":"2.3"}',
+        )
+        // No length known: the pairing alone
+        expect(screen.getByTestId('mbz-fit-rel-c').textContent).toBe(
+          'resources.album.musicbrainz.fit.paired {"smart_count":2,"paired":1}',
+        )
+        expect(screen.queryByTestId('mbz-fit-rel-1')).toBeNull()
+        expect(screen.queryByTestId('mbz-fit-rel-long')).toBeNull()
+      })
+
+      it('checks five releases at most, and none with no track count like the album', async () => {
+        mockFindReleases.mockResolvedValue({
+          data: ['a', 'b', 'c', 'd', 'e', 'f'].map((x) => ({
+            ...releases[0],
+            id: `rel-${x}`,
+            trackCount: 2,
+          })),
+        })
+        mockFit.mockResolvedValue({ data: [] })
+        render(<EditAlbumButton record={record} />)
+        open()
+        await screen.findByText('One')
+        find()
+        await waitFor(() =>
+          expect(mockFit).toHaveBeenCalledWith('al1', [
+            'rel-a',
+            'rel-b',
+            'rel-c',
+            'rel-d',
+            'rel-e',
+          ]),
+        )
+
+        mockFit.mockClear()
+        mockFindReleases.mockResolvedValue({ data: releases })
+        find()
+        await screen.findByTestId('mbz-release-rel-2')
+        await waitFor(() =>
+          expect(screen.queryByTestId('mbz-fitting')).toBeNull(),
+        )
+        expect(mockFit).not.toHaveBeenCalled()
+      })
+
+      it('lets a release be picked while the check runs', async () => {
+        pending()
+        mockMatch.mockResolvedValue({ data: match })
+        render(<EditAlbumButton record={record} />)
+        open()
+        await screen.findByText('One')
+        find()
+        fireEvent.click(await screen.findByTestId('mbz-release-rel-a'))
+        expect(mockMatch).toHaveBeenCalledWith('rel-a', 'al1')
+        expect(screen.getByTestId('mbz-fitting')).toBeTruthy()
+      })
+
+      it('drops an answer for a search run again since', async () => {
+        const stale = pending()
+        render(<EditAlbumButton record={record} />)
+        open()
+        await screen.findByText('One')
+        find()
+        await waitFor(() => expect(mockFit).toHaveBeenCalledTimes(1))
+
+        // The second search finds the same releases; its own check is still running
+        const fresh = pending()
+        find()
+        await waitFor(() => expect(mockFit).toHaveBeenCalledTimes(2))
+        stale(fits)
+        await new Promise((r) => setTimeout(r, 0))
+        expect(screen.queryByTestId('mbz-best-match')).toBeNull()
+        expect(screen.queryByTestId('mbz-fit-rel-b')).toBeNull()
+        expect(screen.getByTestId('mbz-fitting')).toBeTruthy()
+
+        fresh([{ ...fits[0], best: true }])
+        await screen.findByTestId('mbz-best-match')
+        expect(
+          screen
+            .getByTestId('mbz-release-rel-a')
+            .contains(screen.getByTestId('mbz-best-match')),
+        ).toBe(true)
+      })
+
+      it('lists the releases as they are when the check fails', async () => {
+        mockFit.mockRejectedValue({ body: { error: 'busy' } })
+        render(<EditAlbumButton record={record} />)
+        open()
+        await screen.findByText('One')
+        find()
+        await waitFor(() => expect(mockFit).toHaveBeenCalled())
+        await waitFor(() =>
+          expect(screen.queryByTestId('mbz-fitting')).toBeNull(),
+        )
+        expect(screen.getByTestId('mbz-release-rel-b')).toBeTruthy()
+        expect(screen.queryByTestId('mbz-best-match')).toBeNull()
+        expect(screen.queryByText(/errors.busy/)).toBeNull()
+      })
     })
 
     it('says so when nothing matches', async () => {
