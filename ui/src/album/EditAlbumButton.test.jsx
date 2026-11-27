@@ -451,6 +451,7 @@ describe('EditAlbumButton', () => {
       expect(
         screen.getByText(/resources.album.musicbrainz.pairing.doesntHold/),
       ).toBeTruthy()
+      expect(screen.queryByTestId('mbz-by-position')).toBeNull()
       // Only what differs is offered: no album artist, no track titles
       expect(screen.getByTestId('mbz-option-album')).toBeTruthy()
       expect(screen.getByTestId('mbz-option-date')).toBeTruthy()
@@ -507,6 +508,41 @@ describe('EditAlbumButton', () => {
         mbzAlbumId: 'rel-2',
         genres: false,
       })
+    })
+
+    it('says which Tracks pair by track number alone, and warns of nothing when every Track pairs', async () => {
+      mockFindReleases.mockResolvedValue({ data: releases })
+      mockMatch.mockResolvedValue({
+        data: {
+          ...match,
+          holds: true,
+          byPosition: 1,
+          tracks: [
+            match.tracks[0],
+            {
+              ...match.tracks[1],
+              paired: { id: 'rt-2', title: 'Two', disc: 1, position: 2 },
+              byPosition: true,
+            },
+          ],
+          unpaired: [],
+        },
+      })
+      render(<EditAlbumButton record={record} />)
+      open()
+      await pickRelease()
+      expect(screen.getByTestId('mbz-by-position').textContent).toContain(
+        'resources.album.musicbrainz.pairing.byPosition',
+      )
+      expect(screen.getByTestId('mbz-pair-mf-2').textContent).toContain(
+        'resources.album.musicbrainz.pairing.pairedByNumber',
+      )
+      expect(screen.getByTestId('mbz-pair-mf-1').textContent).not.toContain(
+        'resources.album.musicbrainz.pairing.pairedByNumber',
+      )
+      expect(
+        screen.queryByText(/resources.album.musicbrainz.pairing.doesntHold/),
+      ).toBeNull()
     })
 
     it('offers no genres when MusicBrainz has none for the album', async () => {

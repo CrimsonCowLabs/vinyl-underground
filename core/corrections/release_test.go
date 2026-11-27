@@ -202,6 +202,49 @@ var _ = Describe("Writing a MusicBrainz release into the Files", func() {
 			Expect(m.Genres).To(Equal([]string{"Alternative Rock", "Rock"}), "the release group's genres")
 		})
 
+		It("pairs the Tracks no title pairs by track number when the album and the release have as many tracks", func() {
+			// Bonus Jam is track 3 now, so the album's three Tracks are numbered as the release's.
+			mf, err := ds.MediaFile(ctx).Get("mf-3")
+			Expect(err).ToNot(HaveOccurred())
+			mf.TrackNumber = 3
+			Expect(ds.MediaFile(ctx).Put(mf)).To(Succeed())
+			rel := testRelease()
+			for i, title := range []string{"One", "Zwei", "Drei"} {
+				rel.Media[0].Tracks[i].Title = title
+			}
+
+			m, err := svc.MatchRelease(ctx, al.ID, rel)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(m.Holds).To(BeTrue(), "every Track pairs")
+			Expect(m.ByPosition).To(Equal(2))
+			byID := map[string]corrections.PairedTrack{}
+			for _, t := range m.Tracks {
+				byID[t.ID] = t
+			}
+			Expect(byID["mf-1"].ByTitle).To(BeTrue())
+			Expect(byID["mf-1"].ByPosition).To(BeFalse())
+			Expect(byID["mf-2"].Paired).To(PointTo(HaveField("ID", rt2)))
+			Expect(byID["mf-2"].ByPosition).To(BeTrue())
+			Expect(byID["mf-3"].Paired).To(PointTo(HaveField("ID", rt3)))
+			Expect(m.Unpaired).To(BeEmpty())
+			Expect(m.Canonical.Titles).To(Equal(2))
+
+			p, err := svc.PlanRelease(ctx, editor, al.ID, rel, corrections.ReleaseWrite{Accept: corrections.Canonical{Titles: true}})
+			Expect(err).ToNot(HaveOccurred())
+			rw := rewrites(p)
+			Expect(rw["mf-2"].Set).To(HaveKeyWithValue("title", []string{"Zwei"}))
+			Expect(rw["mf-3"].Set).To(HaveKeyWithValue("title", []string{"Drei"}))
+			Expect(rw["mf-3"].Fill).To(HaveKeyWithValue("musicbrainz_trackid", []string{rec3}))
+
+			// One more track on the release: the counts differ, so nothing pairs by number.
+			rel.Media[0].Tracks = append(rel.Media[0].Tracks, musicbrainz.Track{ID: "rt-extra", Position: 4, Title: "Vier"})
+			rel.Media[0].TrackCount = 4
+			m, err = svc.MatchRelease(ctx, al.ID, rel)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(m.ByPosition).To(BeZero())
+			Expect(m.Holds).To(BeFalse())
+		})
+
 		It("holds up when every Track pairs", func() {
 			Expect(ds.MediaFile(ctx).Delete("mf-3")).To(Succeed())
 			m, err := svc.MatchRelease(ctx, al.ID, testRelease())

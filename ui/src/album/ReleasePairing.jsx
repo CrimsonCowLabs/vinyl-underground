@@ -60,6 +60,17 @@ export const ReleasePairing = ({ match, options, onChange, disabled }) => {
           {translate('resources.album.musicbrainz.pairing.doesntHold')}
         </Alert>
       )}
+      {match.byPosition > 0 && (
+        <Alert
+          severity="info"
+          style={{ marginBottom: 8 }}
+          data-testid="mbz-by-position"
+        >
+          {translate('resources.album.musicbrainz.pairing.byPosition', {
+            smart_count: match.byPosition,
+          })}
+        </Alert>
+      )}
       <Typography variant="subtitle2">
         {translate('resources.album.musicbrainz.pairing.title')}
       </Typography>
@@ -77,6 +88,8 @@ export const ReleasePairing = ({ match, options, onChange, disabled }) => {
                         track: `${number(t.paired.disc, t.paired.position)}. ${t.paired.title}`,
                       },
                     )}
+                    {t.byPosition &&
+                      ` ${translate('resources.album.musicbrainz.pairing.pairedByNumber')}`}
                     {t.mismatch && (
                       <span className={classes.unpaired}>
                         {' '}
@@ -186,6 +199,7 @@ export const ReleasePairing = ({ match, options, onChange, disabled }) => {
 ReleasePairing.propTypes = {
   match: PropTypes.shape({
     holds: PropTypes.bool,
+    byPosition: PropTypes.number,
     tracks: PropTypes.array.isRequired,
     unpaired: PropTypes.array.isRequired,
     albumArtistMatches: PropTypes.bool,
