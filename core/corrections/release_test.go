@@ -2,8 +2,10 @@ package corrections_test
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -299,6 +301,136 @@ var _ = Describe("Writing a MusicBrainz release into the Files", func() {
 
 			_, err = svc.FitReleases(ctx, "no-such-album", []*musicbrainz.Release{original})
 			Expect(err).To(MatchError(model.ErrNotFound))
+		})
+
+		Context("when the album is one disc of a release of several", func() {
+			// The album is disc 2 of a double album, its Files' audio in order but their titles
+			// and artists each a place off (a common rip of Essential Selection, Vol. One): the
+			// File at 1 lasts as long as disc 2's track 1, One, and is titled Three.
+			var rel *musicbrainz.Release
+			credit := func(name, id string) musicbrainz.ArtistCredits {
+				c := musicbrainz.ArtistCredits{{Name: name}}
+				c[0].Artist.ID, c[0].Artist.Name = id, name
+				return c
+			}
+			const djID = "dddddddd-1111-4111-8111-111111111111"
+			BeforeEach(func() {
+				for id, f := range map[string]struct {
+					title, artist string
+					track         int
+					duration      float64
+				}{"mf-1": {"Three", "C", 1, 100}, "mf-2": {"One", "A", 2, 201}, "mf-3": {"Two", "B", 3, 299}} {
+					_, err := db.Db().Exec("update media_file set title = ?, artist = ?, track_number = ?, duration = ? where id = ?",
+						f.title, f.artist, f.track, f.duration, id)
+					Expect(err).ToNot(HaveOccurred())
+				}
+				rel = testRelease()
+				disc2 := rel.Media[0]
+				disc2.Position = 2
+				for i, t := range []struct {
+					title, artist string
+				}{{"One", "A"}, {"Two", "B"}, {"Three", "DJ C"}} {
+					disc2.Tracks[i].Title, disc2.Tracks[i].Length = t.title, (i+1)*100000
+					disc2.Tracks[i].ArtistCredit = credit(t.artist, djID)
+				}
+				rel.Media = []musicbrainz.Media{{Format: "CD", Position: 1, TrackCount: 2, Tracks: []musicbrainz.Track{
+					{ID: "rt-d1-1", Position: 1, Title: "Intro", Length: 100000},
+					{ID: "rt-d1-2", Position: 2, Title: "Outro", Length: 200000},
+				}}, disc2}
+			})
+
+			It("pairs the Tracks with that disc by their track numbers, as their lengths fit, and numbers them as it", func() {
+				m, err := svc.MatchRelease(ctx, al.ID, rel)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(m.Holds).To(BeTrue())
+				Expect(m.ByPosition).To(Equal(3))
+				Expect(m.Disc).To(Equal(2))
+				Expect(m.Discs).To(Equal(2))
+				byID := map[string]corrections.PairedTrack{}
+				for _, t := range m.Tracks {
+					byID[t.ID] = t
+				}
+				Expect(byID["mf-1"].Paired).To(PointTo(MatchFields(IgnoreExtras, Fields{
+					"ID": Equal(rt1), "Title": Equal("One"), "Disc": Equal(2), "Artist": Equal("A")})))
+				Expect(byID["mf-3"].Paired).To(PointTo(HaveField("ID", rt3)))
+				Expect(m.Unpaired).To(HaveLen(2), "disc 1's tracks")
+				Expect(m.Canonical.Titles).To(Equal(3))
+				Expect(m.Canonical.Artists).To(Equal(3))
+
+				p, err := svc.PlanRelease(ctx, editor, al.ID, rel, corrections.ReleaseWrite{
+					Accept: corrections.Canonical{Titles: true, Artists: true}})
+				Expect(err).ToNot(HaveOccurred())
+				rw := rewrites(p)
+				Expect(rw["mf-1"].Set).To(HaveKeyWithValue("title", []string{"One"}))
+				Expect(rw["mf-1"].Set).To(HaveKeyWithValue("artist", []string{"A"}))
+				Expect(rw["mf-1"].Set).To(HaveKeyWithValue("artists", []string{"A"}))
+				Expect(rw["mf-1"].Set).To(HaveKeyWithValue("musicbrainz_artistid", []string{djID}))
+				Expect(rw["mf-3"].Set).To(HaveKeyWithValue("artist", []string{"DJ C"}))
+				Expect(rw["mf-1"].Set).To(HaveKeyWithValue("discnumber", []string{"2"}))
+				Expect(rw["mf-1"].Set).To(HaveKeyWithValue("disctotal", []string{"2"}))
+
+				// Artists not accepted: the Files keep theirs, and are numbered as disc 2 all the same.
+				p, err = svc.PlanRelease(ctx, editor, al.ID, rel, corrections.ReleaseWrite{})
+				Expect(err).ToNot(HaveOccurred())
+				rw = rewrites(p)
+				Expect(rw["mf-1"].Set).ToNot(HaveKey("artist"))
+				Expect(rw["mf-1"].Set).ToNot(HaveKey("title"))
+				Expect(rw["mf-2"].Set).To(HaveKeyWithValue("discnumber", []string{"2"}))
+			})
+
+			It("writes them into the Files", func() {
+				p, err := svc.PlanRelease(ctx, editor, al.ID, rel, corrections.ReleaseWrite{
+					Accept: corrections.Canonical{Titles: true, Artists: true}})
+				Expect(err).ToNot(HaveOccurred())
+				run(enqueue(p))
+				tags := tagsOf("01 One.mp3")
+				Expect(tags).To(HaveKeyWithValue("TITLE", []string{"One"}))
+				Expect(tags).To(HaveKeyWithValue("ARTIST", []string{"A"}))
+				Expect(tags).To(HaveKeyWithValue("MUSICBRAINZ_ARTISTID", []string{djID}))
+				Expect(tags["DISCNUMBER"]).To(ConsistOf(HavePrefix("2")))
+				Expect(tags).To(HaveKeyWithValue("MUSICBRAINZ_RELEASETRACKID", []string{rt1}))
+			})
+
+			It("pairs nothing by number when the lengths don't fit that disc's", func() {
+				rel.Media[1].Tracks[1].Length = 260000
+				m, err := svc.MatchRelease(ctx, al.ID, rel)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(m.ByPosition).To(BeZero())
+				Expect(m.Disc).To(BeZero())
+				Expect(m.Holds).To(BeFalse())
+			})
+
+			It("pairs nothing by number when most of the lengths are unknown", func() {
+				for i := range rel.Media[1].Tracks[:2] {
+					rel.Media[1].Tracks[i].Length = 0
+				}
+				m, err := svc.MatchRelease(ctx, al.ID, rel)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(m.ByPosition).To(BeZero())
+			})
+
+			It("goes by the Tracks' disc number when two discs fit", func() {
+				disc1 := rel.Media[1]
+				disc1.Position = 1
+				disc1.Tracks = slices.Clone(disc1.Tracks)
+				for i := range disc1.Tracks {
+					disc1.Tracks[i].ID = fmt.Sprintf("rt-d1-%d", i+1)
+				}
+				rel.Media[0] = disc1
+				m, err := svc.MatchRelease(ctx, al.ID, rel)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(m.ByPosition).To(BeZero(), "the Tracks have no disc number to tell")
+
+				_, err = db.Db().Exec("update media_file set disc_number = 2")
+				Expect(err).ToNot(HaveOccurred())
+				m, err = svc.MatchRelease(ctx, al.ID, rel)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(m.ByPosition).To(Equal(3))
+				Expect(m.Disc).To(Equal(2))
+				p, err := svc.PlanRelease(ctx, editor, al.ID, rel, corrections.ReleaseWrite{})
+				Expect(err).ToNot(HaveOccurred())
+				Expect(rewrites(p)["mf-1"].Set).ToNot(HaveKey("discnumber"), "they are disc 2 already")
+			})
 		})
 	})
 

@@ -58,7 +58,13 @@ const knownMatchErrors = ['busy', 'unavailable', 'disabled', 'notFound']
 // The options a save with a picked release starts with: the release's IDs, its cover and the
 // album's MusicBrainz genres, keeping what the Files hold otherwise (#170).
 const noReleaseOptions = {
-  canonical: { album: false, albumArtist: false, date: false, titles: false },
+  canonical: {
+    album: false,
+    albumArtist: false,
+    date: false,
+    titles: false,
+    artists: false,
+  },
   replaceTrackIds: false,
   cover: true,
   genres: true,

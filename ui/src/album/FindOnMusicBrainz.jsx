@@ -98,10 +98,15 @@ const releaseDetail = (r) =>
 const maxFitted = 5
 
 // The releases worth fitting to the album's Files: those with as many tracks as the album has
-// Tracks, the first in search order.
+// Tracks, or a disc with as many (the album may be one disc of it), the first in search order.
 const fitCandidates = (releases, trackCount) =>
   releases
-    .filter((r) => trackCount > 0 && r.trackCount === trackCount)
+    .filter(
+      (r) =>
+        trackCount > 0 &&
+        (r.trackCount === trackCount ||
+          (r.discTrackCounts || []).includes(trackCount)),
+    )
     .slice(0, maxFitted)
     .map((r) => r.id)
 

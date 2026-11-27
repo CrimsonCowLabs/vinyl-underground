@@ -35,12 +35,13 @@ const JobRelease model.EditKind = "musicbrainzRelease"
 
 // Canonical says which of the release's own values the admin accepts for the album: its title,
 // album artist, date (and its release group's first release date, as the original date), and
-// the titles of the tracks the album's Tracks pair with.
+// the titles and the artists of the tracks the album's Tracks pair with.
 type Canonical struct {
 	Album       bool `json:"album"`
 	AlbumArtist bool `json:"albumArtist"`
 	Date        bool `json:"date"`
 	Titles      bool `json:"titles"`
+	Artists     bool `json:"artists"`
 }
 
 // ReleaseWrite is what saving the album Edit dialog with a picked release writes besides the
@@ -68,8 +69,14 @@ type ReleaseMatch struct {
 	Holds bool `json:"holds"`
 	// ByPosition is how many Tracks pair by their disc and track numbers alone, which they do
 	// when the album has as many Tracks as the release has tracks and their titles pair with
-	// none: the admin knows the release is the album, however its titles differ.
+	// none: the admin knows the release is the album, however its titles differ. Or, when the
+	// album is one disc of the release, by their track numbers on it (see Disc).
 	ByPosition int `json:"byPosition"`
+	// Disc is the release's disc (medium position) the album is, when it is one disc of a
+	// release of several (Discs): every Track pairs with a track of it, by title or by track
+	// number, and saving numbers the Files as that disc. 0 when the album is the whole release.
+	Disc  int `json:"disc,omitempty"`
+	Discs int `json:"discs,omitempty"`
 	// Tracks are the album's Tracks, in album order, each with the release track it pairs with.
 	Tracks []PairedTrack `json:"tracks"`
 	// Unpaired are the release's tracks no Track pairs with.
@@ -107,6 +114,8 @@ type ReleaseTrack struct {
 	Position    int    `json:"position"`
 	// Length is in milliseconds, 0 when unknown.
 	Length int `json:"length"`
+	// Artist is the track's artist credit, as printed.
+	Artist string `json:"artist"`
 }
 
 // PairedTrack is one of the album's Tracks, and the release track it pairs with (nil: none, and
@@ -141,6 +150,8 @@ type CanonicalChanges struct {
 	AlbumArtist CanonicalChange `json:"albumArtist"`
 	Date        CanonicalChange `json:"date"`
 	Titles      int             `json:"titles"`
+	// Artists is how many paired Tracks have another artist than their release track's.
+	Artists int `json:"artists"`
 }
 
 func change(from, to string) CanonicalChange {
@@ -191,6 +202,9 @@ func (c *corrections) matchRelease(ctx context.Context, albumID string, rel *mus
 			if rt.Title != "" && rt.Title != mf.Title {
 				m.Canonical.Titles++
 			}
+			if rt.Artist != "" && rt.Artist != mf.Artist {
+				m.Canonical.Artists++
+			}
 		}
 		if mf.MbzAlbumID != "" && mf.MbzAlbumID != rel.ID && !slices.Contains(m.AlbumIDs, mf.MbzAlbumID) {
 			m.AlbumIDs = append(m.AlbumIDs, mf.MbzAlbumID)
@@ -212,22 +226,31 @@ func (c *corrections) matchRelease(ctx context.Context, albumID string, rel *mus
 	if m.ByPosition > 0 && len(placed) == len(e.tracks) {
 		m.Holds = true
 	}
+	if d := pairedDisc(e.tracks, rel, placed); d > 0 {
+		m.Disc, m.Discs = d, len(rel.Media)
+	}
 	m.Canonical.Album = change(e.al.Name, rel.Title)
 	m.Canonical.AlbumArtist = change(e.al.AlbumArtist, credit)
 	m.Canonical.Date = change(date, rel.Date)
 	return m, e, nil
 }
 
-// pairByPosition places, when the album has as many Tracks as the release has tracks, each Track
-// the titles left unplaced on the release track at its disc (none is disc 1) and track number,
-// unless another Track took it. It returns the Tracks it placed.
+// pairByPosition places each Track the titles left unplaced on the release track at its track
+// number: when the album has as many Tracks as the release has tracks, on its disc (none is disc
+// 1); when it has as many as one disc of a release of several, on that disc (positionDisc). No
+// Track takes a track another took. It returns the Tracks it placed.
 func pairByPosition(tracks model.MediaFiles, rel *musicbrainz.Release, placed map[string]retag.Placed) map[string]bool {
 	byPosition := map[string]bool{}
-	if len(tracks) == 0 || len(tracks) != rel.TrackCount() {
+	if len(tracks) == 0 || placed == nil {
 		return byPosition
 	}
-	if placed == nil {
-		return byPosition
+	discOf := func(mf model.MediaFile) int { return max(mf.DiscNumber, 1) }
+	if len(tracks) != rel.TrackCount() {
+		d := positionDisc(tracks, rel, placed)
+		if d == 0 {
+			return byPosition
+		}
+		discOf = func(model.MediaFile) int { return d }
 	}
 	taken := map[string]bool{}
 	for _, p := range placed {
@@ -237,7 +260,7 @@ func pairByPosition(tracks model.MediaFiles, rel *musicbrainz.Release, placed ma
 		if _, ok := placed[mf.ID]; ok || mf.TrackNumber <= 0 {
 			continue
 		}
-		disc := max(mf.DiscNumber, 1)
+		disc := discOf(mf)
 		for _, md := range rel.Media {
 			if md.Position != disc {
 				continue
@@ -253,8 +276,85 @@ func pairByPosition(tracks model.MediaFiles, rel *musicbrainz.Release, placed ma
 	return byPosition
 }
 
+// positionDisc is the disc of a release of several the album is, going by track numbers and
+// lengths: the disc with as many tracks as the album has Tracks, whose track at each Track's
+// number lasts as long as it (most of the lengths known, and every known one fitting), and on
+// which every Track the titles placed is. Asked of a release of discs with as many tracks (a
+// double album of two halves), the Tracks' own disc number decides; failing that, none is.
+// 0 when no disc is the album.
+func positionDisc(tracks model.MediaFiles, rel *musicbrainz.Release, placed map[string]retag.Placed) int {
+	if len(rel.Media) < 2 {
+		return 0
+	}
+	var fitting []int
+	for _, md := range rel.Media {
+		if len(md.Tracks) != len(tracks) {
+			continue
+		}
+		at := make(map[int]musicbrainz.Track, len(md.Tracks))
+		for _, t := range md.Tracks {
+			at[t.Position] = t
+		}
+		ok, known := true, 0
+		for _, mf := range tracks {
+			if p, done := placed[mf.ID]; done && p.Disc != md.Position {
+				ok = false
+				break
+			}
+			t, has := at[mf.TrackNumber]
+			if !has {
+				ok = false
+				break
+			}
+			fits, k := retag.LengthFits(float64(mf.Duration), t.Length)
+			if !fits {
+				ok = false
+				break
+			}
+			if k {
+				known++
+			}
+		}
+		if ok && known*2 > len(tracks) {
+			fitting = append(fitting, md.Position)
+		}
+	}
+	switch {
+	case len(fitting) == 1:
+		return fitting[0]
+	case len(fitting) > 1:
+		if d := tracks[0].DiscNumber; d > 0 && slices.Contains(fitting, d) {
+			for _, mf := range tracks {
+				if mf.DiscNumber != d {
+					return 0
+				}
+			}
+			return d
+		}
+	}
+	return 0
+}
+
+// pairedDisc is the disc of a release of several every Track pairs with a track of, 0 when the
+// Tracks pair across discs, or some with none.
+func pairedDisc(tracks model.MediaFiles, rel *musicbrainz.Release, placed map[string]retag.Placed) int {
+	if len(rel.Media) < 2 || len(tracks) == 0 || len(placed) != len(tracks) {
+		return 0
+	}
+	disc := 0
+	for _, mf := range tracks {
+		p := placed[mf.ID]
+		if disc != 0 && p.Disc != disc {
+			return 0
+		}
+		disc = p.Disc
+	}
+	return disc
+}
+
 func releaseTrack(disc int, t musicbrainz.Track) ReleaseTrack {
-	return ReleaseTrack{ID: t.ID, RecordingID: t.Recording.ID, Title: t.Title, Disc: disc, Position: t.Position, Length: t.Length}
+	return ReleaseTrack{ID: t.ID, RecordingID: t.Recording.ID, Title: t.Title, Disc: disc, Position: t.Position, Length: t.Length,
+		Artist: t.ArtistCredit.String()}
 }
 
 // creditIDs are the MusicBrainz IDs of the credit's artists, or none if any is unknown (they are
@@ -318,6 +418,12 @@ func (c *corrections) PlanRelease(ctx context.Context, editor *tagedit.Editor, a
 	for _, t := range m.Tracks {
 		paired[t.ID] = t.Paired
 	}
+	credits := map[string]musicbrainz.ArtistCredits{}
+	for _, md := range rel.Media {
+		for _, t := range md.Tracks {
+			credits[t.ID] = t.ArtistCredit
+		}
+	}
 	plan := &Plan{Kind: JobRelease, TrackID: e.tracks[0].ID}
 	if w.Cover {
 		step, pickCover, err := c.releaseCover(ctx, editor, al.ID, rel)
@@ -341,6 +447,11 @@ func (c *corrections) PlanRelease(ctx context.Context, editor *tagedit.Editor, a
 		}
 		if w.Genres && len(m.Genres) > 0 {
 			r.Set["genre"] = m.Genres
+		}
+		// The album is one disc of the release: its Files are numbered as that disc.
+		if m.Disc > 0 && mf.DiscNumber != m.Disc {
+			r.Set["discnumber"] = []string{strconv.Itoa(m.Disc)}
+			r.Set["disctotal"] = []string{strconv.Itoa(m.Discs)}
 		}
 		if acceptDate {
 			r.Year = 0
@@ -366,6 +477,23 @@ func (c *corrections) PlanRelease(ctx context.Context, editor *tagedit.Editor, a
 			}
 			if w.Accept.Titles && t.Title != "" {
 				r.Set["title"] = []string{t.Title}
+			}
+			if credit := credits[t.ID]; w.Accept.Artists && len(credit) > 0 {
+				names := make([]string, len(credit))
+				for i, a := range credit {
+					names[i] = a.Name
+				}
+				r.Set["artist"] = []string{credit.String()}
+				r.Set["artists"] = names
+				// The artist IDs go with the names by position; IDs naming the old artists go.
+				if ids := creditIDs(credit); len(ids) > 0 {
+					r.Set["musicbrainz_artistid"] = ids
+				} else {
+					if r.Drop == nil {
+						r.Drop = map[string][]string{}
+					}
+					r.Drop["artist"] = append(r.Drop["artist"], "musicbrainz_artistid")
+				}
 			}
 		}
 		step, err := editjob.RewriteStep(mf.ID, r)

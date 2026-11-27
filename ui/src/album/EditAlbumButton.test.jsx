@@ -655,6 +655,7 @@ describe('EditAlbumButton', () => {
           albumArtist: false,
           date: false,
           titles: false,
+          artists: false,
         },
         replaceTrackIds: false,
         cover: true,
@@ -713,6 +714,58 @@ describe('EditAlbumButton', () => {
       expect(
         screen.queryByText(/resources.album.musicbrainz.pairing.doesntHold/),
       ).toBeNull()
+    })
+
+    it('says when the album is one disc of the release, pairing by number on it, and offers its track artists', async () => {
+      mockFindReleases.mockResolvedValue({ data: releases })
+      mockMatch.mockResolvedValue({
+        data: {
+          ...match,
+          holds: true,
+          byPosition: 2,
+          disc: 2,
+          discs: 2,
+          canonical: { ...match.canonical, titles: 2, artists: 2 },
+          tracks: match.tracks.map((t, i) => ({
+            ...t,
+            paired: {
+              id: `rt-2-${i + 1}`,
+              title: `Disc two ${i + 1}`,
+              artist: 'Jaya',
+              disc: 2,
+              position: i + 1,
+            },
+            byPosition: true,
+          })),
+          unpaired: [],
+        },
+      })
+      mockCorrectAlbum.mockResolvedValue({
+        data: { albumId: 'al3', done: true },
+      })
+      render(<EditAlbumButton record={record} />)
+      open()
+      await pickRelease()
+      expect(screen.getByTestId('mbz-by-position').textContent).toContain(
+        'resources.album.musicbrainz.pairing.byPositionDisc',
+      )
+      expect(screen.getByTestId('mbz-disc').textContent).toContain('"disc":2')
+      expect(screen.getByTestId('mbz-pair-mf-1').textContent).toContain(
+        '2-1. Disc two 1 (Jaya)',
+      )
+      const artists = screen.getByTestId('mbz-option-artists')
+      expect(artists.checked).toBe(false)
+      fireEvent.click(artists)
+      fireEvent.click(screen.getByTestId('mbz-option-titles'))
+      save()
+      await waitFor(() => expect(mockCorrectAlbum).toHaveBeenCalled())
+      expect(mockCorrectAlbum.mock.calls[0][1].canonical).toEqual({
+        album: false,
+        albumArtist: false,
+        date: false,
+        titles: true,
+        artists: true,
+      })
     })
 
     it('offers no genres when MusicBrainz has none for the album', async () => {
@@ -988,6 +1041,33 @@ describe('EditAlbumButton', () => {
         )
         expect(screen.queryByTestId('mbz-fit-rel-1')).toBeNull()
         expect(screen.queryByTestId('mbz-fit-rel-long')).toBeNull()
+      })
+
+      it('checks a release with a disc of as many tracks as the album', async () => {
+        mockFindReleases.mockResolvedValue({
+          data: [
+            {
+              ...releases[0],
+              id: 'rel-double',
+              trackCount: 5,
+              discTrackCounts: [3, 2],
+            },
+            {
+              ...releases[0],
+              id: 'rel-other',
+              trackCount: 5,
+              discTrackCounts: [4, 1],
+            },
+          ],
+        })
+        mockFit.mockResolvedValue({ data: [] })
+        render(<EditAlbumButton record={record} />)
+        open()
+        await screen.findByText('One')
+        find()
+        await waitFor(() =>
+          expect(mockFit).toHaveBeenCalledWith('al1', ['rel-double']),
+        )
       })
 
       it('checks five releases at most, and none with no track count like the album', async () => {

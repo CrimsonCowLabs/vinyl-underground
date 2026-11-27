@@ -224,6 +224,8 @@
           "mismatch": "(its File names another MusicBrainz track; kept unless replaced below)",
           "pairedByNumber": "(by track number)",
           "byPosition": "1 Track's title pairs with no track of the release, so, as the album and the release have the same number of tracks, it pairs by its track number. Check the pairing before saving. |||| %{smart_count} Tracks' titles pair with no track of the release, so, as the album and the release have the same number of tracks, they pair by their track numbers. Check the pairing before saving.",
+          "byPositionDisc": "1 Track's title pairs with no track of the release, so, as the album has as many Tracks as the release's disc %{disc} has tracks, and their lengths match, it pairs by its track number on that disc. Check the pairing before saving. |||| %{smart_count} Tracks' titles pair with no track of the release, so, as the album has as many Tracks as the release's disc %{disc} has tracks, and their lengths match, they pair by their track numbers on that disc. Check the pairing before saving.",
+          "disc": "The album is disc %{disc} of the release's %{discs}: saving numbers its Tracks as disc %{disc}.",
           "unpaired": "Pairs with no track of the release: left without track IDs",
           "unpairedTracks": "1 Track pairs with no track of the release. It gets the album's IDs only. |||| %{smart_count} Tracks pair with no track of the release. They get the album's IDs only.",
           "unusedTracks": "1 track of the release pairs with none of the album's Tracks. |||| %{smart_count} tracks of the release pair with none of the album's Tracks.",
@@ -232,6 +234,7 @@
           "useAlbumArtist": "Use the release's album artist: %{value}",
           "useDate": "Use the release's date: %{value}",
           "useTitles": "Use the release's track titles (1 differs) |||| Use the release's track titles (%{smart_count} differ)",
+          "useArtists": "Use the release's track artists (1 differs) |||| Use the release's track artists (%{smart_count} differ)",
           "replaceTrackIds": "Replace the MusicBrainz track IDs of the 1 File that names another track |||| Replace the MusicBrainz track IDs of the %{smart_count} Files that name other tracks",
           "writeCover": "Write the release's Cover Art Archive cover as the album's cover.jpg",
           "writeGenres": "Replace the Files' genres with the album's on MusicBrainz: %{genres}"
