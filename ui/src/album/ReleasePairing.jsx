@@ -26,7 +26,7 @@ const number = (disc, track) => (disc > 0 ? `${disc}-${track}` : `${track}`)
 // track each Track is, the Tracks that pair with none (they are left without track IDs), and the
 // track IDs a File holds already that differ from the release's (kept, unless the admin says to
 // replace them). The release's own title, album artist, date and track titles, where they differ,
-// and its cover are offered, and written only if ticked.
+// are offered, and written only if ticked; its cover is offered ticked.
 export const ReleasePairing = ({ match, options, onChange, disabled }) => {
   const classes = useStyles()
   const translate = useTranslate()

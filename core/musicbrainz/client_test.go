@@ -132,6 +132,26 @@ var _ = Describe("Client", func() {
 		Expect(clock.Waits()).To(ConsistOf(BeNumerically(">=", 7*time.Second)))
 	})
 
+	It("reports an answer that never comes in time as busy, not as unreachable", func() {
+		replies = []func(http.ResponseWriter){func(w http.ResponseWriter) { time.Sleep(300 * time.Millisecond) }}
+		slow := musicbrainz.New(musicbrainz.Options{
+			BaseURL: srv.URL + "/ws/2/", Limiter: musicbrainz.NewLimiter(time.Second, clock),
+			HTTP: &http.Client{Timeout: 50 * time.Millisecond},
+		})
+		_, err := slow.SearchRecordings(context.Background(), "q")
+		Expect(err).To(MatchError(musicbrainz.ErrBusy))
+		Expect(served()).To(HaveLen(1))
+	})
+
+	It("doesn't call a lookup the caller gave up on busy", func() {
+		replies = []func(http.ResponseWriter){func(w http.ResponseWriter) { time.Sleep(300 * time.Millisecond) }}
+		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+		defer cancel()
+		_, err := client.SearchRecordings(ctx, "q")
+		Expect(err).To(HaveOccurred())
+		Expect(err).ToNot(MatchError(musicbrainz.ErrBusy))
+	})
+
 	It("gives up with an error when MusicBrainz stays busy", func() {
 		for range 10 {
 			replies = append(replies, busy(""))
