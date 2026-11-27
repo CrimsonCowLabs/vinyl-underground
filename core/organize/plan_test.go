@@ -58,7 +58,7 @@ var _ = Describe("Plan", func() {
 		Expect(p.Token).ToNot(BeEmpty())
 	})
 
-	It("puts a multi-disc album's Files in a Disc <D> folder each, in the album's folder", func() {
+	It("numbers a multi-disc album's Files <D>-<NN>", func() {
 		one := song("One", 1)
 		one.DiscNumber = 1
 		two := song("Two", 1)
@@ -66,20 +66,8 @@ var _ = Describe("Plan", func() {
 		l.track("Band/Record/CD1/01.mp3", one)
 		l.track("Band/Record/CD2/01.mp3", two)
 		Expect(moves(plan(everything))).To(Equal(map[string]string{
-			"Band/Record/CD1/01.mp3": "Band/Record (1999)/Disc 1/01 One.mp3",
-			"Band/Record/CD2/01.mp3": "Band/Record (1999)/Disc 2/01 Two.mp3",
-		}))
-	})
-
-	It("reuses an album's disc folder whatever its letter case", func() {
-		one := song("One", 1)
-		one.DiscNumber = 1
-		two := song("Two", 1)
-		two.DiscNumber = 2
-		l.track("Band/Record (1999)/disc 1/01 One.mp3", one)
-		l.track("Band/Record (1999)/x.mp3", two)
-		Expect(moves(plan(everything))).To(Equal(map[string]string{
-			"Band/Record (1999)/x.mp3": "Band/Record (1999)/Disc 2/01 Two.mp3",
+			"Band/Record/CD1/01.mp3": "Band/Record (1999)/1-01 One.mp3",
+			"Band/Record/CD2/01.mp3": "Band/Record (1999)/2-01 Two.mp3",
 		}))
 	})
 
@@ -234,7 +222,7 @@ var _ = Describe("Plan", func() {
 			Expect(p.Folders).To(Equal([]FolderMove{{LibraryID: 1, Path: "iTunes/Band/Record", NewPath: "Band/Record (1999)"}}))
 		})
 
-		It("moves the Files of the folder above a multi-disc album's disc folders to the album's folder, and each disc folder's to its Disc folder", func() {
+		It("moves the Files of the folder above a multi-disc album's disc folders, keeping their place", func() {
 			one := song("One", 1)
 			one.DiscNumber = 1
 			two := song("Two", 1)
@@ -243,56 +231,12 @@ var _ = Describe("Plan", func() {
 			l.track("x/Record/CD2/01.mp3", two)
 			l.file("x/Record/cover.jpg", "image")
 			l.file("x/Record/CD1/cover.jpg", "disc image")
-			p := plan(everything)
-			Expect(moves(p)).To(Equal(map[string]string{
-				"x/Record/CD1/01.mp3":    "Band/Record (1999)/Disc 1/01 One.mp3",
-				"x/Record/CD2/01.mp3":    "Band/Record (1999)/Disc 2/01 Two.mp3",
+			Expect(moves(plan(everything))).To(Equal(map[string]string{
+				"x/Record/CD1/01.mp3":    "Band/Record (1999)/1-01 One.mp3",
+				"x/Record/CD2/01.mp3":    "Band/Record (1999)/2-01 Two.mp3",
 				"x/Record/cover.jpg":     "Band/Record (1999)/cover.jpg",
-				"x/Record/CD1/cover.jpg": "Band/Record (1999)/Disc 1/cover.jpg",
+				"x/Record/CD1/cover.jpg": "Band/Record (1999)/CD1/cover.jpg",
 			}))
-			Expect(p.Folders).To(Equal([]FolderMove{{LibraryID: 1, Path: "x/Record", NewPath: "Band/Record (1999)",
-				Dirs: map[string]string{"x/Record/CD1": "Band/Record (1999)/Disc 1", "x/Record/CD2": "Band/Record (1999)/Disc 2"}}}))
-		})
-
-		It("brings disc folders that sit beside other albums together under the album's folder", func() {
-			// Life After Death (Disc 1) and (Disc 2), in an artist folder with other albums.
-			one := song("One", 1)
-			one.DiscNumber = 1
-			two := song("Two", 1)
-			two.DiscNumber = 2
-			l.track("Band/Record (Disc 1)/01 One.mp3", one)
-			l.track("Band/Record (Disc 2)/01 Two.mp3", two)
-			l.file("Band/Record (Disc 1)/folder.jpg", "disc 1 art")
-			other := song("Else", 1)
-			other.Album, other.Year = "Other", 2001
-			l.track("Band/Other (2001)/01 Else.mp3", other)
-			p := plan(everything)
-			Expect(moves(p)).To(Equal(map[string]string{
-				"Band/Record (Disc 1)/01 One.mp3": "Band/Record (1999)/Disc 1/01 One.mp3",
-				"Band/Record (Disc 2)/01 Two.mp3": "Band/Record (1999)/Disc 2/01 Two.mp3",
-				"Band/Record (Disc 1)/folder.jpg": "Band/Record (1999)/Disc 1/folder.jpg",
-			}))
-			Expect(p.Folders).To(ConsistOf(
-				FolderMove{LibraryID: 1, Path: "Band/Record (Disc 1)", NewPath: "Band/Record (1999)/Disc 1"},
-				FolderMove{LibraryID: 1, Path: "Band/Record (Disc 2)", NewPath: "Band/Record (1999)/Disc 2"},
-			))
-		})
-
-		It("moves the Files of a multi-disc album's one folder to its new album folder, above the Disc folders", func() {
-			one := song("One", 1)
-			one.DiscNumber = 1
-			two := song("Two", 1)
-			two.DiscNumber = 2
-			l.track("x/Record/1-01 One.mp3", one)
-			l.track("x/Record/2-01 Two.mp3", two)
-			l.file("x/Record/cover.jpg", "image")
-			p := plan(everything)
-			Expect(moves(p)).To(Equal(map[string]string{
-				"x/Record/1-01 One.mp3": "Band/Record (1999)/Disc 1/01 One.mp3",
-				"x/Record/2-01 Two.mp3": "Band/Record (1999)/Disc 2/01 Two.mp3",
-				"x/Record/cover.jpg":    "Band/Record (1999)/cover.jpg",
-			}))
-			Expect(p.Folders).To(Equal([]FolderMove{{LibraryID: 1, Path: "x/Record", NewPath: "Band/Record (1999)"}}))
 		})
 
 		It("leaves them in a folder holding another album's Tracks", func() {

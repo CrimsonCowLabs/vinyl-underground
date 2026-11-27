@@ -35,7 +35,7 @@ The folder on the drive holding Files removed from the Library (Duplicates, and 
 _Avoid_: Trash, recycle bin
 
 **Organize**:
-To rename and move the Library's Files into one naming scheme, `<Album Artist>/<Album> (<Year>)/<NN> <Title>.<ext>` (`Disc <D>/<NN> <Title>.<ext>` in the album's folder on a multi-disc album, so its cover has a folder of its own), only through a plan the admin has reviewed. Folders and Files whose names differ only in letter case are merged this way too (the case merge): first all but one of each set get a temporary name (`Atb [case-merge]`), then each is merged into its partner, a byte-identical File going to Quarantine and any other clash left for the admin. A tag edit never moves a File by itself. The plan lists every move and the Tracks it can't place, with why; the approved plan runs as one edit job, each move journaled, the other Files of an album's folder (its `cover.jpg`) moving with it, and each Track keeping its ID.
+To rename and move the Library's Files into one naming scheme, `<Album Artist>/<Album> (<Year>)/<NN> <Title>.<ext>` (`<D>-<NN>` on a multi-disc album), only through a plan the admin has reviewed. Folders and Files whose names differ only in letter case are merged this way too (the case merge): first all but one of each set get a temporary name (`Atb [case-merge]`), then each is merged into its partner, a byte-identical File going to Quarantine and any other clash left for the admin. A tag edit never moves a File by itself. The plan lists every move and the Tracks it can't place, with why; the approved plan runs as one edit job, each move journaled, the other Files of an album's folder (its `cover.jpg`) moving with it, and each Track keeping its ID.
 _Avoid_: Rename, tidy, sort
 
 **Edit journal**:

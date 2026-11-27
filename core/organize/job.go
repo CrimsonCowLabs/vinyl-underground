@@ -119,7 +119,7 @@ func (k jobKind) sweep(ctx context.Context, job *model.EditJob, f FolderMove) er
 			case !e.Type().IsRegular(), strings.Contains(e.Name(), ".vu-"), slices.Contains(f.Keep, rel), moved[rel]:
 				// A link, a write's hidden temp, a File the plan flagged, or a Track's old copy.
 			default:
-				m := tagedit.Move{LibraryID: f.LibraryID, NewLibraryID: f.NewLibraryID, Path: rel, NewPath: path.Join(f.Target(dirs[i]), e.Name())}
+				m := tagedit.Move{LibraryID: f.LibraryID, NewLibraryID: f.NewLibraryID, Path: rel, NewPath: path.Join(f.NewPath, strings.TrimPrefix(rel, f.Path+"/"))}
 				// Journaled with the job running (a redo's, when this is one), so its undo puts the
 				// File back too.
 				if _, err := k.editor.MoveInJob(ctx, cmp.Or(editjob.RunningJob(ctx), job.ID), m); err != nil {
