@@ -19,6 +19,9 @@ type AlbumFix struct {
 	Name        string `json:"name"`
 	AlbumArtist string `json:"albumArtist"`
 	Year        int    `json:"year"`
+	// Composer are the composers written into every File of the album; none keeps each File's
+	// own (an album's Tracks usually have composers of their own).
+	Composer []string `json:"composer,omitempty"`
 }
 
 // mbzLabel joins the MusicBrainz release an album Correction picked (before #170 wrote picks into
@@ -43,6 +46,9 @@ const (
 	PickCoverFailed PickCover = "failed"
 	// PickCoverDisabled: EnableExternalServices is off, so the archive was not asked.
 	PickCoverDisabled PickCover = "disabled"
+	// PickCoverNoFolder: the album has no folder of its own for a cover.jpg (its disc folders
+	// are in a folder other albums are in too, say), so the archive was not asked.
+	PickCoverNoFolder PickCover = "noFolder"
 )
 
 // pickedCoverTimeout is how long saving waits for the archive before writing the release without

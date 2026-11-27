@@ -8,11 +8,13 @@ import { useDataProvider } from 'react-admin'
 export const MAX_DISC = 999
 export const MAX_TRACK = 9999
 
-// A Track's numbers as edited: strings, as typed. No disc number shows as empty.
+// A Track's numbers as edited: strings, as typed. No disc number shows as empty. Its composers
+// come along for the album's Composer field (see sharedComposers).
 export const toRows = (tracks) =>
   tracks.map((t) => ({
     id: t.id,
     title: t.title,
+    composers: (t.participants?.composer || []).map((c) => c.name),
     fromDisc: t.discNumber || 0,
     fromTrack: t.trackNumber || 0,
     disc: t.discNumber ? String(t.discNumber) : '',
@@ -24,6 +26,24 @@ const parse = (value) => {
   const v = value.trim()
   if (v === '') return 0
   return /^\d+$/.test(v) ? Number(v) : NaN
+}
+
+// The album's Composer field: several composers are typed apart with ";".
+export const splitComposers = (value) =>
+  value
+    .split(';')
+    .map((c) => c.split(/\s+/).filter(Boolean).join(' '))
+    .filter(Boolean)
+export const joinComposers = (composers) => composers.join('; ')
+
+// The composers every Track has, as the Composer field shows them; '' when the Tracks' composers
+// differ (or none has any), and null for an album with no Tracks.
+export const sharedComposers = (rows) => {
+  if (!rows?.length) return null
+  const first = joinComposers(rows[0].composers || [])
+  return rows.every((r) => joinComposers(r.composers || []) === first)
+    ? first
+    : ''
 }
 
 // The Tracks whose numbers changed, as the server takes them.

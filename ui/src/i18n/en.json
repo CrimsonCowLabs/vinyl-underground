@@ -78,6 +78,7 @@
           "album": "Album",
           "albumartist": "Album artist",
           "albumartists": "Album artists",
+          "composer": "Composers",
           "date": "Date",
           "originaldate": "Original date",
           "tracknumber": "Track number",
@@ -114,6 +115,7 @@
       "name": "Album |||| Albums",
       "fields": {
         "albumArtist": "Album Artist",
+        "composer": "Composers (separate with ;)",
         "artist": "Artist",
         "duration": "Time",
         "songCount": "Songs",
@@ -158,7 +160,8 @@
         "chooseCover": "Choose Cover"
       },
       "editor": {
-        "help": "Writes the title, album artist, year and track numbers into the album's Files, so every app shows them. Tracks keep their IDs, and the album keeps its stars and play counts. Undo it from the Edit history.",
+        "composerDiffers": "Each Track has composers of its own, kept unless you type some here for every Track.",
+        "help": "Writes the title, album artist, year, composers and track numbers into the album's Files, so every app shows them. Tracks keep their IDs, and the album keeps its stars and play counts. Undo it from the Edit history.",
         "corrected": "Album saved",
         "correcting": "Saving. The Files are being written in the background; see Activity",
         "skipped": "Saved, but 1 File couldn't be written. Activity says why |||| Saved, but %{smart_count} Files couldn't be written. Activity says why",
@@ -187,6 +190,7 @@
         "noCover": "Saved. The Cover Art Archive has no cover for this release, so the album keeps its cover.",
         "coverDisabled": "Saved. External services are turned off, so the release's cover wasn't fetched.",
         "coverFailed": "Saved, but the Cover Art Archive couldn't be reached, so the album keeps its cover. Save the release again later to write its cover.",
+        "coverNoFolder": "Saved without the release's cover: the album's Files are in folders other albums share (or in several with no common folder), so a cover.jpg there would be theirs too.",
         "clear": "Remove",
         "noResults": "MusicBrainz has no release with this album artist and title.",
         "errors": {

@@ -210,6 +210,73 @@ describe('EditAlbumButton', () => {
     expect(mockRedirect).not.toHaveBeenCalled()
   })
 
+  describe('composer', () => {
+    const songsWith = (...composers) =>
+      composers.map((names, i) => ({
+        id: `mf${i + 1}`,
+        title: `T${i + 1}`,
+        discNumber: 1,
+        trackNumber: i + 1,
+        participants: {
+          composer: names.map((name) => ({ id: name, name })),
+        },
+      }))
+    const showing = (songs) => {
+      mockGetList.mockImplementation((resource) =>
+        Promise.resolve({ data: resource === 'song' ? songs : [] }),
+      )
+      mockCorrectAlbum.mockResolvedValue({
+        data: { albumId: 'al1', done: true },
+      })
+      render(<EditAlbumButton record={record} />)
+      open()
+    }
+
+    it('shows the composers the Tracks share, and writes the new ones into every File', async () => {
+      showing(songsWith(['Barry White', 'C Mack'], ['Barry White', 'C Mack']))
+      await waitFor(() =>
+        expect(field('album-composer').value).toBe('Barry White; C Mack'),
+      )
+      type('album-composer', 'Barry White;  Valerie Simpson ;')
+      save()
+      await waitFor(() => expect(mockCorrectAlbum).toHaveBeenCalled())
+      expect(mockCorrectAlbum.mock.calls[0][1]).toMatchObject({
+        name: 'Recrod',
+        composer: ['Barry White', 'Valerie Simpson'],
+      })
+    })
+
+    it("says when the Tracks' composers differ, and keeps each Track's own unless some are typed", async () => {
+      showing(songsWith(['B] White'], ['T] Lee', 'C Martin']))
+      await screen.findByText('T1')
+      expect(field('album-composer').value).toBe('')
+      expect(
+        screen.getByText('resources.album.editor.composerDiffers'),
+      ).toBeTruthy()
+      const button = screen.getByText('ra.action.save').closest('button')
+      expect(button.disabled).toBe(true)
+
+      type('album-composer', 'The Notorious B.I.G.')
+      expect(button.disabled).toBe(false)
+      save()
+      await waitFor(() => expect(mockCorrectAlbum).toHaveBeenCalled())
+      expect(mockCorrectAlbum.mock.calls[0][1].composer).toEqual([
+        'The Notorious B.I.G.',
+      ])
+    })
+
+    it("doesn't send the composers when they are left as they were", async () => {
+      showing(songsWith(['Barry White'], ['Barry White']))
+      await waitFor(() =>
+        expect(field('album-composer').value).toBe('Barry White'),
+      )
+      type('album-year', '1999')
+      save()
+      await waitFor(() => expect(mockCorrectAlbum).toHaveBeenCalled())
+      expect(mockCorrectAlbum.mock.calls[0][1]).not.toHaveProperty('composer')
+    })
+  })
+
   describe('track numbers', () => {
     const songs = [
       { id: 'mf1', title: 'One', discNumber: 1, trackNumber: 2 },
@@ -659,6 +726,25 @@ describe('EditAlbumButton', () => {
         ),
       )
       expect(mockRedirect).toHaveBeenCalledWith('/album/al3/show')
+    })
+
+    it("says so when the album has no folder of its own for the release's cover", async () => {
+      mockFindReleases.mockResolvedValue({ data: releases })
+      mockMatch.mockResolvedValue({ data: match })
+      mockCorrectAlbum.mockResolvedValue({
+        data: { albumId: 'al3', done: true, pickCover: 'noFolder' },
+      })
+      render(<EditAlbumButton record={record} />)
+      open()
+      await pickRelease()
+      save()
+
+      await waitFor(() =>
+        expect(mockNotify).toHaveBeenCalledWith(
+          'resources.album.musicbrainz.coverNoFolder',
+          { type: 'warning' },
+        ),
+      )
     })
 
     it('lets a picked release be dropped before saving', async () => {
