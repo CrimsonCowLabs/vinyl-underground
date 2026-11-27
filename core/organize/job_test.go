@@ -133,6 +133,37 @@ var _ = Describe("Run", func() {
 		))
 	})
 
+	It("brings an album's side-by-side disc folders into one album folder, and removes them", func() {
+		disc := func(title string, n int) model.MediaFile {
+			mf := song(title, 1)
+			mf.Album, mf.DiscNumber = "Double", n
+			return mf
+		}
+		l.track("Band/Double (Disc 1)/01 One.mp3", disc("One", 1))
+		l.track("Band/Double (Disc 2)/01 Two.mp3", disc("Two", 2))
+		l.file("Band/Double (Disc 1)/folder.jpg", "disc image")
+		l.file("Band/Double (Disc 2)/notes.txt", "notes")
+		other := song("Else", 1)
+		other.Album, other.Year = "Other", 2001
+		l.track("Band/Other (2001)/01 Else.mp3", other)
+
+		got := runQueue(organize())
+		Expect(got.Skipped).To(BeZero())
+		Expect(l.files()).To(Equal(map[string]string{
+			"Band/Double (1999)/1-01 One.mp3": "audio of Band/Double (Disc 1)/01 One.mp3",
+			"Band/Double (1999)/2-01 Two.mp3": "audio of Band/Double (Disc 2)/01 Two.mp3",
+			"Band/Double (1999)/folder.jpg":   "disc image",
+			"Band/Double (1999)/notes.txt":    "notes",
+			"Band/Other (2001)/01 Else.mp3":   "audio of Band/Other (2001)/01 Else.mp3",
+			"Band/Record (1999)/01 One.mp3":   "audio of iTunes_Library/Band/Record/a.mp3",
+			"Band/Record (1999)/02 Two.mp3":   "audio of iTunes_Library/Band/Record/b.mp3",
+			"Band/Record (1999)/cover.jpg":    "image",
+			"Band/Record (1999)/notes.nfo":    "notes",
+			"iTunes_Library/keep.txt":         "not the album's",
+		}))
+		Expect(l.dirs()).To(ConsistOf("Band", "Band/Double (1999)", "Band/Other (2001)", "Band/Record (1999)", "iTunes_Library"))
+	})
+
 	It("undoes the whole job: every File back at its original path, the Tracks too, the new folders gone", func() {
 		job := organize()
 		runQueue(job)

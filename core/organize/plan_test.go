@@ -239,6 +239,31 @@ var _ = Describe("Plan", func() {
 			}))
 		})
 
+		It("brings an album's side-by-side disc folders, next to another album, into one album folder", func() {
+			one := song("One", 1)
+			one.DiscNumber = 1
+			two := song("Two", 1)
+			two.DiscNumber = 2
+			l.track("Band/Record (Disc 1)/01 One.mp3", one)
+			l.track("Band/Record (Disc 2)/01 Two.mp3", two)
+			l.file("Band/Record (Disc 1)/folder.jpg", "image")
+			other := song("Else", 1)
+			other.Album, other.Year = "Other", 2001
+			l.track("Band/Other (2001)/01 Else.mp3", other)
+			p := plan(everything)
+			Expect(moves(p)).To(Equal(map[string]string{
+				"Band/Record (Disc 1)/01 One.mp3": "Band/Record (1999)/1-01 One.mp3",
+				"Band/Record (Disc 2)/01 Two.mp3": "Band/Record (1999)/2-01 Two.mp3",
+				"Band/Record (Disc 1)/folder.jpg": "Band/Record (1999)/folder.jpg",
+			}))
+			Expect(p.Unplaced).To(BeEmpty())
+			// Their common folder holds the other album, so each disc folder moves on its own.
+			Expect(p.Folders).To(Equal([]FolderMove{
+				{LibraryID: 1, Path: "Band/Record (Disc 1)", NewPath: "Band/Record (1999)"},
+				{LibraryID: 1, Path: "Band/Record (Disc 2)", NewPath: "Band/Record (1999)"},
+			}))
+		})
+
 		It("leaves them in a folder holding another album's Tracks", func() {
 			l.track("Mix/a.mp3", song("Song", 1))
 			other := song("Else", 1)
