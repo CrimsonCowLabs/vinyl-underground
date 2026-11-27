@@ -9,6 +9,7 @@ import {
   ListItem,
   ListItemAvatar,
   ListItemText,
+  TextField,
   Typography,
 } from '@material-ui/core'
 import { Alert } from '@material-ui/lab'
@@ -18,6 +19,13 @@ import SearchIcon from '@material-ui/icons/Search'
 
 const useStyles = makeStyles((theme) => ({
   root: { marginTop: theme.spacing(2) },
+  searchRow: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    gap: theme.spacing(1),
+  },
+  query: { flex: 1 },
+  searchButton: { marginTop: theme.spacing(0.5), whiteSpace: 'nowrap' },
   list: { maxHeight: 280, overflowY: 'auto' },
   thumb: {
     width: 48,
@@ -47,7 +55,14 @@ const useStyles = makeStyles((theme) => ({
 }))
 
 // The server answers a failed search with a code; anything else is a generic error.
-const knownErrors = ['busy', 'unavailable', 'disabled', 'invalid']
+const knownErrors = [
+  'busy',
+  'unavailable',
+  'disabled',
+  'invalid',
+  'notFound',
+  'notRelease',
+]
 
 // A release's Cover Art Archive thumbnail. The archive is public, so the browser loads it
 // directly, with no login token; a release with no cover shows a disc instead.
@@ -90,18 +105,34 @@ const fitCandidates = (releases, trackCount) =>
     .slice(0, maxFitted)
     .map((r) => r.id)
 
-// Find on MusicBrainz, in the album Edit dialog: searches MusicBrainz's releases by the album
-// artist and title as they are in the dialog, and lets the admin pick one. The pick is written
-// into the album's Files with the rest of the dialog (#170). A failed search shows why, and
-// leaves the rest of the dialog as it is. Of the releases with as many tracks as the album
+// Why no release is marked as the best match, once that is known: none has the album's number
+// of Tracks, so none was checked (In Utero's hidden track, kept as its own File, makes 13 Tracks
+// to MusicBrainz's 12); none checked pairs most of them; or the check failed. Null when one is
+// marked, or there is nothing to say yet.
+const noBestMatchReason = (releases, trackCount, candidates, fit) => {
+  if (!releases?.length || !trackCount) return null
+  if (!candidates.length) return 'noCandidates'
+  // An answer for the list shown, or none yet
+  if (fit.for !== releases) return null
+  if (fit.error) return fit.error === 'busy' ? 'busy' : 'failed'
+  return Object.values(fit.fits).some((f) => f.best) ? null : 'noGoodFit'
+}
+
+// Find on MusicBrainz, in the album Edit dialog: searches MusicBrainz's releases by what the
+// admin types in its field (the album's title in the dialog until then; or a barcode, catalog
+// number or release link, which the server tells apart), with the album artist as it is in the
+// dialog (as Various Artists for a compilation), and lets the admin pick one. The pick is
+// written into the album's Files with the rest of the dialog (#170). A failed search shows why,
+// and leaves the rest of the dialog as it is. Of the releases with as many tracks as the album
 // (trackCount, its Tracks once loaded), the server checks which fits the album's Files best, by
 // the Tracks that pair with each and how close their lengths are; the list can be picked from
-// meanwhile.
+// meanwhile. When none is marked, a line says why.
 export const FindOnMusicBrainz = ({
   albumId,
   trackCount,
   artist,
   title,
+  compilation,
   picked,
   onPick,
   disabled,
@@ -112,8 +143,16 @@ export const FindOnMusicBrainz = ({
   const [releases, setReleases] = useState(null)
   const [searching, setSearching] = useState(false)
   const [error, setError] = useState(null)
-  // How each release fitted fits the album's Files, by ID, and whether the server is at it
-  const [fits, setFits] = useState({})
+  // What the field searches: the dialog's title, until the admin types in it
+  const [query, setQuery] = useState(title)
+  const typed = useRef(false)
+  useEffect(() => {
+    if (!typed.current) setQuery(title)
+  }, [title])
+  // How each release fitted fits the album's Files, by ID, or why that couldn't be had (an
+  // error code), for the list of releases they were checked for; and whether the server is at it
+  const [fit, setFit] = useState({ for: null, fits: {}, error: null })
+  const fits = fit.for === releases ? fit.fits : {}
   const [fitting, setFitting] = useState(false)
   const mounted = useRef(true)
   useEffect(() => {
@@ -125,7 +164,7 @@ export const FindOnMusicBrainz = ({
 
   // An answer for a search the admin has since run again is dropped.
   useEffect(() => {
-    setFits({})
+    setFit({ for: null, fits: {}, error: null })
     setFitting(false)
     if (!releases || !albumId) return
     const ids = fitCandidates(releases, trackCount)
@@ -134,13 +173,24 @@ export const FindOnMusicBrainz = ({
     setFitting(true)
     dataProvider
       .fitMusicBrainzReleases(albumId, ids)
-      .then(
-        ({ data }) =>
-          current &&
-          setFits(Object.fromEntries((data || []).map((f) => [f.id, f]))),
-      )
-      // The marks only help to pick: the list is the same without them
-      .catch(() => {})
+      .then(({ data }) => {
+        if (!current) return
+        // None scored: every lookup failed, though MusicBrainz wasn't busy for all
+        setFit({
+          for: releases,
+          fits: Object.fromEntries((data || []).map((f) => [f.id, f])),
+          error: data?.length ? null : 'unavailable',
+        })
+      })
+      // The marks only help to pick: the list is the same without them, and a line says why
+      .catch((err) => {
+        if (!current) return
+        setFit({
+          for: releases,
+          fits: {},
+          error: err?.body?.error || 'unknown',
+        })
+      })
       .finally(() => current && setFitting(false))
     return () => {
       current = false
@@ -162,7 +212,7 @@ export const FindOnMusicBrainz = ({
     setSearching(true)
     setError(null)
     dataProvider
-      .findMusicBrainzReleases(artist, title)
+      .findMusicBrainzReleases(artist, query.trim(), !!compilation)
       .then(({ data }) => mounted.current && setReleases(data))
       .catch((err) => {
         if (!mounted.current) return
@@ -175,19 +225,54 @@ export const FindOnMusicBrainz = ({
         )
       })
       .finally(() => mounted.current && setSearching(false))
-  }, [dataProvider, artist, title, translate])
+  }, [dataProvider, artist, query, compilation, translate])
+  const canSearch = !disabled && !searching && !!query.trim()
+
+  const noBestMatch =
+    !fitting &&
+    noBestMatchReason(
+      releases,
+      trackCount,
+      releases ? fitCandidates(releases, trackCount) : [],
+      fit,
+    )
 
   return (
     <div className={classes.root}>
-      <Button
-        size="small"
-        variant="outlined"
-        onClick={search}
-        disabled={disabled || searching || !title.trim()}
-        startIcon={searching ? <CircularProgress size={14} /> : <SearchIcon />}
-      >
-        {translate('resources.album.musicbrainz.find')}
-      </Button>
+      <div className={classes.searchRow}>
+        <TextField
+          className={classes.query}
+          size="small"
+          variant="outlined"
+          label={translate('resources.album.musicbrainz.search')}
+          helperText={translate('resources.album.musicbrainz.searchHint')}
+          value={query}
+          onChange={(e) => {
+            typed.current = true
+            setQuery(e.target.value)
+          }}
+          onKeyDown={(e) => {
+            // Enter searches, rather than saving the dialog
+            if (e.key !== 'Enter') return
+            e.preventDefault()
+            if (canSearch) search()
+          }}
+          disabled={disabled}
+          inputProps={{ 'data-testid': 'mbz-query' }}
+        />
+        <Button
+          size="small"
+          variant="outlined"
+          className={classes.searchButton}
+          onClick={search}
+          disabled={!canSearch}
+          startIcon={
+            searching ? <CircularProgress size={14} /> : <SearchIcon />
+          }
+        >
+          {translate('resources.album.musicbrainz.find')}
+        </Button>
+      </div>
       {picked && (
         <Typography
           variant="body2"
@@ -277,6 +362,21 @@ export const FindOnMusicBrainz = ({
           })}
         </List>
       )}
+      {noBestMatch && (
+        <Typography
+          variant="body2"
+          color="textSecondary"
+          className={classes.picked}
+          data-testid="mbz-no-best-match"
+        >
+          {translate(
+            `resources.album.musicbrainz.noBestMatch.${noBestMatch}`,
+            noBestMatch === 'noCandidates' || noBestMatch === 'noGoodFit'
+              ? { smart_count: trackCount }
+              : undefined,
+          )}
+        </Typography>
+      )}
     </div>
   )
 }
@@ -286,6 +386,7 @@ FindOnMusicBrainz.propTypes = {
   trackCount: PropTypes.number,
   artist: PropTypes.string.isRequired,
   title: PropTypes.string.isRequired,
+  compilation: PropTypes.bool,
   picked: PropTypes.object,
   onPick: PropTypes.func.isRequired,
   disabled: PropTypes.bool,

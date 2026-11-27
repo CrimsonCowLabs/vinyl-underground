@@ -192,9 +192,17 @@
         "coverFailed": "Saved, but the Cover Art Archive couldn't be reached, so the album keeps its cover. Save the release again later to write its cover.",
         "coverNoFolder": "Saved without the release's cover: the album's Files are in folders other albums share (or in several with no common folder), so a cover.jpg there would be theirs too.",
         "clear": "Remove",
-        "noResults": "MusicBrainz has no release with this album artist and title.",
+        "search": "Search MusicBrainz",
+        "searchHint": "Search by title, barcode, catalog number or a MusicBrainz release link.",
+        "noResults": "MusicBrainz has no release matching this search.",
         "fitting": "Checking which release fits your Files…",
         "bestMatch": "Best match",
+        "noBestMatch": {
+          "noCandidates": "None of these releases has the album's 1 Track, so none is marked as the best match. MusicBrainz may count a hidden or bonus track differently. |||| None of these releases has the album's %{smart_count} Tracks, so none is marked as the best match. MusicBrainz may count a hidden or bonus track differently.",
+          "noGoodFit": "None of the releases with 1 track pairs with the album's Track, so none is marked as the best match. |||| None of the releases with %{smart_count} tracks pairs most of the album's Tracks, so none is marked as the best match.",
+          "busy": "Couldn't check which release fits best: MusicBrainz is busy. Try again in a minute.",
+          "failed": "Couldn't check which release fits best: MusicBrainz couldn't be reached."
+        },
         "fit": {
           "paired": "%{paired} of 1 Track pairs |||| %{paired} of %{smart_count} Tracks pair",
           "lengths": "lengths within %{seconds}s"
@@ -204,6 +212,7 @@
           "unavailable": "Couldn't reach MusicBrainz. The rest of the dialog can still be saved.",
           "disabled": "External services are turned off, so MusicBrainz can't be searched.",
           "invalid": "Enter a title to search for.",
+          "notRelease": "That link isn't to a MusicBrainz release. Paste a musicbrainz.org/release/… link, or search by title, barcode or catalog number.",
           "unknown": "Couldn't search MusicBrainz. The rest of the dialog can still be saved.",
           "notFound": "MusicBrainz has no such release any more."
         },

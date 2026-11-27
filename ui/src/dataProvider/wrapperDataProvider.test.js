@@ -145,7 +145,7 @@ describe('wrapperDataProvider', () => {
   })
 
   describe('Find on MusicBrainz', () => {
-    it('searches by album artist and title, encoded in the URL', async () => {
+    it('searches by album artist and what the admin typed, encoded in the URL', async () => {
       mockHttpClient.mockResolvedValue({ json: [{ id: 'rel-1' }] })
       await expect(
         wrapperDataProvider.findMusicBrainzReleases(
@@ -154,7 +154,19 @@ describe('wrapperDataProvider', () => {
         ),
       ).resolves.toEqual({ data: [{ id: 'rel-1' }] })
       expect(mockHttpClient).toHaveBeenCalledWith(
-        '/api/musicbrainz/release?artist=AC%2FDC%20%26%20Co&title=Back%20in%20Black%3F',
+        '/api/musicbrainz/release?artist=AC%2FDC%20%26%20Co&q=Back%20in%20Black%3F',
+      )
+    })
+
+    it('says when the album is a compilation', async () => {
+      mockHttpClient.mockResolvedValue({ json: [] })
+      await wrapperDataProvider.findMusicBrainzReleases(
+        'DJ',
+        '76869-75027-2',
+        true,
+      )
+      expect(mockHttpClient).toHaveBeenCalledWith(
+        '/api/musicbrainz/release?artist=DJ&q=76869-75027-2&compilation=true',
       )
     })
 
