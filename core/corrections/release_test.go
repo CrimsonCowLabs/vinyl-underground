@@ -358,6 +358,27 @@ var _ = Describe("Writing a MusicBrainz release into the Files", func() {
 			Expect(p.PickCover).To(Equal(corrections.PickCoverNone))
 			Expect(p.Steps).To(HaveLen(3))
 		})
+
+		It("writes the release without its cover when the album has no folder of its own for one", func() {
+			// Another album's Track in the album's folder: a cover.jpg there would be its cover too
+			// (as with an album's disc folders under an artist folder holding other albums).
+			addFile("mf-other", "99 Elsewhere.mp3", map[string][]string{"TITLE": {"Elsewhere"}, "ALBUM": {"Other"}},
+				model.MediaFile{Title: "Elsewhere", Album: "Other", AlbumArtist: "Band"})
+			_, err := db.Db().Exec("update media_file set album_id = 'al-other' where id = 'mf-other'")
+			Expect(err).ToNot(HaveOccurred())
+			covers := &fakePickedCovers{}
+			svc = corrections.NewWithOptions(ds, corrections.Options{PickedCover: covers.fetch})
+
+			p := plan(corrections.ReleaseWrite{Cover: true})
+			Expect(p.PickCover).To(Equal(corrections.PickCoverNoFolder))
+			Expect(covers.asked).To(BeEmpty(), "the archive isn't asked for a cover that can't be written")
+			for _, s := range p.Steps {
+				Expect(s.Kind).To(Equal(model.EditRewrite))
+			}
+			job := run(enqueue(p))
+			Expect(job.Skipped).To(BeZero())
+			Expect(tagsOf("01 One.mp3")).To(HaveKeyWithValue("MUSICBRAINZ_ALBUMID", []string{relID}))
+		})
 	})
 
 	Describe("the job", func() {

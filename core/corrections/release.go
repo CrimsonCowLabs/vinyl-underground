@@ -3,6 +3,7 @@ package corrections
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strconv"
@@ -384,6 +385,14 @@ func (c *corrections) PlanRelease(ctx context.Context, editor *tagedit.Editor, a
 func (c *corrections) releaseCover(ctx context.Context, editor *tagedit.Editor, albumID string, rel *musicbrainz.Release) (*model.EditJobStep, PickCover, error) {
 	if c.opts.PickedCover == nil {
 		return nil, PickCoverDisabled, nil
+	}
+	// A cover step for an album with no folder of its own would have the whole job refused when
+	// queued; the release is written without it instead.
+	if _, err := editor.CheckCover(ctx, albumID); errors.Is(err, tagedit.ErrNoAlbumFolder) || errors.Is(err, tagedit.ErrSharedFolder) {
+		log.Info(ctx, "Corrections: the album has no folder of its own for the picked release's cover", "album", albumID, err)
+		return nil, PickCoverNoFolder, nil
+	} else if err != nil {
+		return nil, "", err
 	}
 	cr := model.Correction{MbzAlbumID: rel.ID, MbzReleaseGroupID: rel.ReleaseGroup.ID}
 	found := c.fetchPickedCover(ctx, &cr)

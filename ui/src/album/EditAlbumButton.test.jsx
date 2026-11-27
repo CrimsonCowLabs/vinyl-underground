@@ -661,6 +661,25 @@ describe('EditAlbumButton', () => {
       expect(mockRedirect).toHaveBeenCalledWith('/album/al3/show')
     })
 
+    it("says so when the album has no folder of its own for the release's cover", async () => {
+      mockFindReleases.mockResolvedValue({ data: releases })
+      mockMatch.mockResolvedValue({ data: match })
+      mockCorrectAlbum.mockResolvedValue({
+        data: { albumId: 'al3', done: true, pickCover: 'noFolder' },
+      })
+      render(<EditAlbumButton record={record} />)
+      open()
+      await pickRelease()
+      save()
+
+      await waitFor(() =>
+        expect(mockNotify).toHaveBeenCalledWith(
+          'resources.album.musicbrainz.coverNoFolder',
+          { type: 'warning' },
+        ),
+      )
+    })
+
     it('lets a picked release be dropped before saving', async () => {
       mockFindReleases.mockResolvedValue({ data: releases })
       render(<EditAlbumButton record={record} />)

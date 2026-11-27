@@ -61,12 +61,13 @@ const noReleaseOptions = {
   genres: true,
 }
 
-// What the Cover Art Archive answered for a picked release's cover, when it was asked for and gave
-// none.
+// Why a picked release's cover, when it was asked for, wasn't written: the Cover Art Archive had
+// none or couldn't be asked, or the album has no folder of its own to write it in.
 const pickCoverNotes = {
   none: 'resources.album.musicbrainz.noCover',
   failed: 'resources.album.musicbrainz.coverFailed',
   disabled: 'resources.album.musicbrainz.coverDisabled',
+  noFolder: 'resources.album.musicbrainz.coverNoFolder',
 }
 
 // The year clients show for the album: its original year when it has one, as the server

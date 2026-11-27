@@ -187,6 +187,7 @@
         "noCover": "Saved. The Cover Art Archive has no cover for this release, so the album keeps its cover.",
         "coverDisabled": "Saved. External services are turned off, so the release's cover wasn't fetched.",
         "coverFailed": "Saved, but the Cover Art Archive couldn't be reached, so the album keeps its cover. Save the release again later to write its cover.",
+        "coverNoFolder": "Saved without the release's cover: the album's Files are in folders other albums share (or in several with no common folder), so a cover.jpg there would be theirs too.",
         "clear": "Remove",
         "noResults": "MusicBrainz has no release with this album artist and title.",
         "errors": {
