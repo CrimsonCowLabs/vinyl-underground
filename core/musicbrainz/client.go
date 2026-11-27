@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -38,13 +39,17 @@ const (
 	maxRetries  = 4
 	backoffBase = 2 * time.Second
 	maxBackoff  = time.Minute
+	// timeout is how long one request may take. MusicBrainz, when overloaded, can take 20-30s
+	// to answer a release lookup with its recordings, so this leaves room for that.
+	timeout = 60 * time.Second
 )
 
 // shared is the Limiter every Client uses unless given its own, so the app as a whole keeps to
 // MusicBrainz's limit however many lookups run at once.
 var shared = NewLimiter(Interval, nil)
 
-// ErrBusy is returned when MusicBrainz still answers 503 after every retry.
+// ErrBusy is returned when MusicBrainz still answers 503 after every retry, or doesn't answer
+// a request in time (it is slow, not unreachable, when overloaded).
 var ErrBusy = errors.New("MusicBrainz is busy; try again later")
 
 // ErrNotFound is returned when MusicBrainz has nothing at the request's URL (404), e.g. a release
@@ -69,7 +74,7 @@ func appVersion() string {
 type Options struct {
 	// BaseURL is the web service's root, ending in "/". Defaults to DefaultBaseURL.
 	BaseURL string
-	// HTTP sends the requests. Defaults to a client with a 30s timeout.
+	// HTTP sends the requests. Defaults to a client with a 60s timeout.
 	HTTP *http.Client
 	// Limiter spaces the requests. Defaults to the one all Clients share.
 	Limiter *Limiter
@@ -96,7 +101,7 @@ type Client struct {
 func New(opts Options) *Client {
 	return &Client{
 		base:    cmp.Or(opts.BaseURL, DefaultBaseURL),
-		http:    cmp.Or(opts.HTTP, &http.Client{Timeout: 30 * time.Second}),
+		http:    cmp.Or(opts.HTTP, &http.Client{Timeout: timeout}),
 		limiter: cmp.Or(opts.Limiter, shared),
 		store:   opts.Store,
 		cache:   cache.NewSimpleCache[string, []byte](cache.Options{SizeLimit: cacheSize, DefaultTTL: cacheTTL}),
@@ -195,6 +200,11 @@ func (c *Client) fetch(ctx context.Context, u string) ([]byte, error) {
 		req.Header.Set("Accept", "application/json")
 		resp, err := c.http.Do(req)
 		if err != nil {
+			// The client's own timeout, not the caller giving up: MusicBrainz is too slow right now.
+			if ne, ok := errors.AsType[net.Error](err); ok && ne.Timeout() && ctx.Err() == nil {
+				log.Warn(ctx, "MusicBrainz didn't answer in time", "url", u, err)
+				return nil, ErrBusy
+			}
 			return nil, fmt.Errorf("asking MusicBrainz: %w", err)
 		}
 		body, err := io.ReadAll(io.LimitReader(resp.Body, maxBody))
