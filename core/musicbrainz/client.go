@@ -146,10 +146,10 @@ func (c *Client) SearchReleases(ctx context.Context, artist, title string) ([]Re
 }
 
 // Release looks up one release with its media, their tracks and recordings, the artists
-// credited, and its release group.
+// credited, its release group, and the genres of both.
 func (c *Client) Release(ctx context.Context, id string) (*Release, error) {
 	var res Release
-	params := url.Values{"inc": {"recordings artist-credits release-groups"}}
+	params := url.Values{"inc": {"recordings artist-credits release-groups genres"}}
 	if err := c.get(ctx, "release/"+url.PathEscape(id), params, &res); err != nil {
 		return nil, err
 	}

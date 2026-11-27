@@ -52,12 +52,13 @@ const knownErrors = [
 // The pairing's own failures are MusicBrainz's codes, or the album's.
 const knownMatchErrors = ['busy', 'unavailable', 'disabled', 'notFound']
 
-// The options a save with a picked release starts with: the release's IDs and its cover, keeping
-// what the Files hold otherwise (#170).
+// The options a save with a picked release starts with: the release's IDs, its cover and the
+// album's MusicBrainz genres, keeping what the Files hold otherwise (#170).
 const noReleaseOptions = {
   canonical: { album: false, albumArtist: false, date: false, titles: false },
   replaceTrackIds: false,
   cover: true,
+  genres: true,
 }
 
 // What the Cover Art Archive answered for a picked release's cover, when it was asked for and gave
@@ -75,7 +76,7 @@ const albumYear = (record) => record.maxOriginalYear || record.maxYear || ''
 // The album Edit dialog: writes the album's title, album artist (offered from the existing
 // Artists as you type) and year into its Files, and its Tracks' changed disc and track numbers
 // into theirs, as one edit job (#163). A release picked with Find on MusicBrainz is written into
-// the Files in the same job (#170): its IDs, its cover unless unticked, and, if ticked, its own values. The dialog
+// the Files in the same job (#170): its IDs, its cover and genres unless unticked, and, if ticked, its own values. The dialog
 // shows how the album's Tracks pair with it before saving.
 const EditAlbumDialog = ({ record, onClose }) => {
   const translate = useTranslate()

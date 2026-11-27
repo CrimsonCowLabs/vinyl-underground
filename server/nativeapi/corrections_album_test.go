@@ -108,7 +108,7 @@ var _ = Describe("Album Edit API", func() {
 		picked := map[string]any{"albumId": "al-1", "name": "Record", "albumArtist": "Band", "year": 1999,
 			"tracks":     []map[string]any{{"id": "mf-2", "discNumber": 1, "trackNumber": 2}},
 			"mbzAlbumId": "8A7F5C4E-0d5b-4f1e-9d3c-3b2a1f0e9d8c", "canonical": map[string]any{"album": true, "titles": true},
-			"replaceTrackIds": true, "cover": true}
+			"replaceTrackIds": true, "cover": true, "genres": true}
 
 		BeforeEach(func() {
 			conf.Server.EnableExternalServices = true
@@ -129,6 +129,7 @@ var _ = Describe("Album Edit API", func() {
 			Expect(rw.Accept).To(Equal(corrections.Canonical{Album: true, Titles: true}))
 			Expect(rw.ReplaceTrackIDs).To(BeTrue())
 			Expect(rw.Cover).To(BeTrue())
+			Expect(rw.Genres).To(BeTrue())
 			got := answerOf(w)
 			Expect(got.Done).To(BeTrue())
 			Expect(got.Job.Kind).To(Equal(corrections.JobRelease))
