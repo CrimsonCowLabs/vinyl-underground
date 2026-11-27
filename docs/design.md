@@ -143,7 +143,7 @@ The Library keeps growing, and all new music reaches it through one path: the **
 - **Discard** deletes the Files from disk, as for a Rip, and the job's folder with the empty folders inside it.
 
 **Promote** ([ADR-0011](./adr/0011-app-manages-the-librarys-files.md); #36, reworked in #171. The dedicated `Vinyl Underground/` folder of [ADR-0008](./adr/0008-app-writes-to-one-dedicated-library-folder.md) is gone.)
-- Promote is Organize from the Inbox: reviewed Files move to their place in the organised tree at the Library's root, `<Album Artist>/<Album> (<Year>)/<NN> <Title>.<ext>` (`<D>-<NN>` on a multi-disc album), through Organize's plan (`core/organize`, with `Scope.Into` set to the Library), its collision rules, its case-insensitive folder reuse and its reasons a File can't be placed.
+- Promote is Organize from the Inbox: reviewed Files move to their place in the organised tree at the Library's root, `<Album Artist>/<Album> (<Year>)/<NN> <Title>.<ext>` (`Disc <D>/<NN> <Title>.<ext>` in the album's folder on a multi-disc album, so its cover has a folder of its own), through Organize's plan (`core/organize`, with `Scope.Into` set to the Library), its collision rules, its case-insensitive folder reuse and its reasons a File can't be placed.
 - The Track keeps its identity. Its path and library change in place, so favorites, Playlist entries and play counts carry over.
 - How Promote works (#171):
   - **Gating:** Promote needs a writable Library (editing on, ADR-0011) and an Inbox. The Library is the first writable library that isn't the Inbox (`organize.PromoteLibrary`). With editing off there is no edit queue, and no endpoint or button.

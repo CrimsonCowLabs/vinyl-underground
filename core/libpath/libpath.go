@@ -74,18 +74,20 @@ func AlbumFolder(album string, year int) string {
 	return album
 }
 
-// TrackFile is the name of a Track's File: `<NN> <Title><ext>`, or `<D>-<NN> <Title><ext>` on a
-// multi-disc album, with no number when track is 0. title must be a SafeName already; ext is
-// lowered.
-func TrackFile(title string, disc, track int, multiDisc bool, ext string) string {
+// TrackFile is the name of a Track's File: `<NN> <Title><ext>`, with no number when track is 0.
+// title must be a SafeName already; ext is lowered. A multi-disc album's Files are in a folder
+// per disc (DiscFolder).
+func TrackFile(title string, track int, ext string) string {
 	ext = strings.ToLower(ext)
-	switch {
-	case track > 0 && multiDisc:
-		return fmt.Sprintf("%d-%02d %s%s", disc, track, title, ext)
-	case track > 0:
+	if track > 0 {
 		return fmt.Sprintf("%02d %s%s", track, title, ext)
 	}
 	return title + ext
+}
+
+// DiscFolder is the folder, in a multi-disc album's folder, of the disc's Files: `Disc <D>`.
+func DiscFolder(disc int) string {
+	return fmt.Sprintf("Disc %d", disc)
 }
 
 // Fold is the key two names share when the case-insensitive NAS takes them for one: compared

@@ -9,11 +9,14 @@ import (
 	"github.com/navidrome/navidrome/core/libpath"
 )
 
-// FolderMove is an album's own folder, all of whose Tracks the plan moves to one new folder: its
-// other Files (cover.jpg, a booklet, a cue sheet, hidden Files too) go with them, to the same
-// place under NewPath, so Path is left empty and removed. An album's own folder is the one its
-// Tracks are in, or the one above its disc folders. A folder holding any other Track (another
-// album's, one not selected, or one that can't be placed) keeps its other Files.
+// FolderMove is an album's own folder, all of whose Tracks the plan moves into one new album
+// folder: its other Files (cover.jpg, a booklet, a cue sheet, hidden Files too) go with them, to
+// the same place under NewPath, so Path is left empty and removed. Dirs are the folders under
+// Path (or Path itself) whose Files go elsewhere: to the folder their Tracks went to, e.g. a
+// disc folder's to its album's Disc folder; a folder under one of those goes to the same place
+// under it. An album's own folder is the one its Tracks are in, or the one above its disc
+// folders. A folder holding any other Track (another album's, one not selected, or one that
+// can't be placed) keeps its other Files.
 //
 // The plan lists the images the scan found there (folder.image_files) as moves of their own; it
 // doesn't read the folder from disk (over SMB1, a listing of each album's folder would make a
@@ -25,22 +28,35 @@ type FolderMove struct {
 	Path      string `json:"path"`
 	NewPath   string `json:"newPath"`
 	// NewLibraryID is the library NewPath is in, for a Promote (Scope.Into); 0 means LibraryID.
-	NewLibraryID int      `json:"newLibraryId,omitempty"`
-	Keep         []string `json:"keep,omitempty"`
+	NewLibraryID int               `json:"newLibraryId,omitempty"`
+	Keep         []string          `json:"keep,omitempty"`
+	Dirs         map[string]string `json:"dirs,omitempty"`
+}
+
+// Target is where the Files of the folder dir (Path, or one under it) go.
+func (f FolderMove) Target(dir string) string {
+	if t, ok := f.Dirs[dir]; ok {
+		return t
+	}
+	if dir == f.Path || !strings.HasPrefix(dir, f.Path+"/") {
+		return f.NewPath
+	}
+	return path.Join(f.Target(dirOf(dir)), path.Base(dir))
 }
 
 // otherFiles works out the album folders the plan moves whole (see FolderMove), and the images
 // in them, as rows of their own.
 func (lp *libraryPlan) otherFiles(places []placement, keep []string) ([]FolderMove, []Row) {
-	// The folders the Tracks leave, by the folder they go to.
+	// The folders the Tracks leave, by the album folder they go to.
 	sources := map[string][]string{}
-	dest := map[string]string{} // a moving Track's new folder, by its ID
+	dest := map[string]string{}   // a moving Track's new album folder, by its ID
+	folder := map[string]string{} // and the folder it goes to in there (a Disc folder, or the same)
 	for _, p := range places {
 		if p.status != StatusMove {
 			continue
 		}
-		to := dirOf(p.newPath)
-		dest[p.mf.ID] = to
+		to := p.albumDir
+		dest[p.mf.ID], folder[p.mf.ID] = to, dirOf(p.newPath)
 		from := dirOf(p.mf.Path)
 		if !slices.Contains(sources[to], from) {
 			sources[to] = append(sources[to], from)
@@ -50,8 +66,9 @@ func (lp *libraryPlan) otherFiles(places []placement, keep []string) ([]FolderMo
 	var rows []Row
 	for _, to := range slices.Sorted(maps.Keys(sources)) {
 		for _, root := range lp.albumRoots(sources[to], to, dest) {
-			folders = append(folders, FolderMove{LibraryID: lp.lib.ID, Path: root, NewPath: to, NewLibraryID: lp.newLibraryID()})
-			rows = append(rows, lp.imagesUnder(root, to)...)
+			f := lp.folderMove(root, to, folder)
+			folders = append(folders, f)
+			rows = append(rows, lp.imagesUnder(f)...)
 		}
 	}
 	rows = lp.flagFileCollisions(rows, places)
@@ -123,15 +140,44 @@ func (lp *libraryPlan) subtree(dir string) []string {
 	return res
 }
 
-// imagesUnder plans each image the scan found under the folder root to the same place under the
-// folder to.
-func (lp *libraryPlan) imagesUnder(root, to string) []Row {
-	var rows []Row
+// folderMove is the album folder root's move into the album folder to: a folder whose Tracks all
+// go to one folder (folder, by Track ID) has its other Files go there too, a folder with none (or
+// whose Tracks are split between Disc folders) to the same place under its parent's.
+func (lp *libraryPlan) folderMove(root, to string, folder map[string]string) FolderMove {
+	f := FolderMove{LibraryID: lp.lib.ID, Path: root, NewPath: to, NewLibraryID: lp.newLibraryID()}
 	for _, dir := range lp.subtree(root) {
+		went := ""
+		for _, mf := range lp.tracksIn[dir] {
+			switch d := folder[mf.ID]; {
+			case went == "":
+				went = d
+			case d != went:
+				went = "-"
+			}
+		}
+		if went == "" || went == "-" || went == f.Target(dir) {
+			continue
+		}
+		if dir == root {
+			f.NewPath = went
+			continue
+		}
+		if f.Dirs == nil {
+			f.Dirs = map[string]string{}
+		}
+		f.Dirs[dir] = went
+	}
+	return f
+}
+
+// imagesUnder plans each image the scan found under the album folder f.Path to where its folder's
+// Files go (FolderMove.Target).
+func (lp *libraryPlan) imagesUnder(f FolderMove) []Row {
+	var rows []Row
+	for _, dir := range lp.subtree(f.Path) {
 		for _, name := range slices.Sorted(slices.Values(lp.images[dir])) {
-			rel := path.Join(dir, name)
-			rows = append(rows, Row{LibraryID: lp.lib.ID, Path: rel, NewLibraryID: lp.newLibraryID(),
-				NewPath: path.Join(to, strings.TrimPrefix(rel, root+"/")), Status: StatusFile})
+			rows = append(rows, Row{LibraryID: lp.lib.ID, Path: path.Join(dir, name), NewLibraryID: lp.newLibraryID(),
+				NewPath: path.Join(f.Target(dir), name), Status: StatusFile})
 		}
 	}
 	return rows

@@ -133,6 +133,25 @@ var _ = Describe("Run", func() {
 		))
 	})
 
+	It("brings a multi-disc album's disc folders together, each disc folder's other Files to its Disc folder", func() {
+		one := song("Uno", 1)
+		one.Album, one.DiscNumber = "Live", 1
+		two := song("Dos", 1)
+		two.Album, two.DiscNumber = "Live", 2
+		l.track("iTunes_Library/Band/Live (Disc 1)/01 Uno.mp3", one)
+		l.track("iTunes_Library/Band/Live (Disc 2)/01 Dos.mp3", two)
+		l.file("iTunes_Library/Band/Live (Disc 1)/booklet.pdf", "booklet")
+		l.file("iTunes_Library/Band/Live (Disc 2)/info.nfo", "info")
+
+		runQueue(organize())
+		files := l.files()
+		Expect(files).To(HaveKeyWithValue("Band/Live (1999)/Disc 1/01 Uno.mp3", "audio of iTunes_Library/Band/Live (Disc 1)/01 Uno.mp3"))
+		Expect(files).To(HaveKeyWithValue("Band/Live (1999)/Disc 2/01 Dos.mp3", "audio of iTunes_Library/Band/Live (Disc 2)/01 Dos.mp3"))
+		Expect(files).To(HaveKeyWithValue("Band/Live (1999)/Disc 1/booklet.pdf", "booklet"))
+		Expect(files).To(HaveKeyWithValue("Band/Live (1999)/Disc 2/info.nfo", "info"))
+		Expect(l.dirs()).ToNot(ContainElement(HavePrefix("iTunes_Library/Band/Live")))
+	})
+
 	It("undoes the whole job: every File back at its original path, the Tracks too, the new folders gone", func() {
 		job := organize()
 		runQueue(job)

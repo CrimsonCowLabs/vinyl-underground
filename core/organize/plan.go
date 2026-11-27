@@ -1,7 +1,10 @@
 // Package organize is Organize (#167, ADR-0011): it makes the Library's paths match its tags, in
 // one scheme for the whole Library (core/libpath, which Promote shares):
 //
-//	<Album Artist>/<Album> (<Year>)/<NN> <Title>.<ext>, or <D>-<NN> <Title>.<ext> on a multi-disc album
+//	<Album Artist>/<Album> (<Year>)/<NN> <Title>.<ext>, or
+//	<Album Artist>/<Album> (<Year>)/Disc <D>/<NN> <Title>.<ext> on a multi-disc album
+//
+// so a multi-disc album has a folder of its own, above its disc folders, for its cover.
 //
 // It never runs by itself. Plan works out every move for an album, a selection of Tracks or the
 // whole Library, and the Tracks it can't place, with why, so the admin can fix their tags first.
@@ -269,6 +272,8 @@ type placement struct {
 	mf      *model.MediaFile
 	newPath string
 	status  string
+	// albumDir is the album's folder newPath is in: its folder, or the one above its disc folder.
+	albumDir string
 }
 
 // loadTree reads what a plan knows of the library libID (see tree).
@@ -404,7 +409,12 @@ func (lp *libraryPlan) place(scope model.MediaFiles, albums map[string]album) []
 	for i := range scope {
 		mf := &scope[i]
 		p := placement{mf: mf}
-		newPath, reason := lp.newPath(mf, albums[mf.AlbumID])
+		al := albums[mf.AlbumID]
+		newPath, reason := lp.newPath(mf, al)
+		p.albumDir = dirOf(newPath)
+		if al.multiDisc {
+			p.albumDir = dirOf(p.albumDir)
+		}
 		switch {
 		case reason != "":
 			p.status = reason
@@ -432,13 +442,15 @@ func (lp *libraryPlan) newPath(mf *model.MediaFile, al album) (string, string) {
 	if lp.hasTwin(dirOf(mf.Path)) || lp.fileTwin(mf) {
 		return "", ReasonCaseTwin
 	}
-	artist := libpath.SafeName(mf.AlbumArtist, "")
-	albumDir := libpath.AlbumFolder(libpath.SafeName(mf.Album, ""), al.year)
-	dir, ok := lp.folder(artist, albumDir)
+	names := []string{libpath.SafeName(mf.AlbumArtist, ""), libpath.AlbumFolder(libpath.SafeName(mf.Album, ""), al.year)}
+	if al.multiDisc {
+		names = append(names, libpath.DiscFolder(mf.DiscNumber))
+	}
+	dir, ok := lp.folder(names...)
 	if !ok {
 		return "", ReasonCaseTwin
 	}
-	file := libpath.TrackFile(libpath.SafeName(mf.Title, ""), mf.DiscNumber, mf.TrackNumber, al.multiDisc, path.Ext(mf.Path))
+	file := libpath.TrackFile(libpath.SafeName(mf.Title, ""), mf.TrackNumber, path.Ext(mf.Path))
 	return path.Join(dir, file), ""
 }
 

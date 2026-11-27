@@ -709,7 +709,7 @@
       }
     },
     "organize": {
-      "help": "Organize moves Files to match their tags: <Album Artist>/<Album> (<Year>)/<NN> <Title>, or <D>-<NN> <Title> on a multi-disc album. Nothing moves until you run the plan. Each Track keeps its favorites, ratings, plays and Playlist entries, and the whole job can be undone from the Edit history.",
+      "help": "Organize moves Files to match their tags: <Album Artist>/<Album> (<Year>)/<NN> <Title>, or <Album Artist>/<Album> (<Year>)/Disc <D>/<NN> <Title> on a multi-disc album. Nothing moves until you run the plan. Each Track keeps its favorites, ratings, plays and Playlist entries, and the whole job can be undone from the Edit history.",
       "summary": {
         "tracks": "%{smart_count} Track moves |||| %{smart_count} Tracks move",
         "files": "%{smart_count} other File (covers and the like) moves with its album, and so does anything else in the album's folder |||| %{smart_count} other Files (covers and the like) move with their albums, and so does anything else in their albums' folders",
@@ -1102,7 +1102,7 @@
       "promote": {
         "button": "Promote all",
         "title": "Promote to the Library",
-        "help": "Promote moves this card's Files from the Inbox to their place in the Library: <Album Artist>/<Album> (<Year>)/<NN> <Title>, or <D>-<NN> <Title> on a multi-disc album, as Organize names them. Nothing moves until you run the plan. The Tracks become visible to every Listener and keep their favorites, ratings, plays and Playlist entries, and the whole job can be undone from the Edit history, which puts the Files back in the Inbox.",
+        "help": "Promote moves this card's Files from the Inbox to their place in the Library: <Album Artist>/<Album> (<Year>)/<NN> <Title>, or <Album Artist>/<Album> (<Year>)/Disc <D>/<NN> <Title> on a multi-disc album, as Organize names them. Nothing moves until you run the plan. The Tracks become visible to every Listener and keep their favorites, ratings, plays and Playlist entries, and the whole job can be undone from the Edit history, which puts the Files back in the Inbox.",
         "unsaved": "Save or undo your changes first: Promote places the Files by the tags they have now."
       },
       "review": {
