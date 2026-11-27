@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { playerReducer } from './playerReducer'
+import { playerReducer, restoredPlayer } from './playerReducer'
 import {
   PLAYER_SYNC_QUEUE,
   PLAYER_CURRENT,
@@ -222,6 +222,49 @@ describe('playerReducer', () => {
       const action = { type: PLAYER_REFRESH_QUEUE, data: {} }
       const result = playerReducer(state, action)
       expect(result.playIndex).toBe(0)
+    })
+  })
+
+  // A reload restores the queue from localStorage, where a stream URL that was
+  // a function (a transcode decision still to fetch) isn't kept. The player
+  // loads the restored current Track before PLAYER_REFRESH_QUEUE, and its
+  // quietUpdate keeps that Track's source when the queue is refreshed, so an
+  // item without one stays silent until picked again.
+  describe('restoredPlayer', () => {
+    it('gives each restored Track a stream URL, and keeps a radio stream', () => {
+      localStorage.setItem('username', 'admin')
+      localStorage.setItem('subsonic-token', 'token')
+      localStorage.setItem('subsonic-salt', 'salt')
+      const player = restoredPlayer({
+        queue: [
+          { trackId: 'song-1', uuid: 'a' },
+          { trackId: 'song-2', uuid: 'b', musicSrc: 'kept-url' },
+          {
+            trackId: 'radio-1',
+            uuid: 'c',
+            isRadio: true,
+            musicSrc: 'http://radio',
+          },
+        ],
+        savedPlayIndex: 0,
+        volume: 1,
+      })
+      expect(player.queue[0].musicSrc).toContain('stream')
+      expect(player.queue[0].musicSrc).toContain('id=song-1')
+      expect(player.queue[1].musicSrc).toBe('kept-url')
+      expect(player.queue[2].musicSrc).toBe('http://radio')
+      expect(player.queue.map((item) => item.uuid)).toEqual(['a', 'b', 'c'])
+    })
+
+    it("doesn't start playing by itself after a reload", () => {
+      expect(restoredPlayer({ queue: [{ trackId: 'song-1' }] }).autoPlay).toBe(
+        false,
+      )
+    })
+
+    it('leaves a state without a queue alone', () => {
+      expect(restoredPlayer(undefined)).toBeUndefined()
+      expect(restoredPlayer({ volume: 0.5 })).toEqual({ volume: 0.5 })
     })
   })
 })
