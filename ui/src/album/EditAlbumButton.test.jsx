@@ -458,7 +458,7 @@ describe('EditAlbumButton', () => {
       expect(screen.getByTestId('mbz-option-replaceTrackIds')).toBeTruthy()
     })
 
-    it("writes the picked release's IDs only, unless the admin ticks its values, its track IDs or its cover", async () => {
+    it("writes the picked release's IDs and cover, unless the admin ticks its values or its track IDs", async () => {
       mockFindReleases.mockResolvedValue({ data: releases })
       mockMatch.mockResolvedValue({ data: match })
       mockCorrectAlbum.mockResolvedValue({
@@ -467,6 +467,7 @@ describe('EditAlbumButton', () => {
       render(<EditAlbumButton record={record} />)
       open()
       await pickRelease()
+      expect(screen.getByTestId('mbz-option-cover').checked).toBe(true)
       save()
       await waitFor(() =>
         expect(mockRedirect).toHaveBeenCalledWith('/album/al3/show'),
@@ -483,6 +484,24 @@ describe('EditAlbumButton', () => {
           titles: false,
         },
         replaceTrackIds: false,
+        cover: true,
+      })
+    })
+
+    it("leaves the album's cover alone when the admin unticks the release's cover", async () => {
+      mockFindReleases.mockResolvedValue({ data: releases })
+      mockMatch.mockResolvedValue({ data: match })
+      mockCorrectAlbum.mockResolvedValue({
+        data: { albumId: 'al3', done: true },
+      })
+      render(<EditAlbumButton record={record} />)
+      open()
+      await pickRelease()
+      fireEvent.click(screen.getByTestId('mbz-option-cover'))
+      save()
+      await waitFor(() => expect(mockCorrectAlbum).toHaveBeenCalled())
+      expect(mockCorrectAlbum.mock.calls[0][1]).toMatchObject({
+        mbzAlbumId: 'rel-2',
         cover: false,
       })
     })
@@ -498,7 +517,6 @@ describe('EditAlbumButton', () => {
       await pickRelease()
       fireEvent.click(screen.getByTestId('mbz-option-album'))
       fireEvent.click(screen.getByTestId('mbz-option-replaceTrackIds'))
-      fireEvent.click(screen.getByTestId('mbz-option-cover'))
       expect(field('album-name').disabled).toBe(true)
       expect(field('album-year').disabled).toBe(false)
       save()
