@@ -9,6 +9,9 @@ import (
 
 var h = &Hook{}
 
+// namedString is a string type of its own, like model.EditKind.
+type namedString string
+
 type levelsTest struct {
 	name           string
 	acceptedLevels []logrus.Level
@@ -127,6 +130,13 @@ func TestEntryDataValues(t *testing.T) {
 			logFields:     logrus.Fields{"Description": map[string]string{"name": "His name is William"}},
 			expected:      logrus.Fields{"Description": "map[name:His name is [REDACTED]]"},
 			description:   "William should have been redacted, but was not.",
+		},
+		{
+			name:          "named string type value",
+			redactionList: []string{"William"},
+			logFields:     logrus.Fields{"Description": namedString("His name is William")},
+			expected:      logrus.Fields{"Description": "His name is [REDACTED]"},
+			description:   "A value of a named string type should be redacted, not panic.",
 		},
 	}
 
