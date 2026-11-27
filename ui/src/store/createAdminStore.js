@@ -14,6 +14,7 @@ import {
   restoredNowPlaying,
   savedNowPlaying,
 } from '../nowPlaying/nowPlayingState'
+import { restoredPlayer } from '../reducers/playerReducer'
 
 const createAdminStore = ({
   authProvider,
@@ -49,6 +50,7 @@ const createAdminStore = ({
     persistedState.player.playIndex = persistedState.player.savedPlayIndex
   }
   if (persistedState) {
+    persistedState.player = restoredPlayer(persistedState.player)
     persistedState.nowPlaying = restoredNowPlaying(persistedState.nowPlaying)
   }
   const store = createStore(

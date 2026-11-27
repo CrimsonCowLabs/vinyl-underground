@@ -278,6 +278,27 @@ const reduceRemoveFromQueue = (state, { data: { index } }) => {
   }
 }
 
+// The player state as restored from localStorage at a reload. A stream URL
+// that was a function (a transcode decision fetched when played) isn't kept
+// there, so a restored Track would have none: the player loads the current
+// Track before PLAYER_REFRESH_QUEUE brings resolved URLs, and with quietUpdate
+// it keeps that Track's (missing) source, so play did nothing until the Track
+// was picked again. Each Track gets its direct stream URL back (the refresh
+// swaps in transcoded ones for the Tracks after it), and nothing starts
+// playing by itself.
+export const restoredPlayer = (player) => {
+  if (!player?.queue) return player
+  return {
+    ...player,
+    queue: player.queue.map((item) =>
+      item.musicSrc || item.isRadio
+        ? item
+        : { ...item, musicSrc: subsonic.streamUrl(item.trackId) },
+    ),
+    autoPlay: false,
+  }
+}
+
 export const playerReducer = (previousState = initialState, payload) => {
   const { type } = payload
   switch (type) {
