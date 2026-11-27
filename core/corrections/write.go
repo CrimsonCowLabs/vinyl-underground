@@ -65,6 +65,8 @@ type writeArgs struct {
 	Name        bool `json:"name,omitempty"`
 	AlbumArtist bool `json:"albumArtist,omitempty"`
 	Year        bool `json:"year,omitempty"`
+	// Composer says the job wrote the album Edit dialog's composers into every File.
+	Composer bool `json:"composer,omitempty"`
 	// Numbered are the Files the job wrote disc and track numbers into.
 	Numbered []fileRef `json:"numbered,omitempty"`
 	// Release says the job wrote a picked MusicBrainz release's IDs into the album's Files
@@ -146,7 +148,7 @@ func (c *corrections) PlanAlbumEdit(ctx context.Context, albumID string, fix *Al
 		return nil, err
 	}
 	plan := &Plan{Kind: JobTrackNumbers, TrackID: e.tracks[0].ID}
-	if e.args.Name || e.args.AlbumArtist || e.args.Year {
+	if e.args.Name || e.args.AlbumArtist || e.args.Year || e.args.Composer {
 		plan.Kind = JobAlbumEdit
 	}
 	for _, mf := range e.tracks {
@@ -227,6 +229,9 @@ func (c *corrections) albumEdit(ctx context.Context, albumID string, fix *AlbumF
 		if fix.Year != 0 && (fix.Year != albumYear(*al) || old.Year != 0) {
 			a.Year, albumFix.Year = true, fix.Year
 		}
+		if len(fix.Composer) > 0 {
+			a.Composer, albumFix.Set["composer"] = true, fix.Composer
+		}
 	}
 
 	byID := map[string]int{}
@@ -276,6 +281,13 @@ var newAlbumArtistDrops = []string{"albumartists", "musicbrainz_albumartistid"}
 func cleanAlbumFix(fix *AlbumFix) error {
 	fix.Name = strings.TrimSpace(fix.Name)
 	fix.AlbumArtist = strings.Join(strings.Fields(fix.AlbumArtist), " ")
+	var composers []string
+	for _, c := range fix.Composer {
+		if c = strings.Join(strings.Fields(c), " "); c != "" && !slices.Contains(composers, c) {
+			composers = append(composers, c)
+		}
+	}
+	fix.Composer = composers
 	switch {
 	case fix.Name == "":
 		return fmt.Errorf("%w: the title is empty", model.ErrValidation)

@@ -24,7 +24,10 @@ import EditIcon from '@material-ui/icons/Edit'
 import { useArtistSuggestions } from '../artist/useArtistSuggestions'
 import { TrackNumbersEditor } from './TrackNumbersEditor'
 import {
+  joinComposers,
   markSaved,
+  sharedComposers,
+  splitComposers,
   trackNumberChanges,
   trackNumbersValid,
   useTrackNumberRows,
@@ -89,6 +92,12 @@ const EditAlbumDialog = ({ record, onClose }) => {
   const [name, setName] = useState(record.name || '')
   const [albumArtist, setAlbumArtist] = useState(record.albumArtist || '')
   const [year, setYear] = useState(String(albumYear(record)))
+  // The composers to write into every File: null until the Tracks load, then the ones they share
+  const shared = sharedComposers(trackRows)
+  const [composer, setComposer] = useState(null)
+  useEffect(() => {
+    if (shared !== null) setComposer((c) => (c === null ? shared : c))
+  }, [shared])
   const [release, setRelease] = useState(null)
   // The pairing of the picked release (null while it loads), why it couldn't be had (an error
   // code), and what the admin ticks
@@ -125,7 +134,13 @@ const EditAlbumDialog = ({ record, onClose }) => {
     (/^\d{4}$/.test(year.trim()) && yearValue >= 1000 && yearValue <= 9999)
   // Spaces are folded as the server folds them
   const artist = albumArtist.split(/\s+/).filter(Boolean).join(' ')
+  // Only composers typed, and other than the Tracks share, are written: an empty field keeps
+  // each Track's own
+  const composers = splitComposers(composer || '')
+  const composerChanged =
+    composers.length > 0 && joinComposers(composers) !== (shared || '')
   const unchanged =
+    !composerChanged &&
     name.trim() === (record.name || '') &&
     artist === (record.albumArtist || '') &&
     (yearValue === 0 || yearValue === Number(albumYear(record) || 0)) &&
@@ -154,6 +169,7 @@ const EditAlbumDialog = ({ record, onClose }) => {
             name: name.trim(),
             albumArtist: artist,
             year: yearValue,
+            ...(composerChanged && { composer: composers }),
             ...(trackChanges.length && { tracks: trackChanges }),
             ...(release &&
               match && {
@@ -210,6 +226,8 @@ const EditAlbumDialog = ({ record, onClose }) => {
       name,
       artist,
       yearValue,
+      composers,
+      composerChanged,
       unchanged,
       trackChanges,
       setTrackRows,
@@ -287,6 +305,20 @@ const EditAlbumDialog = ({ record, onClose }) => {
             disabled={saving || (!!release && accepted.date)}
             error={!yearValid}
             inputProps={{ inputMode: 'numeric', 'data-testid': 'album-year' }}
+          />
+          <TextField
+            fullWidth
+            margin="dense"
+            label={translate('resources.album.fields.composer')}
+            value={composer || ''}
+            onChange={(e) => setComposer(e.target.value)}
+            disabled={saving || composer === null}
+            helperText={
+              shared === '' &&
+              trackRows.some((r) => r.composers?.length) &&
+              translate('resources.album.editor.composerDiffers')
+            }
+            inputProps={{ 'data-testid': 'album-composer' }}
           />
           <FindOnMusicBrainz
             artist={artist}

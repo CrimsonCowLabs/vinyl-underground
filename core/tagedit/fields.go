@@ -52,6 +52,7 @@ var Fields = []Field{
 	{Key: "album", Prop: "ALBUM", Type: TypeText},
 	{Key: "albumartist", Prop: "ALBUMARTIST", Type: TypeText},
 	{Key: "albumartists", Prop: "ALBUMARTISTS", Type: TypeText, Multi: true},
+	{Key: "composer", Prop: "COMPOSER", Type: TypeText, Multi: true},
 	{Key: "date", Prop: "DATE", Type: TypeDate},
 	{Key: "originaldate", Prop: "ORIGINALDATE", Type: TypeDate},
 	{Key: "tracknumber", Prop: propTrack, Type: TypeNumber},

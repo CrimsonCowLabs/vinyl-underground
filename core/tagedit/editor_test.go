@@ -209,8 +209,8 @@ var _ = Describe("Editor", func() {
 			track(fixture)
 			set := Values{
 				"title": {"T"}, "artist": {"A"}, "artists": {"A1", "A2"}, "album": {"Al"},
-				"albumartist": {"AA"}, "albumartists": {"AA1", "AA2"}, "date": {"2001-02-03"},
-				"originaldate": {"1999"}, "tracknumber": {"3"}, "tracktotal": {"12"}, "discnumber": {"2"},
+				"albumartist": {"AA"}, "albumartists": {"AA1", "AA2"}, "composer": {"C1", "C2"},
+				"date": {"2001-02-03"}, "originaldate": {"1999"}, "tracknumber": {"3"}, "tracktotal": {"12"}, "discnumber": {"2"},
 				"disctotal": {"3"}, "genre": {"Rock", "Pop"}, "compilation": {"1"}, "comment": {"c"},
 				"bpm": {"120"}, "lyrics": {"line one\nline two"},
 				"musicbrainz_trackid":        {"8f8b1b1b-1b1b-4b1b-8b1b-1b1b1b1b1b1b"},

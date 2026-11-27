@@ -19,6 +19,9 @@ type AlbumFix struct {
 	Name        string `json:"name"`
 	AlbumArtist string `json:"albumArtist"`
 	Year        int    `json:"year"`
+	// Composer are the composers written into every File of the album; none keeps each File's
+	// own (an album's Tracks usually have composers of their own).
+	Composer []string `json:"composer,omitempty"`
 }
 
 // mbzLabel joins the MusicBrainz release an album Correction picked (before #170 wrote picks into

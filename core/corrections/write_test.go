@@ -128,6 +128,19 @@ var _ = Describe("Writing Corrections to the Files", func() {
 			}))
 		})
 
+		It("writes the composers into every File when given, and leaves each File's own otherwise", func() {
+			plan, err := svc.PlanAlbumEdit(ctx, al.ID, &corrections.AlbumFix{Name: "Recrod", AlbumArtist: "Band",
+				Composer: []string{" Barry White ", "", "Valerie Simpson"}}, nil)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(plan.Kind).To(Equal(corrections.JobAlbumEdit))
+			want := editjob.Rewrite{Set: tagedit.Values{"composer": {"Barry White", "Valerie Simpson"}}}
+			Expect(rewrites(plan)).To(Equal(map[string]editjob.Rewrite{"mf-1": want, "mf-2": want}))
+
+			_, err = svc.PlanAlbumEdit(ctx, al.ID, &corrections.AlbumFix{Name: "Recrod", AlbumArtist: "Band",
+				Composer: []string{" "}}, nil)
+			Expect(err).To(MatchError(corrections.ErrNothingToWrite), "blank composers keep each File's own")
+		})
+
 		It("writes Track order alone as a job of its own kind", func() {
 			plan, err := svc.PlanAlbumEdit(ctx, al.ID, nil, []corrections.TrackNumber{{ID: "mf-1", DiscNumber: 1, TrackNumber: 2}})
 			Expect(err).ToNot(HaveOccurred())

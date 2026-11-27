@@ -78,6 +78,7 @@
           "album": "Album",
           "albumartist": "Album artist",
           "albumartists": "Album artists",
+          "composer": "Composers",
           "date": "Date",
           "originaldate": "Original date",
           "tracknumber": "Track number",
@@ -114,6 +115,7 @@
       "name": "Album |||| Albums",
       "fields": {
         "albumArtist": "Album Artist",
+        "composer": "Composers (separate with ;)",
         "artist": "Artist",
         "duration": "Time",
         "songCount": "Songs",
@@ -158,7 +160,8 @@
         "chooseCover": "Choose Cover"
       },
       "editor": {
-        "help": "Writes the title, album artist, year and track numbers into the album's Files, so every app shows them. Tracks keep their IDs, and the album keeps its stars and play counts. Undo it from the Edit history.",
+        "composerDiffers": "Each Track has composers of its own, kept unless you type some here for every Track.",
+        "help": "Writes the title, album artist, year, composers and track numbers into the album's Files, so every app shows them. Tracks keep their IDs, and the album keeps its stars and play counts. Undo it from the Edit history.",
         "corrected": "Album saved",
         "correcting": "Saving. The Files are being written in the background; see Activity",
         "skipped": "Saved, but 1 File couldn't be written. Activity says why |||| Saved, but %{smart_count} Files couldn't be written. Activity says why",
