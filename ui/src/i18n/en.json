@@ -203,6 +203,8 @@
           "doesntHold": "Few of the album's Tracks pair with this release by title. Check it is the right one before saving.",
           "pairedWith": "Release track %{track}",
           "mismatch": "(its File names another MusicBrainz track; kept unless replaced below)",
+          "pairedByNumber": "(by track number)",
+          "byPosition": "1 Track's title pairs with no track of the release, so, as the album and the release have the same number of tracks, it pairs by its track number. Check the pairing before saving. |||| %{smart_count} Tracks' titles pair with no track of the release, so, as the album and the release have the same number of tracks, they pair by their track numbers. Check the pairing before saving.",
           "unpaired": "Pairs with no track of the release: left without track IDs",
           "unpairedTracks": "1 Track pairs with no track of the release. It gets the album's IDs only. |||| %{smart_count} Tracks pair with no track of the release. They get the album's IDs only.",
           "unusedTracks": "1 track of the release pairs with none of the album's Tracks. |||| %{smart_count} tracks of the release pair with none of the album's Tracks.",
@@ -212,7 +214,8 @@
           "useDate": "Use the release's date: %{value}",
           "useTitles": "Use the release's track titles (1 differs) |||| Use the release's track titles (%{smart_count} differ)",
           "replaceTrackIds": "Replace the MusicBrainz track IDs of the 1 File that names another track |||| Replace the MusicBrainz track IDs of the %{smart_count} Files that name other tracks",
-          "writeCover": "Write the release's Cover Art Archive cover as the album's cover.jpg"
+          "writeCover": "Write the release's Cover Art Archive cover as the album's cover.jpg",
+          "writeGenres": "Replace the Files' genres with the album's on MusicBrainz: %{genres}"
         }
       },
       "lists": {

@@ -410,6 +410,7 @@ describe('EditAlbumButton', () => {
         date: { from: '1998', to: '2009-04-01' },
         titles: 0,
       },
+      genres: ['Alternative Rock', 'Rock'],
     }
     const pickRelease = async () => {
       find()
@@ -450,6 +451,7 @@ describe('EditAlbumButton', () => {
       expect(
         screen.getByText(/resources.album.musicbrainz.pairing.doesntHold/),
       ).toBeTruthy()
+      expect(screen.queryByTestId('mbz-by-position')).toBeNull()
       // Only what differs is offered: no album artist, no track titles
       expect(screen.getByTestId('mbz-option-album')).toBeTruthy()
       expect(screen.getByTestId('mbz-option-date')).toBeTruthy()
@@ -458,7 +460,7 @@ describe('EditAlbumButton', () => {
       expect(screen.getByTestId('mbz-option-replaceTrackIds')).toBeTruthy()
     })
 
-    it("writes the picked release's IDs and cover, unless the admin ticks its values or its track IDs", async () => {
+    it("writes the picked release's IDs, cover and genres, unless the admin ticks its values or its track IDs", async () => {
       mockFindReleases.mockResolvedValue({ data: releases })
       mockMatch.mockResolvedValue({ data: match })
       mockCorrectAlbum.mockResolvedValue({
@@ -468,6 +470,7 @@ describe('EditAlbumButton', () => {
       open()
       await pickRelease()
       expect(screen.getByTestId('mbz-option-cover').checked).toBe(true)
+      expect(screen.getByTestId('mbz-option-genres').checked).toBe(true)
       save()
       await waitFor(() =>
         expect(mockRedirect).toHaveBeenCalledWith('/album/al3/show'),
@@ -485,7 +488,70 @@ describe('EditAlbumButton', () => {
         },
         replaceTrackIds: false,
         cover: true,
+        genres: true,
       })
+    })
+
+    it("leaves the Files' genres alone when the admin unticks them", async () => {
+      mockFindReleases.mockResolvedValue({ data: releases })
+      mockMatch.mockResolvedValue({ data: match })
+      mockCorrectAlbum.mockResolvedValue({
+        data: { albumId: 'al3', done: true },
+      })
+      render(<EditAlbumButton record={record} />)
+      open()
+      await pickRelease()
+      fireEvent.click(screen.getByTestId('mbz-option-genres'))
+      save()
+      await waitFor(() => expect(mockCorrectAlbum).toHaveBeenCalled())
+      expect(mockCorrectAlbum.mock.calls[0][1]).toMatchObject({
+        mbzAlbumId: 'rel-2',
+        genres: false,
+      })
+    })
+
+    it('says which Tracks pair by track number alone, and warns of nothing when every Track pairs', async () => {
+      mockFindReleases.mockResolvedValue({ data: releases })
+      mockMatch.mockResolvedValue({
+        data: {
+          ...match,
+          holds: true,
+          byPosition: 1,
+          tracks: [
+            match.tracks[0],
+            {
+              ...match.tracks[1],
+              paired: { id: 'rt-2', title: 'Two', disc: 1, position: 2 },
+              byPosition: true,
+            },
+          ],
+          unpaired: [],
+        },
+      })
+      render(<EditAlbumButton record={record} />)
+      open()
+      await pickRelease()
+      expect(screen.getByTestId('mbz-by-position').textContent).toContain(
+        'resources.album.musicbrainz.pairing.byPosition',
+      )
+      expect(screen.getByTestId('mbz-pair-mf-2').textContent).toContain(
+        'resources.album.musicbrainz.pairing.pairedByNumber',
+      )
+      expect(screen.getByTestId('mbz-pair-mf-1').textContent).not.toContain(
+        'resources.album.musicbrainz.pairing.pairedByNumber',
+      )
+      expect(
+        screen.queryByText(/resources.album.musicbrainz.pairing.doesntHold/),
+      ).toBeNull()
+    })
+
+    it('offers no genres when MusicBrainz has none for the album', async () => {
+      mockFindReleases.mockResolvedValue({ data: releases })
+      mockMatch.mockResolvedValue({ data: { ...match, genres: [] } })
+      render(<EditAlbumButton record={record} />)
+      open()
+      await pickRelease()
+      expect(screen.queryByTestId('mbz-option-genres')).toBeNull()
     })
 
     it("leaves the album's cover alone when the admin unticks the release's cover", async () => {

@@ -26,7 +26,8 @@ const number = (disc, track) => (disc > 0 ? `${disc}-${track}` : `${track}`)
 // track each Track is, the Tracks that pair with none (they are left without track IDs), and the
 // track IDs a File holds already that differ from the release's (kept, unless the admin says to
 // replace them). The release's own title, album artist, date and track titles, where they differ,
-// are offered, and written only if ticked; its cover is offered ticked.
+// are offered, and written only if ticked; its cover, and the album's genres on MusicBrainz
+// (if it has any), are offered ticked.
 export const ReleasePairing = ({ match, options, onChange, disabled }) => {
   const classes = useStyles()
   const translate = useTranslate()
@@ -59,6 +60,17 @@ export const ReleasePairing = ({ match, options, onChange, disabled }) => {
           {translate('resources.album.musicbrainz.pairing.doesntHold')}
         </Alert>
       )}
+      {match.byPosition > 0 && (
+        <Alert
+          severity="info"
+          style={{ marginBottom: 8 }}
+          data-testid="mbz-by-position"
+        >
+          {translate('resources.album.musicbrainz.pairing.byPosition', {
+            smart_count: match.byPosition,
+          })}
+        </Alert>
+      )}
       <Typography variant="subtitle2">
         {translate('resources.album.musicbrainz.pairing.title')}
       </Typography>
@@ -76,6 +88,8 @@ export const ReleasePairing = ({ match, options, onChange, disabled }) => {
                         track: `${number(t.paired.disc, t.paired.position)}. ${t.paired.title}`,
                       },
                     )}
+                    {t.byPosition &&
+                      ` ${translate('resources.album.musicbrainz.pairing.pairedByNumber')}`}
                     {t.mismatch && (
                       <span className={classes.unpaired}>
                         {' '}
@@ -168,6 +182,15 @@ export const ReleasePairing = ({ match, options, onChange, disabled }) => {
           options.cover,
           (e) => set({ cover: e.target.checked }),
         )}
+        {match.genres?.length > 0 &&
+          option(
+            'genres',
+            translate('resources.album.musicbrainz.pairing.writeGenres', {
+              genres: match.genres.join(', '),
+            }),
+            options.genres,
+            (e) => set({ genres: e.target.checked }),
+          )}
       </div>
     </div>
   )
@@ -176,11 +199,13 @@ export const ReleasePairing = ({ match, options, onChange, disabled }) => {
 ReleasePairing.propTypes = {
   match: PropTypes.shape({
     holds: PropTypes.bool,
+    byPosition: PropTypes.number,
     tracks: PropTypes.array.isRequired,
     unpaired: PropTypes.array.isRequired,
     albumArtistMatches: PropTypes.bool,
     canonical: PropTypes.object.isRequired,
     release: PropTypes.object.isRequired,
+    genres: PropTypes.arrayOf(PropTypes.string),
   }).isRequired,
   options: PropTypes.object.isRequired,
   onChange: PropTypes.func.isRequired,

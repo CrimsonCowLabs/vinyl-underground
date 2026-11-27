@@ -46,7 +46,9 @@ func testRelease() *musicbrainz.Release {
 	credit := musicbrainz.ArtistCredits{{Name: "Band"}}
 	credit[0].Artist.ID, credit[0].Artist.Name = bandID, "Band"
 	return &musicbrainz.Release{ID: relID, Title: "Record", Date: "1999-03-02", Country: "GB", ArtistCredit: credit,
-		ReleaseGroup: musicbrainz.ReleaseGroup{ID: groupID, Title: "Record", FirstReleaseDate: "1998-11-01"},
+		Genres: []musicbrainz.Genre{{Name: "rock", Count: 1}},
+		ReleaseGroup: musicbrainz.ReleaseGroup{ID: groupID, Title: "Record", FirstReleaseDate: "1998-11-01",
+			Genres: []musicbrainz.Genre{{Name: "alternative rock", Count: 4}, {Name: "rock", Count: 2}}},
 		Media: []musicbrainz.Media{{Format: "CD", Position: 1, TrackCount: 3, Tracks: []musicbrainz.Track{
 			{ID: rt1, Position: 1, Title: "One", Recording: musicbrainz.Recording{ID: rec1}},
 			{ID: rt2, Position: 2, Title: "Two (Remastered)", Recording: musicbrainz.Recording{ID: rec2}},
@@ -147,7 +149,7 @@ var _ = Describe("Writing a MusicBrainz release into the Files", func() {
 
 		tags := func(title, track string) map[string][]string {
 			return map[string][]string{"TITLE": {title}, "ARTIST": {"Band"}, "ALBUMARTIST": {"Band"}, "ALBUM": {"Recrod"},
-				"DATE": {"1999"}, "TRACKNUMBER": {track}}
+				"DATE": {"1999"}, "TRACKNUMBER": {track}, "GENRE": {"Alt Rock"}}
 		}
 		// One pairs by title and position; Two by title, and holds the ID of another recording
 		// already (an earlier retag); Bonus Jam pairs with nothing.
@@ -197,6 +199,50 @@ var _ = Describe("Writing a MusicBrainz release into the Files", func() {
 			Expect(m.Canonical.Date).To(Equal(corrections.CanonicalChange{From: "1999", To: "1999-03-02"}))
 			Expect(m.Canonical.AlbumArtist).To(BeZero(), "the album artist is the release's already")
 			Expect(m.Canonical.Titles).To(Equal(0), "Two's title is the release's already")
+			Expect(m.Genres).To(Equal([]string{"Alternative Rock", "Rock"}), "the release group's genres")
+		})
+
+		It("pairs the Tracks no title pairs by track number when the album and the release have as many tracks", func() {
+			// Bonus Jam is track 3 now, so the album's three Tracks are numbered as the release's.
+			mf, err := ds.MediaFile(ctx).Get("mf-3")
+			Expect(err).ToNot(HaveOccurred())
+			mf.TrackNumber = 3
+			Expect(ds.MediaFile(ctx).Put(mf)).To(Succeed())
+			rel := testRelease()
+			for i, title := range []string{"One", "Zwei", "Drei"} {
+				rel.Media[0].Tracks[i].Title = title
+			}
+
+			m, err := svc.MatchRelease(ctx, al.ID, rel)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(m.Holds).To(BeTrue(), "every Track pairs")
+			Expect(m.ByPosition).To(Equal(2))
+			byID := map[string]corrections.PairedTrack{}
+			for _, t := range m.Tracks {
+				byID[t.ID] = t
+			}
+			Expect(byID["mf-1"].ByTitle).To(BeTrue())
+			Expect(byID["mf-1"].ByPosition).To(BeFalse())
+			Expect(byID["mf-2"].Paired).To(PointTo(HaveField("ID", rt2)))
+			Expect(byID["mf-2"].ByPosition).To(BeTrue())
+			Expect(byID["mf-3"].Paired).To(PointTo(HaveField("ID", rt3)))
+			Expect(m.Unpaired).To(BeEmpty())
+			Expect(m.Canonical.Titles).To(Equal(2))
+
+			p, err := svc.PlanRelease(ctx, editor, al.ID, rel, corrections.ReleaseWrite{Accept: corrections.Canonical{Titles: true}})
+			Expect(err).ToNot(HaveOccurred())
+			rw := rewrites(p)
+			Expect(rw["mf-2"].Set).To(HaveKeyWithValue("title", []string{"Zwei"}))
+			Expect(rw["mf-3"].Set).To(HaveKeyWithValue("title", []string{"Drei"}))
+			Expect(rw["mf-3"].Fill).To(HaveKeyWithValue("musicbrainz_trackid", []string{rec3}))
+
+			// One more track on the release: the counts differ, so nothing pairs by number.
+			rel.Media[0].Tracks = append(rel.Media[0].Tracks, musicbrainz.Track{ID: "rt-extra", Position: 4, Title: "Vier"})
+			rel.Media[0].TrackCount = 4
+			m, err = svc.MatchRelease(ctx, al.ID, rel)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(m.ByPosition).To(BeZero())
+			Expect(m.Holds).To(BeFalse())
 		})
 
 		It("holds up when every Track pairs", func() {
@@ -315,6 +361,30 @@ var _ = Describe("Writing a MusicBrainz release into the Files", func() {
 	})
 
 	Describe("the job", func() {
+		It("writes the album's genres into every File only if the admin asks, and its undo puts the old ones back", func() {
+			rw := rewrites(plan(corrections.ReleaseWrite{}))
+			Expect(rw["mf-1"].Set).ToNot(HaveKey("genre"))
+
+			job := run(enqueue(plan(corrections.ReleaseWrite{Genres: true})))
+			for _, name := range []string{"01 One.mp3", "02 Two.mp3", "09 Bonus Jam.mp3"} {
+				Expect(tagsOf(name)).To(HaveKeyWithValue("GENRE", []string{"Alternative Rock", "Rock"}))
+			}
+
+			undo(job)
+			Expect(tagsOf("01 One.mp3")).To(HaveKeyWithValue("GENRE", []string{"Alt Rock"}))
+		})
+
+		It("leaves the Files' genres alone when MusicBrainz has none for the album", func() {
+			rel := testRelease()
+			rel.Genres, rel.ReleaseGroup.Genres = nil, nil
+			m, err := svc.MatchRelease(ctx, al.ID, rel)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(m.Genres).To(BeEmpty())
+			p, err := svc.PlanRelease(ctx, editor, al.ID, rel, corrections.ReleaseWrite{Genres: true})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(rewrites(p)["mf-1"].Set).ToNot(HaveKey("genre"))
+		})
+
 		It("writes the IDs into the Files as one job, never replacing a track ID silently, and its undo takes them out", func() {
 			job := run(enqueue(plan(corrections.ReleaseWrite{})))
 			Expect(job.Kind).To(Equal(corrections.JobRelease))
