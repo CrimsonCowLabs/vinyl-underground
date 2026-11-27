@@ -431,7 +431,7 @@ describe('EditAlbumButton', () => {
       find()
 
       const first = await screen.findByTestId('mbz-release-rel-1')
-      expect(mockFindReleases).toHaveBeenCalledWith('Band', 'Record')
+      expect(mockFindReleases).toHaveBeenCalledWith('Band', 'Record', false)
       expect(first.textContent).toContain('Record – Band')
       expect(first.textContent).toContain('1998 · GB · 2×CD · Official')
       const img = first.querySelector('img')
@@ -442,6 +442,106 @@ describe('EditAlbumButton', () => {
       expect(screen.getByTestId('mbz-release-rel-2').textContent).toContain(
         '2009 · US · 12" Vinyl',
       )
+    })
+
+    describe('the search field', () => {
+      const query = () => field('mbz-query')
+
+      it("is filled in with the album's title, following the dialog's until typed in", () => {
+        render(<EditAlbumButton record={record} />)
+        open()
+        expect(query().value).toBe('Recrod')
+        type('album-name', 'Record')
+        expect(query().value).toBe('Record')
+        type('mbz-query', 'House Party')
+        type('album-name', 'Other')
+        expect(query().value).toBe('House Party')
+        expect(
+          screen.getByText('resources.album.musicbrainz.searchHint'),
+        ).toBeTruthy()
+      })
+
+      it('searches what was typed, with the button or Enter, without saving the dialog', async () => {
+        mockFindReleases.mockResolvedValue({ data: releases })
+        render(<EditAlbumButton record={record} />)
+        open()
+        type('mbz-query', '7 68697 50272 5')
+        fireEvent.keyDown(query(), { key: 'Enter', code: 'Enter' })
+        await screen.findByTestId('mbz-release-rel-1')
+        expect(mockFindReleases).toHaveBeenCalledWith(
+          'Band',
+          '7 68697 50272 5',
+          false,
+        )
+
+        type('mbz-query', 'https://musicbrainz.org/release/rel-1')
+        find()
+        await waitFor(() =>
+          expect(mockFindReleases).toHaveBeenLastCalledWith(
+            'Band',
+            'https://musicbrainz.org/release/rel-1',
+            false,
+          ),
+        )
+        expect(mockFindReleases).toHaveBeenCalledTimes(2)
+        expect(mockCorrectAlbum).not.toHaveBeenCalled()
+      })
+
+      it('cannot search with nothing typed', () => {
+        render(<EditAlbumButton record={record} />)
+        open()
+        type('mbz-query', '  ')
+        expect(
+          screen.getByText('resources.album.musicbrainz.find').closest('button')
+            .disabled,
+        ).toBe(true)
+      })
+
+      it('says a compilation is one, so the server searches it as Various Artists', async () => {
+        mockFindReleases.mockResolvedValue({ data: [] })
+        render(
+          <EditAlbumButton
+            record={{ ...record, albumArtist: 'DJ', compilation: true }}
+          />,
+        )
+        open()
+        find()
+        await waitFor(() =>
+          expect(mockFindReleases).toHaveBeenCalledWith('DJ', 'Recrod', true),
+        )
+      })
+
+      it("says why a link to anything but a release can't be searched", async () => {
+        mockFindReleases.mockRejectedValue({ body: { error: 'notRelease' } })
+        render(<EditAlbumButton record={record} />)
+        open()
+        find()
+        expect(
+          await screen.findByText(
+            'resources.album.musicbrainz.errors.notRelease',
+          ),
+        ).toBeTruthy()
+      })
+
+      it('pairs a release found by its barcode as any other', async () => {
+        mockFindReleases.mockResolvedValue({ data: [releases[1]] })
+        mockMatch.mockResolvedValue({ data: match })
+        render(<EditAlbumButton record={record} />)
+        open()
+        type('mbz-query', '768697502725')
+        find()
+        fireEvent.click(await screen.findByTestId('mbz-release-rel-2'))
+        await screen.findByTestId('mbz-pairing')
+        expect(mockFindReleases).toHaveBeenCalledWith(
+          'Band',
+          '768697502725',
+          false,
+        )
+        expect(mockMatch).toHaveBeenCalledWith('rel-2', 'al1')
+        expect(screen.getByTestId('mbz-picked').textContent).toContain(
+          'Vinyl, 2009)',
+        )
+      })
     })
 
     it('shows a disc for a release with no cover in the archive', async () => {
@@ -975,6 +1075,69 @@ describe('EditAlbumButton', () => {
         expect(screen.getByTestId('mbz-release-rel-b')).toBeTruthy()
         expect(screen.queryByTestId('mbz-best-match')).toBeNull()
         expect(screen.queryByText(/errors.busy/)).toBeNull()
+        // Only a line under the list says why none is marked
+        expect(screen.getByTestId('mbz-no-best-match').textContent).toBe(
+          'resources.album.musicbrainz.noBestMatch.busy',
+        )
+      })
+
+      it("says the check failed when MusicBrainz couldn't be reached for it", async () => {
+        mockFit.mockRejectedValue({ body: { error: 'unavailable' } })
+        render(<EditAlbumButton record={record} />)
+        open()
+        await screen.findByText('One')
+        find()
+        expect(
+          (await screen.findByTestId('mbz-no-best-match')).textContent,
+        ).toBe('resources.album.musicbrainz.noBestMatch.failed')
+      })
+
+      it("says why none is marked when no release has the album's number of Tracks", async () => {
+        // In Utero: 13 Tracks, a hidden track kept as its own File; every edition has 12
+        mockFindReleases.mockResolvedValue({ data: releases })
+        render(<EditAlbumButton record={record} />)
+        open()
+        await screen.findByText('One')
+        find()
+        await screen.findByTestId('mbz-release-rel-2')
+        expect(mockFit).not.toHaveBeenCalled()
+        expect(screen.getByTestId('mbz-no-best-match').textContent).toBe(
+          'resources.album.musicbrainz.noBestMatch.noCandidates {"smart_count":2}',
+        )
+      })
+
+      it('says why none is marked when no release checked pairs most of the Tracks, once checked', async () => {
+        const answer = pending()
+        render(<EditAlbumButton record={record} />)
+        open()
+        await screen.findByText('One')
+        find()
+        await waitFor(() => expect(mockFit).toHaveBeenCalled())
+        expect(screen.getByTestId('mbz-fitting')).toBeTruthy()
+        expect(screen.queryByTestId('mbz-no-best-match')).toBeNull()
+
+        answer(fits.map((f) => ({ ...f, paired: 1, best: false })))
+        expect(
+          (await screen.findByTestId('mbz-no-best-match')).textContent,
+        ).toBe(
+          'resources.album.musicbrainz.noBestMatch.noGoodFit {"smart_count":2}',
+        )
+        expect(screen.queryByTestId('mbz-best-match')).toBeNull()
+      })
+
+      it('says nothing more when a release is marked, or when nothing is found', async () => {
+        mockFit.mockResolvedValue({ data: fits })
+        render(<EditAlbumButton record={record} />)
+        open()
+        await screen.findByText('One')
+        find()
+        await screen.findByTestId('mbz-best-match')
+        expect(screen.queryByTestId('mbz-no-best-match')).toBeNull()
+
+        mockFindReleases.mockResolvedValue({ data: [] })
+        find()
+        await screen.findByText('resources.album.musicbrainz.noResults')
+        expect(screen.queryByTestId('mbz-no-best-match')).toBeNull()
       })
     })
 

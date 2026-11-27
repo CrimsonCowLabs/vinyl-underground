@@ -325,6 +325,7 @@ const EditAlbumDialog = ({ record, onClose }) => {
             trackCount={trackRows?.length}
             artist={artist}
             title={name}
+            compilation={!!record.compilation}
             picked={release}
             onPick={setRelease}
             disabled={saving}

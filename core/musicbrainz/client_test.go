@@ -264,6 +264,20 @@ var _ = Describe("Client", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(served()[0].URL.Query().Get("query")).To(Equal(`release:"Record"`))
 		})
+
+		It("searches releases by barcode or catalog number, by any artist", func() {
+			rels, err := client.SearchReleasesByBarcode(context.Background(), "768697502725")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(rels).To(HaveLen(2))
+			_, err = client.SearchReleasesByCatalogNumber(context.Background(), ` 76869-75027-2 "x" `)
+			Expect(err).ToNot(HaveOccurred())
+			reqs := served()
+			Expect(reqs).To(HaveLen(2))
+			Expect(reqs[0].URL.Path).To(Equal("/ws/2/release"))
+			Expect(reqs[0].URL.Query().Get("query")).To(Equal(`barcode:"768697502725"`))
+			Expect(reqs[1].URL.Query().Get("query")).To(Equal(`catno:"76869-75027-2 \"x\""`))
+			Expect(reqs[1].URL.Query().Get("limit")).To(Equal("25"))
+		})
 	})
 
 	Describe("Release", func() {

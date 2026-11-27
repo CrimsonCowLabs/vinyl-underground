@@ -17,9 +17,12 @@ import (
 )
 
 // releaseSearch is the part of the MusicBrainz client Find on MusicBrainz uses: searching
-// releases, and looking one up with its tracks, to pair it with the album's and write it (#170).
+// releases (by title, barcode or catalog number), and looking one up with its tracks, to pair it
+// with the album's and write it (#170).
 type releaseSearch interface {
 	SearchReleases(ctx context.Context, artist, title string) ([]musicbrainz.Release, error)
+	SearchReleasesByBarcode(ctx context.Context, barcode string) ([]musicbrainz.Release, error)
+	SearchReleasesByCatalogNumber(ctx context.Context, catno string) ([]musicbrainz.Release, error)
 	Release(ctx context.Context, id string) (*musicbrainz.Release, error)
 }
 
@@ -54,7 +57,8 @@ type releaseMatch struct {
 }
 
 // addMusicBrainzRoute serves Find on MusicBrainz in the album Edit dialog (admin only, see
-// routes): GET /musicbrainz/release?artist=&title= lists the matching releases, and
+// routes): GET /musicbrainz/release?q=&artist=&compilation= lists the releases matching what the
+// admin typed (a title, barcode, catalog number or release link; see searchReleases), and
 // GET /musicbrainz/release/{id}/match?albumId= pairs the album's Tracks with one, as the dialog
 // shows before saving, and GET /musicbrainz/release/fit?albumId=&ids= scores the releases listed
 // by how well they fit the album's Files, marking the best. Saving writes the pick into the
@@ -178,35 +182,95 @@ func (api *Router) lookUpRelease(w http.ResponseWriter, r *http.Request, id stri
 	return rel, true
 }
 
+// searchReleases lists the releases matching what the admin typed in the dialog's search field,
+// q (see musicbrainz.ParseQuery): a release link or MBID is looked up and listed alone; a
+// barcode, a catalog number or a title is searched, then, if that finds nothing, searched
+// otherwise (see findReleases). A title is searched with the album artist (artist), as Various
+// Artists for a compilation (compilation=true) or an album by "Various", "VA"... (see
+// musicbrainz.ReleaseSearchArtist); a barcode or catalog number by any artist. With no q, title
+// is searched as a title, as before q was added.
 func (api *Router) searchReleases(w http.ResponseWriter, r *http.Request) {
-	artist, title := r.URL.Query().Get("artist"), strings.TrimSpace(r.URL.Query().Get("title"))
+	params := r.URL.Query()
+	artist := musicbrainz.ReleaseSearchArtist(params.Get("artist"), params.Get("compilation") == "true")
+	q := musicbrainz.ParseQuery(params.Get("q"))
+	if q.Text == "" {
+		title := strings.TrimSpace(params.Get("title"))
+		q = musicbrainz.Query{Kind: musicbrainz.QueryTitle, Value: title, Text: title}
+	}
 	switch {
 	case !conf.Server.EnableExternalServices:
 		writeMusicBrainzError(w, http.StatusServiceUnavailable, "disabled")
 		return
-	case title == "":
+	case q.Text == "":
 		writeMusicBrainzError(w, http.StatusBadRequest, "invalid")
 		return
+	case q.Kind == musicbrainz.QueryOtherLink:
+		writeMusicBrainzError(w, http.StatusBadRequest, "notRelease")
+		return
+	case q.Kind == musicbrainz.QueryRelease:
+		rel, ok := api.lookUpRelease(w, r, q.Value)
+		if !ok {
+			return
+		}
+		m := releaseMatchOf(*rel)
+		// Asked for by its ID, it is the release sought
+		m.Score = 100
+		_ = rest.RespondWithJSON(w, http.StatusOK, []releaseMatch{m})
+		return
 	}
-	releases, err := api.releaseSearch.SearchReleases(r.Context(), artist, title)
+	releases, err := api.findReleases(r.Context(), q, artist)
 	switch {
 	case errors.Is(err, musicbrainz.ErrBusy):
 		log.Warn(r.Context(), "Find on MusicBrainz: MusicBrainz is busy", err)
 		writeMusicBrainzError(w, http.StatusServiceUnavailable, "busy")
 		return
 	case err != nil:
-		log.Warn(r.Context(), "Find on MusicBrainz: could not search MusicBrainz", "artist", artist, "title", title, err)
+		log.Warn(r.Context(), "Find on MusicBrainz: could not search MusicBrainz", "artist", artist, "query", q.Text, err)
 		writeMusicBrainzError(w, http.StatusBadGateway, "unavailable")
 		return
 	}
 	res := make([]releaseMatch, 0, len(releases))
 	for _, rel := range releases {
-		res = append(res, releaseMatch{ID: rel.ID, ReleaseGroupID: rel.ReleaseGroup.ID, Title: rel.Title,
-			Artist: rel.ArtistCredit.String(), Year: rel.Year(), Country: rel.Country,
-			Format: rel.Formats(), Status: rel.Status, Score: rel.Score, TrackCount: rel.TrackCount(), Description: rel.Description(),
-			ThumbnailURL: coverArtNames.ReleaseFront(rel.ID).ThumbnailURL})
+		res = append(res, releaseMatchOf(rel))
 	}
 	_ = rest.RespondWithJSON(w, http.StatusOK, res)
+}
+
+// findReleases searches the releases q names, in turn, until one search finds some: a barcode,
+// then the text as a catalog number (many are digits and hyphens, like barcodes); something like
+// a catalog number, then as a title; a title, then as a catalog number. A failed search answers
+// at once: MusicBrainz busy for one is busy for the next.
+func (api *Router) findReleases(ctx context.Context, q musicbrainz.Query, artist string) ([]musicbrainz.Release, error) {
+	byTitle := func() ([]musicbrainz.Release, error) { return api.releaseSearch.SearchReleases(ctx, artist, q.Text) }
+	byCatno := func() ([]musicbrainz.Release, error) {
+		return api.releaseSearch.SearchReleasesByCatalogNumber(ctx, q.Text)
+	}
+	var searches []func() ([]musicbrainz.Release, error)
+	switch q.Kind {
+	case musicbrainz.QueryBarcode:
+		byBarcode := func() ([]musicbrainz.Release, error) {
+			return api.releaseSearch.SearchReleasesByBarcode(ctx, q.Value)
+		}
+		searches = append(searches, byBarcode, byCatno)
+	case musicbrainz.QueryCatalogNumber:
+		searches = append(searches, byCatno, byTitle)
+	default:
+		searches = append(searches, byTitle, byCatno)
+	}
+	for _, search := range searches {
+		if rels, err := search(); err != nil || len(rels) > 0 {
+			return rels, err
+		}
+	}
+	return nil, nil
+}
+
+// releaseMatchOf is the release as Find on MusicBrainz lists it.
+func releaseMatchOf(rel musicbrainz.Release) releaseMatch {
+	return releaseMatch{ID: rel.ID, ReleaseGroupID: rel.ReleaseGroup.ID, Title: rel.Title,
+		Artist: rel.ArtistCredit.String(), Year: rel.Year(), Country: rel.Country,
+		Format: rel.Formats(), Status: rel.Status, Score: rel.Score, TrackCount: rel.TrackCount(), Description: rel.Description(),
+		ThumbnailURL: coverArtNames.ReleaseFront(rel.ID).ThumbnailURL}
 }
 
 // mbzIDPattern is a MusicBrainz ID (a UUID, lower case).

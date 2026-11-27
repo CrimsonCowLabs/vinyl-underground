@@ -349,12 +349,14 @@ const wrapperDataProvider = {
       method: 'PUT',
       body: JSON.stringify({ values }),
     }).then(({ json }) => ({ data: json })),
-  // Find on MusicBrainz (admin only): the MusicBrainz releases matching an album artist and
-  // title, [{ id, releaseGroupId, title, artist, year, country, format, status, score, trackCount,
-  // description, thumbnailUrl }]. A failure's body has an `error` code to translate.
-  findMusicBrainzReleases: (artist, title) =>
+  // Find on MusicBrainz (admin only): the MusicBrainz releases matching what the admin typed
+  // (query: a title, searched with the album artist, or a barcode, catalog number or release
+  // link, which the server tells apart), [{ id, releaseGroupId, title, artist, year, country,
+  // format, status, score, trackCount, description, thumbnailUrl }]. A compilation is searched
+  // as Various Artists. A failure's body has an `error` code to translate.
+  findMusicBrainzReleases: (artist, query, compilation) =>
     httpClient(
-      `${REST_URL}/musicbrainz/release?artist=${encodeURIComponent(artist)}&title=${encodeURIComponent(title)}`,
+      `${REST_URL}/musicbrainz/release?artist=${encodeURIComponent(artist)}&q=${encodeURIComponent(query)}${compilation ? '&compilation=true' : ''}`,
     ).then(({ json }) => ({ data: json })),
   // How the album's Tracks pair with a MusicBrainz release, before saving it (#170): { release,
   // holds, tracks: [{ id, title, disc, track, paired: { id, recordingId, title, disc, position },
