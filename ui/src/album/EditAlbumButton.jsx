@@ -321,6 +321,8 @@ const EditAlbumDialog = ({ record, onClose }) => {
             inputProps={{ 'data-testid': 'album-composer' }}
           />
           <FindOnMusicBrainz
+            albumId={record.id}
+            trackCount={trackRows?.length}
             artist={artist}
             title={name}
             picked={release}

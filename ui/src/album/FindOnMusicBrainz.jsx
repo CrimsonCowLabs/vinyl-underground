@@ -3,6 +3,7 @@ import PropTypes from 'prop-types'
 import { useDataProvider, useTranslate } from 'react-admin'
 import {
   Button,
+  Chip,
   CircularProgress,
   List,
   ListItem,
@@ -35,6 +36,14 @@ const useStyles = makeStyles((theme) => ({
   },
   avatar: { minWidth: 60 },
   picked: { marginTop: theme.spacing(1) },
+  fitting: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: theme.spacing(1),
+    marginTop: theme.spacing(1),
+  },
+  best: { marginLeft: theme.spacing(1), height: 20 },
+  fit: { display: 'block' },
 }))
 
 // The server answers a failed search with a code; anything else is a generic error.
@@ -69,11 +78,28 @@ Thumbnail.propTypes = { url: PropTypes.string }
 const releaseDetail = (r) =>
   [r.year, r.country, r.format, r.status].filter(Boolean).join(' · ')
 
+// How many releases are fitted to the album's Files at most: the server looks each up, about a
+// second apart.
+const maxFitted = 5
+
+// The releases worth fitting to the album's Files: those with as many tracks as the album has
+// Tracks, the first in search order.
+const fitCandidates = (releases, trackCount) =>
+  releases
+    .filter((r) => trackCount > 0 && r.trackCount === trackCount)
+    .slice(0, maxFitted)
+    .map((r) => r.id)
+
 // Find on MusicBrainz, in the album Edit dialog: searches MusicBrainz's releases by the album
 // artist and title as they are in the dialog, and lets the admin pick one. The pick is written
 // into the album's Files with the rest of the dialog (#170). A failed search shows why, and
-// leaves the rest of the dialog as it is.
+// leaves the rest of the dialog as it is. Of the releases with as many tracks as the album
+// (trackCount, its Tracks once loaded), the server checks which fits the album's Files best, by
+// the Tracks that pair with each and how close their lengths are; the list can be picked from
+// meanwhile.
 export const FindOnMusicBrainz = ({
+  albumId,
+  trackCount,
   artist,
   title,
   picked,
@@ -86,6 +112,9 @@ export const FindOnMusicBrainz = ({
   const [releases, setReleases] = useState(null)
   const [searching, setSearching] = useState(false)
   const [error, setError] = useState(null)
+  // How each release fitted fits the album's Files, by ID, and whether the server is at it
+  const [fits, setFits] = useState({})
+  const [fitting, setFitting] = useState(false)
   const mounted = useRef(true)
   useEffect(() => {
     mounted.current = true
@@ -93,6 +122,41 @@ export const FindOnMusicBrainz = ({
       mounted.current = false
     }
   }, [])
+
+  // An answer for a search the admin has since run again is dropped.
+  useEffect(() => {
+    setFits({})
+    setFitting(false)
+    if (!releases || !albumId) return
+    const ids = fitCandidates(releases, trackCount)
+    if (!ids.length) return
+    let current = true
+    setFitting(true)
+    dataProvider
+      .fitMusicBrainzReleases(albumId, ids)
+      .then(
+        ({ data }) =>
+          current &&
+          setFits(Object.fromEntries((data || []).map((f) => [f.id, f]))),
+      )
+      // The marks only help to pick: the list is the same without them
+      .catch(() => {})
+      .finally(() => current && setFitting(false))
+    return () => {
+      current = false
+    }
+  }, [dataProvider, releases, albumId, trackCount])
+
+  const fitNote = (f) => {
+    const paired = translate('resources.album.musicbrainz.fit.paired', {
+      smart_count: f.albumTracks,
+      paired: f.paired,
+    })
+    if (f.lengthDiff === null || f.lengthDiff === undefined) return paired
+    return `${paired} · ${translate('resources.album.musicbrainz.fit.lengths', {
+      seconds: f.lengthDiff.toFixed(1),
+    })}`
+  }
 
   const search = useCallback(() => {
     setSearching(true)
@@ -148,26 +212,69 @@ export const FindOnMusicBrainz = ({
           {translate('resources.album.musicbrainz.noResults')}
         </Typography>
       )}
+      {fitting && (
+        <Typography
+          variant="body2"
+          component="div"
+          color="textSecondary"
+          className={classes.fitting}
+          data-testid="mbz-fitting"
+        >
+          <CircularProgress size={12} />
+          {translate('resources.album.musicbrainz.fitting')}
+        </Typography>
+      )}
       {releases && releases.length > 0 && (
         <List dense className={classes.list} aria-label="MusicBrainz releases">
-          {releases.map((r) => (
-            <ListItem
-              key={r.id}
-              button
-              selected={picked?.id === r.id}
-              disabled={disabled}
-              onClick={() => onPick(r)}
-              data-testid={`mbz-release-${r.id}`}
-            >
-              <ListItemAvatar className={classes.avatar}>
-                <Thumbnail url={r.thumbnailUrl} />
-              </ListItemAvatar>
-              <ListItemText
-                primary={`${r.title} – ${r.artist}`}
-                secondary={releaseDetail(r)}
-              />
-            </ListItem>
-          ))}
+          {releases.map((r) => {
+            const fit = fits[r.id]
+            return (
+              <ListItem
+                key={r.id}
+                button
+                selected={picked?.id === r.id}
+                disabled={disabled}
+                onClick={() => onPick(r)}
+                data-testid={`mbz-release-${r.id}`}
+              >
+                <ListItemAvatar className={classes.avatar}>
+                  <Thumbnail url={r.thumbnailUrl} />
+                </ListItemAvatar>
+                <ListItemText
+                  primary={
+                    <>
+                      {`${r.title} – ${r.artist}`}
+                      {fit?.best && (
+                        <Chip
+                          component="span"
+                          size="small"
+                          color="primary"
+                          className={classes.best}
+                          label={translate(
+                            'resources.album.musicbrainz.bestMatch',
+                          )}
+                          data-testid="mbz-best-match"
+                        />
+                      )}
+                    </>
+                  }
+                  secondary={
+                    <>
+                      {releaseDetail(r)}
+                      {fit && (
+                        <span
+                          className={classes.fit}
+                          data-testid={`mbz-fit-${r.id}`}
+                        >
+                          {fitNote(fit)}
+                        </span>
+                      )}
+                    </>
+                  }
+                />
+              </ListItem>
+            )
+          })}
         </List>
       )}
     </div>
@@ -175,6 +282,8 @@ export const FindOnMusicBrainz = ({
 }
 
 FindOnMusicBrainz.propTypes = {
+  albumId: PropTypes.string,
+  trackCount: PropTypes.number,
   artist: PropTypes.string.isRequired,
   title: PropTypes.string.isRequired,
   picked: PropTypes.object,

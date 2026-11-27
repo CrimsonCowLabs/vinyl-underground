@@ -193,6 +193,12 @@
         "coverNoFolder": "Saved without the release's cover: the album's Files are in folders other albums share (or in several with no common folder), so a cover.jpg there would be theirs too.",
         "clear": "Remove",
         "noResults": "MusicBrainz has no release with this album artist and title.",
+        "fitting": "Checking which release fits your Files…",
+        "bestMatch": "Best match",
+        "fit": {
+          "paired": "%{paired} of 1 Track pairs |||| %{paired} of %{smart_count} Tracks pair",
+          "lengths": "lengths within %{seconds}s"
+        },
         "errors": {
           "busy": "MusicBrainz is busy. Try again in a minute; the rest of the dialog can still be saved.",
           "unavailable": "Couldn't reach MusicBrainz. The rest of the dialog can still be saved.",

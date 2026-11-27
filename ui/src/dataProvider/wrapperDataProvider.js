@@ -350,7 +350,7 @@ const wrapperDataProvider = {
       body: JSON.stringify({ values }),
     }).then(({ json }) => ({ data: json })),
   // Find on MusicBrainz (admin only): the MusicBrainz releases matching an album artist and
-  // title, [{ id, releaseGroupId, title, artist, year, country, format, status, score,
+  // title, [{ id, releaseGroupId, title, artist, year, country, format, status, score, trackCount,
   // description, thumbnailUrl }]. A failure's body has an `error` code to translate.
   findMusicBrainzReleases: (artist, title) =>
     httpClient(
@@ -363,6 +363,13 @@ const wrapperDataProvider = {
   matchMusicBrainzRelease: (releaseId, albumId) =>
     httpClient(
       `${REST_URL}/musicbrainz/release/${encodeURIComponent(releaseId)}/match?albumId=${encodeURIComponent(albumId)}`,
+    ).then(({ json }) => ({ data: json })),
+  // Which of the MusicBrainz releases (IDs in search order; the server looks up five at most)
+  // fits the album's Files best: [{ id, paired, trackCount, albumTracks, lengthDiff (seconds, or
+  // null), best }], leaving out those it couldn't look up. A failure's body has an `error` code.
+  fitMusicBrainzReleases: (albumId, releaseIds) =>
+    httpClient(
+      `${REST_URL}/musicbrainz/release/fit?albumId=${encodeURIComponent(albumId)}&ids=${encodeURIComponent(releaseIds.join(','))}`,
     ).then(({ json }) => ({ data: json })),
   // The Correction migration (#165, admin only): the plan, { items: [{ correction, changes:
   // [{ field, from, to }], files, flags: [{ path, code, error }], lastRun }],

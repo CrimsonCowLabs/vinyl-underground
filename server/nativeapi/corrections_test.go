@@ -30,6 +30,8 @@ type fakeCorrections struct {
 	// paired.
 	releases []corrections.ReleaseWrite
 	matched  []string
+	// fitted are the releases scored (see FitReleases), each "albumID|releaseID".
+	fitted []string
 	// plans are the jobs planned (see PlanAlbumEdit), plan what each answers (nil for one of
 	// "mf-1"), planErr its refusal.
 	plans   []string
@@ -54,6 +56,20 @@ func (f *fakeCorrections) MatchRelease(_ context.Context, albumID string, rel *m
 	f.matched = append(f.matched, albumID+"|"+rel.ID)
 	return &corrections.ReleaseMatch{Release: corrections.ReleaseSummary{ID: rel.ID}, Holds: true,
 		Tracks: []corrections.PairedTrack{{ID: "mf-1", Paired: &corrections.ReleaseTrack{ID: "rt-1"}}}}, nil
+}
+
+// FitReleases pairs every Track of a one-Track album with each release, and marks the first best.
+func (f *fakeCorrections) FitReleases(_ context.Context, albumID string, rels []*musicbrainz.Release) ([]corrections.ReleaseFit, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	fits := []corrections.ReleaseFit{}
+	for _, rel := range rels {
+		f.fitted = append(f.fitted, albumID+"|"+rel.ID)
+		fits = append(fits, corrections.ReleaseFit{ID: rel.ID, Paired: 1, AlbumTracks: 1, TrackCount: rel.TrackCount()})
+	}
+	corrections.MarkBestFit(fits)
+	return fits, nil
 }
 
 func (f *fakeCorrections) PlanRelease(_ context.Context, _ *tagedit.Editor, albumID string, rel *musicbrainz.Release, w corrections.ReleaseWrite) (*corrections.Plan, error) {
