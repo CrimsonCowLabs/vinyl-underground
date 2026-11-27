@@ -101,7 +101,8 @@ func (api *Router) mergeArtist(w http.ResponseWriter, r *http.Request) {
 // changed numbers (tracks, if any), into the album's Files, as one job. With a MusicBrainz release
 // picked with Find on MusicBrainz (mbzAlbumId), the job writes the release's IDs too, and of its
 // own values those the admin accepts (canonical), replacing track IDs that differ only with
-// replaceTrackIds, and its cover as the album's cover.jpg with cover (#170).
+// replaceTrackIds, its cover as the album's cover.jpg with cover (#170), and the album's
+// MusicBrainz genres with genres.
 func (api *Router) correctAlbum(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		AlbumID string `json:"albumId"`
@@ -111,6 +112,7 @@ func (api *Router) correctAlbum(w http.ResponseWriter, r *http.Request) {
 		Canonical       corrections.Canonical     `json:"canonical"`
 		ReplaceTrackIDs bool                      `json:"replaceTrackIds"`
 		Cover           bool                      `json:"cover"`
+		Genres          bool                      `json:"genres"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeCorrectionError(w, r, fmt.Errorf("%w: %w", model.ErrValidation, err))
@@ -128,7 +130,7 @@ func (api *Router) correctAlbum(w http.ResponseWriter, r *http.Request) {
 		}
 		plan, err := api.corrections.PlanRelease(ctx, api.tagEditor, body.AlbumID, rel, corrections.ReleaseWrite{
 			Fix: &body.AlbumFix, Tracks: body.Tracks, Accept: body.Canonical, ReplaceTrackIDs: body.ReplaceTrackIDs,
-			Cover: body.Cover})
+			Cover: body.Cover, Genres: body.Genres})
 		if err != nil {
 			writeWriteError(w, r, err)
 			return

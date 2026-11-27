@@ -1,6 +1,8 @@
 package musicbrainz
 
 import (
+	"cmp"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -40,6 +42,71 @@ type Release struct {
 		// Front is set when the Cover Art Archive holds a front cover for the release.
 		Front bool `json:"front"`
 	} `json:"cover-art-archive"`
+	// Genres are the genres MusicBrainz's users voted for this release (filled in by Release).
+	Genres []Genre `json:"genres"`
+}
+
+// Genre is one of MusicBrainz's genres, with how many users voted for it.
+type Genre struct {
+	Name  string `json:"name"`
+	Count int    `json:"count"`
+}
+
+// maxAlbumGenres is how many genres AlbumGenres keeps at most.
+const maxAlbumGenres = 5
+
+// AlbumGenres are the album's genres as written into its Files: its release group's (the votes
+// for every edition of the album), else the release's own, keeping those with at least a third
+// of the top genre's votes (one-vote noise goes when others are well backed), most votes first,
+// at most five, in Title Case as the Library's genres are ("alternative rock" ->
+// "Alternative Rock").
+func (r Release) AlbumGenres() []string {
+	genres := r.ReleaseGroup.Genres
+	if len(genres) == 0 {
+		genres = r.Genres
+	}
+	genres = slices.Clone(genres)
+	slices.SortStableFunc(genres, func(a, b Genre) int {
+		return cmp.Or(cmp.Compare(b.Count, a.Count), cmp.Compare(a.Name, b.Name))
+	})
+	res := []string{}
+	for _, g := range genres {
+		if len(res) == maxAlbumGenres || g.Count*3 < genres[0].Count {
+			break
+		}
+		if name := genreTitle(g.Name); name != "" && !slices.Contains(res, name) {
+			res = append(res, name)
+		}
+	}
+	return res
+}
+
+// genreAcronyms are written in capitals, genreSmallWords in lower case unless first.
+var (
+	genreAcronyms   = map[string]bool{"r&b": true, "uk": true, "us": true, "edm": true, "idm": true, "ebm": true, "dj": true}
+	genreSmallWords = map[string]bool{"and": true, "of": true, "the": true, "n": true}
+)
+
+// genreTitle is a MusicBrainz genre name (lower case) in Title Case: each word, and each part of
+// a hyphenated word, capitalised.
+func genreTitle(name string) string {
+	words := strings.Fields(name)
+	for i, w := range words {
+		switch {
+		case genreAcronyms[w]:
+			words[i] = strings.ToUpper(w)
+		case i > 0 && genreSmallWords[w]:
+		default:
+			parts := strings.Split(w, "-")
+			for j, p := range parts {
+				if r := []rune(p); len(r) > 0 {
+					parts[j] = strings.ToUpper(string(r[0])) + string(r[1:])
+				}
+			}
+			words[i] = strings.Join(parts, "-")
+		}
+	}
+	return strings.Join(words, " ")
 }
 
 // Media is one disc, tape, file set... of a release.
@@ -131,6 +198,8 @@ type ReleaseGroup struct {
 	// SecondaryTypes are "Compilation", "Live", "Remix", "Soundtrack", "DJ-mix"...
 	SecondaryTypes   []string `json:"secondary-types"`
 	FirstReleaseDate string   `json:"first-release-date"`
+	// Genres are the genres voted for the album as a whole (filled in by Release).
+	Genres []Genre `json:"genres"`
 }
 
 // ArtistCredit is one artist of a credit, with the phrase joining it to the next.

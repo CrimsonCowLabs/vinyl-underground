@@ -268,14 +268,15 @@ var _ = Describe("Client", func() {
 
 	Describe("Release", func() {
 		const releaseJSON = `{"id": "rel-1", "title": "Record", "date": "1999",
-		  "release-group": {"id": "rg-1", "first-release-date": "1998"},
+		  "genres": [{"name": "rock", "count": 1}],
+		  "release-group": {"id": "rg-1", "first-release-date": "1998", "genres": [{"name": "alternative rock", "count": 4}]},
 		  "media": [{"position": 1, "track-count": 2, "tracks": [
 		    {"id": "t-1", "position": 1, "title": "One", "length": 200000,
 		     "artist-credit": [{"name": "Band", "artist": {"id": "a-1", "name": "Band"}}],
 		     "recording": {"id": "rec-1", "title": "One"}},
 		    {"id": "t-2", "position": 2, "title": "Two", "length": 0, "recording": {"id": "rec-2"}}]}]}`
 
-		It("looks up a release with its tracks, recordings and artists", func() {
+		It("looks up a release with its tracks, recordings, artists and genres", func() {
 			replies = []func(http.ResponseWriter){func(w http.ResponseWriter) { _, _ = w.Write([]byte(releaseJSON)) }}
 			rel, err := client.Release(context.Background(), "rel-1")
 			Expect(err).ToNot(HaveOccurred())
@@ -285,10 +286,11 @@ var _ = Describe("Client", func() {
 			Expect(t.ID).To(Equal("t-1"))
 			Expect(t.Recording.ID).To(Equal("rec-1"))
 			Expect(t.ArtistCredit.String()).To(Equal("Band"))
+			Expect(rel.AlbumGenres()).To(Equal([]string{"Alternative Rock"}))
 
 			req := served()[0]
 			Expect(req.URL.Path).To(Equal("/ws/2/release/rel-1"))
-			Expect(req.URL.Query().Get("inc")).To(Equal("recordings artist-credits release-groups"))
+			Expect(req.URL.Query().Get("inc")).To(Equal("recordings artist-credits release-groups genres"))
 		})
 
 		It("keeps answers in its Store, and asks the Store before MusicBrainz", func() {

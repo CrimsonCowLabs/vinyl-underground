@@ -21,7 +21,7 @@ import (
 // release pairs it with (retag.MatchRelease) its track's (musicbrainz_trackid, the recording, and
 // musicbrainz_releasetrackid). The release's title, album artist, date and track titles are
 // written only if the admin accepts them, and its Cover Art Archive cover, as the album's
-// cover.jpg, only if asked.
+// cover.jpg, and the album's MusicBrainz genres, only if asked.
 //
 // The album's ID comes from musicbrainz_albumid, so a job that writes it into only some of the
 // album's Files splits the album. A Track ID stays (its row is matched by path), and the album's
@@ -45,14 +45,16 @@ type Canonical struct {
 // ReleaseWrite is what saving the album Edit dialog with a picked release writes besides the
 // release's IDs: the dialog's own values (Fix, nil for none) and Track numbers, the release's
 // values the admin accepts, whether track IDs a File holds already that differ from the
-// release's are replaced (else they are kept, and only empty ones are filled), and whether the
-// release's cover is written as the album's cover.jpg.
+// release's are replaced (else they are kept, and only empty ones are filled), whether the
+// release's cover is written as the album's cover.jpg, and whether the album's MusicBrainz genres
+// (ReleaseMatch.Genres) replace the Files' genres.
 type ReleaseWrite struct {
 	Fix             *AlbumFix
 	Tracks          []TrackNumber
 	Accept          Canonical
 	ReplaceTrackIDs bool
 	Cover           bool
+	Genres          bool
 }
 
 // ReleaseMatch is how the album's Tracks pair with a release, as the dialog shows it before
@@ -74,6 +76,9 @@ type ReleaseMatch struct {
 	// AlbumIDs are the other MusicBrainz releases the album's Files name now, which the release
 	// replaces.
 	AlbumIDs []string `json:"albumIds"`
+	// Genres are the album's genres on MusicBrainz (musicbrainz.Release.AlbumGenres), written
+	// into every File in place of its own if the admin asks; empty when MusicBrainz has none.
+	Genres []string `json:"genres"`
 }
 
 // ReleaseSummary is the release as the dialog names it.
@@ -162,6 +167,7 @@ func (c *corrections) matchRelease(ctx context.Context, albumID string, rel *mus
 			AlbumArtistIDs: creditIDs(rel.ArtistCredit), Date: rel.Date, Description: rel.Description()},
 		Holds: holds, Tracks: []PairedTrack{}, Unpaired: []ReleaseTrack{}, AlbumIDs: []string{},
 		AlbumArtistMatches: model.ArtistNameKey(e.al.AlbumArtist) == model.ArtistNameKey(credit),
+		Genres:             rel.AlbumGenres(),
 	}
 	taken := map[string]bool{}
 	for _, mf := range e.tracks {
@@ -284,6 +290,9 @@ func (c *corrections) PlanRelease(ctx context.Context, editor *tagedit.Editor, a
 			// the album artist is the credit already (or is made it).
 			r.Set["musicbrainz_albumartistid"] = artistIDs
 			r.Set["albumartists"] = creditNames
+		}
+		if w.Genres && len(m.Genres) > 0 {
+			r.Set["genre"] = m.Genres
 		}
 		if acceptDate {
 			r.Year = 0

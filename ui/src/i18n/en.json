@@ -212,7 +212,8 @@
           "useDate": "Use the release's date: %{value}",
           "useTitles": "Use the release's track titles (1 differs) |||| Use the release's track titles (%{smart_count} differ)",
           "replaceTrackIds": "Replace the MusicBrainz track IDs of the 1 File that names another track |||| Replace the MusicBrainz track IDs of the %{smart_count} Files that name other tracks",
-          "writeCover": "Write the release's Cover Art Archive cover as the album's cover.jpg"
+          "writeCover": "Write the release's Cover Art Archive cover as the album's cover.jpg",
+          "writeGenres": "Replace the Files' genres with the album's on MusicBrainz: %{genres}"
         }
       },
       "lists": {
