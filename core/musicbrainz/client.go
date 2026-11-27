@@ -138,6 +138,23 @@ func (c *Client) SearchReleases(ctx context.Context, artist, title string) ([]Re
 	if artist = strings.TrimSpace(artist); artist != "" {
 		query += ` AND artist:"` + luceneEscape(artist) + `"`
 	}
+	return c.searchReleases(ctx, query)
+}
+
+// SearchReleasesByBarcode searches releases by their barcode (its digits), as SearchReleases
+// does, but by any album artist: the barcode alone names the release.
+func (c *Client) SearchReleasesByBarcode(ctx context.Context, barcode string) ([]Release, error) {
+	return c.searchReleases(ctx, `barcode:"`+luceneEscape(strings.TrimSpace(barcode))+`"`)
+}
+
+// SearchReleasesByCatalogNumber searches releases by their label's catalog number, as
+// SearchReleases does, but by any album artist: the number all but names the release.
+func (c *Client) SearchReleasesByCatalogNumber(ctx context.Context, catno string) ([]Release, error) {
+	return c.searchReleases(ctx, `catno:"`+luceneEscape(strings.TrimSpace(catno))+`"`)
+}
+
+// searchReleases runs a release search (a Lucene query) and returns up to 25 releases, best first.
+func (c *Client) searchReleases(ctx context.Context, query string) ([]Release, error) {
 	var res struct {
 		Releases []Release `json:"releases"`
 	}

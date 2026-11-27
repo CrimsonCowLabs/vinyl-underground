@@ -22,8 +22,11 @@ import (
 )
 
 type fakeReleaseSearch struct {
+	// asked are the searches sent: "artist|title", "barcode:...", "catno:...". Each is answered
+	// with its own releases in found, if there, else with releases.
 	asked    []string
 	releases []musicbrainz.Release
+	found    map[string][]musicbrainz.Release
 	err      error
 	// looked are the releases looked up (Release), each answered from releases, or with its
 	// error in errs. Lookups may run at once.
@@ -51,7 +54,23 @@ func (f *fakeReleaseSearch) Release(_ context.Context, id string) (*musicbrainz.
 }
 
 func (f *fakeReleaseSearch) SearchReleases(_ context.Context, artist, title string) ([]musicbrainz.Release, error) {
-	f.asked = append(f.asked, artist+"|"+title)
+	return f.answer(artist + "|" + title)
+}
+
+func (f *fakeReleaseSearch) SearchReleasesByBarcode(_ context.Context, barcode string) ([]musicbrainz.Release, error) {
+	return f.answer("barcode:" + barcode)
+}
+
+func (f *fakeReleaseSearch) SearchReleasesByCatalogNumber(_ context.Context, catno string) ([]musicbrainz.Release, error) {
+	return f.answer("catno:" + catno)
+}
+
+// answer notes the search asked, and answers it from found when it is there, else with releases.
+func (f *fakeReleaseSearch) answer(asked string) ([]musicbrainz.Release, error) {
+	f.asked = append(f.asked, asked)
+	if rels, ok := f.found[asked]; ok {
+		return rels, f.err
+	}
 	return f.releases, f.err
 }
 
@@ -155,6 +174,157 @@ var _ = Describe("Find on MusicBrainz API", func() {
 		Expect(json.Unmarshal(find(adminToken, "Band", "Record").Body.Bytes(), &got)).To(Succeed())
 		Expect(got[0]).To(HaveKeyWithValue("trackCount", float64(15)))
 		Expect(got[1]).To(HaveKeyWithValue("trackCount", float64(0)))
+	})
+
+	Describe("searching by what the admin typed", func() {
+		const mbid = "5e8cb3d5-0a4e-4b3c-9c56-1d2f3a4b5c6d"
+		var houseParty musicbrainz.Release
+
+		BeforeEach(func() {
+			houseParty = musicbrainz.Release{ID: mbid, Title: "House Party, Volume 1 (Mixed by the Happy Boys)",
+				Status: "Official", Date: "1993", Country: "US", Media: []musicbrainz.Media{{Format: "CD", TrackCount: 14}},
+				ReleaseGroup: musicbrainz.ReleaseGroup{ID: "rg-hp"},
+				ArtistCredit: musicbrainz.ArtistCredits{{Name: "Various Artists"}}}
+			search.releases = append(search.releases, houseParty)
+		})
+
+		query := func(params url.Values) *httptest.ResponseRecorder {
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, createAuthenticatedRequest("GET", "/musicbrainz/release?"+params.Encode(), nil, adminToken))
+			return w
+		}
+		listed := func(w *httptest.ResponseRecorder) []map[string]any {
+			GinkgoHelper()
+			Expect(w.Code).To(Equal(http.StatusOK), w.Body.String())
+			var got []map[string]any
+			Expect(json.Unmarshal(w.Body.Bytes(), &got)).To(Succeed())
+			return got
+		}
+
+		It("searches a title with the album artist, as title= does", func() {
+			listed(query(url.Values{"artist": {"Band"}, "q": {"Record"}}))
+			Expect(search.asked).To(Equal([]string{"Band|Record"}))
+		})
+
+		It("looks up a release by its link or MBID, listing it alone, as a search lists it", func() {
+			for _, q := range []string{"https://musicbrainz.org/release/" + mbid + "/cover-art", strings.ToUpper(mbid)} {
+				search.looked = nil
+				got := listed(query(url.Values{"artist": {"Various"}, "q": {q}}))
+				Expect(search.looked).To(Equal([]string{mbid}))
+				Expect(got).To(Equal([]map[string]any{{
+					"id": mbid, "releaseGroupId": "rg-hp", "title": houseParty.Title, "artist": "Various Artists",
+					"year": "1993", "country": "US", "format": "CD", "status": "Official", "score": float64(100),
+					"trackCount": float64(14), "description": houseParty.Title + " (US, CD, 1993)",
+					"thumbnailUrl": "https://coverartarchive.org/release/" + mbid + "/front-250",
+				}}))
+			}
+			Expect(search.asked).To(BeEmpty(), "no search")
+		})
+
+		It("answers a release lookup's errors as the pairing does", func() {
+			w := query(url.Values{"q": {"00000000-0000-4000-8000-000000000001"}})
+			Expect(w.Code).To(Equal(http.StatusNotFound))
+			Expect(errorCode(w)).To(Equal("notFound"))
+
+			search.err = musicbrainz.ErrBusy
+			w = query(url.Values{"q": {mbid}})
+			Expect(w.Code).To(Equal(http.StatusServiceUnavailable))
+			Expect(errorCode(w)).To(Equal("busy"))
+
+			search.err = errors.New("asking MusicBrainz: connection refused")
+			w = query(url.Values{"q": {mbid}})
+			Expect(w.Code).To(Equal(http.StatusBadGateway))
+			Expect(errorCode(w)).To(Equal("unavailable"))
+		})
+
+		It("searches a barcode by any artist", func() {
+			search.found = map[string][]musicbrainz.Release{"barcode:768697502725": {houseParty}}
+			got := listed(query(url.Values{"artist": {"Various"}, "q": {"7 68697 50272-5"}}))
+			Expect(search.asked).To(Equal([]string{"barcode:768697502725"}))
+			Expect(got).To(HaveLen(1))
+			Expect(got[0]).To(HaveKeyWithValue("id", mbid))
+		})
+
+		It("tries a barcode that finds nothing as a catalog number, as typed", func() {
+			search.found = map[string][]musicbrainz.Release{"barcode:76869750272": {}}
+			got := listed(query(url.Values{"artist": {"Various"}, "q": {"76869-75027-2"}}))
+			Expect(search.asked).To(Equal([]string{"barcode:76869750272", "catno:76869-75027-2"}))
+			Expect(got).To(HaveLen(len(search.releases)))
+		})
+
+		It("tries a title that finds nothing as a catalog number, by any artist", func() {
+			search.found = map[string][]musicbrainz.Release{"Various Artists|House Party (Volume One)": {}}
+			got := listed(query(url.Values{"artist": {"Various"}, "q": {"House Party (Volume One)"}}))
+			Expect(search.asked).To(Equal([]string{"Various Artists|House Party (Volume One)", "catno:House Party (Volume One)"}))
+			Expect(got).To(HaveLen(len(search.releases)))
+		})
+
+		It("doesn't try a title that finds releases as a catalog number", func() {
+			listed(query(url.Values{"artist": {"Band"}, "q": {"Record"}}))
+			Expect(search.asked).To(Equal([]string{"Band|Record"}))
+		})
+
+		It("searches what looks like a catalog number as one first, then as a title", func() {
+			search.found = map[string][]musicbrainz.Release{"catno:WARPCD92": {houseParty}}
+			Expect(listed(query(url.Values{"artist": {"Band"}, "q": {"WARPCD92"}}))).To(HaveLen(1))
+			Expect(search.asked).To(Equal([]string{"catno:WARPCD92"}))
+
+			search.asked = nil
+			search.found = map[string][]musicbrainz.Release{"catno:4:44": {}}
+			Expect(listed(query(url.Values{"artist": {"Band"}, "q": {"4:44"}}))).To(HaveLen(len(search.releases)))
+			Expect(search.asked).To(Equal([]string{"catno:4:44", "Band|4:44"}))
+		})
+
+		It("lists nothing when no search finds anything", func() {
+			search.releases = nil
+			Expect(listed(query(url.Values{"artist": {"Band"}, "q": {"Record"}}))).To(BeEmpty())
+			Expect(search.asked).To(Equal([]string{"Band|Record", "catno:Record"}))
+		})
+
+		It("searches a compilation, or an album by Various, VA..., as Various Artists", func() {
+			for _, artist := range []string{"Various", "va", "V.A.", "V/A", "Various Artist"} {
+				search.asked = nil
+				listed(query(url.Values{"artist": {artist}, "q": {"Record"}}))
+				Expect(search.asked).To(Equal([]string{"Various Artists|Record"}), artist)
+			}
+			search.asked = nil
+			listed(query(url.Values{"artist": {"DJ Someone"}, "q": {"Record"}, "compilation": {"true"}}))
+			Expect(search.asked).To(Equal([]string{"Various Artists|Record"}))
+
+			// title=, the dialog's search before q=, too
+			search.asked = nil
+			Expect(find(adminToken, "Various", "Record").Code).To(Equal(http.StatusOK))
+			Expect(search.asked).To(Equal([]string{"Various Artists|Record"}))
+		})
+
+		It("says a link to anything but a release can't be searched by, asking nothing", func() {
+			w := query(url.Values{"q": {"https://musicbrainz.org/release-group/" + mbid}})
+			Expect(w.Code).To(Equal(http.StatusBadRequest))
+			Expect(errorCode(w)).To(Equal("notRelease"))
+			Expect(search.asked).To(BeEmpty())
+			Expect(search.looked).To(BeEmpty())
+		})
+
+		It("answers the search's errors as before", func() {
+			search.err = musicbrainz.ErrBusy
+			w := query(url.Values{"q": {"768697502725"}})
+			Expect(w.Code).To(Equal(http.StatusServiceUnavailable))
+			Expect(errorCode(w)).To(Equal("busy"))
+			Expect(search.asked).To(HaveLen(1), "no fallback once MusicBrainz is busy")
+
+			conf.Server.EnableExternalServices = false
+			w = query(url.Values{"q": {mbid}})
+			Expect(w.Code).To(Equal(http.StatusServiceUnavailable))
+			Expect(errorCode(w)).To(Equal("disabled"))
+			Expect(search.looked).To(BeEmpty())
+		})
+
+		It("needs something to search by", func() {
+			w := query(url.Values{"artist": {"Band"}, "q": {"  "}})
+			Expect(w.Code).To(Equal(http.StatusBadRequest))
+			Expect(errorCode(w)).To(Equal("invalid"))
+			Expect(search.asked).To(BeEmpty())
+		})
 	})
 
 	Describe("fitting the releases to the album's Files", func() {

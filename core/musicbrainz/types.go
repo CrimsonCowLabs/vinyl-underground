@@ -225,5 +225,5 @@ func (c ArtistCredits) String() string {
 
 // IsVariousArtists reports whether the credit is MusicBrainz's "Various Artists".
 func (c ArtistCredits) IsVariousArtists() bool {
-	return len(c) > 0 && (c[0].Artist.ID == VariousArtistsID || strings.EqualFold(c[0].Name, "Various Artists"))
+	return len(c) > 0 && (c[0].Artist.ID == VariousArtistsID || strings.EqualFold(c[0].Name, VariousArtistsName))
 }
