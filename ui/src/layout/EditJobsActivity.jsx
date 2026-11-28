@@ -45,9 +45,24 @@ const reasons = [
 const Reason = ({ step, kind }) => {
   const translate = useTranslate()
   const messages = kind === 'undo' ? 'editHistory' : 'song.tagEditor'
-  return reasons.includes(step.code)
-    ? translate(`resources.${messages}.errors.${step.code}`)
-    : step.error || step.code
+  if (!reasons.includes(step.code)) {
+    return step.error || step.code
+  }
+  const reason = translate(`resources.${messages}.errors.${step.code}`)
+  const more = detail(step)
+  return more ? `${reason} (${more})` : reason
+}
+
+// detail is what the server's error says beyond its kind (`the edited copy didn't check out, so
+// the File was left as it was: COMMENT changed too, to []`), which tells why this File was
+// skipped; none when it says nothing more, or only names the File.
+const detail = ({ error, path }) => {
+  const at = (error || '').indexOf(': ')
+  if (at < 0) {
+    return ''
+  }
+  const more = error.slice(at + 2).trim()
+  return path && more.endsWith(path) ? '' : more
 }
 
 const EditJob = ({ job }) => {
