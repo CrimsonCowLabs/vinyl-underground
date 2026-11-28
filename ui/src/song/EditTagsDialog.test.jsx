@@ -3,16 +3,23 @@ import { render, fireEvent, waitFor, screen } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { EditTagsDialog } from './EditTagsDialog'
 
-const { mockGetTrackTags, mockEditTrackTags, mockNotify, mockRefresh } =
-  vi.hoisted(() => ({
-    mockGetTrackTags: vi.fn(),
-    mockEditTrackTags: vi.fn(),
-    mockNotify: vi.fn(),
-    mockRefresh: vi.fn(),
-  }))
+const {
+  mockGetTrackTags,
+  mockEditTrackTags,
+  mockGetList,
+  mockNotify,
+  mockRefresh,
+} = vi.hoisted(() => ({
+  mockGetTrackTags: vi.fn(),
+  mockGetList: vi.fn(),
+  mockEditTrackTags: vi.fn(),
+  mockNotify: vi.fn(),
+  mockRefresh: vi.fn(),
+}))
 const mockDataProvider = {
   getTrackTags: mockGetTrackTags,
   editTrackTags: mockEditTrackTags,
+  getList: mockGetList,
 }
 
 vi.mock('react-admin', async (importOriginal) => {
@@ -57,6 +64,12 @@ describe('EditTagsDialog', () => {
     vi.clearAllMocks()
     mockGetTrackTags.mockResolvedValue({ data: tags })
     mockEditTrackTags.mockResolvedValue({ data: { changed: true } })
+    mockGetList.mockResolvedValue({
+      data: [
+        { id: 'g1', name: 'Rock' },
+        { id: 'g2', name: 'Shoegaze' },
+      ],
+    })
   })
 
   const open = async (record = { id: 'mf1', title: 'Song' }) => {
@@ -71,6 +84,39 @@ describe('EditTagsDialog', () => {
     expect(input('genre').value).toBe('Rock')
     expect(input('tracknumber').value).toBe('2')
     expect(screen.getByText('Artist/Album/02 Song.mp3')).toBeTruthy()
+  })
+
+  it("suggests the Library's genres as a genre is typed", async () => {
+    await open()
+    expect(mockGetList).toHaveBeenCalledWith(
+      'genre',
+      expect.objectContaining({ pagination: { page: 1, perPage: 0 } }),
+    )
+    type('genre', 'shoe')
+    fireEvent.click(await screen.findByText('Shoegaze'))
+    expect(input('genre').value).toBe('Shoegaze')
+    save()
+    await waitFor(() =>
+      expect(mockEditTrackTags).toHaveBeenCalledWith('mf1', {
+        genre: ['Shoegaze'],
+      }),
+    )
+  })
+
+  it('says when a genre is not in the Library yet, and still saves it', async () => {
+    await open()
+    await waitFor(() => expect(mockGetList).toHaveBeenCalled())
+    expect(screen.queryByText('resources.song.tagEditor.newValue')).toBeNull()
+    type('genre', 'Shoegase')
+    expect(
+      await screen.findByText('resources.song.tagEditor.newValue'),
+    ).toBeTruthy()
+    save()
+    await waitFor(() =>
+      expect(mockEditTrackTags).toHaveBeenCalledWith('mf1', {
+        genre: ['Shoegase'],
+      }),
+    )
   })
 
   it('saves only the fields that changed, a multi-valued one as a list', async () => {
