@@ -565,6 +565,8 @@ var _ = Describe("walk_dir_tree", func() {
 				Entry("recycle bin", "$Recycle.Bin", true),
 				Entry("snapshot dir", "#snapshot", true),
 				Entry("synology metadata dir", "@eaDir", true),
+				Entry("buffalo recycle bin", "trashbox", true),
+				Entry("buffalo recycle bin, in another letter case", "TrashBox", true),
 			)
 		})
 
