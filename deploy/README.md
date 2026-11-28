@@ -54,7 +54,7 @@ set -a; [ -f .env ] && . ./.env; set +a
 
 The first scan runs as soon as the container starts, so check first that no Duplicates or Quarantine Files will be picked up.
 
-`_Quarantine/` inside the Library must contain a `.ndignore` file, which makes the scanner skip it. So must the NAS's recycle bin if it lives on the share (`trashbox/` on Buffalo LinkStations), or be emptied: Files removed over SMB land there, and the scanner would turn them into Tracks. This lists each `.ndignore`:
+`_Quarantine/` inside the Library must contain a `.ndignore` file, which makes the scanner skip it. So must the NAS's recycle bin if it lives on the share, or be emptied: Files removed over SMB land there, and the scanner would turn them into Tracks. The scanner skips some recycle bins by name whatever they hold (`trashbox/` on Buffalo LinkStations, `@Recycle/` on QNAP, `$RECYCLE.BIN/`); another one needs its `.ndignore`. This lists each `.ndignore`:
 
 ```bash
 find "$VU_LIBRARY_DIR" -maxdepth 2 -name .ndignore

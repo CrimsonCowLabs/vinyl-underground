@@ -244,7 +244,7 @@ PLANS=~/library-plans; mkdir -p "$PLANS"    # any folder outside the share
 
    `apply.py` checks each File is still byte-identical to the one kept before it moves it, and gives `_Quarantine/` a `.ndignore` so the scanner skips it. It can be stopped and re-run.
 
-4. **Check:** repeat step 1; `dupes.py` must report `0 Duplicates to quarantine`. Give the recycle bin a `.ndignore` too (`touch /mnt/music-rw/trashbox/.ndignore`), or empty it, as Files removed over SMB land there. Then `sudo umount /mnt/music-rw`.
+4. **Check:** repeat step 1; `dupes.py` must report `0 Duplicates to quarantine`. Files removed over SMB land in the recycle bin; the app's scanner skips a LinkStation's `trashbox/` by itself, but give any other recycle bin a `.ndignore` (`touch /mnt/music-rw/<bin>/.ndignore`), or empty it. Then `sudo umount /mnt/music-rw`.
 
 This is the short form of the [full recipe](contrib/library-cleanup/README.md#recipe-quarantine-duplicates), which explains the plan's format and which File is kept. The passes after it there, for Duplicates whose tags differ and for albums held twice, are worth running too. Re-run them whenever new Duplicates may have arrived.
 

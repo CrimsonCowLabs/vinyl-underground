@@ -302,6 +302,10 @@ var ignoredDirs = []string{
 	".git",
 	".streams",
 	"lost+found",
+	// A Buffalo NAS's recycle bin: Files removed over SMB land there, among them the app's own
+	// edit and move temps, and would turn into Tracks. Its .ndignore does the same, until the NAS
+	// empties the bin and that goes with it.
+	"trashbox",
 }
 
 // isIgnoredEntry returns true if a directory entry with the given name should be
