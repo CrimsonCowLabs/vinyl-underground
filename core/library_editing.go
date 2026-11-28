@@ -19,6 +19,9 @@ import (
 type LibraryEditing struct {
 	Enabled   bool              `json:"enabled"`
 	Libraries []LibraryWritable `json:"libraries"`
+	// InboxID is the Inbox's library, 0 if there was none. It isn't in Libraries (it is not part
+	// of the Library), but the app writes its Files' tags and covers while editing is on (#219).
+	InboxID int `json:"inboxId,omitempty"`
 }
 
 // LibraryWritable is whether one library's folder could be written to at startup.
@@ -56,6 +59,9 @@ func DetectLibraryEditing(ctx context.Context, ds model.DataStore) (LibraryEditi
 		return LibraryEditing{}, err
 	}
 	var res LibraryEditing
+	if inbox != nil {
+		res.InboxID = inbox.ID
+	}
 	for _, l := range libs {
 		if inbox != nil && l.ID == inbox.ID {
 			continue // not part of the Library; it is always writable

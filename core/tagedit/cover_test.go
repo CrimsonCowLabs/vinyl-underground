@@ -304,6 +304,24 @@ var _ = Describe("Cover writes", func() {
 			Expect(names()).To(BeEmpty())
 		})
 
+		// The Inbox (here library 1) isn't in the check: its albums' covers are written while
+		// editing is on, as their tags are (#219).
+		It("writes an Inbox album's cover, and undoes it, while editing is on; not while it is off", func() {
+			core.SetLibraryEditing(core.LibraryEditing{Enabled: false, InboxID: 1})
+			_, err := editor.WriteCover(ctx, al.ID, cover)
+			Expect(err).To(MatchError(ErrEditingOff))
+			Expect(names()).To(BeEmpty())
+
+			core.SetLibraryEditing(core.LibraryEditing{Enabled: true, InboxID: 1, Libraries: []core.LibraryWritable{{ID: 2, Name: "NAS", Writable: true}}})
+			res, err := editor.WriteCover(ctx, al.ID, cover)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(coverFile("cover.jpg")).To(Equal(cover))
+			Expect(editor.EntryWritable(ctx, entry(res.Entry))).To(BeTrue(), "undoable from the Edit history")
+			_, err = editor.Undo(ctx, res.Entry)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(names()).To(BeEmpty())
+		})
+
 		It("warns when another image outranks cover.jpg in CoverArtPriority", func() {
 			conf.Server.CoverArtPriority = "folder.*, cover.*, embedded"
 			Expect(os.WriteFile(filepath.Join(dir, "folder.jpg"), fixtureImage("front.png"), 0o644)).To(Succeed())

@@ -212,6 +212,8 @@ var tagEditStatus = map[string]int{
 	tagedit.CodeInternal:    http.StatusInternalServerError,
 	"sameFileTwice":         http.StatusUnprocessableEntity,
 	"jobUnfinished":         http.StatusConflict,
+	// An Inbox album's Files a Promote is moving (#219).
+	"promoting": http.StatusConflict,
 	// Album covers (#164).
 	"invalidImage":  http.StatusBadRequest,
 	"noAlbumFolder": http.StatusUnprocessableEntity,

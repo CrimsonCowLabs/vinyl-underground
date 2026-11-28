@@ -12,6 +12,7 @@ import (
 	"github.com/deluan/rest"
 	"github.com/go-chi/chi/v5"
 	"github.com/navidrome/navidrome/conf"
+	"github.com/navidrome/navidrome/core/corrections"
 	"github.com/navidrome/navidrome/core/musicbrainz"
 	"github.com/navidrome/navidrome/log"
 )
@@ -30,6 +31,12 @@ type releaseSearch interface {
 // Client on a test server).
 func (api *Router) SetMusicBrainz(c *musicbrainz.Client) {
 	api.releaseSearch = c
+}
+
+// SetCorrections makes the Corrections and the release writes go through c (e.g. one fetching a
+// picked release's cover from a test's Cover Art Archive, see corrections.NewWithOptions).
+func (api *Router) SetCorrections(c corrections.Corrections) {
+	api.corrections = c
 }
 
 // coverArtNames names a release's Cover Art Archive thumbnail, with no request.

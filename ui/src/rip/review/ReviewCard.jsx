@@ -37,6 +37,7 @@ import {
 } from './reviewForm'
 import ProposalsBar from './ProposalsBar'
 import ReviewCover from './ReviewCover'
+import ReviewRelease from './ReviewRelease'
 import {
   clearDraft,
   getDraft,
@@ -132,8 +133,11 @@ const useStyles = makeStyles(
 //
 // Slots for later work: trackExtra(track) renders under a Track's title (e.g. #32's "already
 // have" indicator), and actions are more buttons beside Save and Discard: an element, or a
-// function given { jobId, review, dirty (unsaved edits), show(review) } (e.g. #36's "Promote
-// all").
+// function given { jobId, review, dirty (unsaved edits), show(review), held (a MusicBrainz
+// release is under way on the card), onHold(on) (to hold the card's Files while under way
+// itself) } (e.g. #36's "Promote all").
+//
+// Find on MusicBrainz shows under the Tracks when they are one album (see ReviewRelease).
 //
 // Proposed tags (#34) are offered under each field ("Proposed: X", click to take it), or all at
 // once with "Use proposals". A field holding a proposal the File doesn't have yet says so. They
@@ -160,6 +164,13 @@ const ReviewCard = ({ record, trackExtra, actions }) => {
   // loadedAt is when the card last took in its review from the server, which the cover's URL
   // carries so it is fetched afresh each time (see ReviewCover).
   const [loadedAt, setLoadedAt] = useState(() => Date.now())
+  // underway is what holds the card's Files, if anything: a MusicBrainz release picked or being
+  // applied ('release'), or Promote ('promote'). Each waits for the other (#219).
+  const [underway, setUnderway] = useState(null)
+  const holdFor = (who) => (on) =>
+    setUnderway((u) => (on ? who : u === who ? null : u))
+  const [holdRelease] = useState(() => holdFor('release'))
+  const [holdPromote] = useState(() => holdFor('promote'))
 
   const show = useCallback((rev) => {
     setReview(rev)
@@ -467,6 +478,14 @@ const ReviewCard = ({ record, trackExtra, actions }) => {
             ))}
           </TableBody>
         </Table>
+        <ReviewRelease
+          jobId={jobId}
+          review={review}
+          dirty={!!edits}
+          held={underway === 'promote'}
+          onHold={holdRelease}
+          onApplied={show}
+        />
       </CardContent>
       <CardActions
         disableSpacing
@@ -483,7 +502,14 @@ const ReviewCard = ({ record, trackExtra, actions }) => {
           {translate(saving ? 'resources.rip.review.saving' : 'ra.action.save')}
         </Button>
         {typeof actions === 'function'
-          ? actions({ jobId, review, dirty: !!edits, show })
+          ? actions({
+              jobId,
+              review,
+              dirty: !!edits,
+              show,
+              held: underway === 'release',
+              onHold: holdPromote,
+            })
           : actions}
         <span className={classes.discard}>
           <DiscardJobButton

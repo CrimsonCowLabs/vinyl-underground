@@ -120,6 +120,8 @@ func writePromoteError(w http.ResponseWriter, r *http.Request, err error) {
 		code, status = "notReady", http.StatusConflict
 	case errors.Is(err, rip.ErrPromoting):
 		code, status = "promoting", http.StatusConflict
+	case errors.Is(err, rip.ErrWriting):
+		code, status = "writing", http.StatusConflict
 	case errors.Is(err, rip.ErrNothingToPromote):
 		code, status = "nothingToPromote", http.StatusConflict
 	case errors.Is(err, organize.ErrPlanChanged):

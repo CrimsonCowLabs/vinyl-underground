@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useDataProvider } from 'react-admin'
 
 // The pairing's own failures are MusicBrainz's codes, or the album's.
@@ -53,33 +53,61 @@ export const applyOutcome = (data) => {
   }
 }
 
+// picked is the flow's state with the release r picked (null for none) for the album albumId: not
+// paired yet, and the options a picked release starts with.
+const picked = (r, albumId) => ({
+  albumId,
+  release: r,
+  match: null,
+  matchError: null,
+  options: noReleaseOptions,
+})
+
 // The release flow for an album (its id, trackCount, artist, title and compilation, as they
 // stand where it is offered: the album Edit dialog's fields, say): the release picked with Find
 // on MusicBrainz, how the album's Tracks pair with it (null while it loads), why that couldn't
 // be had (an error code), and what the admin ticks. Shown with <ReleaseLookup lookup={...} />.
+//
+// The release, its pairing, its error and its options are one state, so picking another release
+// (or another album being looked up) drops the last one's all at once: no render, and so no
+// apply, ever has a release with another's pairing or options.
 export const useReleaseLookup = (album) => {
   const dataProvider = useDataProvider()
-  const [release, setRelease] = useState(null)
-  const [match, setMatch] = useState(null)
-  const [matchError, setMatchError] = useState(null)
-  const [options, setOptions] = useState(noReleaseOptions)
+  const [state, setState] = useState(() => picked(null, album.id))
+  // An album looked up afresh (its ID changes with its tags) starts over, for good: going back
+  // to the old ID doesn't bring back its release.
+  const stale = state.albumId !== album.id
+  if (stale) setState(picked(null, album.id))
+  const current = stale ? picked(null, album.id) : state
+  const { release, match, matchError, options } = current
+  const pick = useCallback((r) => setState(picked(r, album.id)), [album.id])
+  const setOptions = useCallback(
+    (o) => setState((s) => (s.albumId === album.id ? { ...s, options: o } : s)),
+    [album.id],
+  )
 
   useEffect(() => {
-    setMatch(null)
-    setMatchError(null)
-    setOptions(noReleaseOptions)
     if (!release) return
-    let current = true
+    let active = true
+    // Taken only while the same release is still picked for the same album.
+    const settle = (fields) =>
+      active &&
+      setState((s) =>
+        s.release === release && s.albumId === album.id
+          ? { ...s, ...fields }
+          : s,
+      )
     dataProvider
       .matchMusicBrainzRelease(release.id, album.id)
-      .then(({ data }) => current && setMatch(data))
+      .then(({ data }) => settle({ match: data }))
       .catch((err) => {
-        if (!current) return
         const code = err?.body?.error
-        setMatchError(knownMatchErrors.includes(code) ? code : 'unknown')
+        settle({
+          matchError: knownMatchErrors.includes(code) ? code : 'unknown',
+        })
       })
     return () => {
-      current = false
+      active = false
     }
   }, [dataProvider, release, album.id])
 
@@ -97,7 +125,7 @@ export const useReleaseLookup = (album) => {
   return {
     album,
     release,
-    pick: setRelease,
+    pick,
     match,
     matchError,
     options,
