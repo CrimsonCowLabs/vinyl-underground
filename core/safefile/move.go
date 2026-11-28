@@ -92,8 +92,9 @@ func renameNoReplace(fsys FS, oldname, newname string) error {
 //
 // Across filesystems (the rename fails with EXDEV), the File is copied to a hidden temp beside
 // dest (MoveTemp), flushed, read back and checked (size and SHA-256), given the File's
-// modification time and permissions, then placed at dest by a hard link (which fails if dest
-// exists) or, without hard links (SMB1), a rename once dest is checked free again. Only once
+// modification time and permissions, then placed at dest by a rename that refuses a File there
+// (RENAME_NOREPLACE, once dest is checked free again) or, on a filesystem without one, a hard
+// link (which fails if dest exists), else a rename once dest is checked free again (see place). Only once
 // hooks.Placed has recorded the move is the File removed from src. At every step the File is whole
 // at src, or at dest, or both:
 //
@@ -259,8 +260,21 @@ func checkFree(fsys FS, dest string) error {
 	return nil
 }
 
-// place puts the checked copy at temp at dest, never over a File there.
+// place puts the checked copy at temp at dest, never over a File there: by a rename that refuses
+// a File at dest, where the filesystem has one (renameNoReplace, which checks dest free first).
+// A hard link is only the fallback: removing the temp after it may not remove that name, as a
+// NAS's recycle bin (a Buffalo's trashbox) keeps a File removed over SMB, and the File, with two
+// names, could then never be edited (ErrLinked).
 func place(fsys FS, temp, dest string) error {
+	if _, ok := fsys.(noReplaceRenamer); ok {
+		if err := renameNoReplace(fsys, temp, dest); err != nil {
+			if errors.Is(err, ErrDestTaken) {
+				return err
+			}
+			return fmt.Errorf("moving the copy into place: %w", err)
+		}
+		return nil
+	}
 	err := fsys.Link(temp, dest)
 	switch {
 	case err == nil:
