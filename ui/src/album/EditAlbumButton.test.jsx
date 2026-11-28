@@ -303,7 +303,7 @@ describe('EditAlbumButton', () => {
       expect(mockGetList).toHaveBeenCalledWith(
         'song',
         expect.objectContaining({
-          filter: { album_id: 'al1' },
+          filter: { album_id: 'al1', missing: false },
           sort: { field: 'album', order: 'ASC' },
         }),
       )
@@ -1041,6 +1041,40 @@ describe('EditAlbumButton', () => {
         )
         expect(screen.queryByTestId('mbz-fit-rel-1')).toBeNull()
         expect(screen.queryByTestId('mbz-fit-rel-long')).toBeNull()
+      })
+
+      it('leaves out a quarantined Track, so it neither shows among the track numbers nor counts as one of the tracks', async () => {
+        // A quarantined Track stays a missing row; the server leaves missing ones out when asked
+        const quarantined = {
+          id: 'mf3',
+          title: 'Two',
+          discNumber: 1,
+          trackNumber: 2,
+          missing: true,
+          quarantined: true,
+        }
+        mockGetList.mockImplementation((resource, { filter }) =>
+          Promise.resolve({
+            data:
+              resource === 'song'
+                ? [...songs, quarantined].filter(
+                    (s) => filter.missing !== false || !s.missing,
+                  )
+                : [],
+          }),
+        )
+        mockFit.mockResolvedValue({ data: fits })
+        render(<EditAlbumButton record={record} />)
+        open()
+        await screen.findByTestId('track-number-mf1')
+        expect(screen.getByTestId('track-number-mf2')).toBeTruthy()
+        expect(screen.queryByTestId('track-number-mf3')).toBeNull()
+        // No clash with the Track of the same number in the Library
+        expect(screen.queryByRole('alert')).toBeNull()
+
+        find()
+        await waitFor(() => expect(mockFit).toHaveBeenCalled())
+        expect(mockFit).toHaveBeenCalledWith('al1', ['rel-a', 'rel-b', 'rel-c'])
       })
 
       it('checks a release with a disc of as many tracks as the album', async () => {

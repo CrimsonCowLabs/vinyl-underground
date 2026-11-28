@@ -98,7 +98,9 @@ export const duplicateNumbers = (rows) => {
   return [...byNumber.values()].filter((d) => d.titles.length > 1)
 }
 
-// The album's Tracks, in album order, as rows to edit; null while loading.
+// The album's Tracks in the Library, in album order, as rows to edit; null while loading. A
+// missing Track (e.g. one in Quarantine) is left out, so it neither clashes with a Track in the
+// Library nor counts toward the album's track count.
 export const useTrackNumberRows = (albumId) => {
   const dataProvider = useDataProvider()
   const [rows, setRows] = useState(null)
@@ -108,7 +110,7 @@ export const useTrackNumberRows = (albumId) => {
       .getList('song', {
         pagination: { page: 1, perPage: 1000 },
         sort: { field: 'album', order: 'ASC' },
-        filter: { album_id: albumId },
+        filter: { album_id: albumId, missing: false },
       })
       .then(({ data }) => current && setRows(toRows(data || [])))
       .catch(() => current && setRows([]))
