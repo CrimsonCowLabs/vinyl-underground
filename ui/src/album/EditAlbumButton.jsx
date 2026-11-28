@@ -32,8 +32,8 @@ import {
   trackNumbersValid,
   useTrackNumberRows,
 } from './trackNumbers'
-import { FindOnMusicBrainz } from './FindOnMusicBrainz'
-import { ReleasePairing } from './ReleasePairing'
+import { ReleaseLookup } from './ReleaseLookup'
+import { applyOutcome, useReleaseLookup } from './useReleaseLookup'
 import { useLibraryEditing } from '../library/useLibraryEditing'
 
 // The server answers a refused save with a code; anything else is a generic error.
@@ -51,33 +51,6 @@ const knownErrors = [
   'unavailable',
   'disabled',
 ]
-
-// The pairing's own failures are MusicBrainz's codes, or the album's.
-const knownMatchErrors = ['busy', 'unavailable', 'disabled', 'notFound']
-
-// The options a save with a picked release starts with: the release's IDs, its cover and the
-// album's MusicBrainz genres, keeping what the Files hold otherwise (#170).
-const noReleaseOptions = {
-  canonical: {
-    album: false,
-    albumArtist: false,
-    date: false,
-    titles: false,
-    artists: false,
-  },
-  replaceTrackIds: false,
-  cover: true,
-  genres: true,
-}
-
-// Why a picked release's cover, when it was asked for, wasn't written: the Cover Art Archive had
-// none or couldn't be asked, or the album has no folder of its own to write it in.
-const pickCoverNotes = {
-  none: 'resources.album.musicbrainz.noCover',
-  failed: 'resources.album.musicbrainz.coverFailed',
-  disabled: 'resources.album.musicbrainz.coverDisabled',
-  noFolder: 'resources.album.musicbrainz.coverNoFolder',
-}
 
 // The year clients show for the album: its original year when it has one, as the server
 // compares it.
@@ -104,35 +77,9 @@ const EditAlbumDialog = ({ record, onClose }) => {
   useEffect(() => {
     if (shared !== null) setComposer((c) => (c === null ? shared : c))
   }, [shared])
-  const [release, setRelease] = useState(null)
-  // The pairing of the picked release (null while it loads), why it couldn't be had (an error
-  // code), and what the admin ticks
-  const [match, setMatch] = useState(null)
-  const [matchError, setMatchError] = useState(null)
-  const [releaseOptions, setReleaseOptions] = useState(noReleaseOptions)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
   const suggestions = useArtistSuggestions(albumArtist)
-
-  useEffect(() => {
-    setMatch(null)
-    setMatchError(null)
-    setReleaseOptions(noReleaseOptions)
-    if (!release) return
-    let current = true
-    dataProvider
-      .matchMusicBrainzRelease(release.id, record.id)
-      .then(({ data }) => current && setMatch(data))
-      .catch((err) => {
-        if (!current) return
-        const code = err?.body?.error
-        setMatchError(knownMatchErrors.includes(code) ? code : 'unknown')
-      })
-    return () => {
-      current = false
-    }
-  }, [dataProvider, release, record.id])
-  const accepted = releaseOptions.canonical
 
   const yearValue = year.trim() === '' ? 0 : Number(year)
   const yearValid =
@@ -140,6 +87,16 @@ const EditAlbumDialog = ({ record, onClose }) => {
     (/^\d{4}$/.test(year.trim()) && yearValue >= 1000 && yearValue <= 9999)
   // Spaces are folded as the server folds them
   const artist = albumArtist.split(/\s+/).filter(Boolean).join(' ')
+  // The release picked with Find on MusicBrainz, searched by the dialog's artist and title
+  const lookup = useReleaseLookup({
+    id: record.id,
+    trackCount: trackRows?.length,
+    artist,
+    title: name,
+    compilation: !!record.compilation,
+  })
+  const { release } = lookup
+  const accepted = lookup.options.canonical
   // Only composers typed, and other than the Tracks share, are written: an empty field keeps
   // each Track's own
   const composers = splitComposers(composer || '')
@@ -150,13 +107,13 @@ const EditAlbumDialog = ({ record, onClose }) => {
     name.trim() === (record.name || '') &&
     artist === (record.albumArtist || '') &&
     (yearValue === 0 || yearValue === Number(albumYear(record) || 0)) &&
-    !(release && match)
+    !lookup.paired
   const trackChanges = trackNumberChanges(trackRows || [])
   const canSave =
     !saving &&
     // A picked release is saved once the admin has seen how it pairs; one whose pairing
     // couldn't be had is left out, and the rest saved
-    (!release || match || matchError) &&
+    lookup.settled &&
     name.trim() &&
     artist &&
     yearValid &&
@@ -169,47 +126,31 @@ const EditAlbumDialog = ({ record, onClose }) => {
       setSaving(true)
       setError(null)
       // One save is one edit job: the album's values and the Tracks' changed numbers together
+      // (with a picked release, paired, written in the same job)
       const save = unchanged
-        ? dataProvider.correctTrackNumbers(record.id, trackChanges)
-        : dataProvider.correctAlbum(record.id, {
+        ? dataProvider
+            .correctTrackNumbers(record.id, trackChanges)
+            .then(({ data }) => applyOutcome(data))
+        : lookup.apply({
             name: name.trim(),
             albumArtist: artist,
             year: yearValue,
             ...(composerChanged && { composer: composers }),
             ...(trackChanges.length && { tracks: trackChanges }),
-            ...(release &&
-              match && {
-                mbzAlbumId: release.id,
-                ...releaseOptions,
-              }),
           })
       save
-        .then(({ data }) => {
+        .then(({ done, albumId, note, notifyOptions }) => {
           setTrackRows(markSaved)
           onClose()
-          const skipped = data.job?.skipped || 0
-          // Files the job couldn't write (the Activity panel lists them, and why), or a picked
-          // release whose cover couldn't be had, are worth a word over the usual one. A release
-          // that couldn't reach every File was taken out of those it reached, so the album
-          // isn't split: nothing changed
-          const note = data.rolledBack
-            ? 'resources.album.musicbrainz.rolledBack'
-            : skipped
-              ? 'resources.album.editor.skipped'
-              : pickCoverNotes[data.pickCover]
-          const level = note ? 'warning' : 'info'
-          const opts = skipped
-            ? { type: level, messageArgs: { smart_count: skipped } }
-            : { type: level }
-          if (data.done && (!data.albumId || data.albumId === record.id)) {
+          if (done && (!albumId || albumId === record.id)) {
             // The album keeps its ID (e.g. only track numbers changed): its page reloads
-            notify(note || 'resources.album.editor.corrected', opts)
+            notify(note || 'resources.album.editor.corrected', notifyOptions)
             refresh()
-          } else if (data.done) {
-            notify(note || 'resources.album.editor.corrected', opts)
-            redirect(`/album/${data.albumId}/show`)
+          } else if (done) {
+            notify(note || 'resources.album.editor.corrected', notifyOptions)
+            redirect(`/album/${albumId}/show`)
           } else {
-            notify(note || 'resources.album.editor.correcting', opts)
+            notify(note || 'resources.album.editor.correcting', notifyOptions)
             // The job finishes in the background (see the Activity panel), and the album's new
             // values take this page's album ID with them
             if (!unchanged) redirect('/album')
@@ -237,9 +178,7 @@ const EditAlbumDialog = ({ record, onClose }) => {
       unchanged,
       trackChanges,
       setTrackRows,
-      release,
-      match,
-      releaseOptions,
+      lookup,
       onClose,
       notify,
       redirect,
@@ -326,32 +265,7 @@ const EditAlbumDialog = ({ record, onClose }) => {
             }
             inputProps={{ 'data-testid': 'album-composer' }}
           />
-          <FindOnMusicBrainz
-            albumId={record.id}
-            trackCount={trackRows?.length}
-            artist={artist}
-            title={name}
-            compilation={!!record.compilation}
-            picked={release}
-            onPick={setRelease}
-            disabled={saving}
-          />
-          {release && !match && !matchError && (
-            <CircularProgress size={16} data-testid="mbz-pairing-loading" />
-          )}
-          {matchError && (
-            <Alert severity="warning" style={{ marginTop: 8 }}>
-              {translate(`resources.album.musicbrainz.errors.${matchError}`)}
-            </Alert>
-          )}
-          {release && match && (
-            <ReleasePairing
-              match={match}
-              options={releaseOptions}
-              onChange={setReleaseOptions}
-              disabled={saving}
-            />
-          )}
+          <ReleaseLookup lookup={lookup} disabled={saving} />
           <TrackNumbersEditor
             rows={trackRows}
             onChange={setTrackRows}
