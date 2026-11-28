@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import PropTypes from 'prop-types'
 import { useNotify, useTranslate } from 'react-admin'
-import { Box, Button, Tooltip } from '@material-ui/core'
+import { Box, Button, Tooltip, Typography } from '@material-ui/core'
 import config from '../../config'
 import { httpClient } from '../../dataProvider'
 import { ReleaseLookup } from '../../album/ReleaseLookup'
@@ -36,7 +36,16 @@ const cardAlbum = (review) => {
   }
 }
 
-const ReleaseSection = ({ jobId, album, dirty, held, onHold, onApplied }) => {
+const ReleaseSection = ({
+  jobId,
+  album,
+  dirty,
+  held,
+  writing,
+  onHold,
+  onApplied,
+  onWriting,
+}) => {
   const translate = useTranslate()
   const notify = useNotify()
   const lookup = useReleaseLookup(album)
@@ -62,7 +71,7 @@ const ReleaseSection = ({ jobId, album, dirty, held, onHold, onApplied }) => {
     setApplying(true)
     lookup
       .apply({})
-      .then(({ done, note, notifyOptions }) => {
+      .then(({ done, jobId: editJobId, note, notifyOptions }) => {
         notify(
           note ||
             (done
@@ -71,6 +80,8 @@ const ReleaseSection = ({ jobId, album, dirty, held, onHold, onApplied }) => {
           notifyOptions,
         )
         lookup.pick(null)
+        // Still being written: Promote waits for it (see useReleaseWrite).
+        if (!done && editJobId) onWriting(editJobId)
         // The album's ID follows its tags: the card takes it, and the rest, from its review. A
         // reload that fails leaves the card as it was, the release applied all the same.
         return httpClient(`${jobUrl(jobId)}/tags`)
@@ -91,7 +102,7 @@ const ReleaseSection = ({ jobId, album, dirty, held, onHold, onApplied }) => {
       .finally(() => mounted.current && setApplying(false))
   }
 
-  const blocked = dirty || held || applying
+  const blocked = dirty || held || writing || applying
   const button = (
     <Button
       color="primary"
@@ -110,8 +121,21 @@ const ReleaseSection = ({ jobId, album, dirty, held, onHold, onApplied }) => {
   return (
     <Box mt={1} data-testid="review-release">
       <ReleaseLookup lookup={lookup} disabled={blocked} />
+      {writing && (
+        <Typography variant="caption" display="block" color="textSecondary">
+          {translate('resources.rip.review.release.writing')}
+        </Typography>
+      )}
       {lookup.release && (
         <Box mt={1}>
+          <Typography
+            variant="caption"
+            display="block"
+            color="textSecondary"
+            gutterBottom
+          >
+            {translate('resources.rip.review.release.stillInInbox')}
+          </Typography>
           {dirty ? (
             <Tooltip title={translate('resources.rip.review.release.unsaved')}>
               {/* A disabled button gets no hover events: the span does. */}
@@ -130,7 +154,8 @@ const ReleaseSection = ({ jobId, album, dirty, held, onHold, onApplied }) => {
 // album Edit dialog's release flow (see useReleaseLookup), searched by the card's album, album
 // artist and Track count. Applying writes the release's tags, MusicBrainz IDs, genres and cover
 // into the Inbox Files as one edit job, undoable from the Edit history, then reloads the card
-// (onApplied). It waits for unsaved edits (dirty) to be saved, and for Promote (held); while a
+// (onApplied). It waits for unsaved edits (dirty) to be saved, for Promote (held), and for a
+// release still being written in the background (writing, which onWriting starts); while a
 // release is picked or applied it holds Promote off (onHold). It isn't there while editing is off
 // (as Promote isn't: the Inbox is written only while editing is on).
 const ReviewRelease = ({ review, ...rest }) => {
@@ -144,8 +169,10 @@ ReviewRelease.propTypes = {
   review: PropTypes.object.isRequired,
   dirty: PropTypes.bool,
   held: PropTypes.bool,
+  writing: PropTypes.bool,
   onHold: PropTypes.func.isRequired,
   onApplied: PropTypes.func.isRequired,
+  onWriting: PropTypes.func.isRequired,
 }
 
 export default ReviewRelease

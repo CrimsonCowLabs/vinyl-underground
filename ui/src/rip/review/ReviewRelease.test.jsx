@@ -1,8 +1,16 @@
 import React from 'react'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import {
+  render,
+  screen,
+  fireEvent,
+  waitFor,
+  act,
+  cleanup,
+} from '@testing-library/react'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import PromoteButton from './PromoteButton.jsx'
 import ReviewCard from './ReviewCard.jsx'
+import { WRITE_POLL_MS } from './useReleaseWrite'
 
 const { mockConfig, mockDataProvider } = vi.hoisted(() => ({
   mockConfig: { enablePromote: true },
@@ -294,5 +302,112 @@ describe('Find on MusicBrainz on a review card', () => {
         hidden: true,
       }),
     ).toBeDisabled()
+  })
+
+  it('says the album stays in the Inbox until it is promoted', async () => {
+    await card((id) => review(id))
+    await pick()
+    expect(
+      screen.getByText('resources.rip.review.release.stillInInbox'),
+    ).toBeInTheDocument()
+  })
+
+  describe('a release written in the background', () => {
+    // state is what the server says of the release's edit job, for the next look.
+    let state
+    let reloads
+    const serve = (jobId) =>
+      http.mockImplementation((url) => {
+        if (url === '/api/editJob/ej-1') return reply({ id: 'ej-1', state })
+        if (url === `/api/rip/${jobId}/tags`) {
+          reloads++
+          const r = review(jobId, 'al-2')
+          r.year = state === 'done' ? '1977-05-08' : '1977'
+          return reply(r)
+        }
+        return new Promise(() => {})
+      })
+
+    beforeEach(() => {
+      vi.useFakeTimers({ shouldAdvanceTime: true })
+      state = 'running'
+      reloads = 0
+      mockDataProvider.correctAlbum.mockResolvedValue({
+        data: { done: false, background: true, jobId: 'ej-1' },
+      })
+    })
+    afterEach(() => vi.useRealTimers())
+
+    it('holds Promote, and another apply, until it is written, then reloads the card', async () => {
+      const jobId = await card((id) => review(id))
+      serve(jobId)
+      await pick()
+      fireEvent.click(applyButton())
+      await waitFor(() =>
+        expect(notify).toHaveBeenCalledWith(
+          'resources.rip.review.release.background',
+          { type: 'info' },
+        ),
+      )
+      await screen.findByText('resources.rip.review.release.writing')
+      expect(promoteAll()).toBeDisabled()
+      expect(find()).toBeDisabled()
+
+      await act(() => vi.advanceTimersByTimeAsync(WRITE_POLL_MS))
+      expect(promoteAll()).toBeDisabled()
+
+      state = 'done'
+      const before = reloads
+      await act(() => vi.advanceTimersByTimeAsync(WRITE_POLL_MS))
+      await waitFor(() => expect(promoteAll()).toBeEnabled())
+      expect(reloads).toBeGreaterThan(before)
+      await screen.findByDisplayValue('1977-05-08')
+      expect(
+        screen.queryByText('resources.rip.review.release.writing'),
+      ).toBeNull()
+    })
+
+    it("keeps the admin's unsaved edits when the release finishes being written", async () => {
+      const jobId = await card((id) => review(id))
+      serve(jobId)
+      await pick()
+      fireEvent.click(applyButton())
+      await screen.findByText('resources.rip.review.release.writing')
+      fireEvent.change(document.getElementById(`rip-${jobId}-album`), {
+        target: { value: 'Live!' },
+      })
+
+      state = 'done'
+      await act(() => vi.advanceTimersByTimeAsync(WRITE_POLL_MS))
+      await waitFor(() =>
+        expect(
+          screen.queryByText('resources.rip.review.release.writing'),
+        ).toBeNull(),
+      )
+      expect(screen.getByDisplayValue('Live!')).toBeInTheDocument()
+    })
+
+    it('still holds Promote on a card remounted while the release is written', async () => {
+      const jobId = await card((id) => review(id))
+      serve(jobId)
+      await pick()
+      fireEvent.click(applyButton())
+      await screen.findByText('resources.rip.review.release.writing')
+
+      // The Rip list remounts its cards when the admin's actions refresh it.
+      cleanup()
+      render(
+        <ReviewCard
+          record={{ id: jobId }}
+          actions={(props) => <PromoteButton {...props} />}
+        />,
+      )
+      await screen.findAllByDisplayValue('Live')
+      expect(promoteAll()).toBeDisabled()
+
+      state = 'done'
+      await act(() => vi.advanceTimersByTimeAsync(WRITE_POLL_MS))
+      await waitFor(() => expect(promoteAll()).toBeEnabled())
+    })
   })
 })
