@@ -71,10 +71,15 @@ const ReleaseSection = ({ jobId, album, dirty, held, onHold, onApplied }) => {
           notifyOptions,
         )
         lookup.pick(null)
-        // The album's ID follows its tags: the card takes it, and the rest, from its review.
-        return httpClient(`${jobUrl(jobId)}/tags`).then(
-          ({ json }) => mounted.current && onApplied(json),
-        )
+        // The album's ID follows its tags: the card takes it, and the rest, from its review. A
+        // reload that fails leaves the card as it was, the release applied all the same.
+        return httpClient(`${jobUrl(jobId)}/tags`)
+          .then(({ json }) => mounted.current && onApplied(json))
+          .catch(() =>
+            notify('resources.rip.review.release.reloadFailed', {
+              type: 'warning',
+            }),
+          )
       })
       .catch((err) => {
         const code = err?.body?.error

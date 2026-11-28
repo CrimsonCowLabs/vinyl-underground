@@ -74,13 +74,16 @@ const picked = (r, albumId) => ({
 export const useReleaseLookup = (album) => {
   const dataProvider = useDataProvider()
   const [state, setState] = useState(() => picked(null, album.id))
-  // An album looked up afresh (its ID changes with its tags) starts over.
-  const current = state.albumId === album.id ? state : picked(null, album.id)
+  // An album looked up afresh (its ID changes with its tags) starts over, for good: going back
+  // to the old ID doesn't bring back its release.
+  const stale = state.albumId !== album.id
+  if (stale) setState(picked(null, album.id))
+  const current = stale ? picked(null, album.id) : state
   const { release, match, matchError, options } = current
   const pick = useCallback((r) => setState(picked(r, album.id)), [album.id])
   const setOptions = useCallback(
-    (o) => setState((s) => ({ ...s, options: o })),
-    [],
+    (o) => setState((s) => (s.albumId === album.id ? { ...s, options: o } : s)),
+    [album.id],
   )
 
   useEffect(() => {

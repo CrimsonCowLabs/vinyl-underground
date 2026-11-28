@@ -236,6 +236,29 @@ describe('Find on MusicBrainz on a review card', () => {
     expect(applyButton()).toBeEnabled()
   })
 
+  it("doesn't call an applied release failed when only the card's reload fails", async () => {
+    await card((id) => review(id))
+    await pick()
+    http.mockImplementationOnce(() => Promise.reject(new Error('offline')))
+    fireEvent.click(applyButton())
+    await waitFor(() =>
+      expect(notify).toHaveBeenCalledWith(
+        'resources.rip.review.release.reloadFailed',
+        { type: 'warning' },
+      ),
+    )
+    expect(notify).toHaveBeenCalledWith(
+      'resources.rip.review.release.applied',
+      {
+        type: 'info',
+      },
+    )
+    expect(notify).not.toHaveBeenCalledWith(
+      'resources.rip.review.release.errors.unknown',
+      expect.anything(),
+    )
+  })
+
   it('waits for unsaved edits to be saved first', async () => {
     const jobId = await card((id) => review(id))
     fireEvent.change(document.getElementById(`rip-${jobId}-album`), {
