@@ -255,8 +255,8 @@ const ReviewCard = ({ record, trackExtra, actions }) => {
   const handleRefreshProposals = () =>
     httpClient(`${jobUrl(jobId)}/proposals`, { method: 'POST' })
       .then(({ json }) => {
-        // The cover comes along too: it may have changed since the card was loaded.
-        setReview((r) => ({ ...withProposalsFrom(r, json), cover: json.cover }))
+        // The cover comes along too, and is asked for afresh: it may have changed since.
+        setReview((r) => withProposalsFrom(r, json))
         setLoadedAt(Date.now())
       })
       .catch((error) => notify(errorText(error), 'warning'))

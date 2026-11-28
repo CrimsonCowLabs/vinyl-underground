@@ -120,19 +120,29 @@ export const fieldHint = (fileValue, value, proposedValue) => {
 }
 
 // withProposalsFrom takes the proposals of a fresh copy of the card into the one the form started
-// from, leaving its tags (and so what counts as an edit) as they were.
+// from, leaving its tags (and so what counts as an edit) as they were. What the Inbox scan found
+// since (each Track's mediaFileId and albumId, and the album's cover, #218) comes along too, as
+// those aren't tags.
 export const withProposalsFrom = (review, fresh) => {
   const byItem = {}
   ;(fresh?.tracks || []).forEach((t) => {
-    byItem[t.itemId] = t.proposal
+    byItem[t.itemId] = t
   })
   return {
     ...review,
     proposal: fresh?.proposal,
     proposalsPending: !!fresh?.proposalsPending,
-    tracks: review.tracks.map((t) =>
-      t.itemId in byItem ? { ...t, proposal: byItem[t.itemId] } : t,
-    ),
+    cover: fresh?.cover,
+    tracks: review.tracks.map((t) => {
+      const f = byItem[t.itemId]
+      if (!f) return t
+      return {
+        ...t,
+        proposal: f.proposal,
+        mediaFileId: f.mediaFileId,
+        albumId: f.albumId,
+      }
+    }),
   }
 }
 

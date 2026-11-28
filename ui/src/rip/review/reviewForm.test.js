@@ -190,5 +190,28 @@ describe('reviewForm', () => {
       expect(merged.tracks[2].proposal.title).toBe('Third Song')
       expect(merged.tracks[2].title).toBe('Third')
     })
+
+    it('takes in the cover and what the Inbox scan found, which are not tags', () => {
+      const fresh = {
+        ...review,
+        cover: { albumId: 'al1', artworkId: 'al-al1' },
+        tracks: review.tracks.map((t) =>
+          t.path
+            ? {
+                ...t,
+                title: 'Renamed',
+                mediaFileId: `mf-${t.itemId}`,
+                albumId: 'al1',
+              }
+            : t,
+        ),
+      }
+      const merged = withProposalsFrom(review, fresh)
+      expect(merged.cover).toEqual({ albumId: 'al1', artworkId: 'al-al1' })
+      expect(merged.tracks[0].mediaFileId).toBe('mf-a')
+      expect(merged.tracks[0].albumId).toBe('al1')
+      expect(merged.tracks[0].title).toBe('First')
+      expect(merged.tracks[1].albumId).toBeUndefined()
+    })
   })
 })

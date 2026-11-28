@@ -1,7 +1,7 @@
 import React from 'react'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import ReviewCard from './ReviewCard.jsx'
+import ReviewCard, { PROPOSALS_POLL_MS } from './ReviewCard.jsx'
 import { clearAllDrafts } from './reviewDrafts'
 
 const notify = vi.fn()
@@ -169,5 +169,33 @@ describe('ReviewCard cover', () => {
     await waitFor(() => expect(cover()).toBeInTheDocument())
     expect(coverParams().get('id')).toBe('al-al1_fedcba9876543210')
     expect(coverParams().get('_')).toBe('2000')
+  })
+  it('shows the cover once the Inbox scan finds the album, while proposals are worked out', async () => {
+    vi.useFakeTimers({
+      shouldAdvanceTime: true,
+      toFake: ['setTimeout', 'clearTimeout'],
+    })
+    try {
+      const pending = (rev) => ({
+        ...rev,
+        proposalsPending: true,
+        tracks: rev.tracks.map((t) => ({
+          ...t,
+          proposal: { status: 'pending' },
+        })),
+      })
+      await renderCard(pending(card(undefined, [undefined])))
+      expect(noCover()).toBeInTheDocument()
+
+      http.mockReturnValueOnce(
+        reply(pending(card({ albumId: 'al1', artworkId: 'al-al1' }, ['al1']))),
+      )
+      await act(() => vi.advanceTimersByTimeAsync(PROPOSALS_POLL_MS))
+
+      await waitFor(() => expect(cover()).toBeInTheDocument())
+      expect(coverParams().get('id')).toBe('al-al1')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
