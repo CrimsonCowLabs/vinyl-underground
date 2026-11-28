@@ -236,8 +236,8 @@ func (r *Ripper) promoteScope(ctx context.Context, jobID string) (organize.Scope
 		if it.Status != model.RipReady || it.Path == "" {
 			continue
 		}
-		if id, ok := tracks[it.Path]; ok {
-			ids = append(ids, id)
+		if mf, ok := tracks[it.Path]; ok {
+			ids = append(ids, mf.ID)
 		} else {
 			notScanned = append(notScanned, organize.Row{LibraryID: inbox.ID, Path: it.Path, Status: ReasonNotScanned})
 		}

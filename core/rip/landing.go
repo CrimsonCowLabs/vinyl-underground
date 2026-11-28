@@ -81,7 +81,7 @@ func (r *Ripper) matchLanded(ctx context.Context, inbox *model.Library, items mo
 			if err != nil {
 				return err
 			}
-			have = withoutTrack(have, own[it.Path])
+			have = withoutTrack(have, own[it.Path].ID)
 			if len(have) == 0 {
 				return nil
 			}
