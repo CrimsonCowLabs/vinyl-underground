@@ -20,11 +20,16 @@ import (
 )
 
 // startPromote wires Promote (#171) into ripper as startup does: the Library lib writable (editing
-// on), and an edit queue with Organize's and Promote's job kinds, running on the real database
-// until the spec ends. It returns the queue and the editor its moves are made with.
-func startPromote(ripper *rip.Ripper, s tagedit.Scanner, lib model.Library) (*editjob.Queue, *tagedit.Editor) {
+// on, the Inbox recorded, if there is one yet), and an edit queue with Organize's and Promote's job kinds, running on the real database
+// until the spec ends, with any more job kinds handle registers. It returns the queue and the
+// editor its moves are made with.
+func startPromote(ripper *rip.Ripper, s tagedit.Scanner, lib model.Library, handle ...func(*editjob.Queue, *tagedit.Editor)) (*editjob.Queue, *tagedit.Editor) {
 	GinkgoHelper()
-	core.SetLibraryEditing(core.LibraryEditing{Enabled: true, Libraries: []core.LibraryWritable{{ID: lib.ID, Name: lib.Name, Writable: true}}})
+	editing := core.LibraryEditing{Enabled: true, Libraries: []core.LibraryWritable{{ID: lib.ID, Name: lib.Name, Writable: true}}}
+	if inbox, err := core.FindInboxLibrary(ctx, ds); err == nil && inbox != nil {
+		editing.InboxID = inbox.ID
+	}
+	core.SetLibraryEditing(editing)
 	DeferCleanup(core.SetLibraryEditing, core.LibraryEditing{})
 	editor := tagedit.New(ds, s)
 	queue := editjob.New(ds, nil, editjob.Kinds(ds, editor))
@@ -33,6 +38,9 @@ func startPromote(ripper *rip.Ripper, s tagedit.Scanner, lib model.Library) (*ed
 		queue.Handle(kind, k)
 	}
 	queue.Handle(model.EditPromote, ripper.PromoteJobKind(kinds[model.EditPromote]))
+	for _, h := range handle {
+		h(queue, editor)
+	}
 	ripper.SetEditQueue(queue)
 	qctx, stop := context.WithCancel(ctx)
 	done := make(chan struct{})
