@@ -446,7 +446,9 @@ func (e *Editor) verify(abs, temp string, orig, set map[string][]string) error {
 		if !changed {
 			want = orig[k]
 		}
-		if !slices.Equal(got[k], want) && (len(got[k]) > 0 || len(want) > 0) {
+		// A tag with only blank values is none: TagLib drops blank frames (an iTunes rip's empty
+		// COMMENT) when it saves.
+		if !slices.Equal(got[k], want) && !(blank(got[k]) && blank(want)) {
 			if changed {
 				return fmt.Errorf("%w: %s reads back as %q, not %q", ErrNotVerified, k, got[k], want)
 			}
@@ -489,6 +491,11 @@ func checkMP3(abs, temp string) error {
 		return errors.New("its ID3v1 tag was added or removed")
 	}
 	return nil
+}
+
+// blank reports whether a tag's values are none, or only empty strings.
+func blank(values []string) bool {
+	return !slices.ContainsFunc(values, func(v string) bool { return v != "" })
 }
 
 func union(a, b map[string][]string) map[string][]string {

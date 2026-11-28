@@ -31,6 +31,16 @@ type fakeTagger struct {
 	Tagger
 	beforeWrite func(path string)
 	afterWrite  func(path string)
+	// afterRead may change the tags a Read returns.
+	afterRead func(path string, tags map[string][]string)
+}
+
+func (f fakeTagger) Read(path string) (map[string][]string, error) {
+	tags, err := f.Tagger.Read(path)
+	if err == nil && f.afterRead != nil {
+		f.afterRead(path, tags)
+	}
+	return tags, err
 }
 
 func (f fakeTagger) Write(path string, set map[string][]string) error {
@@ -355,6 +365,21 @@ var _ = Describe("Editor", func() {
 			_, err := editor.Edit(ctx, trackID, Values{"title": {"x"}})
 			Expect(err).To(MatchError(errInjected))
 			unchanged()
+		})
+
+		// iTunes leaves blank frames (COMMENT, URL) that TagLib drops when it saves: a blank tag
+		// gone is no change.
+		It("writes a File whose blank tags the write drops", func() {
+			editor.tagger = fakeTagger{Tagger: editor.tagger, afterRead: func(p string, tags map[string][]string) {
+				if !strings.Contains(p, "vu-edit") {
+					tags["URL"] = []string{""}
+					tags["COPYRIGHT"] = []string{"", ""}
+				}
+			}}
+			res, err := editor.Edit(ctx, trackID, Values{"title": {"Song (Live)"}})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(res.Changed).To(BeTrue())
+			Expect(journal.All()[0].State).To(Equal(model.EditWritten))
 		})
 
 		It("records nothing, and writes nothing, when nothing changed", func() {

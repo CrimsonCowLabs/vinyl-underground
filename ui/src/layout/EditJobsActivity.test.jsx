@@ -88,6 +88,42 @@ describe('<EditJobsActivity />', () => {
     ).toBeTruthy()
   })
 
+  it("adds the server's detail to the reason, when it says more", async () => {
+    mockHttpClient.mockResolvedValue({
+      json: [
+        {
+          ...finished,
+          steps: [
+            {
+              path: 'Artist/Album/01 One.mp3',
+              state: 'skipped',
+              code: 'notVerified',
+              error:
+                "the edited copy didn't check out, so the File was left as it was: COMMENT changed too, to []",
+            },
+            {
+              path: 'Artist/Album/02 Two.mp3',
+              state: 'skipped',
+              code: 'linked',
+              error:
+                "the File is a link (a symlink, or one of several hard links), so it can't be replaced: /music/Artist/Album/02 Two.mp3",
+            },
+          ],
+        },
+      ],
+    })
+    show()
+    await waitFor(() =>
+      screen.getByText(
+        'resources.song.tagEditor.errors.notVerified (COMMENT changed too, to [])',
+      ),
+    )
+    // A detail that only repeats the File's path adds nothing.
+    expect(
+      screen.getByText('resources.song.tagEditor.errors.linked'),
+    ).toBeTruthy()
+  })
+
   it("explains a File an undo job skipped with the Edit history's message", async () => {
     mockHttpClient.mockResolvedValue({
       json: [
