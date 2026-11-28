@@ -28,6 +28,33 @@ func (f exdevFS) Rename(oldname, newname string) error {
 	return f.FS.Rename(oldname, newname)
 }
 
+// recyclingFS is the real disk across two mounts (the File's own renames fail with EXDEV), whose
+// removes move a File into a recycle bin at bin instead, as a NAS's (a Buffalo's trashbox) does
+// over SMB: a removed name lives on there.
+// With appear, another File appears at the destination just before the copy is renamed to it.
+type recyclingFS struct {
+	OS
+	bin    string
+	appear bool
+}
+
+func (f recyclingFS) RenameNoReplace(oldname, newname string) error {
+	if !strings.Contains(oldname, "vu-move") {
+		return &os.LinkError{Op: "rename", Old: oldname, New: newname, Err: syscall.EXDEV}
+	}
+	if f.appear {
+		_ = os.WriteFile(newname, []byte("raced"), 0o644)
+	}
+	return f.OS.RenameNoReplace(oldname, newname)
+}
+
+func (f recyclingFS) Remove(name string) error {
+	if _, err := os.Lstat(name); err != nil {
+		return err
+	}
+	return os.Rename(name, filepath.Join(f.bin, filepath.Base(name)))
+}
+
 // racingFS is the real disk, where a File appears at appear just before a no-replace rename to
 // it: the moment between the check that the destination is free and the rename.
 type racingFS struct {
@@ -215,6 +242,22 @@ var _ = Describe("Move", func() {
 				Expect(tree(root)).To(Equal(map[string]string{"new/01 A.mp3": "audio"}))
 			})
 		}
+
+		// A copy placed by a hard link would keep its temp's name in the bin, and the File, with
+		// two names, could never be edited (ErrLinked).
+		It("places the copy by a rename, so a recycle bin keeps no other name of it", func() {
+			bin := filepath.Join(GinkgoT().TempDir(), "trashbox")
+			Expect(os.Mkdir(bin, 0o755)).To(Succeed())
+			Expect(Move(recyclingFS{bin: bin}, src, dest, MoveHooks{})).To(Succeed())
+			Expect(CheckReplaceable(OS{}, dest)).To(Succeed())
+			Expect(tree(root)).To(Equal(map[string]string{"new/01 A.mp3": "audio"}))
+		})
+
+		It("refuses to place the copy over a File the rename finds there", func() {
+			fsys := recyclingFS{bin: GinkgoT().TempDir(), appear: true}
+			Expect(Move(fsys, src, dest, MoveHooks{})).To(MatchError(ErrDestTaken))
+			Expect(tree(root)).To(Equal(map[string]string{"old/a.mp3": "audio", "new/01 A.mp3": "raced"}))
+		})
 
 		It("keeps the File's modification time", func() {
 			old, _ := os.Stat(src)
