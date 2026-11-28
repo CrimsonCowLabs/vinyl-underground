@@ -3,6 +3,7 @@ package tagedit
 import (
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -46,13 +47,42 @@ func (taglibTagger) Read(path string) (map[string][]string, error) {
 	return tags, nil
 }
 
-func (taglibTagger) Write(path string, set map[string][]string) error {
+func (t taglibTagger) Write(path string, set map[string][]string) error {
+	set, err := t.withoutBlank(path, set)
+	if err != nil {
+		return err
+	}
 	return keepID3v1(path, func() error {
 		if err := taglib.WriteTags(path, set, 0); err != nil {
 			return fmt.Errorf("writing the tags: %w", err)
 		}
 		return nil
 	})
+}
+
+// withoutBlank adds to set the removal of each of the File's tags with only blank values that set
+// doesn't set. TagLib writes back every tag it read, and an iTunes rip's blank COMMENT, written
+// back, takes the File's other comment frames with it (iTunNORM, iTunSMPB, ID3v1 Comment). A
+// blank tag is none (TagLib drops blank frames when it saves), so removing it changes nothing.
+func (t taglibTagger) withoutBlank(path string, set map[string][]string) (map[string][]string, error) {
+	tags, err := t.Read(path)
+	if err != nil {
+		return nil, err
+	}
+	var res map[string][]string
+	for k, v := range tags {
+		if _, ok := set[k]; ok || len(v) == 0 || !blank(v) {
+			continue
+		}
+		if res == nil {
+			res = maps.Clone(set)
+		}
+		res[k] = nil
+	}
+	if res == nil {
+		return set, nil
+	}
+	return res, nil
 }
 
 func (taglibTagger) Pictures(path string) ([]Picture, error) {
