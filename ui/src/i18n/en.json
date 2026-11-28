@@ -113,6 +113,7 @@
     },
     "album": {
       "name": "Album |||| Albums",
+      "gone": "This album is no longer in the library as it was: an edit may have given it a new title or album artist, and so a new page. Find it in Albums.",
       "fields": {
         "albumArtist": "Album Artist",
         "composer": "Composers (separate with ;)",

@@ -1,12 +1,14 @@
-import React from 'react'
+import React, { useCallback, useState } from 'react'
 import {
   ReferenceManyField,
   ShowContextProvider,
   useShowContext,
   useShowController,
+  useTranslate,
   Title as RaTitle,
 } from 'react-admin'
 import { makeStyles } from '@material-ui/core/styles'
+import { Alert } from '@material-ui/lab'
 import AlbumSongs from './AlbumSongs'
 import AlbumDetails from './AlbumDetails'
 import AlbumActions from './AlbumActions'
@@ -58,8 +60,21 @@ const AlbumShowLayout = (props) => {
   )
 }
 
+// An edit to the album's title or album artist gives it a new ID, so once its job's rescan is done
+// this album is gone and the page's reload of it fails. The page stays, saying so, rather than
+// react-admin's sending the admin to the album list from wherever the edit had left them.
 const AlbumShow = (props) => {
-  const controllerProps = useShowController(props)
+  const translate = useTranslate()
+  const [goneId, setGoneId] = useState(null)
+  const onFailure = useCallback(() => setGoneId(props.id), [props.id])
+  const controllerProps = useShowController({ ...props, onFailure })
+  if (goneId !== null && goneId === props.id) {
+    return (
+      <Alert severity="info" style={{ margin: 16 }}>
+        {translate('resources.album.gone')}
+      </Alert>
+    )
+  }
   return (
     <ShowContextProvider value={controllerProps}>
       <AlbumShowLayout {...props} {...controllerProps} />
