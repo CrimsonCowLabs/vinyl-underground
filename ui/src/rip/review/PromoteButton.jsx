@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRefresh, useTranslate } from 'react-admin'
 import { Button, Tooltip } from '@material-ui/core'
 import config from '../../config'
@@ -25,8 +25,9 @@ const promoteApi = (jobId) => ({
 // and once the admin runs it, moves them there as one job, undoable from the Edit history. The
 // list then refreshes, so a job whose Files have all moved goes. It isn't there while Promote is
 // off (no writable Library), and waits for unsaved edits (dirty) to be saved, as the plan follows
-// the tags the Files have.
-const PromoteButton = ({ jobId, review, dirty }) => {
+// the tags the Files have, and for a MusicBrainz release picked on the card (held) to be applied
+// or dropped. While its dialog is open it holds Find on MusicBrainz off the card (onHold).
+const PromoteButton = ({ jobId, review, dirty, held, onHold }) => {
   const translate = useTranslate()
   const refresh = useRefresh()
   const [open, setOpen] = useState(false)
@@ -37,6 +38,11 @@ const PromoteButton = ({ jobId, review, dirty }) => {
     setOpen(false)
     refresh()
   }, [refresh])
+  useEffect(() => {
+    if (!onHold) return undefined
+    onHold(open)
+    return () => onHold(false)
+  }, [open, onHold])
 
   if (!config.enablePromote) return null
 
@@ -47,16 +53,21 @@ const PromoteButton = ({ jobId, review, dirty }) => {
       variant="contained"
       size="small"
       onClick={() => setOpen(true)}
-      disabled={dirty || files.length === 0}
+      disabled={dirty || held || files.length === 0}
     >
       {translate('resources.rip.promote.button')}
     </Button>
   )
+  const why = dirty
+    ? 'resources.rip.promote.unsaved'
+    : held
+      ? 'resources.rip.promote.releaseUnderway'
+      : null
 
   return (
     <>
-      {dirty ? (
-        <Tooltip title={translate('resources.rip.promote.unsaved')}>
+      {why ? (
+        <Tooltip title={translate(why)}>
           {/* A disabled button gets no hover events: the span does. */}
           <span>{button}</span>
         </Tooltip>

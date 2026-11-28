@@ -1125,7 +1125,8 @@
         "button": "Promote all",
         "title": "Promote to the Library",
         "help": "Promote moves this card's Files from the Inbox to their place in the Library: <Album Artist>/<Album> (<Year>)/<NN> <Title>, or <D>-<NN> <Title> on a multi-disc album, as Organize names them. Nothing moves until you run the plan. The Tracks become visible to every Listener and keep their favorites, ratings, plays and Playlist entries, and the whole job can be undone from the Edit history, which puts the Files back in the Inbox.",
-        "unsaved": "Save or undo your changes first: Promote places the Files by the tags they have now."
+        "unsaved": "Save or undo your changes first: Promote places the Files by the tags they have now.",
+        "releaseUnderway": "Apply or remove the MusicBrainz release picked on this card first."
       },
       "review": {
         "discard": "Discard",
@@ -1147,7 +1148,26 @@
         "proposedFile": "Proposed, not saved (the File has \"%{file}\")",
         "proposedNew": "Proposed, not saved",
         "cover": "Album cover",
-        "noCover": "No cover"
+        "noCover": "No cover",
+        "release": {
+          "apply": "Apply release",
+          "applying": "Applying...",
+          "unsaved": "Save or undo your changes first: the release is applied to the Files' tags as they are now.",
+          "applied": "Release applied to the Files. Undo it from the Edit history.",
+          "background": "Applying the release; Activity shows how it goes.",
+          "errors": {
+            "promoting": "This card's Files are being promoted. Apply a release once the Promote job has finished.",
+            "editingOff": "The Inbox's Files can't be written while editing is off.",
+            "changedOnDisk": "A File of the album changed on disk since the last scan. Try again once the Inbox has been rescanned.",
+            "unsupportedFormat": "Some of the album's Files are of a kind that can't be edited yet (only mp3, m4a, aiff and wav), so nothing was changed.",
+            "sharedFolder": "Another album shares this album's folder, so its release can't be applied on its own.",
+            "notFound": "This card's album is gone. Try again once the Inbox has been rescanned.",
+            "busy": "MusicBrainz is busy, so the release couldn't be applied. Try again in a minute.",
+            "unavailable": "Couldn't reach MusicBrainz, so the release couldn't be applied. Try again later.",
+            "disabled": "External services are turned off, so the release can't be applied.",
+            "unknown": "Could not apply the release. Try again later."
+          }
+        }
       },
       "kind": {
         "upload": "Uploaded",
