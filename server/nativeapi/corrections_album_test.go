@@ -14,6 +14,7 @@ import (
 	"github.com/navidrome/navidrome/core/corrections"
 	"github.com/navidrome/navidrome/core/editjob"
 	"github.com/navidrome/navidrome/core/musicbrainz"
+	"github.com/navidrome/navidrome/core/rip"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/server"
 	"github.com/navidrome/navidrome/tests"
@@ -212,6 +213,49 @@ var _ = Describe("Album Edit API", func() {
 			Expect(svc.plans).To(BeEmpty())
 		})
 
+		It("keeps the album's own values when the caller sends none (a review card, #219)", func() {
+			runEditQueue(nativeRouter, ds, fakeWriteKind{})
+			w := post(adminToken, map[string]any{"albumId": "al-1", "mbzAlbumId": "8a7f5c4e-0d5b-4f1e-9d3c-3b2a1f0e9d8c",
+				"cover": true, "genres": true})
+			Expect(w.Code).To(Equal(http.StatusOK), w.Body.String())
+			Expect(svc.releases).To(HaveLen(1))
+			Expect(svc.releases[0].Fix).To(BeNil())
+			Expect(svc.releases[0].Cover).To(BeTrue())
+		})
+
+		// An Inbox album's Files are a review card's: Promote may be moving them (#219).
+		Describe("for an album a Promote may be moving", func() {
+			var guard *fakePromoteGuard
+			BeforeEach(func() {
+				guard = &fakePromoteGuard{}
+				nativeRouter.SetPromoteGuard(guard)
+			})
+
+			It("queues the job through the guard", func() {
+				runEditQueue(nativeRouter, ds, fakeWriteKind{})
+				w := post(adminToken, picked)
+				Expect(w.Code).To(Equal(http.StatusOK), w.Body.String())
+				Expect(guard.asked).To(Equal([]string{"al-1"}))
+				Expect(answerOf(w).Done).To(BeTrue())
+			})
+
+			It("refuses with promoting while the album's card is being promoted, queueing nothing", func() {
+				runEditQueue(nativeRouter, ds, fakeWriteKind{})
+				guard.promoting = true
+				w := post(adminToken, picked)
+				Expect(w.Code).To(Equal(http.StatusConflict), w.Body.String())
+				var res struct{ Error string }
+				Expect(json.Unmarshal(w.Body.Bytes(), &res)).To(Succeed())
+				Expect(res.Error).To(Equal("promoting"))
+				Expect(guard.queued).To(BeZero())
+
+				// The album Edit dialog's own save is guarded the same way.
+				w = post(adminToken, body)
+				Expect(w.Code).To(Equal(http.StatusConflict), w.Body.String())
+				Expect(guard.queued).To(BeZero())
+			})
+		})
+
 		It("answers editingOff with no edit job queue, asking nothing", func() {
 			w := post(adminToken, picked)
 			Expect(w.Code).To(Equal(http.StatusForbidden))
@@ -269,3 +313,21 @@ func (k rollbackKind) Done(ctx context.Context, job *model.EditJob, steps model.
 }
 
 func (rollbackKind) Undone(context.Context, *model.EditJob, model.EditJobSteps) error { return nil }
+
+// fakePromoteGuard stands in for the Ripper's guard (rip.Ripper.UnlessPromoting): it records the
+// albums asked about, and refuses while promoting, as the Ripper does while a Promote moves the
+// album's Files.
+type fakePromoteGuard struct {
+	promoting bool
+	asked     []string
+	queued    int
+}
+
+func (g *fakePromoteGuard) UnlessPromoting(_ context.Context, albumID string, queue func() error) error {
+	g.asked = append(g.asked, albumID)
+	if g.promoting {
+		return rip.ErrPromoting
+	}
+	g.queued++
+	return queue()
+}

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/Masterminds/squirrel"
 	"github.com/navidrome/navidrome/core"
 	"github.com/navidrome/navidrome/core/editjob"
 	"github.com/navidrome/navidrome/core/librarymanager"
@@ -127,7 +128,13 @@ func (r *Ripper) editable(ctx context.Context, jobID string) (*model.RipJob, *mo
 	if err != nil {
 		return nil, nil, err
 	}
-	busy, err := r.promoting(ctx, inbox, job)
+	paths := map[string]bool{}
+	for _, it := range job.Items {
+		if it.Path != "" {
+			paths[it.Path] = true
+		}
+	}
+	busy, err := r.promoting(ctx, inbox, paths)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -137,16 +144,45 @@ func (r *Ripper) editable(ctx context.Context, jobID string) (*model.RipJob, *mo
 	return job, inbox, nil
 }
 
-// promoting reports whether a Promote job still queued or running moves one of the job's Files.
-func (r *Ripper) promoting(ctx context.Context, inbox *model.Library, job *model.RipJob) (bool, error) {
-	if r.editQueue == nil {
-		return false, nil
+// UnlessPromoting runs queue, which queues a write to the Files of the album albumID (a MusicBrainz
+// release applied from its review card, #219), under the review lock, unless a Promote queued or
+// running moves one of the album's Inbox Files (ErrPromoting). Promote is queued under the same
+// lock, so neither slips in before the other is queued. An album with no File in the Inbox isn't
+// a card's: queue just runs.
+func (r *Ripper) UnlessPromoting(ctx context.Context, albumID string, queue func() error) error {
+	inbox, err := core.FindInboxLibrary(ctx, r.ds)
+	if err != nil {
+		return err
+	}
+	if inbox == nil {
+		return queue()
+	}
+	mfs, err := r.ds.MediaFile(ctx).GetAll(model.QueryOptions{Filters: squirrel.Eq{
+		"media_file.album_id": albumID, "media_file.library_id": inbox.ID}})
+	if err != nil {
+		return err
 	}
 	paths := map[string]bool{}
-	for _, it := range job.Items {
-		if it.Path != "" {
-			paths[it.Path] = true
-		}
+	for _, mf := range mfs {
+		paths[mf.Path] = true
+	}
+	r.reviewMu.Lock()
+	defer r.reviewMu.Unlock()
+	busy, err := r.promoting(ctx, inbox, paths)
+	if err != nil {
+		return err
+	}
+	if busy {
+		return ErrPromoting
+	}
+	return queue()
+}
+
+// promoting reports whether a Promote job still queued or running moves one of the Inbox Files
+// at paths.
+func (r *Ripper) promoting(ctx context.Context, inbox *model.Library, paths map[string]bool) (bool, error) {
+	if r.editQueue == nil {
+		return false, nil
 	}
 	if len(paths) == 0 {
 		return false, nil

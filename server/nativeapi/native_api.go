@@ -62,6 +62,9 @@ type Router struct {
 	// waits for its job before it answers that the job runs in the background.
 	editQueue *editjob.Queue
 	editWait  time.Duration
+	// promoteGuard keeps an album save from slipping in while a Promote moves its Files (see
+	// SetPromoteGuard).
+	promoteGuard PromoteGuard
 }
 
 func New(ds model.DataStore, share core.Share, playlists playlistsvc.Playlists, insights metrics.Insights, libraryService core.Library, userService core.User, maintenance core.Maintenance, pluginManager PluginManager, imgUpload artwork.Uploader, provider external.Provider, quickConnect quickconnect.QuickConnect, refresher refresh.Refresher, coverPicker artwork.CoverPicker, tagEditor *tagedit.Editor) *Router {

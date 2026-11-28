@@ -2,6 +2,7 @@ package nativeapi
 
 import (
 	"cmp"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,10 +14,23 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/navidrome/navidrome/core/corrections"
 	"github.com/navidrome/navidrome/core/editjob"
+	"github.com/navidrome/navidrome/core/rip"
 	"github.com/navidrome/navidrome/core/tagedit"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
 )
+
+// PromoteGuard keeps a write to an Inbox album's Files, which a review card can apply a
+// MusicBrainz release to (#219), from crossing a Promote moving them (rip.Ripper.UnlessPromoting).
+type PromoteGuard interface {
+	// UnlessPromoting runs queue unless a Promote queued or running moves one of the album's
+	// Files (rip.ErrPromoting), so that neither is queued while the other is.
+	UnlessPromoting(ctx context.Context, albumID string, queue func() error) error
+}
+
+// SetPromoteGuard has the album saves queue their jobs through g (the Ripper). With none (no
+// Inbox, ripping off), they aren't guarded: no Promote can run.
+func (api *Router) SetPromoteGuard(g PromoteGuard) { api.promoteGuard = g }
 
 // addCorrectionRoute serves the admin's Corrections (admin only, see routes): the saves that write
 // to the Files, the Correction migration (#165), and what stays app data (cover blocks and picked
@@ -102,7 +116,8 @@ func (api *Router) mergeArtist(w http.ResponseWriter, r *http.Request) {
 // picked with Find on MusicBrainz (mbzAlbumId), the job writes the release's IDs too, and of its
 // own values those the admin accepts (canonical), replacing track IDs that differ only with
 // replaceTrackIds, its cover as the album's cover.jpg with cover (#170), and the album's
-// MusicBrainz genres with genres.
+// MusicBrainz genres with genres. A release sent with none of the dialog's values (a review card's,
+// #219) keeps the album's. Either is refused while a Promote moves the album's Files (promoting).
 func (api *Router) correctAlbum(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		AlbumID string `json:"albumId"`
@@ -128,14 +143,18 @@ func (api *Router) correctAlbum(w http.ResponseWriter, r *http.Request) {
 		if !ok {
 			return
 		}
+		fix := &body.AlbumFix
+		if body.Name == "" && body.AlbumArtist == "" && body.Year == 0 && len(body.Composer) == 0 {
+			fix = nil
+		}
 		plan, err := api.corrections.PlanRelease(ctx, api.tagEditor, body.AlbumID, rel, corrections.ReleaseWrite{
-			Fix: &body.AlbumFix, Tracks: body.Tracks, Accept: body.Canonical, ReplaceTrackIDs: body.ReplaceTrackIDs,
+			Fix: fix, Tracks: body.Tracks, Accept: body.Canonical, ReplaceTrackIDs: body.ReplaceTrackIDs,
 			Cover: body.Cover, Genres: body.Genres})
 		if err != nil {
 			writeWriteError(w, r, err)
 			return
 		}
-		api.runWriteJob(w, r, plan, plan.PickCover)
+		api.runAlbumWriteJob(w, r, body.AlbumID, plan, plan.PickCover)
 		return
 	}
 	plan, err := api.corrections.PlanAlbumEdit(ctx, body.AlbumID, &body.AlbumFix, body.Tracks)
@@ -147,7 +166,7 @@ func (api *Router) correctAlbum(w http.ResponseWriter, r *http.Request) {
 		writeTagEditError(w, r, tagedit.ErrEditingOff)
 		return
 	}
-	api.runWriteJob(w, r, plan, "")
+	api.runAlbumWriteJob(w, r, body.AlbumID, plan, "")
 }
 
 // correctTrackNumbers writes Track order's disc and track numbers into each Track's File, as one
@@ -195,8 +214,24 @@ type writeResult struct {
 
 // runWriteJob queues the plan's job and waits a little for it (see runFileJob).
 func (api *Router) runWriteJob(w http.ResponseWriter, r *http.Request, plan *corrections.Plan, pickCover corrections.PickCover) {
+	api.runAlbumWriteJob(w, r, "", plan, pickCover)
+}
+
+// runAlbumWriteJob is runWriteJob for a write to the album albumID's Files, queued through the
+// promote guard, if any.
+func (api *Router) runAlbumWriteJob(w http.ResponseWriter, r *http.Request, albumID string, plan *corrections.Plan, pickCover corrections.PickCover) {
 	ctx := r.Context()
-	job, err := api.editQueue.EnqueueWith(ctx, plan.Kind, plan.Args, plan.Steps)
+	var job *model.EditJob
+	enqueue := func() (err error) {
+		job, err = api.editQueue.EnqueueWith(ctx, plan.Kind, plan.Args, plan.Steps)
+		return err
+	}
+	var err error
+	if albumID != "" && api.promoteGuard != nil {
+		err = api.promoteGuard.UnlessPromoting(ctx, albumID, enqueue)
+	} else {
+		err = enqueue()
+	}
 	if err != nil {
 		writeWriteError(w, r, err)
 		return
@@ -245,6 +280,11 @@ func (api *Router) runWriteJob(w http.ResponseWriter, r *http.Request, plan *cor
 // writeWriteError answers a refused save that writes to the Files: with the edit's code when it
 // has one (editingOff, unsupportedFormat, ...), else as a refused Correction.
 func writeWriteError(w http.ResponseWriter, r *http.Request, err error) {
+	if errors.Is(err, rip.ErrPromoting) {
+		log.Debug(r.Context(), "Save refused: a Promote is moving the album's Files", err)
+		writeTagEditCode(w, r, "promoting", err.Error())
+		return
+	}
 	if editjob.Code(err) != tagedit.CodeInternal {
 		writeTagEditError(w, r, err)
 		return

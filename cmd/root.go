@@ -148,6 +148,10 @@ func startServer(ctx context.Context, ripper *rip.Ripper, editQueue *editjob.Que
 		a := CreateServer()
 		nativeAPI := CreateNativeAPIRouter(ctx)
 		nativeAPI.SetEditQueue(editQueue)
+		if ripper != nil {
+			// A review card's album takes a MusicBrainz release, but not while it is promoted (#219).
+			nativeAPI.SetPromoteGuard(ripper)
+		}
 		a.MountRouter("Native API", consts.URLPathNativeAPI, nativeAPI)
 		if ripper != nil {
 			a.MountRouter("Rip API", consts.URLPathNativeAPI+"/rip", ripapi.New(CreateDataStore(), ripper))
