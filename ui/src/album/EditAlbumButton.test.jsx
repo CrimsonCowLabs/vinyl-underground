@@ -151,7 +151,7 @@ describe('EditAlbumButton', () => {
     expect(mockRedirect).toHaveBeenCalledWith('/album/al2/show')
   })
 
-  it('closes once saved, back to the albums, when the job carries on in the background', async () => {
+  it('closes once saved, staying where it is, when the job carries on in the background', async () => {
     mockCorrectAlbum.mockResolvedValue({
       data: { jobId: 'job-1', background: true, done: false },
     })
@@ -160,11 +160,78 @@ describe('EditAlbumButton', () => {
     type('album-name', 'Record')
     save()
 
-    await waitFor(() => expect(mockRedirect).toHaveBeenCalledWith('/album'))
-    expect(mockNotify).toHaveBeenCalledWith(
-      'resources.album.editor.correcting',
-      expect.anything(),
+    await waitFor(() =>
+      expect(mockNotify).toHaveBeenCalledWith(
+        'resources.album.editor.correcting',
+        expect.anything(),
+      ),
     )
+    expect(screen.queryByTestId('album-name')).toBeNull()
+    expect(mockRedirect).not.toHaveBeenCalled()
+  })
+
+  // A save with a release can take a while (the release, its cover, the Files on the share), and
+  // the dialog can be closed meanwhile and the admin go elsewhere: the answer then only says how
+  // the save went, leaving the admin where they are.
+  describe('answered once the dialog is closed', () => {
+    const saveThenLeave = () => {
+      let answer, refuse
+      mockCorrectAlbum.mockReturnValue(
+        new Promise((resolve, reject) => {
+          answer = (data) => resolve({ data })
+          refuse = reject
+        }),
+      )
+      const view = render(<EditAlbumButton record={record} />)
+      open()
+      type('album-name', 'Record')
+      save()
+      fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' })
+      return { answer: (d) => answer(d), refuse: (e) => refuse(e), view }
+    }
+
+    it("doesn't open the album under its new ID", async () => {
+      const { answer } = saveThenLeave()
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+      answer({ albumId: 'al2', done: true, job: { skipped: 0 } })
+
+      await waitFor(() =>
+        expect(mockNotify).toHaveBeenCalledWith(
+          'resources.album.editor.corrected',
+          expect.anything(),
+        ),
+      )
+      expect(mockRedirect).not.toHaveBeenCalled()
+      expect(mockRefresh).not.toHaveBeenCalled()
+    })
+
+    it("doesn't move away when the job carries on in the background, once the page is gone too", async () => {
+      const { answer, view } = saveThenLeave()
+      view.unmount()
+      answer({ jobId: 'job-1', background: true, done: false })
+
+      await waitFor(() =>
+        expect(mockNotify).toHaveBeenCalledWith(
+          'resources.album.editor.correcting',
+          expect.anything(),
+        ),
+      )
+      expect(mockRedirect).not.toHaveBeenCalled()
+    })
+
+    it('says why the server refused it', async () => {
+      const { refuse } = saveThenLeave()
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+      refuse({ body: { error: 'sharedFolder' } })
+
+      await waitFor(() =>
+        expect(mockNotify).toHaveBeenCalledWith(
+          expect.stringContaining('resources.album.editor.errors.sharedFolder'),
+          expect.objectContaining({ type: 'warning' }),
+        ),
+      )
+      expect(mockRedirect).not.toHaveBeenCalled()
+    })
   })
 
   it('offers existing Artists as the album artist as you type', async () => {

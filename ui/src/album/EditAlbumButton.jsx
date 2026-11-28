@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import PropTypes from 'prop-types'
 import {
   Button,
@@ -79,6 +79,15 @@ const EditAlbumDialog = ({ record, onClose }) => {
   }, [shared])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
+  // Whether the dialog is still open: closed while saving (or its page left), the save's answer
+  // only says how it went, and leaves the admin where they have gone since
+  const open = useRef(true)
+  useEffect(
+    () => () => {
+      open.current = false
+    },
+    [],
+  )
   const suggestions = useArtistSuggestions(albumArtist)
 
   const yearValue = year.trim() === '' ? 0 : Number(year)
@@ -140,30 +149,36 @@ const EditAlbumDialog = ({ record, onClose }) => {
           })
       save
         .then(({ done, albumId, note, notifyOptions }) => {
+          notify(
+            note ||
+              (done
+                ? 'resources.album.editor.corrected'
+                : 'resources.album.editor.correcting'),
+            notifyOptions,
+          )
+          if (!open.current) return
           setTrackRows(markSaved)
           onClose()
           if (done && (!albumId || albumId === record.id)) {
             // The album keeps its ID (e.g. only track numbers changed): its page reloads
-            notify(note || 'resources.album.editor.corrected', notifyOptions)
             refresh()
           } else if (done) {
-            notify(note || 'resources.album.editor.corrected', notifyOptions)
             redirect(`/album/${albumId}/show`)
-          } else {
-            notify(note || 'resources.album.editor.correcting', notifyOptions)
-            // The job finishes in the background (see the Activity panel), and the album's new
-            // values take this page's album ID with them
-            if (!unchanged) redirect('/album')
           }
+          // Otherwise the job finishes in the background (see the Activity panel); the page stays,
+          // and says so if the album's new values take its ID with them
         })
         .catch((err) => {
           const code = err?.body?.error
-          setError(
-            translate(
-              `resources.album.editor.errors.${knownErrors.includes(code) ? code : 'unknown'}`,
-              { name: artist },
-            ),
+          const message = translate(
+            `resources.album.editor.errors.${knownErrors.includes(code) ? code : 'unknown'}`,
+            { name: artist },
           )
+          if (!open.current) {
+            notify(message, { type: 'warning' })
+            return
+          }
+          setError(message)
           setSaving(false)
         })
     },
