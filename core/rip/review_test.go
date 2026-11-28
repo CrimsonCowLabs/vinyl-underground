@@ -200,6 +200,80 @@ var _ = Describe("Review and Discard", func() {
 			})
 		})
 
+		Describe("the album's cover (#218)", func() {
+			// scanned gives the Inbox Tracks for the Files at paths, in the given albums.
+			scanned := func(mfs ...model.MediaFile) {
+				for i := range mfs {
+					mfs[i].LibraryID = inboxID
+				}
+				ds.MediaFile(ctx).(*tests.MockMediaFileRepo).SetData(mfs)
+			}
+
+			BeforeEach(func() {
+				landed("ripped.opus", "Album/a.opus")
+				landed("ripped.m4a", "Album/b.m4a")
+			})
+
+			It("gives each scanned Track its album, and the card that album's cover", func() {
+				scanned(
+					model.MediaFile{ID: "mf-a", Path: "Album/a.opus", AlbumID: "al1",
+						AlbumImage: model.ItemImage{ImageHash: "0123456789abcdef"}},
+					model.MediaFile{ID: "mf-b", Path: "Album/b.m4a", AlbumID: "al1",
+						AlbumImage: model.ItemImage{ImageHash: "0123456789abcdef"}},
+				)
+				job := newJob(model.RipReady, "Album", "Album/a.opus", "", "Album/b.m4a")
+
+				rev, err := ripper.Review(ctx, job.ID)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(rev.Tracks[0].AlbumID).To(Equal("al1"))
+				Expect(rev.Tracks[1].AlbumID).To(BeEmpty(), "a failed Track has no album")
+				Expect(rev.Tracks[2].AlbumID).To(Equal("al1"))
+				Expect(rev.Cover).To(Equal(&ReviewCover{AlbumID: "al1", ArtworkID: "al-al1_0123456789abcdef"}))
+			})
+
+			It("names the cover with no image hash while the album's art is still being worked out", func() {
+				scanned(model.MediaFile{ID: "mf-a", Path: "Album/a.opus", AlbumID: "al1"})
+				job := newJob(model.RipReady, "Album", "Album/a.opus")
+
+				rev, err := ripper.Review(ctx, job.ID)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(rev.Cover).To(Equal(&ReviewCover{AlbumID: "al1", ArtworkID: "al-al1"}))
+			})
+
+			It("says when the album is known to have no cover", func() {
+				scanned(model.MediaFile{ID: "mf-a", Path: "Album/a.opus", AlbumID: "al1",
+					AlbumImage: model.ItemImage{ImageAbsent: true}})
+				job := newJob(model.RipReady, "Album", "Album/a.opus")
+
+				rev, err := ripper.Review(ctx, job.ID)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(rev.Cover).To(Equal(&ReviewCover{AlbumID: "al1", ArtworkID: "al-al1", Absent: true}))
+			})
+
+			It("has no single cover when the Tracks belong to several albums", func() {
+				scanned(
+					model.MediaFile{ID: "mf-a", Path: "Album/a.opus", AlbumID: "al1"},
+					model.MediaFile{ID: "mf-b", Path: "Album/b.m4a", AlbumID: "al2"},
+				)
+				job := newJob(model.RipReady, "Album", "Album/a.opus", "Album/b.m4a")
+
+				rev, err := ripper.Review(ctx, job.ID)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(rev.Tracks[0].AlbumID).To(Equal("al1"))
+				Expect(rev.Tracks[1].AlbumID).To(Equal("al2"))
+				Expect(rev.Cover).To(BeNil())
+			})
+
+			It("has no cover before the Inbox has been scanned", func() {
+				job := newJob(model.RipReady, "Album", "Album/a.opus")
+
+				rev, err := ripper.Review(ctx, job.ID)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(rev.Tracks[0].AlbumID).To(BeEmpty())
+				Expect(rev.Cover).To(BeNil())
+			})
+		})
+
 		It("still shows the card when a File is gone, with that Track's error, and saves the others", func() {
 			landed("ripped.opus", "Album/a.opus")
 			job := newJob(model.RipReady, "Album", "Album/a.opus", "Album/gone.opus")

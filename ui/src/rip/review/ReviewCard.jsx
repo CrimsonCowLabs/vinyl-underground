@@ -36,6 +36,7 @@ import {
   withProposalsFrom,
 } from './reviewForm'
 import ProposalsBar from './ProposalsBar'
+import ReviewCover from './ReviewCover'
 import {
   clearDraft,
   getDraft,
@@ -156,10 +157,14 @@ const ReviewCard = ({ record, trackExtra, actions }) => {
   // discarding is the Track the Discard dialog is asking about.
   const [discarding, setDiscarding] = useState(null)
   const [busy, setBusy] = useState(false)
+  // loadedAt is when the card last took in its review from the server, which the cover's URL
+  // carries so it is fetched afresh each time (see ReviewCover).
+  const [loadedAt, setLoadedAt] = useState(() => Date.now())
 
   const show = useCallback((rev) => {
     setReview(rev)
     setValues(initialValues(rev))
+    setLoadedAt(Date.now())
   }, [])
 
   useEffect(() => {
@@ -249,7 +254,11 @@ const ReviewCard = ({ record, trackExtra, actions }) => {
 
   const handleRefreshProposals = () =>
     httpClient(`${jobUrl(jobId)}/proposals`, { method: 'POST' })
-      .then(({ json }) => setReview((r) => withProposalsFrom(r, json)))
+      .then(({ json }) => {
+        // The cover comes along too, and is asked for afresh: it may have changed since.
+        setReview((r) => withProposalsFrom(r, json))
+        setLoadedAt(Date.now())
+      })
       .catch((error) => notify(errorText(error), 'warning'))
 
   // proposalHint is a field's helper text: the proposal to take, or a note that the field holds
@@ -390,6 +399,7 @@ const ReviewCard = ({ record, trackExtra, actions }) => {
           onRefresh={handleRefreshProposals}
         />
         <div className={classes.header} data-testid="review-header">
+          <ReviewCover cover={review.cover} loadedAt={loadedAt} />
           {albumField('album', 'resources.song.fields.album')}
           {albumField('albumArtist', 'resources.song.fields.albumArtist')}
           {albumField('year', 'resources.song.fields.year')}

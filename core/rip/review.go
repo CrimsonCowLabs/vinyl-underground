@@ -34,6 +34,19 @@ type Review struct {
 	Proposal *AlbumProposal `json:"proposal,omitempty"`
 	// ProposalsPending is true while some Track's proposal is still being worked out.
 	ProposalsPending bool `json:"proposalsPending"`
+	// Cover is the album's cover (#218), when the scanned Tracks all belong to one album. Nil
+	// before the Inbox has been scanned, or when the Tracks belong to several albums.
+	Cover *ReviewCover `json:"cover,omitempty"`
+}
+
+// ReviewCover is the cover of a review card's album, served by getCoverArt.
+type ReviewCover struct {
+	AlbumID string `json:"albumId"`
+	// ArtworkID is the album's artwork ID for getCoverArt. It carries the image's content hash
+	// once the album's art has been worked out, so a new cover gets a new ID.
+	ArtworkID string `json:"artworkId"`
+	// Absent is true when the album is known to have no cover: getCoverArt would serve a placeholder.
+	Absent bool `json:"absent,omitempty"`
 }
 
 // AlbumProposal is the album-level part of the Tracks' proposals. An empty field has none.
@@ -53,6 +66,8 @@ type ReviewTrack struct {
 	Path string `json:"path,omitempty"`
 	// MediaFileID is the Track scanned from the File, once the Inbox has been scanned.
 	MediaFileID string `json:"mediaFileId,omitempty"`
+	// AlbumID is the album the Track is in, once the Inbox has been scanned.
+	AlbumID string `json:"albumId,omitempty"`
 	// AlreadyHave are the Tracks the Library already seemed to have when the item was queued.
 	AlreadyHave model.RipMatches `json:"alreadyHave"`
 	// Proposal is the tags proposed for the Track (#34), nil when it has none. Only the admin's
@@ -130,7 +145,9 @@ func (r *Ripper) review(ctx context.Context, job *model.RipJob, inbox *model.Lib
 				continue
 			}
 			t.Path, t.FileTags = it.Path, tags
-			t.MediaFileID = tracks[it.Path]
+			if mf, ok := tracks[it.Path]; ok {
+				t.MediaFileID, t.AlbumID = mf.ID, mf.AlbumID
+			}
 			if it.Proposal.Status != model.RipProposalNone {
 				t.Proposal = &it.Proposal
 			}
@@ -142,7 +159,26 @@ func (r *Ripper) review(ctx context.Context, job *model.RipJob, inbox *model.Lib
 		rev.Tracks = append(rev.Tracks, t)
 	}
 	rev.Proposal, rev.ProposalsPending = albumProposal(rev.Tracks)
+	rev.Cover = albumCover(rev.Tracks, tracks)
 	return rev, nil
+}
+
+// albumCover is the cover of the one album the scanned Tracks belong to, nil when none has been
+// scanned yet or they belong to several.
+func albumCover(tracks []ReviewTrack, scanned map[string]model.MediaFile) *ReviewCover {
+	var cover *ReviewCover
+	for _, t := range tracks {
+		switch {
+		case t.AlbumID == "":
+		case cover == nil:
+			mf := scanned[t.Path]
+			cover = &ReviewCover{AlbumID: mf.AlbumID, ArtworkID: mf.AlbumCoverArtID().String(),
+				Absent: mf.AlbumImage.ImageAbsent}
+		case cover.AlbumID != t.AlbumID:
+			return nil
+		}
+	}
+	return cover
 }
 
 // albumProposal is the album-level proposal of the Tracks: each field the one value all the
@@ -188,8 +224,8 @@ func readItemTags(root string, it model.RipItem) (FileTags, error) {
 
 // tracksByPath maps the paths of the items' Files to the Tracks scanned from them. A File not
 // scanned yet has none.
-func (r *Ripper) tracksByPath(ctx context.Context, libID int, items model.RipItems) map[string]string {
-	res := map[string]string{}
+func (r *Ripper) tracksByPath(ctx context.Context, libID int, items model.RipItems) map[string]model.MediaFile {
+	res := map[string]model.MediaFile{}
 	var paths []string
 	for _, it := range items {
 		if it.Path != "" {
@@ -209,7 +245,7 @@ func (r *Ripper) tracksByPath(ctx context.Context, libID int, items model.RipIte
 		return res
 	}
 	for _, mf := range mfs {
-		res[mf.Path] = mf.ID
+		res[mf.Path] = mf
 	}
 	return res
 }
