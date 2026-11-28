@@ -286,6 +286,31 @@ var _ = Describe("Editor", func() {
 			Expect(v1).To(HaveKeyWithValue("TITLE", []string{"Song (Live)"}))
 		})
 
+		// An iTunes rip has a blank comment frame beside its iTunNORM one. TagLib's save of the
+		// blank COMMENT it reads back drops the other comment frames too, so the write removes it.
+		It("keeps an iTunes comment beside a blank one", func() {
+			track("test.mp3")
+			norm := []string{" 00000E07 0000116A 00006AC6 00009731"}
+			Expect(taglib.WriteTags(path, map[string][]string{"COMMENT": nil, "COMMENT:ITUNNORM": norm}, 0)).To(Succeed())
+			// A blank COMM frame first, as iTunes writes it: no text, no description
+			b, err := os.ReadFile(path)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(b[3]).To(Equal(byte(4)))
+			body := []byte{0, 'e', 'n', 'g', 0}
+			frame := append([]byte{'C', 'O', 'M', 'M', 0, 0, 0, byte(len(body)), 0, 0}, body...)
+			size := int(b[6])<<21 | int(b[7])<<14 | int(b[8])<<7 | int(b[9])
+			size += len(frame)
+			head := append(append([]byte{}, b[:6]...), byte(size>>21&0x7f), byte(size>>14&0x7f), byte(size>>7&0x7f), byte(size&0x7f))
+			Expect(os.WriteFile(path, append(append(head, frame...), b[10:]...), 0o644)).To(Succeed())
+			Expect(tagsOf(path)).To(HaveKeyWithValue("COMMENT", []string{""}))
+			Expect(tagsOf(path)).To(HaveKeyWithValue("COMMENT:ITUNNORM", norm))
+			rescanned()
+
+			Expect(editor.Edit(ctx, trackID, Values{"title": {"New"}})).Error().ToNot(HaveOccurred())
+			Expect(tagsOf(path)).To(HaveKeyWithValue("TITLE", []string{"New"}))
+			Expect(tagsOf(path)).To(HaveKeyWithValue("COMMENT:ITUNNORM", norm))
+		})
+
 		It("adds no ID3v1 tag to a File without one", func() {
 			track("no_replaygain.mp3")
 			Expect(hasID3v1()).To(BeFalse())
