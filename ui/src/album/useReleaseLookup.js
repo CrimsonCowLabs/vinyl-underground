@@ -29,8 +29,8 @@ const pickCoverNotes = {
 }
 
 // What came of an edit job on the album, from the server's answer: whether it is done (or
-// finishes in the background, see the Activity panel), the album's ID after it (which changes
-// with the album's values), and the note worth a word over the caller's usual one (null if
+// finishes in the background, see the Activity panel), the job's ID, the album's ID after it
+// (which changes with the album's values), and the note worth a word over the caller's usual one (null if
 // none), with the options to notify it with. Files the job couldn't write (the Activity panel
 // lists them, and why), or a picked release whose cover couldn't be had, are worth one. A
 // release that couldn't reach every File was taken out of those it reached, so the album isn't
@@ -45,6 +45,7 @@ export const applyOutcome = (data) => {
   const type = note ? 'warning' : 'info'
   return {
     done: !!data.done,
+    jobId: data.jobId,
     albumId: data.albumId,
     note,
     notifyOptions: skipped

@@ -25,9 +25,10 @@ const promoteApi = (jobId) => ({
 // and once the admin runs it, moves them there as one job, undoable from the Edit history. The
 // list then refreshes, so a job whose Files have all moved goes. It isn't there while Promote is
 // off (no writable Library), and waits for unsaved edits (dirty) to be saved, as the plan follows
-// the tags the Files have, and for a MusicBrainz release picked on the card (held) to be applied
-// or dropped. While its dialog is open it holds Find on MusicBrainz off the card (onHold).
-const PromoteButton = ({ jobId, review, dirty, held, onHold }) => {
+// the tags the Files have, for a MusicBrainz release picked on the card (held) to be applied or
+// dropped, and for one still being written into the Files (writing). While its dialog is open it
+// holds Find on MusicBrainz off the card (onHold).
+const PromoteButton = ({ jobId, review, dirty, held, writing, onHold }) => {
   const translate = useTranslate()
   const refresh = useRefresh()
   const [open, setOpen] = useState(false)
@@ -53,16 +54,18 @@ const PromoteButton = ({ jobId, review, dirty, held, onHold }) => {
       variant="contained"
       size="small"
       onClick={() => setOpen(true)}
-      disabled={dirty || held || files.length === 0}
+      disabled={dirty || held || writing || files.length === 0}
     >
       {translate('resources.rip.promote.button')}
     </Button>
   )
   const why = dirty
     ? 'resources.rip.promote.unsaved'
-    : held
-      ? 'resources.rip.promote.releaseUnderway'
-      : null
+    : writing
+      ? 'resources.rip.promote.releaseWriting'
+      : held
+        ? 'resources.rip.promote.releaseUnderway'
+        : null
 
   return (
     <>

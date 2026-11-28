@@ -1127,7 +1127,8 @@
         "title": "Promote to the Library",
         "help": "Promote moves this card's Files from the Inbox to their place in the Library: <Album Artist>/<Album> (<Year>)/<NN> <Title>, or <D>-<NN> <Title> on a multi-disc album, as Organize names them. Nothing moves until you run the plan. The Tracks become visible to every Listener and keep their favorites, ratings, plays and Playlist entries, and the whole job can be undone from the Edit history, which puts the Files back in the Inbox.",
         "unsaved": "Save or undo your changes first: Promote places the Files by the tags they have now.",
-        "releaseUnderway": "Apply or remove the MusicBrainz release picked on this card first."
+        "releaseUnderway": "Apply or remove the MusicBrainz release picked on this card first.",
+        "releaseWriting": "A MusicBrainz release is still being written into these Files. Promote once it has finished (see Activity)."
       },
       "review": {
         "discard": "Discard",
@@ -1154,8 +1155,10 @@
           "apply": "Apply release",
           "applying": "Applying...",
           "unsaved": "Save or undo your changes first: the release is applied to the Files' tags as they are now.",
-          "applied": "Release applied to the Files. Undo it from the Edit history.",
-          "background": "Applying the release; Activity shows how it goes.",
+          "applied": "Release applied to the Files, still in the Inbox: Promote adds the album to the Library. Undo it from the Edit history.",
+          "background": "Writing the release into the Files in the background; Activity shows how it goes. Promote waits until it has finished.",
+          "writing": "Writing the release into the Files (Activity shows how it goes). Promote waits until it has finished.",
+          "stillInInbox": "Applying the release writes its tags and cover into these Files. They stay in the Inbox: Promote adds the album to the Library.",
           "errors": {
             "promoting": "This card's Files are being promoted. Apply a release once the Promote job has finished.",
             "editingOff": "The Inbox's Files can't be written while editing is off.",

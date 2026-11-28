@@ -50,3 +50,17 @@ export const clearAllDrafts = () => {
   drafts.clear()
   saves.clear()
 }
+
+// writes are the edit jobs still writing a MusicBrainz release into a job's Files in the
+// background, by job: a remounted card keeps Promote off until its release is written.
+const writes = new Map()
+
+export const getWriting = (jobId) => writes.get(jobId) || null
+
+export const setWriting = (jobId, editJobId) => {
+  writes.set(jobId, editJobId)
+}
+
+export const clearWriting = (jobId) => {
+  writes.delete(jobId)
+}

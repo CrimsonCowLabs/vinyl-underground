@@ -38,6 +38,7 @@ import {
 import ProposalsBar from './ProposalsBar'
 import ReviewCover from './ReviewCover'
 import ReviewRelease from './ReviewRelease'
+import { useReleaseWrite } from './useReleaseWrite'
 import {
   clearDraft,
   getDraft,
@@ -177,6 +178,17 @@ const ReviewCard = ({ record, trackExtra, actions }) => {
     setValues(initialValues(rev))
     setLoadedAt(Date.now())
   }, [])
+
+  // A MusicBrainz release still being written into the Files holds Promote off; once it is
+  // written, the card takes in the tags and cover it wrote, unless the admin has edits unsaved
+  // meanwhile, which a reload would drop (their Save shows the Files as they are then).
+  const reload = useCallback(() => {
+    if (getDraft(jobId)) return
+    httpClient(`${jobUrl(jobId)}/tags`)
+      .then(({ json }) => !getDraft(jobId) && show(json))
+      .catch(() => {})
+  }, [jobId, show])
+  const releaseWrite = useReleaseWrite(jobId, reload)
 
   useEffect(() => {
     if (!jobId || draft) return undefined
@@ -483,8 +495,10 @@ const ReviewCard = ({ record, trackExtra, actions }) => {
           review={review}
           dirty={!!edits}
           held={underway === 'promote'}
+          writing={releaseWrite.writing}
           onHold={holdRelease}
           onApplied={show}
+          onWriting={releaseWrite.start}
         />
       </CardContent>
       <CardActions
@@ -508,6 +522,7 @@ const ReviewCard = ({ record, trackExtra, actions }) => {
               dirty: !!edits,
               show,
               held: underway === 'release',
+              writing: releaseWrite.writing,
               onHold: holdPromote,
             })
           : actions}
