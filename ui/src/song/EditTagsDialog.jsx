@@ -20,7 +20,7 @@ import {
   TextField,
   Typography,
 } from '@material-ui/core'
-import { Alert } from '@material-ui/lab'
+import { Alert, Autocomplete } from '@material-ui/lab'
 import AddIcon from '@material-ui/icons/Add'
 import CloseIcon from '@material-ui/icons/Close'
 import { changedValues, editableValues } from './tagEdit'
@@ -45,11 +45,110 @@ const errorKey = (err) => {
 
 const inputMode = { number: 'numeric', date: 'numeric' }
 
+// useGenreNames is the names of the Library's genres, sorted, or [] until they load (or if they
+// can't be): the genre input suggests them, so an edit reuses a genre rather than misspelling it.
+export const useGenreNames = (enabled) => {
+  const dataProvider = useDataProvider()
+  const [names, setNames] = useState([])
+  useEffect(() => {
+    if (!enabled) return
+    let active = true
+    dataProvider
+      .getList('genre', {
+        pagination: { page: 1, perPage: 0 },
+        sort: { field: 'name', order: 'ASC' },
+        filter: {},
+      })
+      .then(({ data }) => {
+        if (active) setNames(data.map((g) => g.name).filter(Boolean))
+      })
+      .catch(() => {})
+    return () => {
+      active = false
+    }
+  }, [dataProvider, enabled])
+  return names
+}
+
+// ValueInput is one value's input. With suggestions (genre), it suggests them as the value is
+// typed, and says when the value isn't one of them: any value can still be written.
+const ValueInput = ({
+  field,
+  value,
+  onChange,
+  disabled,
+  label,
+  testId,
+  suggestions,
+}) => {
+  const translate = useTranslate()
+  const long = field.type === 'longtext'
+  const inputProps = {
+    'data-testid': testId,
+    inputMode: inputMode[field.type],
+    'aria-label': label,
+  }
+  if (!suggestions) {
+    return (
+      <TextField
+        fullWidth
+        margin="dense"
+        label={label}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        disabled={disabled}
+        multiline={long}
+        minRows={long ? 3 : undefined}
+        maxRows={long ? 12 : undefined}
+        inputProps={inputProps}
+      />
+    )
+  }
+  const typed = value.trim()
+  const isNew =
+    typed !== '' && suggestions.length > 0 && !suggestions.includes(typed)
+  return (
+    <Autocomplete
+      freeSolo
+      disableClearable
+      fullWidth
+      options={suggestions}
+      value={value}
+      inputValue={value}
+      onInputChange={(_, v, reason) => reason !== 'reset' && onChange(v)}
+      onChange={(_, v) => onChange(v || '')}
+      disabled={disabled}
+      renderInput={(params) => (
+        <TextField
+          {...params}
+          margin="dense"
+          label={label}
+          helperText={
+            isNew ? translate('resources.song.tagEditor.newValue') : undefined
+          }
+          inputProps={{ ...params.inputProps, ...inputProps }}
+        />
+      )}
+    />
+  )
+}
+
+ValueInput.propTypes = {
+  field: PropTypes.object.isRequired,
+  value: PropTypes.string.isRequired,
+  onChange: PropTypes.func.isRequired,
+  disabled: PropTypes.bool,
+  label: PropTypes.string,
+  testId: PropTypes.string,
+  suggestions: PropTypes.arrayOf(PropTypes.string),
+}
+
 // FieldInput edits one field: one input per value, with add and remove for a multi-valued one.
 export const FieldInput = ({ field, values, onChange, disabled }) => {
   const translate = useTranslate()
   const label = translate(`resources.song.tagEditor.fields.${field.key}`)
   const set = (i, v) => onChange(values.map((old, j) => (j === i ? v : old)))
+  const genres = useGenreNames(field.key === 'genre')
 
   if (field.type === 'bool') {
     return (
@@ -66,26 +165,18 @@ export const FieldInput = ({ field, values, onChange, disabled }) => {
       />
     )
   }
-  const long = field.type === 'longtext'
   return (
     <div>
       {values.map((v, i) => (
         <div key={i} style={{ display: 'flex', alignItems: 'flex-end' }}>
-          <TextField
-            fullWidth
-            margin="dense"
-            label={i === 0 ? label : undefined}
+          <ValueInput
+            field={field}
             value={v}
-            onChange={(e) => set(i, e.target.value)}
+            onChange={(nv) => set(i, nv)}
             disabled={disabled}
-            multiline={long}
-            minRows={long ? 3 : undefined}
-            maxRows={long ? 12 : undefined}
-            inputProps={{
-              'data-testid': `tag-${field.key}-${i}`,
-              inputMode: inputMode[field.type],
-              'aria-label': label,
-            }}
+            label={i === 0 ? label : undefined}
+            testId={`tag-${field.key}-${i}`}
+            suggestions={field.key === 'genre' ? genres : undefined}
           />
           {/* A File may hold several values of a single-valued tag too: any can be removed. */}
           {values.length > 1 && (

@@ -67,6 +67,7 @@
         "help": "These are the tags in the Track's File. Only the ones you change are written into the File, which is checked before it replaces the original.",
         "add": "Add %{name}",
         "remove": "Remove",
+        "newValue": "Not in the Library yet: check the spelling, or save to add it",
         "saved": "Tags saved to the File",
         "savedRescanPending": "Tags saved to the File. The app shows them after the next scan.",
         "nothingChanged": "The File already holds these tags: nothing was written.",

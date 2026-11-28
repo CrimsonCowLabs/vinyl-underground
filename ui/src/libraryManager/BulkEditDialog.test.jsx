@@ -10,6 +10,10 @@ const { mockFields, mockPreview, mockRun, mockNotify } = vi.hoisted(() => ({
   mockNotify: vi.fn(),
 }))
 
+const mockDataProvider = {
+  getList: () => Promise.resolve({ data: [{ id: 'g1', name: 'Rock' }] }),
+}
+
 vi.mock('./bulkEdit', async (importOriginal) => ({
   ...(await importOriginal()),
   getBulkFields: mockFields,
@@ -20,6 +24,7 @@ vi.mock('./bulkEdit', async (importOriginal) => ({
 vi.mock('react-admin', async (importOriginal) => ({
   ...(await importOriginal()),
   useNotify: () => mockNotify,
+  useDataProvider: () => mockDataProvider,
   useTranslate: () => (key, opts) =>
     opts && Object.keys(opts).length ? `${key} ${JSON.stringify(opts)}` : key,
 }))
