@@ -557,6 +557,50 @@ var _ = Describe("Editor", func() {
 		unchanged()
 	})
 
+	// The Inbox (here library 1) is no Library folder, so it isn't in the check; the app writes its
+	// Files' tags while editing is on, as Promote's moves do (#219).
+	Describe("in the Inbox", func() {
+		inboxEditing := func(enabled bool) core.LibraryEditing {
+			return core.LibraryEditing{Enabled: enabled, InboxID: 1, Libraries: []core.LibraryWritable{{ID: 2, Name: "NAS", Writable: enabled}}}
+		}
+
+		It("edits a File's tags, and undoes the edit, while editing is on", func() {
+			track("test.mp3")
+			before := tagsOf(path)["TITLE"]
+			core.SetLibraryEditing(inboxEditing(true))
+			res, err := editor.Edit(ctx, trackID, Values{"title": {"Song (Live)"}})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(res.Changed).To(BeTrue())
+			Expect(tagsOf(path)).To(HaveKeyWithValue("TITLE", []string{"Song (Live)"}))
+			entry, err := journal.Get(res.Entry)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(editor.EntryWritable(ctx, entry)).To(BeTrue(), "undoable from the Edit history")
+			rescanned()
+			_, err = editor.Undo(ctx, res.Entry)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(tagsOf(path)["TITLE"]).To(Equal(before))
+		})
+
+		It("refuses while editing is off", func() {
+			track("test.mp3")
+			core.SetLibraryEditing(inboxEditing(false))
+			_, err := editor.Edit(ctx, trackID, Values{"title": {"x"}})
+			Expect(err).To(MatchError(ErrEditingOff))
+			unchanged()
+		})
+
+		It("still refuses a rename or a Quarantine there", func() {
+			track("test.mp3")
+			core.SetLibraryEditing(inboxEditing(true))
+			Expect(editor.CheckRename(Rename{LibraryID: 1, Path: relDir, NewPath: "Other"})).To(MatchError(ErrEditingOff))
+			_, err := editor.CheckQuarantine(ctx, trackID)
+			Expect(err).To(MatchError(ErrEditingOff))
+			Expect(editor.EntryWritable(ctx, &model.EditEntry{Kind: model.EditRename, LibraryID: 1})).To(BeFalse())
+			Expect(Writable(1)).To(BeFalse(), "Organize's check")
+			unchanged()
+		})
+	})
+
 	It("refuses a format whose audio it can't check", func() {
 		track("test.flac")
 		_, err := editor.Edit(ctx, trackID, Values{"title": {"x"}})

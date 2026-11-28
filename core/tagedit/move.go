@@ -277,9 +277,14 @@ func MovesLibraries(entry *model.EditEntry) bool {
 }
 
 // EntryWritable reports whether the app may undo the entry: its library is writable, or, for a
-// move into another library, each side is writable or the Inbox (see movable).
+// move into another library, each side is writable or the Inbox (see movable), and for a write of
+// tags or a cover, the Inbox while editing is on (see filesWritable).
 func (e *Editor) EntryWritable(ctx context.Context, entry *model.EditEntry) bool {
 	if !MovesLibraries(entry) {
+		switch entry.Kind {
+		case model.EditTags, model.EditCover, model.EditEmbed:
+			return filesWritable(entry.LibraryID)
+		}
 		return writable(entry.LibraryID)
 	}
 	return e.movable(ctx, Move{LibraryID: entry.LibraryID, NewLibraryID: entry.NewLibraryID})

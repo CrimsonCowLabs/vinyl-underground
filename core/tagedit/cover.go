@@ -122,7 +122,7 @@ func (e *Editor) albumFolder(ctx context.Context, albumID string) (*albumFolder,
 	if err != nil {
 		return nil, err
 	}
-	if !writable(al.LibraryID) {
+	if !filesWritable(al.LibraryID) {
 		return nil, ErrEditingOff
 	}
 	lib, err := e.ds.Library(ctx).Get(al.LibraryID)
@@ -503,7 +503,7 @@ func (e *Editor) undoCover(ctx context.Context, jobID string, entry *model.EditE
 	}); err != nil {
 		return nil, err
 	}
-	if !writable(entry.LibraryID) {
+	if !filesWritable(entry.LibraryID) {
 		return nil, ErrEditingOff
 	}
 	lib, err := e.ds.Library(ctx).Get(entry.LibraryID)

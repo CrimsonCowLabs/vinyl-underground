@@ -94,5 +94,6 @@ var _ = Describe("DetectLibraryEditing", func() {
 		Expect(err).ToNot(HaveOccurred())
 		Expect(got.Enabled).To(BeFalse())
 		Expect(got.Libraries).To(ConsistOf(LibraryWritable{ID: 1, Name: "Music", Writable: false}))
+		Expect(got.InboxID).To(Equal(2), "recorded, for the edits the app makes in the Inbox")
 	})
 })

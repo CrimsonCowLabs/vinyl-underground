@@ -115,7 +115,7 @@ func (e *Editor) file(ctx context.Context, trackID string) (*file, error) {
 // (ErrUnsupportedFormat, see Editable). It reads nothing, so it suits checking many Tracks at
 // once.
 func CanEdit(mf *model.MediaFile) error {
-	if !writable(mf.LibraryID) {
+	if !filesWritable(mf.LibraryID) {
 		return ErrEditingOff
 	}
 	if !Editable(mf.Path) {
@@ -144,6 +144,18 @@ func writable(libID int) bool {
 		}
 	}
 	return false
+}
+
+// filesWritable reports whether the app may write tags and covers in the library libID: it is
+// writable, or it is the Inbox while editing is on (as Promote's moves, see movable), so a review
+// card's album can take a MusicBrainz release before it is promoted (#219). Renames, Quarantine
+// and Organize keep to writable: the Inbox's folders are the Rips'.
+func filesWritable(libID int) bool {
+	if writable(libID) {
+		return true
+	}
+	editing := core.CurrentLibraryEditing()
+	return editing.Enabled && editing.InboxID != 0 && editing.InboxID == libID
 }
 
 // Check returns the Track whose File an edit would write, or the error the edit would be refused
