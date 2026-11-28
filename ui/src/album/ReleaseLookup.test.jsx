@@ -180,6 +180,74 @@ describe('ReleaseLookup', () => {
       expect(mockCorrectAlbum).toHaveBeenCalledWith('al1', { name: 'Record' })
     })
 
+    it("drops the first release's pairing, error and options at once when another is picked, so the apply carries only the second's", async () => {
+      const second = {
+        ...releases[0],
+        id: 'rel-2',
+        description: 'Record (US, CD, 1999)',
+      }
+      mockFindReleases.mockResolvedValue({ data: [...releases, second] })
+      mockMatch.mockImplementation((id) =>
+        Promise.resolve({
+          data: { ...match, release: { ...match.release, id } },
+        }),
+      )
+      // Every state the flow is seen in: a picked release is never shown, nor applied, with
+      // another release's pairing or options.
+      const seen = []
+      const Probe = () => {
+        const lookup = useReleaseLookup(album)
+        seen.push({
+          release: lookup.release?.id,
+          match: lookup.match?.release.id,
+          album: lookup.options.canonical.album,
+        })
+        return (
+          <>
+            <ReleaseLookup lookup={lookup} />
+            <button
+              onClick={() => lookup.apply({ name: 'Record' }).then(() => {})}
+            >
+              apply
+            </button>
+          </>
+        )
+      }
+      render(<Probe />)
+      await pick()
+      await screen.findByTestId('mbz-pairing')
+      fireEvent.click(screen.getByTestId('mbz-option-album'))
+      fireEvent.click(screen.getByTestId('mbz-release-rel-2'))
+      await waitFor(() =>
+        expect(mockMatch).toHaveBeenCalledWith('rel-2', 'al1'),
+      )
+      await screen.findByTestId('mbz-pairing')
+      fireEvent.click(screen.getByTestId('mbz-option-genres'))
+      apply()
+      await waitFor(() => expect(mockCorrectAlbum).toHaveBeenCalled())
+
+      expect(mockCorrectAlbum).toHaveBeenCalledWith('al1', {
+        name: 'Record',
+        mbzAlbumId: 'rel-2',
+        canonical: {
+          album: false,
+          albumArtist: false,
+          date: false,
+          titles: false,
+          artists: false,
+        },
+        replaceTrackIds: false,
+        cover: true,
+        genres: false,
+      })
+      const withSecond = seen.filter((s) => s.release === 'rel-2')
+      expect(withSecond.length).toBeGreaterThan(0)
+      for (const s of withSecond) {
+        expect(s.match === undefined || s.match === 'rel-2').toBe(true)
+        expect(s.album).toBe(false)
+      }
+    })
+
     it('passes on a refused apply for the caller to say why', async () => {
       mockCorrectAlbum.mockRejectedValue({ body: { error: 'sharedFolder' } })
       render(<Caller />)
