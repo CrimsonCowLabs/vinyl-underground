@@ -37,6 +37,9 @@ var (
 	// ErrPromoting is returned for a change to a card (a tag save, a Discard, another Promote)
 	// while a Promote of its Files is queued or running: the job is moving them.
 	ErrPromoting = errors.New("this card's Files are being promoted; try again once the Promote job has finished")
+	// ErrWriting is returned for a change to a card while another edit job queued or running
+	// writes one of its Files (a MusicBrainz release applied from the card, #219).
+	ErrWriting = errors.New("an edit job is writing this card's Files; try again once it has finished")
 )
 
 // promoteJobsLooked is how many of the latest edit jobs are looked at for a Promote still queued
@@ -122,24 +125,23 @@ func (r *Ripper) queuePromote(ctx context.Context, jobID, token string) (*model.
 func (r *Ripper) organizer() *organize.Organizer { return organize.New(r.ds, r.editQueue, nil) }
 
 // editable loads a job the admin may change (see reviewable): one none of whose Files a Promote
-// queued or running is moving (ErrPromoting).
+// queued or running is moving (ErrPromoting), nor another edit job writing (ErrWriting).
 func (r *Ripper) editable(ctx context.Context, jobID string) (*model.RipJob, *model.Library, error) {
 	job, inbox, err := r.reviewable(ctx, jobID)
 	if err != nil {
 		return nil, nil, err
 	}
-	paths := map[string]bool{}
+	paths, tracks := map[string]bool{}, map[string]bool{}
 	for _, it := range job.Items {
 		if it.Path != "" {
 			paths[it.Path] = true
 		}
 	}
-	busy, err := r.promoting(ctx, inbox, paths)
-	if err != nil {
-		return nil, nil, err
+	for _, mf := range r.tracksByPath(ctx, inbox.ID, job.Items) {
+		tracks[mf.ID] = true
 	}
-	if busy {
-		return nil, nil, ErrPromoting
+	if err := r.filesBusy(ctx, inbox, paths, tracks); err != nil {
+		return nil, nil, err
 	}
 	return job, inbox, nil
 }
@@ -168,44 +170,45 @@ func (r *Ripper) UnlessPromoting(ctx context.Context, albumID string, queue func
 	}
 	r.reviewMu.Lock()
 	defer r.reviewMu.Unlock()
-	busy, err := r.promoting(ctx, inbox, paths)
-	if err != nil {
+	// Another write waits its turn in the edit queue, which runs one job at a time.
+	if err := r.filesBusy(ctx, inbox, paths, nil); err != nil {
 		return err
-	}
-	if busy {
-		return ErrPromoting
 	}
 	return queue()
 }
 
-// promoting reports whether a Promote job still queued or running moves one of the Inbox Files
-// at paths.
-func (r *Ripper) promoting(ctx context.Context, inbox *model.Library, paths map[string]bool) (bool, error) {
-	if r.editQueue == nil {
-		return false, nil
-	}
-	if len(paths) == 0 {
-		return false, nil
+// filesBusy is why a change to the Inbox Files at paths, whose Tracks are tracks, must wait, if it
+// must: a Promote job still queued or running moves one of them (ErrPromoting), or another edit
+// job still queued or running writes one (ErrWriting; with no tracks, only Promotes are looked
+// for).
+func (r *Ripper) filesBusy(ctx context.Context, inbox *model.Library, paths, tracks map[string]bool) error {
+	if r.editQueue == nil || len(paths) == 0 {
+		return nil
 	}
 	jobs, err := r.ds.EditJob(ctx).GetAll(promoteJobsLooked)
 	if err != nil {
-		return false, err
+		return err
 	}
 	for _, j := range jobs {
-		if j.Kind != model.EditPromote || j.State == model.EditJobDone {
+		if j.State == model.EditJobDone || (j.Kind != model.EditPromote && len(tracks) == 0) {
 			continue
 		}
 		steps, err := r.ds.EditJob(ctx).Steps(j.ID)
 		if err != nil {
-			return false, err
+			return err
 		}
 		for _, s := range steps {
-			if m, err := editjob.ReadMove(&s); err == nil && m.LibraryID == inbox.ID && paths[m.Path] {
-				return true, nil
+			switch {
+			case j.Kind == model.EditPromote:
+				if m, err := editjob.ReadMove(&s); err == nil && m.LibraryID == inbox.ID && paths[m.Path] {
+					return ErrPromoting
+				}
+			case tracks[s.MediaFileID]:
+				return ErrWriting
 			}
 		}
 	}
-	return false, nil
+	return nil
 }
 
 // rescanJob rescans the Inbox folder of the job's Files, waiting for it, so their Tracks have the

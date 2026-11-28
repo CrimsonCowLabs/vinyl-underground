@@ -772,6 +772,7 @@
         "notReady": "This card's Rip hasn't finished yet.",
         "nothingToPromote": "None of this card's Files has been scanned in the Inbox yet. Try again in a moment.",
         "promoting": "This card's Files are being promoted. The Activity panel shows how it goes.",
+        "writing": "An edit job is writing this card's Files (a MusicBrainz release, say). Try again once the Activity panel shows it has finished.",
         "unknown": "Could not organize the Files. Try again later."
       }
     },
@@ -1166,7 +1167,8 @@
             "unavailable": "Couldn't reach MusicBrainz, so the release couldn't be applied. Try again later.",
             "disabled": "External services are turned off, so the release can't be applied.",
             "unknown": "Could not apply the release. Try again later."
-          }
+          },
+          "reloadFailed": "The release was applied, but the card couldn't be reloaded. Reload the page to see the new tags."
         }
       },
       "kind": {

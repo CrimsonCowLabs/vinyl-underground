@@ -103,7 +103,7 @@ func respondReviewError(w http.ResponseWriter, r *http.Request, msg string, err 
 	switch {
 	case errors.Is(err, model.ErrNotFound):
 		_ = rest.RespondWithError(w, http.StatusNotFound, "This Rip or Track is not in the Inbox")
-	case errors.Is(err, rip.ErrNotReady), errors.Is(err, rip.ErrNoInbox), errors.Is(err, rip.ErrPromoting):
+	case errors.Is(err, rip.ErrNotReady), errors.Is(err, rip.ErrNoInbox), errors.Is(err, rip.ErrPromoting), errors.Is(err, rip.ErrWriting):
 		_ = rest.RespondWithError(w, http.StatusConflict, err.Error())
 	case errors.Is(err, rip.ErrInvalidTags), errors.Is(err, rip.ErrOutsideInbox):
 		_ = rest.RespondWithError(w, http.StatusBadRequest, err.Error())
